@@ -9,10 +9,7 @@ fn help_output_lists_lsp_commands() {
     let cwd = temp_dir("lsp_help_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/help", &mut approver)
         .unwrap();
@@ -32,10 +29,7 @@ fn lsp_status_reports_configured_servers() {
     let cwd = temp_dir("lsp_status_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/lsp status", &mut approver)
         .unwrap();
@@ -55,10 +49,7 @@ fn lsp_diagnostics_unconfigured_path_fails_cleanly() {
     let cwd = temp_dir("lsp_diagnostics_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/lsp diagnostics README.md", &mut approver)
         .unwrap();
@@ -76,10 +67,7 @@ fn lsp_references_validates_position_arguments() {
     let cwd = temp_dir("lsp_refs_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let error = engine
         .process_input_with_approval("/lsp references src/lib.rs abc 1", &mut approver)
         .unwrap_err();
@@ -92,10 +80,7 @@ fn lsp_command_entries_are_written_to_transcript() {
     let cwd = temp_dir("lsp_transcript_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .process_input_with_approval("/lsp status", &mut approver)
         .unwrap();

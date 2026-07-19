@@ -21,8 +21,9 @@ use viden_provider::ModelRequestControl;
 use viden_tools::context_read_tool_spec;
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalRequestView,
-    ApprovalResponse, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
+    AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
     ContextItemRecord, ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome,
     CostUsageRecord, DataEgressPolicy, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
     EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
@@ -30,10 +31,10 @@ use viden_types::{
     MergeGateStatus, MutationPolicy, PermissionBehavior, PermissionDecision,
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot, RuntimeViewState,
-    TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode, canonical_evidence_status,
-    default_gate_strength, fresh_id, legacy_lane_role, legacy_lane_route, now_timestamp,
-    truncate_for_preview,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
+    RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, WorkMode,
+    canonical_evidence_status, default_gate_strength, fresh_id, legacy_lane_role,
+    legacy_lane_route, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::stores::WorkflowAgentEvent;
 
@@ -99,6 +100,10 @@ pub(crate) struct ContextRetrievalJob {
 }
 
 #[derive(Debug, Clone)]
+// The pending-approval branch carries the full frontend approval contract plus
+// the resumable context job so the supervisor can emit auditable facts without
+// re-reading mutable state before approval completes.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum SupervisorContextRetrievalPreparation {
     Ready(PreparedContextRetrieval),
     PendingApproval {
@@ -698,14 +703,23 @@ impl SessionEngine {
                 ask,
                 &permission_input,
             ));
-            let approved = approval.approved;
-            decision = self.permissions.apply_approval(approval, ask);
-            permission_decision = if approved { "approved" } else { "denied" }.to_string();
+            let approval_decision = approval.decision.clone();
+            decision =
+                self.permissions
+                    .apply_approval(approval, ask, &tool_spec, &permission_input);
+            permission_decision = if matches!(approval_decision, ApprovalDecision::Allow { .. }) {
+                "approved"
+            } else {
+                "denied"
+            }
+            .to_string();
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::ApprovalResolved {
                     request_id,
-                    approved,
+                    decision: approval_decision,
+                    owner: RuntimeOwner::default(),
+                    audit_id: fresh_id("audit"),
                 },
             ));
         }
@@ -949,11 +963,14 @@ impl SessionEngine {
                 },
             ));
             let response = approver(prompt);
+            let decision = response.decision.clone();
             approval_events.push(RuntimeEvent::new(
                 approval_counter + 1,
                 RuntimeEventKind::ApprovalResolved {
                     request_id,
-                    approved: response.approved,
+                    decision,
+                    owner: RuntimeOwner::default(),
+                    audit_id: fresh_id("audit"),
                 },
             ));
             response
@@ -986,11 +1003,14 @@ impl SessionEngine {
                 },
             ));
             let response = approver(prompt);
+            let decision = response.decision.clone();
             approval_events.push(RuntimeEvent::new(
                 approval_counter + 1,
                 RuntimeEventKind::ApprovalResolved {
                     request_id,
-                    approved: response.approved,
+                    decision,
+                    owner: RuntimeOwner::default(),
+                    audit_id: fresh_id("audit"),
                 },
             ));
             response
@@ -3922,6 +3942,7 @@ fn provider_config_summary(
 }
 
 fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> ApprovalRequestView {
+    let audit_id = fresh_id("audit");
     ApprovalRequestView {
         id: request_id.to_string(),
         tool_name: prompt.tool_name.clone(),
@@ -3930,6 +3951,19 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
         input_preview: prompt.input_preview.clone(),
         is_mutating: true,
         reason: Some(prompt.message.clone()),
+        owner: RuntimeOwner::default(),
+        risk: ApprovalRisk::Medium,
+        target: ApprovalTarget {
+            kind: prompt.tool_name.clone(),
+            display: prompt.input_preview.clone(),
+            canonical_ref: None,
+        },
+        allowed_scopes: vec![ApprovalScope::Once],
+        policy_reason_key: "permission.requires_approval".to_string(),
+        policy_reason_args: std::collections::BTreeMap::new(),
+        expires_at: now_timestamp().saturating_add(300),
+        default_action: ApprovalDefaultAction::Deny,
+        audit_id,
     }
 }
 
@@ -4233,7 +4267,7 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         } => RuntimeCommand::RespondToApproval {
             request_id: redact_identifier_for_event(request_id),
             response: ApprovalResponse {
-                approved: response.approved,
+                decision: response.decision.clone(),
                 feedback: response.feedback.as_deref().map(redact_command_text),
             },
         },

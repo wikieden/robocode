@@ -340,7 +340,9 @@ impl SessionEngine {
             self.upsert_agent_task(task.clone());
             let prompt = PermissionEngine::prompt_for(&call.name, ask, &call.input);
             let approval = approver(prompt);
-            decision = self.permissions.apply_approval(approval, ask);
+            decision = self
+                .permissions
+                .apply_approval(approval, ask, &tool_spec, &call.input);
         }
 
         match decision {

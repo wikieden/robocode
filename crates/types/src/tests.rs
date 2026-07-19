@@ -892,6 +892,26 @@ fn runtime_v1_unknown_event_is_preserved() {
 }
 
 #[test]
+fn approval_response_legacy_bool_decodes_but_structured_serialization_omits_approved() {
+    let legacy_allow: ApprovalResponse =
+        serde_json::from_str(r#"{"approved":true,"feedback":"ok"}"#).unwrap();
+    assert_eq!(
+        legacy_allow.decision,
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Once
+        }
+    );
+    assert_eq!(legacy_allow.feedback.as_deref(), Some("ok"));
+
+    let legacy_deny: ApprovalResponse = serde_json::from_str(r#"{"approved":false}"#).unwrap();
+    assert_eq!(legacy_deny.decision, ApprovalDecision::Deny);
+
+    let encoded = serde_json::to_value(ApprovalResponse::allow_once(None)).unwrap();
+    assert_eq!(encoded["decision"]["allow"]["scope"], "once");
+    assert!(encoded.get("approved").is_none());
+}
+
+#[test]
 fn runtime_v1_known_event_sequence_mismatch_is_rejected_at_wire_boundary() {
     let mismatched = RuntimeEventEnvelope {
         schema_version: FRONTEND_SCHEMA_V1,
@@ -1556,6 +1576,19 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         input_preview: "cargo test -p viden-types".to_string(),
         is_mutating: false,
         reason: Some("permission level is ask".to_string()),
+        owner: RuntimeOwner::default(),
+        risk: ApprovalRisk::Medium,
+        target: ApprovalTarget {
+            kind: "shell".to_string(),
+            display: "cargo test -p viden-types".to_string(),
+            canonical_ref: None,
+        },
+        allowed_scopes: vec![ApprovalScope::Once],
+        policy_reason_key: "permission.requires_approval".to_string(),
+        policy_reason_args: std::collections::BTreeMap::new(),
+        expires_at: 1,
+        default_action: ApprovalDefaultAction::Deny,
+        audit_id: "audit_1".to_string(),
     };
     let evidence = EvidenceView {
         id: "evidence_1".to_string(),
@@ -1629,7 +1662,11 @@ fn runtime_events_replay_into_ui_independent_view_state() {
             8,
             RuntimeEventKind::ApprovalResolved {
                 request_id: "approval_1".to_string(),
-                approved: true,
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once,
+                },
+                owner: RuntimeOwner::default(),
+                audit_id: "audit_1".to_string(),
             },
         ),
     ];

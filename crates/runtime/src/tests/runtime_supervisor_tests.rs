@@ -8,10 +8,10 @@ use std::{fs, path::Path};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, ContextBundleRecord,
-    MergeGateStatus, ModelEvent, ModelRequest, PermissionBehavior, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
-    ToolCall, ToolInput, WorkMode,
+    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
+    ApprovalScope, ContextBundleRecord, MergeGateStatus, ModelEvent, ModelRequest,
+    PermissionBehavior, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
+    RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolCall, ToolInput, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -260,10 +260,7 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
     let home = temp_dir("runtime_supervisor_context_retrieve_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -405,10 +402,7 @@ fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
             "cmd_retrieve_approval",
             RuntimeCommand::RespondToApproval {
                 request_id: request_id.clone(),
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -434,7 +428,8 @@ fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
                 request_id: resolved,
-                approved: true
+                decision: ApprovalDecision::Allow { .. },
+                ..
             } if resolved == &request_id
         )
     }));
@@ -455,10 +450,7 @@ fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
             "cmd_retrieve_approval_again",
             RuntimeCommand::RespondToApproval {
                 request_id,
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -518,10 +510,7 @@ fn runtime_supervisor_retrieve_context_ask_denial_does_not_read() {
             "cmd_retrieve_denial",
             RuntimeCommand::RespondToApproval {
                 request_id: request_id.clone(),
-                response: ApprovalResponse {
-                    approved: false,
-                    feedback: Some("no".to_string()),
-                },
+                response: ApprovalResponse::deny(Some("no".to_string())),
             },
         )
         .unwrap();
@@ -547,7 +536,8 @@ fn runtime_supervisor_retrieve_context_ask_denial_does_not_read() {
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
                 request_id: resolved,
-                approved: false
+                decision: ApprovalDecision::Deny,
+                ..
             } if resolved == &request_id
         )
     }));
@@ -997,10 +987,7 @@ fn runtime_supervisor_pending_retrieval_approval_reserves_owner_until_resolution
             "cmd_approve_pending_retrieve",
             RuntimeCommand::RespondToApproval {
                 request_id,
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -1054,10 +1041,7 @@ fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
             "cmd_deny_pending_retrieve",
             RuntimeCommand::RespondToApproval {
                 request_id: approval_id(&deny_request_events),
-                response: ApprovalResponse {
-                    approved: false,
-                    feedback: Some("deny".to_string()),
-                },
+                response: ApprovalResponse::deny(Some("deny".to_string())),
             },
         )
         .unwrap();
@@ -1074,7 +1058,7 @@ fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
         matches!(
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
-                approved: false,
+                decision: ApprovalDecision::Deny,
                 ..
             }
         )
@@ -1145,7 +1129,7 @@ fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
         matches!(
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
-                approved: false,
+                decision: ApprovalDecision::Deny,
                 ..
             }
         )
@@ -1620,10 +1604,7 @@ fn runtime_supervisor_resolves_tool_approval_without_tui_coupling() {
             "cmd_approval",
             RuntimeCommand::RespondToApproval {
                 request_id,
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -1647,7 +1628,10 @@ fn runtime_supervisor_resolves_tool_approval_without_tui_coupling() {
     assert!(events.iter().any(|event| {
         matches!(
             &event.kind,
-            RuntimeEventKind::ApprovalResolved { approved: true, .. }
+            RuntimeEventKind::ApprovalResolved {
+                decision: ApprovalDecision::Allow { .. },
+                ..
+            }
         )
     }));
     assert!(events.iter().any(|event| {
@@ -1658,6 +1642,246 @@ fn runtime_supervisor_resolves_tool_approval_without_tui_coupling() {
                 evidence: Some(evidence),
                 ..
             } if evidence.summary.contains("approved")
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_approval_request_and_resolution_share_owner_and_audit_id() {
+    let cwd = temp_dir("runtime_supervisor_approval_audit_cwd");
+    let home = temp_dir("runtime_supervisor_approval_audit_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf audit".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_audit".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-a");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_audit",
+            RuntimeCommand::SubmitUserInput {
+                content: "run audited command".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_approval_audit",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == request_id
+                    && approval.audit_id == audit_id
+                    && approval.owner == owner
+                    && approval.expires_at > 0
+                    && approval.allowed_scopes.contains(&ApprovalScope::Once)
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once
+                },
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_approval_wrong_owner_is_rejected_without_resolving_pending_request() {
+    let cwd = temp_dir("runtime_supervisor_approval_owner_cwd");
+    let home = temp_dir("runtime_supervisor_approval_owner_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf owned".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_owner".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner_a = owner_for_lane("lane-a");
+    let owner_b = owner_for_lane("lane-b");
+
+    supervisor
+        .send_command_from_owner(
+            owner_a.clone(),
+            "cmd_input_owner",
+            RuntimeCommand::SubmitUserInput {
+                content: "run owned command".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner_b,
+            "cmd_wrong_owner",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == "cmd_wrong_owner" && reason.contains("owner mismatch")
+                )
+            })
+        },
+    ));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved { request_id: resolved, .. } if resolved == &request_id
+        )
+    }));
+
+    supervisor
+        .send_command_from_owner(
+            owner_a,
+            "cmd_right_owner",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+}
+
+#[test]
+fn runtime_supervisor_approval_expiry_auto_denies_without_entering_effect() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_expired_deny",
+        "expired body must not be read",
+    );
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let read_started = Arc::new(AtomicBool::new(false));
+    let read_started_for_hook = Arc::clone(&read_started);
+    set_retrieve_context_test_hook(Some(Arc::new(move |_control| {
+        read_started_for_hook.store(true, Ordering::SeqCst);
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-expired");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_retrieve_expired",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate expired".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    supervisor.expire_pending_approvals_for_test(u64::MAX);
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+    set_retrieve_context_test_hook(None);
+
+    assert!(!read_started.load(Ordering::SeqCst));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Deny,
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
         )
     }));
 }
@@ -2009,10 +2233,7 @@ fn agent_task_provider_request_uses_final_role_context_bundle() {
     let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(1_000, 8_000);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let _ = engine
         .handle_runtime_command(
@@ -2097,10 +2318,7 @@ fn reviewer_agent_task_provider_request_uses_review_role_context() {
     let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(1_000, 8_000);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2160,10 +2378,7 @@ fn agent_task_context_overflow_retry_preserves_role_scoped_bundle() {
         vec!["context_overflow: current request exceeded provider context".to_string()],
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2238,10 +2453,7 @@ fn agent_task_hard_context_limit_rejects_before_provider_request() {
     let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(10, 20);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let _ = engine
         .handle_runtime_command(
@@ -4522,10 +4734,7 @@ fn supervisor_engine_with_context(name: &str, content: &str) -> (SessionEngine, 
     let home = temp_dir(&format!("{name}_home"));
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -4564,6 +4773,29 @@ fn approval_id(events: &[RuntimeEvent]) -> String {
             _ => None,
         })
         .expect("approval request id")
+}
+
+fn approval_identity(events: &[RuntimeEvent]) -> (String, String) {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => {
+                Some((approval.id.clone(), approval.audit_id.clone()))
+            }
+            _ => None,
+        })
+        .expect("approval request identity")
+}
+
+fn owner_for_lane(lane: &str) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "workspace-test".to_string(),
+        project_id: "project-test".to_string(),
+        lane_id: Some(lane.to_string()),
+        session_id: Some(format!("session-{lane}")),
+        task_id: Some(format!("task-{lane}")),
+        turn_id: Some(format!("turn-{lane}")),
+    }
 }
 
 fn start_agent_task_and_capture_context(

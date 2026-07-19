@@ -264,7 +264,9 @@ impl SessionEngine {
         if let PermissionDecision::Ask(ask) = &decision {
             let prompt = PermissionEngine::prompt_for(&tool_name, ask, &input);
             let approval = approver(prompt);
-            decision = self.permissions.apply_approval(approval, ask);
+            decision = self
+                .permissions
+                .apply_approval(approval, ask, &tool, &input);
         }
         match decision {
             PermissionDecision::Allow(allow) => {
@@ -1742,12 +1744,11 @@ fn start_acp_session_job(
     let pid_slot = Arc::new(Mutex::new(None::<u32>));
     let pid_slot_for_thread = Arc::clone(&pid_slot);
     std::thread::spawn(move || {
-        let mut background_approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
-            approved: false,
-            feedback: Some(
+        let mut background_approver = |_prompt: viden_types::PermissionPrompt| {
+            ApprovalResponse::deny(Some(
                 "background ACP jobs reject permission requests until runtime approvals are wired"
                     .to_string(),
-            ),
+            ))
         };
         let result = run_acp_session_prompt_for_agent_with_log(
             &monitor_cwd,
@@ -3522,7 +3523,7 @@ where
                 {
                     let prompt = acp_permission_prompt(&value);
                     let approval = approver(prompt);
-                    let response = acp_permission_response(&value, approval.approved);
+                    let response = acp_permission_response(&value, approval.is_allowed());
                     if let Err(error) = write_acp_request(&mut stdin, &response, &mut log_entries) {
                         return Err(finish_failed_probe(child, log_path, log_entries, error));
                     }
@@ -3530,7 +3531,7 @@ where
                 }
                 if let Some(response) = acp_filesystem_client_request_response(
                     cwd,
-                    &permission_engine,
+                    &mut permission_engine,
                     approver,
                     &value,
                 ) {
@@ -3541,7 +3542,7 @@ where
                 }
                 if let Some(response) = acp_terminal_client_request_response(
                     cwd,
-                    &permission_engine,
+                    &mut permission_engine,
                     approver,
                     &mut terminals,
                     &value,
@@ -4428,7 +4429,7 @@ fn acp_permission_response(request: &Value, approved: bool) -> String {
 
 fn acp_filesystem_client_request_response(
     cwd: &Path,
-    permission_engine: &PermissionEngine,
+    permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     request: &Value,
 ) -> Option<String> {
@@ -4475,7 +4476,7 @@ fn acp_read_text_file_response(
 
 fn acp_write_text_file_response(
     cwd: &Path,
-    permission_engine: &PermissionEngine,
+    permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     request: &Value,
 ) -> String {
@@ -4492,7 +4493,7 @@ fn acp_write_text_file_response(
     if let PermissionDecision::Ask(ask) = &decision {
         let prompt = PermissionEngine::prompt_for("write_file", ask, &input);
         let approval = approver(prompt);
-        decision = permission_engine.apply_approval(approval, ask);
+        decision = permission_engine.apply_approval(approval, ask, &tool, &input);
     }
     match decision {
         PermissionDecision::Allow(_) => match write_acp_text_file(cwd, &path, content) {
@@ -4560,7 +4561,7 @@ struct AcpTerminalRecord {
 
 fn acp_terminal_client_request_response(
     cwd: &Path,
-    permission_engine: &PermissionEngine,
+    permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     terminals: &mut AcpTerminalStore,
     request: &Value,
@@ -4587,7 +4588,7 @@ fn acp_terminal_client_request_response(
 
 fn acp_terminal_create_response(
     cwd: &Path,
-    permission_engine: &PermissionEngine,
+    permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     terminals: &mut AcpTerminalStore,
     request: &Value,
@@ -4615,7 +4616,7 @@ fn acp_terminal_create_response(
     if let PermissionDecision::Ask(ask) = &decision {
         let prompt = PermissionEngine::prompt_for("shell", ask, &input);
         let approval = approver(prompt);
-        decision = permission_engine.apply_approval(approval, ask);
+        decision = permission_engine.apply_approval(approval, ask, &tool, &input);
     }
     match decision {
         PermissionDecision::Allow(_) => match spawn_acp_terminal_command(
@@ -6746,10 +6747,7 @@ mod tests {
             config_schema_version: 1,
         };
 
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         let evidence = run_acp_session_prompt_for_agent(
             &root,
             &descriptor,
@@ -6802,10 +6800,7 @@ mod tests {
         .expect("write mock acp load configure script");
         make_executable(&script);
         let descriptor = mock_acp_descriptor("mock-load-configure", &script);
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         let session = AcpSessionOptions {
             load_session_id: Some("session_existing".to_string()),
             mode_id: Some("plan".to_string()),
@@ -6856,10 +6851,7 @@ mod tests {
         .expect("write mock acp set-mode error script");
         make_executable(&script);
         let descriptor = mock_acp_descriptor("mock-set-mode-error", &script);
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
         let err = run_acp_session_prompt_for_agent(
             &root,
@@ -6900,10 +6892,7 @@ mod tests {
         .expect("write mock custom acp script");
         make_executable(&script);
         let descriptor = custom_acp_agent_descriptor(&script.display().to_string());
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
         let output = handle_acp_agent_run_command_with_agents(
             &root,
@@ -6948,10 +6937,7 @@ mod tests {
         .expect("write mock codex-style acp script");
         make_executable(&script);
         let descriptor = mock_acp_descriptor("mock-acp-codex-style", &script);
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
         let evidence = run_acp_session_prompt_for_agent(
             &root,
@@ -7000,10 +6986,7 @@ mod tests {
         let mut descriptor = mock_acp_descriptor("kiro-cli", &script);
         descriptor.source = AgentSource::LocalCommand;
         descriptor.command.args = vec![];
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
         let evidence = run_acp_session_prompt_for_agent(
             &root,
@@ -7082,10 +7065,7 @@ mod tests {
         .expect("write mock acp patch script");
         make_executable(&script);
         let descriptor = mock_acp_descriptor("mock-acp-patch", &script);
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
         let evidence = run_acp_session_prompt_for_agent(
             &root,
@@ -7181,10 +7161,7 @@ mod tests {
             mock_acp_descriptor("mock-ok", &ok),
             mock_acp_descriptor("mock-blocked", &blocked),
         ];
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
         let report =
             run_acp_smoke_gate_for_agents(&root, &agents, false, &mut approver).unwrap_err();
@@ -7291,10 +7268,7 @@ mod tests {
         let mut approver = |prompt: viden_types::PermissionPrompt| {
             approvals.set(approvals.get() + 1);
             prompts.borrow_mut().push(prompt);
-            ApprovalResponse {
-                approved: true,
-                feedback: Some("ok".to_string()),
-            }
+            ApprovalResponse::allow_once(Some("ok".to_string()))
         };
 
         let evidence = run_acp_session_prompt_for_agent(
@@ -7357,10 +7331,8 @@ mod tests {
             experimental_methods: vec![],
             config_schema_version: 1,
         };
-        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
-            approved: false,
-            feedback: Some("no".to_string()),
-        };
+        let mut approver =
+            |_prompt: viden_types::PermissionPrompt| ApprovalResponse::deny(Some("no".to_string()));
 
         let evidence = run_acp_session_prompt_for_agent(
             &root,
@@ -7408,10 +7380,8 @@ mod tests {
         .expect("write mock acp file request script");
         make_executable(&script);
         let descriptor = mock_acp_descriptor("mock-acp-file-request", &script);
-        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver =
+            |_prompt: viden_types::PermissionPrompt| ApprovalResponse::allow_once(None);
 
         let evidence = run_acp_session_prompt_for_agent(
             &root,
@@ -7464,10 +7434,7 @@ mod tests {
             approvals.set(approvals.get() + 1);
             assert_eq!(prompt.tool_name, "write_file");
             assert!(prompt.input_preview.contains("written.txt"));
-            ApprovalResponse {
-                approved: true,
-                feedback: None,
-            }
+            ApprovalResponse::allow_once(None)
         };
 
         let evidence = run_acp_session_prompt_for_agent(
@@ -7553,10 +7520,7 @@ mod tests {
             approvals.set(approvals.get() + 1);
             assert_eq!(prompt.tool_name, "shell");
             assert!(prompt.input_preview.contains("printf terminal-ok"));
-            ApprovalResponse {
-                approved: true,
-                feedback: None,
-            }
+            ApprovalResponse::allow_once(None)
         };
 
         let evidence = run_acp_session_prompt_for_agent(
@@ -7578,17 +7542,15 @@ mod tests {
     #[test]
     fn acp_terminal_bridge_supports_long_running_output_polling() {
         let root = temp_root("acp_terminal_long_running");
-        let engine = PermissionEngine::new(&root);
+        let mut engine = PermissionEngine::new(&root);
         let mut terminals = AcpTerminalStore::default();
-        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver =
+            |_prompt: viden_types::PermissionPrompt| ApprovalResponse::allow_once(None);
 
         let started = Instant::now();
         let create = acp_terminal_create_response(
             &root,
-            &engine,
+            &mut engine,
             &mut approver,
             &mut terminals,
             &json!({
@@ -7657,16 +7619,14 @@ mod tests {
     #[test]
     fn acp_terminal_bridge_can_kill_long_running_processes() {
         let root = temp_root("acp_terminal_kill_long_running");
-        let engine = PermissionEngine::new(&root);
+        let mut engine = PermissionEngine::new(&root);
         let mut terminals = AcpTerminalStore::default();
-        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver =
+            |_prompt: viden_types::PermissionPrompt| ApprovalResponse::allow_once(None);
 
         let create = acp_terminal_create_response(
             &root,
-            &engine,
+            &mut engine,
             &mut approver,
             &mut terminals,
             &json!({
@@ -7730,16 +7690,14 @@ mod tests {
     #[test]
     fn acp_terminal_bridge_supports_stdin_input() {
         let root = temp_root("acp_terminal_stdin_input");
-        let engine = PermissionEngine::new(&root);
+        let mut engine = PermissionEngine::new(&root);
         let mut terminals = AcpTerminalStore::default();
-        let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver =
+            |_prompt: viden_types::PermissionPrompt| ApprovalResponse::allow_once(None);
 
         let create = acp_terminal_create_response(
             &root,
-            &engine,
+            &mut engine,
             &mut approver,
             &mut terminals,
             &json!({
@@ -7812,15 +7770,12 @@ mod tests {
         let approvals = Cell::new(0usize);
         let mut approver = |_prompt: viden_types::PermissionPrompt| {
             approvals.set(approvals.get() + 1);
-            ApprovalResponse {
-                approved: true,
-                feedback: None,
-            }
+            ApprovalResponse::allow_once(None)
         };
 
         let response = acp_terminal_create_response(
             &root,
-            &engine,
+            &mut engine,
             &mut approver,
             &mut terminals,
             &json!({

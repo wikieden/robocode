@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod agent;
+mod approval;
 mod context;
 mod lsp;
 mod protocol;
@@ -804,12 +805,6 @@ pub struct PermissionPrompt {
     pub input_preview: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ApprovalResponse {
-    pub approved: bool,
-    pub feedback: Option<String>,
-}
-
 pub fn parse_tool_input(input: &str) -> ToolInput {
     let mut out = BTreeMap::new();
     for segment in input.split_whitespace() {
@@ -845,4 +840,8 @@ pub use agent::{
     AgentLaneRecord, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord, DataEgressPolicy,
     ExecutionTarget, GateStrength, LaneBudget, LaneStatus, MutationPolicy, default_gate_strength,
     legacy_lane_role, legacy_lane_route,
+};
+pub use approval::{
+    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget,
 };

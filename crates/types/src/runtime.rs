@@ -1,13 +1,14 @@
 use crate::{
     AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
-    ApprovalResponse, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
+    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
     ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextReductionRecord,
     ContextRetrievalRecord, ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
     EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, ProviderCacheObservationRecord, RuntimeSnapshot, ToolCallId, WorkMode,
-    now_timestamp,
+    PermissionLevel, ProviderCacheObservationRecord, RuntimeOwner, RuntimeSnapshot, ToolCallId,
+    WorkMode, now_timestamp,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 
@@ -121,6 +122,40 @@ pub struct ApprovalRequestView {
     pub input_preview: String,
     pub is_mutating: bool,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub owner: RuntimeOwner,
+    #[serde(default = "default_approval_risk")]
+    pub risk: ApprovalRisk,
+    #[serde(default = "default_approval_target")]
+    pub target: ApprovalTarget,
+    #[serde(default)]
+    pub allowed_scopes: Vec<ApprovalScope>,
+    #[serde(default)]
+    pub policy_reason_key: String,
+    #[serde(default)]
+    pub policy_reason_args: BTreeMap<String, String>,
+    #[serde(default)]
+    pub expires_at: u64,
+    #[serde(default = "default_approval_action")]
+    pub default_action: ApprovalDefaultAction,
+    #[serde(default)]
+    pub audit_id: String,
+}
+
+fn default_approval_risk() -> ApprovalRisk {
+    ApprovalRisk::Medium
+}
+
+fn default_approval_target() -> ApprovalTarget {
+    ApprovalTarget {
+        kind: String::new(),
+        display: String::new(),
+        canonical_ref: None,
+    }
+}
+
+fn default_approval_action() -> ApprovalDefaultAction {
+    ApprovalDefaultAction::Deny
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -329,7 +364,9 @@ pub enum RuntimeEventKind {
     },
     ApprovalResolved {
         request_id: String,
-        approved: bool,
+        decision: ApprovalDecision,
+        owner: RuntimeOwner,
+        audit_id: String,
     },
     CommandAccepted {
         command_id: String,

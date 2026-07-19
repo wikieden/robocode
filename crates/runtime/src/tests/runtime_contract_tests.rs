@@ -8,13 +8,14 @@ use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentRoute, AgentTaskKind, AgentTaskStatus, ApprovalResponse,
-    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
-    ContextReductionRecord, ContextScope, CostScope, EvidenceProducer, EvidenceQualityFacts,
-    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, LaneStatus, MergeGateStatus,
-    ModelEvent, ModelRequest, ModelUsage, PermissionBehavior, PermissionLevel, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
-    RuntimeViewState, ToolCall, ToolInput, TranscriptEntry, WorkMode,
+    AgentDagTaskSpec, AgentRole, AgentRoute, AgentTaskKind, AgentTaskStatus, ApprovalDecision,
+    ApprovalResponse, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
+    ContextItemRecord, ContextReductionRecord, ContextScope, CostScope, EvidenceProducer,
+    EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
+    LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior,
+    PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
+    RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
+    WorkMode,
 };
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
@@ -231,10 +232,7 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("say hello", &mut approver)
@@ -302,10 +300,7 @@ fn provider_cost_attribution_uses_explicit_workflow_and_smoke_without_duplicate_
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_cost_workflow_id_for_test(Some("workflow-main-1"));
     engine.set_cost_smoke_run_id_for_test(Some("smoke-main-1"));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("attribute main turn", &mut approver)
@@ -360,10 +355,7 @@ fn agent_task_provider_cost_includes_dag_workflow_and_smoke_scopes() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_cost_workflow_id_for_test(Some("workflow-agent-1"));
     engine.set_cost_smoke_run_id_for_test(Some("smoke-agent-1"));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let task_id = "agent-cost-task".to_string();
     let dag_id = "agent-cost-dag".to_string();
 
@@ -422,10 +414,7 @@ fn core_runtime_bridge_records_tool_calls_and_results() {
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("run printf", &mut approver)
@@ -593,10 +582,7 @@ fn context_reducer_absent_adapter_does_not_block_provider_request() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
     engine.set_absent_context_reducer_adapter_for_test("adapter", "0.1.0");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .process_input_with_approval("ERROR src/a.rs:1 boom", &mut approver)
@@ -620,10 +606,7 @@ fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request(
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
     engine.set_sleeping_context_reducer_adapter_for_test("adapter", "0.1.0", 1_000, 25);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let started = std::time::Instant::now();
 
     let events = engine
@@ -672,10 +655,7 @@ fn core_runtime_bridge_does_not_fail_successful_tool_output_with_error_words() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("print help text", &mut approver)
@@ -705,10 +685,7 @@ fn runtime_command_bus_switches_mode_and_submits_input() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let mode_events = engine
         .handle_runtime_command(
@@ -768,10 +745,7 @@ fn runtime_command_bus_covers_plan_build_review_permission_contract() {
     let home = temp_dir("runtime_command_mode_contract_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     for (command_id, mode) in [
         ("cmd_plan", WorkMode::Plan),
@@ -833,10 +807,7 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .handle_runtime_command(
@@ -860,7 +831,10 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
     assert!(events.iter().any(|event| {
         matches!(
             &event.kind,
-            RuntimeEventKind::ApprovalResolved { approved: true, .. }
+            RuntimeEventKind::ApprovalResolved {
+                decision: ApprovalDecision::Allow { .. },
+                ..
+            }
         )
     }));
     assert!(events.iter().any(|event| {
@@ -881,10 +855,7 @@ fn runtime_command_bus_queues_follow_up_input() {
     let home = temp_dir("runtime_command_queue_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .handle_runtime_command(
@@ -931,10 +902,7 @@ fn hard_context_limit_rejects_before_provider_request() {
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(10, 20);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .handle_runtime_command(
@@ -984,10 +952,7 @@ fn soft_context_budget_evicts_low_priority_sources_before_provider_request() {
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(100, 1_000);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval(
@@ -1029,10 +994,7 @@ fn context_engine_events_replay_without_raw_secret_or_paths() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let secret = "sk-test-secret-1234567890";
 
     let events = engine
@@ -1098,10 +1060,7 @@ fn existing_context_source_hash_corruption_fails_visibly_on_rematerialization() 
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -1141,10 +1100,7 @@ fn command_accepted_redacts_start_agent_dag_secrets_and_paths() {
     let home = temp_dir("runtime_contract_dag_redaction_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let secret = "sk-agent-dag-secret-123";
     let raw_scope = cwd.join("secret/file.rs").to_string_lossy().to_string();
 
@@ -1196,10 +1152,7 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
     let home = temp_dir("runtime_command_retrieve_context_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let safe_content = "retrieve-context-safe-body";
     engine
         .handle_runtime_command(
@@ -1314,10 +1267,7 @@ fn retrieved_context_cost_survives_session_resume() {
     let home = temp_dir("runtime_command_retrieve_resume_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1384,10 +1334,7 @@ fn retrieve_context_bounds_long_secret_and_path_reason_before_recording_event() 
     let home = temp_dir("runtime_command_retrieve_context_reason_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1445,10 +1392,7 @@ fn retrieve_context_denies_unknown_and_cross_scope_handles_before_reading_bytes(
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let context_root = cwd.join(".viden/private-context-test");
     engine.set_context_engine_root_for_test(context_root.clone());
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1514,10 +1458,7 @@ fn retrieve_context_rejects_prepare_failures_without_accepting_or_rewriting_comm
     let cwd = temp_dir("runtime_command_retrieve_context_prepare_order_cwd");
     let home = temp_dir("runtime_command_retrieve_context_prepare_order_home");
     let context_root = cwd.join(".viden/private-context-test");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let mut unknown = engine_with_single_context(&cwd, &home, &context_root, "unknown body");
     let unknown_events = unknown
@@ -1641,10 +1582,7 @@ fn retrieve_context_uses_permission_policy_for_deny_ask_approve_and_plan_read() 
     let home = temp_dir("runtime_command_retrieve_context_permissions_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut allow = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1705,10 +1643,7 @@ fn retrieve_context_uses_permission_policy_for_deny_ask_approve_and_plan_read() 
     let mut saw_prompt = false;
     let mut approve = |prompt: viden_types::PermissionPrompt| {
         saw_prompt = prompt.tool_name == "context_read";
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let approved = engine
         .handle_runtime_command(
@@ -1760,10 +1695,7 @@ fn retrieve_context_redacts_secret_content_before_tool_result_and_events() {
     let home = temp_dir("runtime_command_retrieve_context_secret_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1802,10 +1734,7 @@ fn retrieve_context_reports_expired_missing_item_missing_blob_and_hash_mismatch_
     let cwd = temp_dir("runtime_command_retrieve_context_errors_cwd");
     let home = temp_dir("runtime_command_retrieve_context_errors_home");
     let context_root = cwd.join(".viden/private-context-test");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let mut expired = engine_with_single_context(&cwd, &home, &context_root, "expired bytes");
     let expired_handle = expired.runtime_view_state().context_handles[0].clone();
@@ -1948,10 +1877,7 @@ fn engine_with_single_context(
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(cwd, provider, Some(home.to_path_buf())).unwrap();
     engine.set_context_engine_root_for_test(context_root.to_path_buf());
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1978,10 +1904,7 @@ fn runtime_command_bus_configures_provider_and_active_models() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(config_path.clone());
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let configured = engine
         .handle_runtime_command(
@@ -2058,10 +1981,7 @@ fn merge_gate_rejects_summary_only_patch_evidence() {
     let home = temp_dir("runtime_contract_summary_only_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2139,10 +2059,7 @@ fn accept_merge_gate_command_cannot_bypass_invalid_evidence() {
     let home = temp_dir("runtime_contract_accept_bypass_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2218,10 +2135,7 @@ fn merge_gate_with_empty_required_evidence_collects_summary_evidence() {
     let home = temp_dir("runtime_contract_empty_required_summary_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let _ = start_gate_with_required(&mut engine, &mut approver, "task_empty_summary", Vec::new());
 
@@ -2256,10 +2170,7 @@ fn merge_gate_with_empty_required_evidence_collects_canonical_evidence_and_repla
     let home = temp_dir("runtime_contract_empty_required_canonical_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let mut start_events = start_gate_with_required(
         &mut engine,
@@ -2316,10 +2227,7 @@ fn accept_merge_gate_command_cannot_bypass_empty_required_evidence() {
     let home = temp_dir("runtime_contract_empty_required_accept_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let _ = start_gate_with_required(&mut engine, &mut approver, "task_empty_accept", Vec::new());
 
@@ -2359,10 +2267,7 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
     let home = temp_dir("runtime_contract_workflow_append_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_workflow_append_fail");
     let before = engine.runtime_view_state();
@@ -2424,10 +2329,7 @@ fn record_agent_evidence_does_not_dual_write_or_roll_back_on_transcript_failure(
     let home = temp_dir("runtime_contract_no_dual_write_evidence_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_no_dual_write");
     let (item, canonical) = stored_canonical_context(
@@ -2508,10 +2410,7 @@ fn record_agent_evidence_projection_redacts_summary_source_and_unsafe_paths() {
     let home = temp_dir("runtime_contract_projection_redaction_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_redact_projection");
     let (item, canonical) = stored_canonical_context(
         &cwd,
@@ -2575,10 +2474,7 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
     .unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let secret = "sk-project-command-secret";
     let private_path = "/Users/wiki/private/project.rs";
@@ -2704,10 +2600,7 @@ fn record_agent_evidence_rejects_adversarial_nested_canonical_metadata() {
         ));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         start_single_patch_gate(&mut engine, &mut approver, "task_bad_canonical");
         let (item, mut canonical) = stored_canonical_context(
             &cwd,
@@ -2801,10 +2694,7 @@ fn record_agent_evidence_rejects_traversal_and_control_character_paths() {
         let home = temp_dir(&format!("runtime_contract_invalid_path_{case}_home"));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         start_single_patch_gate(&mut engine, &mut approver, "task_invalid_path");
         let events = engine
             .handle_runtime_command(
@@ -2839,10 +2729,7 @@ fn start_agent_task_projects_state_to_workflow_not_transcript() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_start_projection");
 
@@ -2908,10 +2795,7 @@ fn start_agent_dag_rejects_projection_batches_over_event_cap_without_live_leak()
     let home = temp_dir("runtime_contract_projection_event_cap_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let tasks = (0..260)
         .map(|index| AgentDagTaskSpec {
             task_id: format!("task_projection_cap_{index}"),
@@ -2967,10 +2851,7 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_start_workflow_fail");
     let before = engine.runtime_view_state();
@@ -3013,10 +2894,7 @@ fn start_agent_dag_rolls_back_when_late_workflow_append_fails() {
     let home = temp_dir("runtime_contract_start_dag_late_workflow_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let before = engine.runtime_view_state();
     engine.fail_after_workflow_appends_for_test(0);
 
@@ -3061,10 +2939,7 @@ fn cancel_agent_task_rolls_back_when_workflow_append_fails() {
     let home = temp_dir("runtime_contract_cancel_task_workflow_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_cancel_workflow_fail");
     let before = engine.runtime_view_state();
     engine.fail_next_workflow_append_for_test();
@@ -3102,10 +2977,7 @@ fn start_agent_task_workflow_projection_failure_leaves_logs_and_replay_unchanged
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_start_projection_fail");
     let before = engine.runtime_view_state();
@@ -3160,10 +3032,7 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
     std::fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_merge_restore");
     let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let (patch_item, patch_canonical) = stored_canonical_context(
@@ -3242,10 +3111,7 @@ fn record_agent_evidence_ignores_transcript_batch_failure_for_project_facts() {
     let home = temp_dir("runtime_contract_project_fact_transcript_batch_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_project_fact_batch_fail");
     let (item, canonical) = stored_canonical_context(
@@ -3293,10 +3159,7 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
     std::fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let _ = start_gate_with_required(
         &mut engine,
         &mut approver,
@@ -3398,10 +3261,7 @@ fn merge_gate_accepts_fully_verified_canonical_evidence() {
     let home = temp_dir("runtime_contract_verified_canonical_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -3467,10 +3327,7 @@ fn merge_gate_blocks_when_canonical_blob_is_missing_from_store() {
     let home = temp_dir("runtime_contract_missing_blob_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_missing_blob");
     let (item, canonical) = stored_canonical_context(
         &cwd,
@@ -3513,10 +3370,7 @@ fn merge_gate_blocks_when_canonical_blob_hash_is_tampered() {
     let home = temp_dir("runtime_contract_tampered_blob_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_tampered_blob");
     let (item, canonical) = stored_canonical_context(
         &cwd,
@@ -3559,10 +3413,7 @@ fn merge_gate_accepts_all_required_canonical_evidence_kinds_idempotently_after_r
     let home = temp_dir("runtime_contract_all_canonical_kinds_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let mut recorded_events = engine
         .handle_runtime_command(
             "cmd_agent_dag",
@@ -3701,10 +3552,7 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
         ModelEvent::Done,
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine_a.session_id().to_string();
     start_single_patch_gate(&mut engine_a, &mut approver, "task_resume_gate");
     let live_events = engine_a
@@ -3810,10 +3658,7 @@ fn workflow_replay_keeps_legacy_single_runtime_projection_compatible() {
     let home = temp_dir("runtime_contract_legacy_single_projection_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_legacy_projection");
     let live = engine.runtime_view_state();
@@ -3873,10 +3718,7 @@ fn workflow_replay_dedupes_duplicate_runtime_projection_batch_id() {
     let home = temp_dir("runtime_contract_duplicate_projection_batch_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_duplicate_batch");
     let (item, canonical) = stored_canonical_context(
@@ -3931,10 +3773,7 @@ fn merge_gate_reports_stable_canonical_failure_reasons() {
         let home = temp_dir(&format!("runtime_contract_canonical_failure_{case}_home"));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         let task_id = format!("task_{case}");
         engine
             .handle_runtime_command(
@@ -4155,10 +3994,7 @@ fn assert_resumed_runtime_matches(
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut resumed =
         SessionEngine::new_with_home(cwd, provider, Some(home.to_path_buf())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let resume_events = resumed
         .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
         .unwrap();

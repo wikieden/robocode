@@ -24,10 +24,7 @@ fn web_help_command_is_available() {
     let cwd = temp_dir("web_help_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/web", &mut approver)
         .unwrap();
@@ -43,10 +40,7 @@ fn status_command_reports_current_runtime_state() {
     let cwd = temp_dir("status_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/status", &mut approver)
         .unwrap();
@@ -68,10 +62,7 @@ fn context_command_reports_missing_bundle_before_provider_turn() {
     let cwd = temp_dir("context_command_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/context", &mut approver)
@@ -91,10 +82,7 @@ fn brief_command_creates_shows_and_status_reports_active_brief() {
     let cwd = temp_dir("brief_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/brief improve provider setup recovery", &mut approver)
@@ -135,10 +123,7 @@ fn spec_alias_and_steering_init_create_context_files() {
     let cwd = temp_dir("brief_steering_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("/spec add deterministic daily loop smoke", &mut approver)
@@ -174,10 +159,7 @@ fn status_command_reports_dirty_files_active_tasks_and_lanes() {
 
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("/task add Improve status cockpit", &mut approver)
@@ -208,10 +190,7 @@ fn agent_list_reports_builtin_agent_transports() {
     let cwd = temp_dir("agent_list_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/agent list", &mut approver)
@@ -238,10 +217,7 @@ fn agent_doctor_reports_adapter_readiness_without_mutation() {
     let cwd = temp_dir("agent_doctor_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/agent doctor codex", &mut approver)
@@ -266,10 +242,7 @@ fn agent_probe_codex_write_turn_is_guarded_by_default() {
     let cwd = temp_dir("agent_codex_write_probe_guard_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("/agent probe codex --turn-write create file", &mut approver)
@@ -285,10 +258,7 @@ fn agent_probe_acp_reports_unknown_agent_before_launch() {
     let cwd = temp_dir("agent_acp_probe_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("/agent probe acp unknown-agent", &mut approver)
@@ -304,10 +274,7 @@ fn agent_run_acp_reports_unknown_agent_before_launch() {
     let cwd = temp_dir("agent_acp_run_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("/agent run acp unknown-agent build a plan", &mut approver)
@@ -323,10 +290,7 @@ fn agent_run_acp_requires_task() {
     let cwd = temp_dir("agent_acp_run_empty_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("/agent run acp kiro-cli", &mut approver)
@@ -342,10 +306,7 @@ fn agent_doctor_reports_kiro_acp_descriptor_without_global_command_env() {
     let cwd = temp_dir("agent_kiro_doctor_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/agent doctor kiro-cli", &mut approver)
@@ -371,10 +332,7 @@ fn agent_auth_kiro_reports_native_login_flow() {
     let cwd = temp_dir("agent_kiro_auth_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/agent auth acp kiro-cli", &mut approver)
@@ -395,10 +353,7 @@ fn agent_doctor_reports_experimental_acp_readiness() {
     let cwd = temp_dir("agent_acp_doctor_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/agent doctor acp", &mut approver)
@@ -428,10 +383,7 @@ fn agent_run_codex_write_requires_permission_before_launch() {
     let mut approver = |prompt| {
         approvals.set(approvals.get() + 1);
         prompts.borrow_mut().push(prompt);
-        ApprovalResponse {
-            approved: false,
-            feedback: None,
-        }
+        ApprovalResponse::deny(None)
     };
 
     let output = engine
@@ -475,10 +427,7 @@ fn extension_visibility_commands_report_read_only_surfaces() {
 
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let extensions = engine
         .process_input_with_approval("/extensions list", &mut approver)
@@ -547,10 +496,7 @@ fn test_command_records_last_test_evidence_in_status() {
     let approvals = Cell::new(0usize);
     let mut approver = |_prompt| {
         approvals.set(approvals.get() + 1);
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
 
     let test_output = engine
@@ -597,10 +543,7 @@ fn plan_mode_blocks_test_command_shell_execution() {
     let approvals = Cell::new(0usize);
     let mut approver = |_prompt| {
         approvals.set(approvals.get() + 1);
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
 
     engine
@@ -641,10 +584,7 @@ fn test_command_records_exit_code_for_failed_shell_command() {
     let cwd = temp_dir("test_exit_code_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let test_output = engine
         .process_input_with_approval("/test sh -c 'echo failing-test; exit 7'", &mut approver)
@@ -673,10 +613,7 @@ fn test_command_extracts_failure_summary_and_failing_files() {
     let cwd = temp_dir("test_failure_summary_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let test_output = engine
         .process_input_with_approval(
@@ -711,10 +648,7 @@ fn config_command_reports_runtime_configuration_summary() {
     let cwd = temp_dir("config_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/config", &mut approver)
         .unwrap();
@@ -734,10 +668,7 @@ fn provider_list_reports_registry_and_current_provider() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider list", &mut approver)
@@ -763,10 +694,7 @@ fn settings_command_reports_first_run_provider_model_setup() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/settings", &mut approver)
@@ -792,10 +720,7 @@ fn setup_command_renders_interactive_provider_model_flow() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/setup", &mut approver)
@@ -819,10 +744,7 @@ fn settings_permissions_without_args_renders_actionable_picker() {
     let cwd = temp_dir("settings_permissions_picker_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/settings permissions", &mut approver)
@@ -845,10 +767,7 @@ fn settings_permissions_sets_permission_mode() {
     let cwd = temp_dir("settings_permissions_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/settings permissions plan", &mut approver)
@@ -869,10 +788,7 @@ fn mode_command_switches_between_plan_and_build_work_modes() {
     let cwd = temp_dir("mode_command_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let plan_output = engine
         .process_input_with_approval("/mode plan", &mut approver)
@@ -905,10 +821,7 @@ fn settings_theme_without_args_renders_actionable_picker() {
     let cwd = temp_dir("settings_theme_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/settings theme", &mut approver)
@@ -930,10 +843,7 @@ fn setup_provider_without_args_renders_actionable_picker() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/setup provider", &mut approver)
@@ -957,10 +867,7 @@ fn setup_provider_switches_and_saves_like_settings() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(cwd.join("user-config.toml"));
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/setup provider fallback test-local", &mut approver)
@@ -985,10 +892,7 @@ fn settings_provider_can_save_provider_scoped_config() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(config_path.clone());
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let endpoint = engine
         .process_input_with_approval(
@@ -1041,10 +945,7 @@ fn provider_direct_switches_and_saves_defaults() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(cwd.join("user-config.toml"));
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider fallback test-local", &mut approver)
@@ -1069,10 +970,7 @@ fn model_command_sets_and_saves_defaults() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(cwd.join("user-config.toml"));
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/model test-local", &mut approver)
@@ -1095,10 +993,7 @@ fn model_without_args_shows_actionable_picker() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/model", &mut approver)
@@ -1122,10 +1017,7 @@ fn models_without_args_groups_choices_by_provider() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(config_path);
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval(
@@ -1162,10 +1054,7 @@ fn connect_without_args_opens_provider_connection_picker() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/connect", &mut approver)
@@ -1187,10 +1076,7 @@ fn connect_provider_detail_reports_auth_mode() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/connect openai", &mut approver)
@@ -1214,10 +1100,7 @@ fn settings_provider_enable_model_writes_active_model_list() {
     let config_path = cwd.join("user-config.toml");
     engine.set_user_config_path_override(config_path.clone());
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval(
@@ -1245,10 +1128,7 @@ fn settings_provider_favorite_model_writes_favorite_and_active_model() {
     let config_path = cwd.join("user-config.toml");
     engine.set_user_config_path_override(config_path.clone());
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval(
@@ -1277,10 +1157,7 @@ fn models_command_switches_provider_and_model() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(cwd.join("user-config.toml"));
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/models fallback test-local", &mut approver)
@@ -1303,10 +1180,7 @@ fn provider_doctor_reports_registry_capabilities_and_env_mappings() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider doctor", &mut approver)
@@ -1332,10 +1206,7 @@ fn provider_doctor_can_focus_on_one_registered_provider() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider doctor openrouter", &mut approver)
@@ -1360,10 +1231,7 @@ fn provider_doctor_surfaces_deepseek_v4_compatibility_contract() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider doctor deepseek", &mut approver)
@@ -1384,10 +1252,7 @@ fn provider_doctor_reports_unknown_provider() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider doctor missing-provider", &mut approver)
@@ -1407,10 +1272,7 @@ fn provider_reload_reports_success_without_replacing_current_provider_instance()
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider reload", &mut approver)
@@ -1440,10 +1302,7 @@ fn provider_reload_failure_reports_diagnostics_and_keeps_previous_registry() {
         90,
         1,
     );
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider reload", &mut approver)
@@ -1465,10 +1324,7 @@ fn provider_use_switches_current_provider_and_model() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider use fallback switched-model", &mut approver)
@@ -1499,10 +1355,7 @@ fn provider_binding_is_independent_across_sessions() {
             .unwrap();
     engine_a.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
     engine_b.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine_a
         .process_input_with_approval("/provider use fallback model-a", &mut approver)
@@ -1545,10 +1398,7 @@ fn provider_use_reports_unknown_provider() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let output = engine
         .process_input_with_approval("/provider use missing-provider", &mut approver)
@@ -1568,10 +1418,7 @@ fn doctor_command_reports_dependency_checks() {
     let cwd = temp_dir("doctor_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/doctor", &mut approver)
         .unwrap();
@@ -1611,10 +1458,7 @@ fn help_output_lists_runtime_inspection_commands() {
     let cwd = temp_dir("help_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/help", &mut approver)
         .unwrap();
@@ -1634,10 +1478,7 @@ fn help_output_groups_commands_by_purpose() {
     let cwd = temp_dir("help_groups_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/help", &mut approver)
         .unwrap();

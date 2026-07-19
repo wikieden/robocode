@@ -138,10 +138,7 @@ fn deepseek_alias_cost_record_preserves_requested_model_and_prices_canonical_mod
         ]],
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let engine_events = engine
         .process_input_with_approval("price alias", &mut approver)
         .unwrap();
@@ -184,10 +181,7 @@ fn deepseek_anthropic_cost_record_preserves_provider_id_and_estimates_cost() {
         ]],
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let engine_events = engine
         .process_input_with_approval("price anthropic", &mut approver)
         .unwrap();
@@ -219,10 +213,7 @@ fn single_turn_text_response_is_recorded() {
         },
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let events = engine
         .process_input_with_approval("hi", &mut approver)
         .unwrap();
@@ -249,10 +240,7 @@ fn provider_telemetry_records_successful_model_requests() {
         },
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("measure provider", &mut approver)
@@ -287,10 +275,7 @@ fn provider_telemetry_records_model_usage_when_provider_reports_it() {
         }),
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("measure usage", &mut approver)
@@ -327,10 +312,7 @@ fn provider_attempts_emit_cost_usage_and_cache_events_for_replay() {
         }),
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("measure runtime cost", &mut approver)
@@ -383,10 +365,7 @@ fn provider_turn_uses_ephemeral_context_bundle_without_transcript_mutation() {
         Arc::clone(&requests),
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("/brief summarize workspace safely", &mut approver)
@@ -486,10 +465,7 @@ fn provider_turn_compacts_long_transcript_before_request() {
         .collect::<Vec<_>>();
     let provider = Box::new(RecordingSequenceProvider::new(turns, Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     for index in 0..25 {
         engine
@@ -574,10 +550,7 @@ fn benchmark_projection_metrics_are_recorded_from_runtime_facts() {
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_benchmark_projection_mode_for_test(ContextBenchmarkProjectionMode::On);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("seed history for metrics", &mut approver)
@@ -611,10 +584,7 @@ fn provider_turn_retries_request_too_large_with_smaller_context() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let provider = Box::new(RequestTooLargeOnceProvider::new(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .process_input_with_approval(
@@ -675,10 +645,7 @@ fn provider_turn_retries_context_overflow_once() {
         "maximum context length exceeded".to_string(),
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .process_input_with_approval("trigger context overflow retry", &mut approver)
@@ -701,10 +668,7 @@ fn provider_turn_second_context_size_failure_does_not_loop() {
         requests: Arc::clone(&requests),
     });
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("trigger repeated context overflow", &mut approver)
@@ -724,10 +688,7 @@ fn provider_turn_does_not_retry_unrelated_failure() {
         requests: Arc::clone(&requests),
     });
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("trigger unrelated failure", &mut approver)
@@ -757,10 +718,7 @@ fn failed_tool_execution_is_returned_to_provider_without_ending_turn() {
         Arc::clone(&requests),
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .process_input_with_approval("read the src directory", &mut approver)
@@ -827,10 +785,7 @@ fn benchmark_fixture_request_for_mode(mode: ContextBenchmarkProjectionMode) -> M
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_benchmark_projection_mode_for_test(mode);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .process_input_with_approval(
             &format!(
@@ -855,10 +810,7 @@ fn provider_telemetry_records_failed_model_requests() {
     let cwd = temp_dir("telemetry_failure_cwd");
     let provider = Box::new(FailingProvider);
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("measure provider failure", &mut approver)
@@ -887,10 +839,7 @@ fn provider_model_failures_include_switch_model_recovery_prompt() {
         90,
         1,
     );
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval("trigger model failure", &mut approver)
@@ -922,10 +871,7 @@ fn cancelled_model_request_stops_before_provider_turn() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let control = ModelRequestControl::new();
     control.cancel();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let err = engine
         .process_input_with_approval_and_control("hi", &mut approver, &control)
@@ -952,10 +898,7 @@ fn tool_loop_executes_and_reinjects_result() {
         }],
     ]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let events = engine
         .process_input_with_approval("read it", &mut approver)
         .unwrap();
@@ -997,10 +940,7 @@ fn post_edit_lsp_diagnostics_are_reinjected_after_file_writes() {
     ]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.lsp_runtime = Arc::new(LspRuntime::new(fake_lsp_registry(&fake_lsp_dir)));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .process_input_with_approval("write broken rust", &mut approver)
@@ -1060,10 +1000,7 @@ fn plan_mode_blocks_mutating_tools() {
         },
     )]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .process_input_with_approval("/plan on", &mut approver)
         .unwrap();
@@ -1101,10 +1038,7 @@ fn plan_mode_provider_request_uses_planner_work_mode() {
         Arc::clone(&requests),
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("/plan on", &mut approver)
@@ -1136,10 +1070,7 @@ fn plan_mode_denies_long_shell_commands_before_spawn() {
         },
     )]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .process_input_with_approval("/plan on", &mut approver)
         .unwrap();
@@ -1184,10 +1115,7 @@ fn denied_tool_calls_are_followed_by_tool_result_messages() {
         Arc::clone(&requests),
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .process_input_with_approval("/plan on", &mut approver)
         .unwrap();

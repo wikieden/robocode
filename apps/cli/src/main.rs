@@ -1024,10 +1024,7 @@ fn prompt_for_approval(prompt: PermissionPrompt, stdin: &mut impl BufRead) -> Ap
     print!("Allow? [y/N]: ");
     io::stdout().flush().ok();
     let Ok(Some(response)) = read_lossy_line(stdin) else {
-        return ApprovalResponse {
-            approved: false,
-            feedback: None,
-        };
+        return ApprovalResponse::deny(None);
     };
     let approved = matches!(response.trim(), "y" | "Y" | "yes" | "YES");
     ApprovalResponse {
