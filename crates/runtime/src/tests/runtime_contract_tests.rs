@@ -3107,6 +3107,89 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
 }
 
 #[test]
+fn merge_agent_patch_workflow_precommit_failure_removes_created_file_and_empty_parents() {
+    let cwd = temp_dir("runtime_contract_merge_patch_create_rollback_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_create_rollback_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let patch = b"diff --git a/generated/deep/new.txt b/generated/deep/new.txt\n--- /dev/null\n+++ b/generated/deep/new.txt\n@@ -0,0 +1 @@\n+created\n";
+    prepare_patch_merge_gate(
+        &mut engine,
+        &mut approver,
+        &cwd,
+        "task_merge_create_rollback",
+        patch,
+    );
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_create_rollback",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_create_rollback".to_string(),
+                decision: Some("merge created file with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_create_rollback"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert!(!cwd.join("generated/deep/new.txt").exists());
+    assert!(
+        !cwd.join("generated").exists(),
+        "rollback must remove empty parent directories created by this transaction"
+    );
+}
+
+#[test]
+fn merge_agent_patch_workflow_precommit_failure_restores_deleted_file() {
+    let cwd = temp_dir("runtime_contract_merge_patch_delete_rollback_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_delete_rollback_home");
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    std::fs::write(cwd.join("src/obsolete.txt"), "old\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let patch = b"diff --git a/src/obsolete.txt b/src/obsolete.txt\n--- a/src/obsolete.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n";
+    prepare_patch_merge_gate(
+        &mut engine,
+        &mut approver,
+        &cwd,
+        "task_merge_delete_rollback",
+        patch,
+    );
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_delete_rollback",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_delete_rollback".to_string(),
+                decision: Some("merge deleted file with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_delete_rollback"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("src/obsolete.txt")).unwrap(),
+        "old\n"
+    );
+}
+
+#[test]
 fn record_agent_evidence_ignores_transcript_batch_failure_for_project_facts() {
     let cwd = temp_dir("runtime_contract_project_fact_transcript_batch_fail_cwd");
     let home = temp_dir("runtime_contract_project_fact_transcript_batch_fail_home");
@@ -3921,6 +4004,49 @@ fn start_single_patch_gate(
     task_id: &str,
 ) {
     let _ = start_gate_with_required(engine, approver, task_id, vec!["patch".to_string()]);
+}
+
+fn prepare_patch_merge_gate(
+    engine: &mut SessionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    cwd: &std::path::Path,
+    task_id: &str,
+    patch: &[u8],
+) {
+    start_single_patch_gate(engine, approver, task_id);
+    let evidence_id = format!("evidence-{task_id}");
+    let bundle_id = format!("bundle-{task_id}");
+    let (item, canonical) = stored_canonical_context(
+        cwd,
+        task_id,
+        &evidence_id,
+        &bundle_id,
+        ContextContentKind::Diff,
+        patch,
+    );
+    engine.set_merge_gate_context_facts_for_test(&bundle_id, item);
+
+    let events = engine
+        .handle_runtime_command(
+            format!("cmd_evidence_{task_id}"),
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: format!("gate-{task_id}"),
+                evidence_id: Some(evidence_id),
+                kind: "patch".to_string(),
+                summary: "canonical patch".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            approver,
+        )
+        .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == format!("gate-{task_id}")
+                && gate.status == MergeGateStatus::Accepted
+    )));
 }
 
 fn start_gate_with_required(

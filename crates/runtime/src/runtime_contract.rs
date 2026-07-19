@@ -2241,12 +2241,34 @@ impl SessionEngine {
     fn stage_patch_rollback(&self, application: &PatchApplication) -> Result<(), String> {
         let mut rollback = self.transaction_file_rollback.borrow_mut();
         rollback.clear();
+        let root =
+            fs::canonicalize(&self.cwd).map_err(|err| format!("{}: {err}", self.cwd.display()))?;
         for path in application.write_paths() {
-            let metadata = fs::metadata(path).ok();
+            // Capture only missing parents: rollback may remove transaction-created
+            // empty directories, but never a directory that predated the patch.
+            ensure_transaction_path_inside_root(&root, path)?;
+            let created_parent_dirs = missing_transaction_parent_dirs(&root, path)?;
+            let (contents, permissions) = match fs::symlink_metadata(path) {
+                Ok(metadata) => {
+                    if metadata.file_type().is_symlink() || !metadata.is_file() {
+                        return Err(format!(
+                            "unsafe transaction rollback target `{}`",
+                            path.display()
+                        ));
+                    }
+                    let contents =
+                        fs::read(path).map_err(|err| format!("{}: {err}", path.display()))?;
+                    (Some(contents), Some(metadata.permissions()))
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, None),
+                Err(err) => return Err(format!("{}: {err}", path.display())),
+            };
             rollback.push(crate::FileRollback {
+                root: root.clone(),
                 path: path.to_path_buf(),
-                contents: fs::read(path).ok(),
-                permissions: metadata.map(|metadata| metadata.permissions()),
+                contents,
+                permissions,
+                created_parent_dirs,
             });
         }
         Ok(())
@@ -2254,6 +2276,7 @@ impl SessionEngine {
 
     fn restore_transaction_files(&self) -> Result<(), String> {
         for file in self.transaction_file_rollback.borrow().iter().rev() {
+            ensure_transaction_path_inside_root(&file.root, &file.path)?;
             match &file.contents {
                 Some(contents) => {
                     if let Some(parent) = file.path.parent() {
@@ -2272,6 +2295,18 @@ impl SessionEngine {
                         fs::remove_file(&file.path)
                             .map_err(|err| format!("{}: {err}", file.path.display()))?;
                     }
+                }
+            }
+            for parent in file.created_parent_dirs.iter().rev() {
+                ensure_transaction_path_inside_root(&file.root, parent)?;
+                match fs::remove_dir(parent) {
+                    Ok(()) => {}
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+                        ) => {}
+                    Err(err) => return Err(format!("{}: {err}", parent.display())),
                 }
             }
         }
@@ -3007,6 +3042,93 @@ fn reduce_merge_gate_status(
         status,
         reason_codes: reasons.into_iter().collect(),
     }
+}
+
+fn ensure_transaction_path_inside_root(root: &Path, path: &Path) -> Result<(), String> {
+    // Revalidate at both staging and restore time so a symlink swap cannot
+    // redirect compensating writes or deletes outside the project root.
+    let current_root =
+        fs::canonicalize(root).map_err(|err| format!("{}: {err}", root.display()))?;
+    if current_root != root || !current_root.is_dir() {
+        return Err(format!(
+            "transaction rollback root is no longer safe: `{}`",
+            root.display()
+        ));
+    }
+    let relative = path.strip_prefix(root).map_err(|_| {
+        format!(
+            "transaction rollback target `{}` is outside `{}`",
+            path.display(),
+            root.display()
+        )
+    })?;
+    if relative.as_os_str().is_empty() {
+        return Err("transaction rollback target cannot be the workspace root".to_string());
+    }
+
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(format!(
+                "unsafe transaction rollback target `{}`",
+                path.display()
+            ));
+        };
+        current.push(segment);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "transaction rollback target crosses symlink `{}`",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("{}: {err}", current.display())),
+        }
+    }
+    Ok(())
+}
+
+fn missing_transaction_parent_dirs(root: &Path, path: &Path) -> Result<Vec<PathBuf>, String> {
+    let parent = path.parent().ok_or_else(|| {
+        format!(
+            "transaction rollback target has no parent: `{}`",
+            path.display()
+        )
+    })?;
+    let relative = parent.strip_prefix(root).map_err(|_| {
+        format!(
+            "transaction rollback parent `{}` is outside `{}`",
+            parent.display(),
+            root.display()
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    let mut missing = Vec::new();
+    for component in relative.components() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(format!(
+                "unsafe transaction rollback parent `{}`",
+                parent.display()
+            ));
+        };
+        current.push(segment);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(format!(
+                    "unsafe transaction rollback parent `{}`",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(current.clone());
+            }
+            Err(err) => return Err(format!("{}: {err}", current.display())),
+        }
+    }
+    Ok(missing)
 }
 
 fn transactional_runtime_command(command: &RuntimeCommand) -> bool {

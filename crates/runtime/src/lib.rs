@@ -323,9 +323,11 @@ pub struct SessionEngine {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileRollback {
+    pub(crate) root: PathBuf,
     pub(crate) path: PathBuf,
     pub(crate) contents: Option<Vec<u8>>,
     pub(crate) permissions: Option<std::fs::Permissions>,
+    pub(crate) created_parent_dirs: Vec<PathBuf>,
 }
 
 #[cfg(test)]
