@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${1:-"$ROOT/docs/previews/generated"}"
-THEME="${VIDEN_TUI_PREVIEW_THEME:-aurora-cyan}"
-THEMES="${VIDEN_TUI_PREVIEW_THEMES:-aurora-cyan ember-gold plasma-violet monochrome-ice}"
+THEME="${VIDEN_TUI_PREVIEW_THEME:-aurora}"
+THEMES="${VIDEN_TUI_PREVIEW_THEMES:-aurora ice mono amber phosphor}"
 PROVIDER="${VIDEN_TUI_PREVIEW_PROVIDER:-openai}"
 MODEL="${VIDEN_TUI_PREVIEW_MODEL:-gpt-4o}"
 

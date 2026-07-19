@@ -291,11 +291,17 @@ Useful startup flags:
 
 ```bash
 viden --config .viden/config.toml
-viden --resume latest
+viden --no-tui --resume latest
 viden --permissions plan
-viden --tui-theme aurora-cyan
-viden --tui-screen side-1
+viden --tui-theme aurora
+viden --provider fallback --model test-local --tui-startup-check
 ```
+
+The V3 TUI always enters through the unified CoreClient cockpit. Legacy
+`--tui-screen side-1|side-2` values are accepted for transition compatibility,
+but they no longer start a frontend-owned lane/process monitor. Available
+skins are `aurora`, `ice`, `mono`, `amber`, and `phosphor`; locale, color mode,
+density, and motion come from the Core-owned UI preference snapshot.
 
 ## What Is Experimental
 

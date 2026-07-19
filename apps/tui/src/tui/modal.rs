@@ -2,7 +2,7 @@ use super::{
     canvas::Frame,
     command_palette::render_command_suggestions,
     indicators::{progress_bar, status_dot},
-    lane::{command_hint, interaction_hint, pid_hint, pty_label, terminal_label},
+    lane_presenter::{command_hint, interaction_hint, pid_hint, pty_label, terminal_label},
     panel::panel,
     state::{InteractionPanel, ProviderOption, TerminalLane, TuiState, lane_runtime_evidence},
     text::{char_width, horizontal, pad, truncate},

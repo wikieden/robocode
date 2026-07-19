@@ -4066,7 +4066,7 @@ mod tests {
         assert!(
             command_suggestions_for_state(&themes)
                 .iter()
-                .any(|item| item.command == "/settings theme ember-gold")
+                .any(|item| item.command == "/settings theme aurora")
         );
     }
 

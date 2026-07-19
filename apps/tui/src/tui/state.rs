@@ -112,7 +112,7 @@ impl Default for TuiState {
             streaming_assistant: None,
             transcript_scroll: 0,
             entries: Vec::new(),
-            workspace: WorkspaceSnapshot::fixture(),
+            workspace: WorkspaceSnapshot::from_core_cwd(PathBuf::from(".")),
             tasks: Vec::new(),
             runtime_tasks: Vec::new(),
             memory: Vec::new(),
@@ -2162,6 +2162,32 @@ pub(super) struct GitWorktreeEntry {
 }
 
 impl WorkspaceSnapshot {
+    /// Builds the presentation-only workspace shell from Core's authoritative
+    /// snapshot. Production startup must not read Git/process state or borrow
+    /// preview fixtures to invent runtime facts.
+    pub(super) fn from_core_cwd(root: PathBuf) -> Self {
+        let display_root = display_path(&root);
+        Self {
+            root,
+            display_root,
+            git_branch: "-".to_string(),
+            git_branches: Vec::new(),
+            git_remotes: Vec::new(),
+            git_remote_branches: Vec::new(),
+            git_stashes: Vec::new(),
+            git_worktrees: Vec::new(),
+            file_count: 0,
+            line_count: 0,
+            recent_files: Vec::new(),
+            top_files: Vec::new(),
+            workspace_paths: Vec::new(),
+            diagnostics: Vec::new(),
+            agent_jobs: Vec::new(),
+            primary_language: "unknown".to_string(),
+            rust_edition: None,
+        }
+    }
+
     pub(super) fn load_current() -> Self {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self::load(root)

@@ -10,6 +10,7 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use viden_core::{ResolvedUiPreferences, TuiColorDepth, UiMotion};
 
 use super::{
     command_palette::is_command_palette_visible,
@@ -25,6 +26,7 @@ use super::{
 pub(super) struct TerminalGuard {
     active: bool,
     theme: TuiTheme,
+    motion: UiMotion,
     last_lines: Vec<String>,
     last_size: Option<(u16, u16)>,
     last_style_signature: Option<String>,
@@ -38,13 +40,27 @@ const FULL_REDRAW_INTERVAL: Duration = Duration::from_secs(5);
 
 impl TerminalGuard {
     pub(super) fn enter_with_theme(theme_name: Option<&str>) -> Result<Self, String> {
+        Self::enter(TuiTheme::from_name_or_env(theme_name), UiMotion::System)
+    }
+
+    pub(super) fn enter_with_preferences(
+        preferences: &ResolvedUiPreferences,
+        color_depth: TuiColorDepth,
+    ) -> Result<Self, String> {
+        Self::enter(
+            TuiTheme::from_preferences(preferences).with_color_depth(color_depth),
+            preferences.motion,
+        )
+    }
+
+    fn enter(theme: TuiTheme, motion: UiMotion) -> Result<Self, String> {
         let mut stdout = io::stdout();
         terminal::enable_raw_mode().map_err(|err| err.to_string())?;
         if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
             EnableMouseCapture,
-            cursor::SetCursorStyle::BlinkingBar,
+            cursor_style(motion),
             cursor::Show
         ) {
             let _ = terminal::disable_raw_mode();
@@ -52,7 +68,8 @@ impl TerminalGuard {
         }
         Ok(Self {
             active: true,
-            theme: TuiTheme::from_name_or_env(theme_name),
+            theme,
+            motion,
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
@@ -64,7 +81,8 @@ impl TerminalGuard {
     pub(super) fn test() -> Self {
         Self {
             active: false,
-            theme: TuiTheme::named("aurora-cyan"),
+            theme: TuiTheme::named("aurora"),
+            motion: UiMotion::System,
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
@@ -153,7 +171,7 @@ impl TerminalGuard {
                             column.min(size.0.saturating_sub(1)),
                             row.min(size.1.saturating_sub(1))
                         ),
-                        cursor::SetCursorStyle::BlinkingBar,
+                        cursor_style(self.motion),
                         cursor::Show
                     )?;
                 } else {
@@ -207,6 +225,13 @@ impl TerminalGuard {
         )
         .map_err(|err| err.to_string())?;
         terminal::disable_raw_mode().map_err(|err| err.to_string())
+    }
+}
+
+fn cursor_style(motion: UiMotion) -> cursor::SetCursorStyle {
+    match motion {
+        UiMotion::Full => cursor::SetCursorStyle::BlinkingBar,
+        UiMotion::System | UiMotion::Reduced => cursor::SetCursorStyle::SteadyBar,
     }
 }
 

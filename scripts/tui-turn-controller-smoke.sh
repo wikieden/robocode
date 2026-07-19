@@ -5,22 +5,28 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 cargo test -p viden-tui \
-  tui::app::tests::runtime_provider_turn_starts_without_blocking_ui_thread \
+  tui::app::tests::runtime_view_projects_authoritative_frontend_facts_without_workspace_fixture \
   --quiet
 cargo test -p viden-tui \
-  tui::app::tests::provider_turn_streams_approves_tools_runs_queued_followup_and_releases_composer \
+  tui::app::tests::submit_queue_cancel_and_approval_use_runtime_commands \
   --quiet
 cargo test -p viden-tui \
-  tui::app::tests::active_turn_enter_queues_next_prompt_and_keeps_composer_editable \
+  tui::app::tests::active_turn_enter_queues_follow_up_instead_of_submitting_second_turn \
   --quiet
 cargo test -p viden-tui \
-  tui::app::tests::active_approval_resolves_through_channel_without_nested_event_loop \
+  tui::app::tests::approval_shortcut_builds_response_for_core_request_id \
   --quiet
 cargo test -p viden-tui \
-  tui::app::tests::active_approval_does_not_swallow_composer_typing \
+  tui::app::tests::composer_stays_editable_while_events_stream \
   --quiet
 cargo test -p viden-tui \
-  tui::app::tests::mode_and_permission_commands_immediately_sync_tui_runtime_status \
+  tui::client::tests::failed_replay_does_not_publish_partial_view_or_cursor \
+  --quiet
+cargo test -p viden-tui \
+  tui::client::tests::complete_replay_without_incoming_rolls_back_all_staged_events \
+  --quiet
+cargo test -p viden-tui \
+  tui::client::tests::shared_frontend_fixtures_reduce_to_core_expected_facts \
   --quiet
 cargo test -p viden-tui \
   tui::statusbar::tests::bottom_bar_reflects_runtime_mode_and_permission_level \

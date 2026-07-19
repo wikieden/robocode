@@ -1,7 +1,7 @@
 use super::{
     canvas::Frame,
     indicators::{progress_bar, status_dot},
-    lane::{
+    lane_presenter::{
         command_hint, interaction_hint, lane_next_action, pid_hint, pty_label, status_badge,
         terminal_label,
     },

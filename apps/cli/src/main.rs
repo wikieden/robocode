@@ -2,12 +2,16 @@ use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use viden_config::{CliOverrides, load_config};
+use viden_core::{LocalCoreTransport, StatefulCoreClient};
 use viden_provider::{
     ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
     list_supported_provider_strings,
 };
-use viden_runtime::{EngineEvent, SessionEngine};
-use viden_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, RuntimeSnapshot, WorkMode};
+use viden_runtime::{EngineEvent, RuntimeSupervisor, SessionEngine};
+use viden_types::{
+    ApprovalResponse, PermissionLevel, PermissionPrompt, ResolvedUiPreferences, RuntimeSnapshot,
+    UiColorMode, UiPreferences, UiSkin, WorkMode, resolve_ui_preferences,
+};
 
 use viden_tui as tui;
 
@@ -43,7 +47,10 @@ fn run() -> Result<(), String> {
         config_path: startup.config_path.clone(),
         ui: None,
     };
-    let resolved_config = load_config(&cwd, &cli_config)?;
+    let mut resolved_config = load_config(&cwd, &cli_config)?;
+    if let Some(skin) = startup.tui_theme.as_deref() {
+        resolved_config.ui = ui_preferences_with_skin(&resolved_config.ui, skin);
+    }
     let preview_provider = resolved_config.provider.as_str();
     let preview_model = resolved_config.model.as_deref().unwrap_or("default");
     if startup.tui_preview || startup.tui_preview_ansi {
@@ -344,6 +351,23 @@ fn run() -> Result<(), String> {
     );
     engine.set_permission_mode(resolved_config.permission_mode)?;
 
+    if startup.should_start_tui() {
+        if startup.resume_selector.is_some() {
+            return Err(
+                "--resume requires a Core resume command before it can be used with the V3 TUI; use --no-tui for the legacy REPL"
+                    .to_string(),
+            );
+        }
+        let supervisor = RuntimeSupervisor::start(engine);
+        let transport = LocalCoreTransport::new(supervisor);
+        let client = StatefulCoreClient::new(transport);
+        let mut options = tui::TuiOptions::new(&provider_summary);
+        if startup.tui_startup_check {
+            options = options.with_startup_check();
+        }
+        return tui::run_tui(client, options).map_err(|error| error.to_string());
+    }
+
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
 
@@ -354,22 +378,6 @@ fn run() -> Result<(), String> {
         {
             render_event(event);
         }
-    }
-
-    if startup.should_start_tui() {
-        if let Some(screen) = startup
-            .tui_screen
-            .as_deref()
-            .and_then(tui::SideScreen::parse)
-        {
-            return tui::run_side_tui_with_theme(
-                &engine,
-                &provider_summary,
-                screen,
-                startup.tui_theme.as_deref(),
-            );
-        }
-        return tui::run_tui_with_theme(engine, &provider_summary, startup.tui_theme.as_deref());
     }
 
     println!(
@@ -397,6 +405,31 @@ fn run() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn ui_preferences_with_skin(base: &ResolvedUiPreferences, skin: &str) -> ResolvedUiPreferences {
+    let skin = match skin {
+        "ice" => UiSkin::Ice,
+        "mono" => UiSkin::Mono,
+        "amber" => UiSkin::Amber,
+        "phosphor" => UiSkin::Phosphor,
+        _ => UiSkin::Aurora,
+    };
+    let mode = if UiPreferences::is_valid_effective_pair(skin, base.mode) {
+        base.mode
+    } else {
+        UiColorMode::Dark
+    };
+    let profile = UiPreferences {
+        locale: base.locale,
+        skin,
+        mode,
+        density: base.density,
+        motion: base.motion,
+    };
+    let mut resolved = resolve_ui_preferences(Some(profile), None, None, profile);
+    resolved.diagnostics.extend(base.diagnostics.clone());
+    resolved
 }
 
 fn is_exit_command(input: &str) -> bool {
@@ -575,6 +608,7 @@ struct StartupOptions {
     tui_preview_side_ansi: bool,
     tui_preview_side_2: bool,
     tui_preview_side_2_ansi: bool,
+    tui_startup_check: bool,
     tui_theme: Option<String>,
 }
 
@@ -714,6 +748,9 @@ impl StartupOptions {
         if self.tui_theme.is_some() {
             overrides.push("--tui-theme".to_string());
         }
+        if self.tui_startup_check {
+            overrides.push("--tui-startup-check".to_string());
+        }
         overrides
     }
 }
@@ -806,10 +843,14 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-screen" => {
                 index += 1;
                 let value = required_flag_value(args, index, "--tui-screen")?;
-                if value != "main" && tui::SideScreen::parse(&value).is_none() {
+                if !matches!(value.as_str(), "main" | "side-1" | "side-2") {
                     return Err("--tui-screen must be `main`, `side-1`, or `side-2`".to_string());
                 }
                 options.tui_screen = Some(value);
+            }
+            "--tui-startup-check" => {
+                options.tui_startup_check = true;
+                options.tui = true;
             }
             "--tui-preview" => {
                 options.tui_preview = true;
@@ -945,6 +986,7 @@ fn print_startup_help() {
     println!("  --config <path>      Load config from an explicit TOML file");
     println!("  --resume [id|latest] Resume a prior session");
     println!("  --tui                Start the cockpit terminal UI (default)");
+    println!("  --tui-startup-check  Verify Core/TUI startup without entering raw mode");
     println!("  --no-tui             Start the legacy line REPL");
     println!("  --tui-screen <main|side-1|side-2>");
     println!("                       Start a specific TUI screen surface");
@@ -1486,12 +1528,32 @@ mod tests {
 
     #[test]
     fn parse_startup_options_accepts_tui_theme_flag() {
-        let args = vec!["--tui-theme".to_string(), "ember-gold".to_string()];
+        let args = vec!["--tui-theme".to_string(), "amber".to_string()];
 
         let options = parse_startup_options(&args).unwrap();
 
-        assert_eq!(options.tui_theme.as_deref(), Some("ember-gold"));
+        assert_eq!(options.tui_theme.as_deref(), Some("amber"));
         assert_eq!(options.summary_overrides(), vec!["--tui-theme".to_string()]);
+    }
+
+    #[test]
+    fn tui_skin_override_preserves_other_core_ui_preferences() {
+        let base = viden_types::ResolvedUiPreferences {
+            locale: viden_types::LocaleId::ZhCn,
+            skin: viden_types::UiSkin::Aurora,
+            mode: viden_types::UiColorMode::Light,
+            density: viden_types::UiDensity::Comfy,
+            motion: viden_types::UiMotion::Reduced,
+            diagnostics: Vec::new(),
+        };
+
+        let resolved = ui_preferences_with_skin(&base, "ice");
+
+        assert_eq!(resolved.locale, viden_types::LocaleId::ZhCn);
+        assert_eq!(resolved.skin, viden_types::UiSkin::Ice);
+        assert_eq!(resolved.mode, viden_types::UiColorMode::Light);
+        assert_eq!(resolved.density, viden_types::UiDensity::Comfy);
+        assert_eq!(resolved.motion, viden_types::UiMotion::Reduced);
     }
 
     #[test]
@@ -1503,8 +1565,18 @@ mod tests {
             Err(err) => err,
         };
 
-        assert!(err.contains("aurora-cyan"), "{err}");
-        assert!(err.contains("monochrome-ice"), "{err}");
+        assert!(err.contains("aurora"), "{err}");
+        assert!(err.contains("phosphor"), "{err}");
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_core_client_startup_check() {
+        let args = vec!["--tui-startup-check".to_string()];
+
+        let options = parse_startup_options(&args).expect("startup check flag");
+
+        assert!(options.tui_startup_check);
+        assert!(options.should_start_tui());
     }
 
     #[test]

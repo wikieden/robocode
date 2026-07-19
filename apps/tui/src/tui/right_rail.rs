@@ -1,5 +1,5 @@
 use super::{
-    lane::pty_label,
+    lane_presenter::pty_label,
     panel::panel,
     state::{AgentTask, TuiState, agent_tasks},
     text::truncate,
