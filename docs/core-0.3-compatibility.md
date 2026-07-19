@@ -82,17 +82,21 @@ blocked recovery facts and remain bound to their durable session owner.
 
 Ordinary tool and lane approval responses observe supervisor command ordering
 with permission and mode changes, but use two deliberately different generation
-semantics. Ordinary tools consult the submitted permission-control generation,
-so an accepted permission or work-mode command invalidates a blocked approval
-immediately, even before the worker applies that command. Lane requests instead
-capture the worker's applied generation atomically with the permission engine it
-describes; that generation advances only after the queued control command is
-successfully applied. Permission and work-mode controls persist their complete
-session-metadata batch before publishing the new live snapshot or permission
-engine; a failed batch leaves the engine, snapshot, lane pair, and applied
-generation unchanged. Any intervening applied permission or work-mode generation
-change invalidates the pending lane approval even if the visible flags later
-return to their original values. Once a lane response is accepted, the
+semantics. Ordinary tools consult submitted permission-control reservations, so
+a queued permission or work-mode command invalidates a blocked approval
+immediately, before the worker applies that command. A reservation commits only
+after its complete SessionMeta batch persists. A failed reservation is removed,
+so it does not invalidate an approval that predates it; its monotonic generation
+is never decremented or reused, which keeps later queued controls paired with
+their own generations. Lane requests instead capture the worker's applied
+generation atomically with the permission engine it describes; that generation
+advances only after the queued control command is successfully applied.
+Permission and work-mode controls persist their complete session-metadata batch
+before publishing the new live snapshot or permission engine; a failed batch
+leaves the engine, snapshot, lane pair, and applied generation unchanged. Any
+intervening applied permission or work-mode generation change invalidates the
+pending lane approval even if the visible flags later return to their original
+values. Once a lane response is accepted, the
 supervisor waits
 for its terminal `ApprovalResolved` and effect/persistence completion before it
 processes or publishes a later permission snapshot. Lane approval-derived

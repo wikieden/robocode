@@ -1592,17 +1592,32 @@ fn failed_permission_controls_leave_lane_engine_and_epoch_unchanged() {
         supervisor
             .send_command_from_owner(
                 lane_owner,
-                format!("deny_after_failed_{case}"),
+                format!("allow_after_failed_{case}"),
                 RuntimeCommand::RespondToApproval {
                     request_id: request_id.clone(),
-                    response: viden_types::ApprovalResponse::deny(None),
+                    response: viden_types::ApprovalResponse::allow_once(None),
                 },
             )
             .unwrap();
         collect_envelopes_until(&supervisor, |events| {
-            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Deny, .. }, .. }) if resolved == &request_id))
+            events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::ApprovalResolved {
+                            request_id: resolved,
+                            decision: viden_types::ApprovalDecision::Allow { .. },
+                            ..
+                        },
+                        ..
+                    }) if resolved == &request_id
+                )
+            })
         });
-        assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+        assert!(
+            effects.calls.lock().unwrap().contains(&"apply".to_string()),
+            "{case} AllowOnce must retain the lane approval epoch from before the failed control"
+        );
     }
 }
 

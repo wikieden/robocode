@@ -2218,6 +2218,95 @@ fn runtime_supervisor_permission_downgrade_precedes_pending_tool_allow() {
 }
 
 #[test]
+fn runtime_supervisor_failed_permission_control_preserves_pending_tool_approval_epoch() {
+    for (case, successful_control_appends, control) in [
+        (
+            "permission",
+            0,
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        ),
+        (
+            "work-mode",
+            1,
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_failed_{case}_epoch_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_failed_{case}_epoch_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        engine.fail_after_transcript_appends_for_test(successful_control_appends);
+        let supervisor = RuntimeSupervisor::start(engine);
+        let owner = owner_for_lane(&format!("lane-failed-{case}-epoch"));
+        let request_id = format!("tool-approval-before-failed-{case}-control");
+        let response_receiver =
+            supervisor.insert_pending_tool_approval_for_test(request_id.clone(), owner.clone());
+
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("failed_{case}_control"), control)
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::Error { error }
+                        if error.message.contains("injected transcript append failure")
+                )
+            })
+        });
+
+        supervisor
+            .send_command_from_owner(
+                owner,
+                format!("allow_after_failed_{case}_control"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        let resolved = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: ApprovalDecision::Allow { .. },
+                        ..
+                    } if resolved == &request_id
+                )
+            })
+        });
+
+        assert!(
+            resolved.iter().any(|event| matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id: resolved,
+                    decision: ApprovalDecision::Allow { .. },
+                    ..
+                } if resolved == &request_id
+            )),
+            "{case} AllowOnce must preserve the outstanding ordinary tool approval"
+        );
+        assert!(
+            matches!(
+                response_receiver.recv_timeout(Duration::from_secs(2)),
+                Ok(ApprovalResponse {
+                    decision: ApprovalDecision::Allow { .. },
+                    ..
+                })
+            ),
+            "{case} failed control must not make the earlier tool approval stale"
+        );
+    }
+}
+
+#[test]
 fn runtime_supervisor_rejects_tool_approval_after_permission_epoch_round_trip() {
     for (case, downgrade, restore) in [
         (

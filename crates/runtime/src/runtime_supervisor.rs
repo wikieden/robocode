@@ -67,22 +67,17 @@ struct ActiveRuntimeControl {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct PermissionControlState {
+struct PermissionControlValues {
     work_mode: WorkMode,
     permission_level: PermissionLevel,
-    epoch: u64,
 }
 
-impl PermissionControlState {
+impl PermissionControlValues {
     fn blocks_mutation(self) -> bool {
         self.work_mode != WorkMode::Build || self.permission_level == PermissionLevel::ReadOnly
     }
 
-    fn epoch(self) -> u64 {
-        self.epoch
-    }
-
-    fn apply(&mut self, command: &RuntimeCommand) -> u64 {
+    fn apply(&mut self, command: &RuntimeCommand) {
         match command {
             RuntimeCommand::SetWorkMode { mode } => {
                 self.work_mode = *mode;
@@ -91,7 +86,6 @@ impl PermissionControlState {
                 } else if *mode != WorkMode::Build {
                     self.permission_level = PermissionLevel::ReadOnly;
                 }
-                self.epoch = self.epoch.saturating_add(1);
             }
             RuntimeCommand::SetPermissionLevel { level } => {
                 self.permission_level = *level;
@@ -100,11 +94,98 @@ impl PermissionControlState {
                 } else if self.work_mode == WorkMode::Plan {
                     self.work_mode = WorkMode::Build;
                 }
-                self.epoch = self.epoch.saturating_add(1);
             }
             _ => {}
         }
-        self.epoch
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SubmittedPermissionControl {
+    epoch: u64,
+    command: RuntimeCommand,
+}
+
+#[derive(Debug, Clone)]
+struct PermissionControlState {
+    applied: PermissionControlValues,
+    applied_epoch: u64,
+    submitted: Vec<SubmittedPermissionControl>,
+    next_epoch: u64,
+}
+
+impl PermissionControlState {
+    fn new(work_mode: WorkMode, permission_level: PermissionLevel) -> Self {
+        Self {
+            applied: PermissionControlValues {
+                work_mode,
+                permission_level,
+            },
+            applied_epoch: 0,
+            submitted: Vec::new(),
+            next_epoch: 0,
+        }
+    }
+
+    fn projected(&self) -> (PermissionControlValues, u64) {
+        let mut values = self.applied;
+        for submitted in &self.submitted {
+            values.apply(&submitted.command);
+        }
+        let epoch = self
+            .submitted
+            .last()
+            .map(|submitted| submitted.epoch)
+            .unwrap_or(self.applied_epoch);
+        (values, epoch)
+    }
+
+    fn blocks_mutation(&self) -> bool {
+        self.projected().0.blocks_mutation()
+    }
+
+    fn epoch(&self) -> u64 {
+        self.projected().1
+    }
+
+    // A generation is reserved at submission. Failure removes only that
+    // reservation: decrementing/reusing it can mispair a later queued control.
+    fn reserve(&mut self, command: &RuntimeCommand) -> u64 {
+        self.next_epoch = self.next_epoch.saturating_add(1);
+        let epoch = self.next_epoch;
+        self.submitted.push(SubmittedPermissionControl {
+            epoch,
+            command: command.clone(),
+        });
+        epoch
+    }
+
+    fn commit(&mut self, epoch: u64) -> Result<(), String> {
+        let Some(submitted) = self.submitted.first() else {
+            return Err(format!(
+                "permission control epoch `{epoch}` is not submitted"
+            ));
+        };
+        if submitted.epoch != epoch {
+            return Err(format!(
+                "permission control epoch `{epoch}` cannot commit before `{}`",
+                submitted.epoch
+            ));
+        }
+        let submitted = self.submitted.remove(0);
+        self.applied.apply(&submitted.command);
+        self.applied_epoch = epoch;
+        Ok(())
+    }
+
+    fn reject(&mut self, epoch: u64) {
+        if let Some(index) = self
+            .submitted
+            .iter()
+            .position(|submitted| submitted.epoch == epoch)
+        {
+            self.submitted.remove(index);
+        }
     }
 }
 
@@ -321,11 +402,10 @@ impl RuntimeSupervisor {
         lane_effects: Arc<dyn LaneEffectExecutor>,
         lane_persistence: Option<Arc<dyn LanePersistence>>,
     ) -> Self {
-        let permission_control = Arc::new(Mutex::new(PermissionControlState {
-            work_mode: engine.work_mode(),
-            permission_level: engine.permission_level(),
-            epoch: 0,
-        }));
+        let permission_control = Arc::new(Mutex::new(PermissionControlState::new(
+            engine.work_mode(),
+            engine.permission_level(),
+        )));
         let (command_sender, command_receiver) = mpsc::channel();
         let (event_sender, event_receiver) = mpsc::channel();
         let active_control: ActiveControlRegistry = Arc::new(Mutex::new(BTreeMap::new()));
@@ -479,6 +559,36 @@ impl RuntimeSupervisor {
             .lane_permission_snapshot_for_test(lane_id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn insert_pending_tool_approval_for_test(
+        &self,
+        request_id: String,
+        owner: RuntimeOwner,
+    ) -> Receiver<ApprovalResponse> {
+        let (sender, receiver) = mpsc::channel();
+        let permission_epoch = self
+            .permission_control
+            .lock()
+            .expect("permission control state")
+            .epoch();
+        insert_pending_approval(
+            &self.pending_approvals,
+            request_id,
+            PendingApproval {
+                owner: owner.clone(),
+                audit_id: "test-tool-approval".to_string(),
+                expires_at: u64::MAX,
+                permission_epoch,
+                allowed_scopes: allowed_approval_scopes(&owner, &[]),
+                target: PendingApprovalTarget::Channel {
+                    owner_id: "test-tool-approval".to_string(),
+                    sender,
+                },
+            },
+        );
+        receiver
+    }
+
     pub fn send_command(
         &self,
         command_id: impl Into<String>,
@@ -511,12 +621,12 @@ impl RuntimeSupervisor {
                 self.permission_control
                     .lock()
                     .map_err(|_| "permission control state poisoned".to_string())?
-                    .apply(&command),
+                    .reserve(&command),
             )
         } else {
             None
         };
-        match command {
+        let result = match command {
             RuntimeCommand::CancelActiveTurn => {
                 if self.lane_supervisor.cancel(&owner, command_id.clone())? {
                     return Ok(());
@@ -656,7 +766,7 @@ impl RuntimeSupervisor {
                     }
                     approvals.remove(&request_id).expect("pending approval")
                 };
-                let permission_control = *self
+                let permission_control = self
                     .permission_control
                     .lock()
                     .map_err(|_| "permission control state poisoned".to_string())?;
@@ -811,7 +921,14 @@ impl RuntimeSupervisor {
                     submitted_permission_epoch,
                 })
                 .map_err(|err| format!("runtime supervisor stopped: {err}")),
+        };
+        if result.is_err()
+            && let Some(epoch) = submitted_permission_epoch
+            && let Ok(mut control) = self.permission_control.lock()
+        {
+            control.reject(epoch);
         }
+        result
     }
 
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<RuntimeEvent> {
@@ -1058,11 +1175,28 @@ fn run_supervisor_worker(
                         match engine.handle_runtime_command(command_id, command, &mut approver) {
                             Ok(events) => {
                                 if let Some(epoch) = submitted_permission_epoch {
+                                    if let Err(error) = permission_control
+                                        .lock()
+                                        .map_err(|_| {
+                                            "permission control state poisoned".to_string()
+                                        })
+                                        .and_then(|mut control| control.commit(epoch))
+                                    {
+                                        emit_error(&event_bus, owner, error);
+                                        continue;
+                                    }
                                     applied_permission_epoch = epoch;
                                 }
                                 emit_events(&event_bus, owner, events);
                             }
-                            Err(err) => emit_error(&event_bus, owner, err),
+                            Err(err) => {
+                                if let Some(epoch) = submitted_permission_epoch
+                                    && let Ok(mut control) = permission_control.lock()
+                                {
+                                    control.reject(epoch);
+                                }
+                                emit_error(&event_bus, owner, err);
+                            }
                         }
                     }
                 }
