@@ -17,6 +17,7 @@ mod doctor;
 mod event_journal;
 mod extension_commands;
 mod formatting;
+mod frontend_services;
 mod git_commands;
 mod lane_runtime;
 mod lane_supervisor;
@@ -60,8 +61,8 @@ use viden_types::{
     AgentDagRecord, AgentTaskRecord, ConflictBounce, ContextBundleRecord, ContractRecord,
     CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord, MemoryEntry,
     MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, TaskRecord, WorkMode,
-    now_timestamp,
+    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, TaskRecord, UiPreferences,
+    WorkMode, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -293,6 +294,8 @@ pub struct SessionEngine {
     provider_request_timeout_secs: u64,
     provider_max_retries: u32,
     user_config_path_override: Option<PathBuf>,
+    ui_cli_override: Option<UiPreferences>,
+    ui_system_context: UiPreferences,
     tools: ToolRegistry,
     permissions: PermissionEngine,
     store: SessionStore,
@@ -443,6 +446,8 @@ impl SessionEngine {
             provider_request_timeout_secs: 90,
             provider_max_retries: 1,
             user_config_path_override: None,
+            ui_cli_override: None,
+            ui_system_context: UiPreferences::client_default(),
             tools: ToolRegistry::builtin(),
             permissions: PermissionEngine::new(&cwd),
             store,
@@ -692,7 +697,7 @@ impl SessionEngine {
             .unwrap_or_default()
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_user_config_path_override(&mut self, path: PathBuf) {
         self.user_config_path_override = Some(path);
     }

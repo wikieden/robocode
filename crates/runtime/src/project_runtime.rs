@@ -244,9 +244,12 @@ impl SessionEngine {
                     format!("provider={provider_id} backend={backend_id}"),
                 )
             }
-            _ => self
-                .trust_mutation_permission_descriptor(command)?
-                .ok_or_else(|| "command is not a supervised runtime mutation".to_string())?,
+            _ => match self.ui_preference_mutation_descriptor(command)? {
+                Some(descriptor) => descriptor,
+                None => self
+                    .trust_mutation_permission_descriptor(command)?
+                    .ok_or_else(|| "command is not a supervised runtime mutation".to_string())?,
+            },
         };
         let tool_name = format!("workflow_{action}");
         let tool = ToolSpec {

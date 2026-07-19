@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod agent;
 mod approval;
 mod context;
+mod frontend_services;
 mod lsp;
 mod project;
 mod protocol;
@@ -22,6 +23,7 @@ pub use context::{
     CostUsageOutcome, CostUsageRecord, EvidenceCanonicalizationRecord,
     ProviderCacheObservationRecord, TokenUsage,
 };
+pub use frontend_services::UiPreferencePatch;
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
     CredentialHandle, CredentialRequestId, CredentialStatus, ProjectConfigPreview,

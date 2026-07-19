@@ -1,11 +1,15 @@
 use std::path::{Path, PathBuf};
 
-use viden_config::{CliOverrides, ResolvedConfig, load_config};
+use viden_config::{
+    CliOverrides, ResolvedConfig, load_config, system_ui_preferences, user_ui_config_path,
+};
 use viden_provider::{
     ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
 };
 use viden_session::SessionStore;
-use viden_types::{PermissionLevel, RuntimeSnapshot, SessionSummary, TranscriptEntry, WorkMode};
+use viden_types::{
+    PermissionLevel, RuntimeSnapshot, SessionSummary, TranscriptEntry, UiPreferences, WorkMode,
+};
 
 use crate::{RuntimeResumeError, RuntimeResumeRequest, SessionEngine};
 
@@ -50,12 +54,19 @@ pub struct RuntimeBootstrap {
 /// loading, config resolution, session storage, permission state, and runtime
 /// snapshot construction stay on the shared Core/runtime path.
 pub fn bootstrap_runtime(request: RuntimeBootstrapRequest) -> Result<RuntimeBootstrap, String> {
+    let ui_cli_override = request.cli_overrides.ui;
+    let ui_config_path =
+        user_ui_config_path(&request.cwd, request.cli_overrides.config_path.as_deref())?;
+    let ui_system_context = system_ui_preferences();
     let resolved_config = load_config(&request.cwd, &request.cli_overrides)?;
-    bootstrap_runtime_with_resolved_config_and_resume(
+    bootstrap_runtime_with_context(
         &request.cwd,
         resolved_config,
         request.startup_overrides,
         request.resume,
+        ui_cli_override,
+        ui_config_path,
+        ui_system_context,
     )
 }
 
@@ -72,6 +83,26 @@ pub fn bootstrap_runtime_with_resolved_config_and_resume(
     resolved_config: ResolvedConfig,
     startup_overrides: Vec<String>,
     resume: Option<RuntimeResumeRequest>,
+) -> Result<RuntimeBootstrap, String> {
+    bootstrap_runtime_with_context(
+        cwd,
+        resolved_config,
+        startup_overrides,
+        resume,
+        None,
+        user_ui_config_path(cwd, None)?,
+        system_ui_preferences(),
+    )
+}
+
+fn bootstrap_runtime_with_context(
+    cwd: &Path,
+    resolved_config: ResolvedConfig,
+    startup_overrides: Vec<String>,
+    resume: Option<RuntimeResumeRequest>,
+    ui_cli_override: Option<UiPreferences>,
+    ui_config_path: PathBuf,
+    ui_system_context: UiPreferences,
 ) -> Result<RuntimeBootstrap, String> {
     let resolved_resume = match resume {
         Some(request) => Some(resolve_bootstrap_resume(cwd, &resolved_config, request)?),
@@ -120,6 +151,7 @@ pub fn bootstrap_runtime_with_resolved_config_and_resume(
         resume_session_id,
         runtime_snapshot,
     )?;
+    engine.set_ui_preference_context(ui_cli_override, Some(ui_config_path), ui_system_context);
     if let Some((summary, entries)) = resolved_resume {
         engine
             .activate_resolved_session(summary, entries)

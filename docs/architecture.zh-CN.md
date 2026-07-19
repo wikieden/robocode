@@ -56,7 +56,7 @@ flowchart TB
   TUI 或 GUI 依赖；同时拥有可信的一次性 credential staging，保证 secret bytes
   不进入序列化 commands、events、transcripts 或 workflow audit；Core 0.3.2 gate
   前不把这些 host services 作为 frontend handshake capability 对外公布
-- `crates/config`：配置加载、优先级合并和启动默认值
+- `crates/config`：配置加载、优先级合并、启动默认值，以及保留未知字段的原子 user UI 偏好持久化
 - `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
 - `crates/plugin-api`：共享 plugin manifest、capability、permission、provider descriptor 和 ABI symbol
@@ -80,6 +80,10 @@ flowchart TB
 3. 项目级 `.viden/config.toml`
 4. 全局配置文件
 5. 内置默认值
+
+这条通用链适用于 provider 与 runtime 配置。个人 UI 偏好使用独立优先级：安全 CLI UI
+override、已存储 user `[ui]`、system 解析、内置英文。项目级 `.viden/config.toml`
+不能选择或持久化个人 locale、skin/mode、density 或 motion。
 
 当前已覆盖的配置项：
 
@@ -182,6 +186,12 @@ bytes，获得 opaque request id，然后经 runtime command path 发送
 `StoreCredentialHandle`。Runtime 只持久化安全的 `CredentialHandle` metadata；platform
 credential sink 只会在 workspace/provider/backend binding、TTL 和一次性消费检查后收到
 secret。
+
+个人 UI 偏好 mutation 也遵守 runtime 边界。`SetUiPreferences` 与
+`ResetUiPreferences` 会先校验，再进入 supervised permission，并在执行侧重新检查
+permission；随后原子更新 user config 并发出 `UiPreferencesUpdated`。Reducer 同步更新
+顶层 view fact 与 snapshot 副本。恢复权威仍是 user config，不会把该 event 再写入
+project workflow JSONL 形成第二套持久化权威。
 
 ## 终端展示
 

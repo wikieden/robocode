@@ -386,6 +386,28 @@ impl SessionEngine {
                     );
                 }
             },
+            RuntimeCommand::SetUiPreferences { patch } => {
+                match self.set_ui_preferences(&patch, approver) {
+                    Ok(preference_events) => append_resequenced(&mut events, preference_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
+                }
+            }
+            RuntimeCommand::ResetUiPreferences => match self.reset_ui_preferences(approver) {
+                Ok(preference_events) => append_resequenced(&mut events, preference_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
             RuntimeCommand::SubmitUserInput { content } => {
                 match self.process_runtime_input_with_approval(&content, approver) {
                     Ok(input_events) => append_resequenced(&mut events, input_events),
@@ -5387,6 +5409,10 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             backend_id: redact_identifier_for_event(backend_id),
             credential_request_id: redact_identifier_for_event(credential_request_id),
         },
+        RuntimeCommand::SetUiPreferences { patch } => {
+            RuntimeCommand::SetUiPreferences { patch: *patch }
+        }
+        RuntimeCommand::ResetUiPreferences => RuntimeCommand::ResetUiPreferences,
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
             content: redact_command_text(content),
         },

@@ -88,7 +88,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
-| UI preferences | locale、skin/mode、density、motion | `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`、preference diagnostics | 通过 Core-owned config path 配置 | schema `1` 已冻结 |
+| UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
 
 ## Event 消费规则
 
@@ -295,9 +295,14 @@ Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
 
 Schema `1` 暴露两端都需要的配置值，但不规定布局：
 
-- 前端消费的 effective fact 是
+- 前端消费的 effective fact 是同步的 `RuntimeViewState.ui_preferences` 与
   `RuntimeSnapshot.ui_preferences: ResolvedUiPreferences`；前端只渲染该值，不能在
   本地重新解析偏好优先级；
+- client 通过 `SetUiPreferences` 发送 typed `UiPreferencePatch`，或通过
+  `ResetUiPreferences` 删除完整的用户 `[ui]` table。本地视觉 preview 不代表持久化成功；
+- 只有成功的 `UiPreferencesUpdated { resolved, persisted, diagnostics }` 才确认写入。
+  reset 后 `persisted` 为 `None`，`resolved` 仍会反映安全 CLI override 或 system/内置
+  fallback；
 
 - 内置 effective locale：`en`、`zh-CN`；`system` 是解析输入，不是第三套内置翻译；
 - skin：`aurora`、`ice`、`mono`、`amber`、`phosphor`；
@@ -306,9 +311,20 @@ Schema `1` 暴露两端都需要的配置值，但不规定布局：
 - density：`compact`、`regular`、`comfy`；
 - motion policy：`system`、`reduced`、`full`。
 
-`amber` 与 `phosphor` 仅支持 dark。无效 effective pair 回退到安全的
-`aurora/dark` + regular density，并发出 `ui.invalid_skin_mode_pair` diagnostic。
-偏好优先级是 CLI、user、project、client default。
+`amber` 与 `phosphor` 仅支持 dark。持久化 mutation 会在任何 approval prompt 或文件
+effect 之前校验完整结果；`amber/light` 这样的无效组合会直接被拒绝。旧版无效输入在
+启动时仍会回退到安全的 `aurora/dark` + regular density，并发出稳定的
+`ui.invalid_skin_mode_pair` diagnostic。
+
+个人偏好优先级为安全 CLI UI override、已存储 user `[ui]`、system 解析、内置英文。
+Project `.viden/config.toml` 绝不决定个人 locale、外观、density 或 motion，也绝不作为
+个人偏好写入目标。Core 只修改五个已知 `[ui]` keys，保留无关 top-level 与未来
+`[ui]` keys，并通过同目录 `0600` temp、file sync、atomic replacement 与 directory sync
+完成写入。TOML 损坏、profile 无效，或 Plan/Review/Explore 拒绝时，bytes、mtime 与
+temp-file 状态都保持不变。
+
+恢复权威是 user config。`UiPreferencesUpdated` 只属于当前 runtime/frontend journal
+projection，不会再复制一份到 project workflow JSONL。
 
 设计入口层级是规范，不得被旧截图或生成式截图替代：
 

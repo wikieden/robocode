@@ -34,7 +34,7 @@ pub use viden_types::{
     RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView,
     ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
     TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
-    UiPreferences, UiSkin, WorkMode,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -69,6 +69,7 @@ mod tests {
         assert!(std::any::type_name::<AgentTaskStatus>().contains("AgentTaskStatus"));
         assert!(std::any::type_name::<MergeGateStatus>().contains("MergeGateStatus"));
         assert!(std::any::type_name::<ResolvedUiPreferences>().contains("ResolvedUiPreferences"));
+        assert!(std::any::type_name::<UiPreferencePatch>().contains("UiPreferencePatch"));
         assert!(std::any::type_name::<UiSkin>().contains("UiSkin"));
         assert!(std::any::type_name::<WorkMode>().contains("WorkMode"));
         assert!(std::any::type_name::<ProjectProbe>().contains("ProjectProbe"));

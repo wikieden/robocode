@@ -1249,6 +1249,8 @@ fn run_supervisor_worker(
                     }
                     command @ (RuntimeCommand::ConfirmProjectConfig { .. }
                     | RuntimeCommand::StoreCredentialHandle { .. }
+                    | RuntimeCommand::SetUiPreferences { .. }
+                    | RuntimeCommand::ResetUiPreferences
                     | RuntimeCommand::CreateHandoff { .. }
                     | RuntimeCommand::RequestReview { .. }
                     | RuntimeCommand::ConfirmContract { .. }
