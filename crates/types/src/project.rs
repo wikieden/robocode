@@ -60,6 +60,25 @@ pub struct CredentialHandle {
     pub status: CredentialStatus,
 }
 
+/// Opaque, one-use credential staging handle.
+///
+/// The request id is safe to serialize in runtime commands; secret bytes stay
+/// behind the trusted local host boundary and are never part of this DTO.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CredentialRequestId {
+    id: String,
+}
+
+impl CredentialRequestId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self { id: id.into() }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +115,15 @@ mod tests {
             backend_id: "keychain:item".to_string(),
             status: CredentialStatus::Available,
         };
+        let request_id = CredentialRequestId::new("crq_1");
+        assert_eq!(
+            serde_json::from_value::<CredentialRequestId>(
+                serde_json::to_value(&request_id).unwrap()
+            )
+            .unwrap(),
+            request_id
+        );
+        assert_eq!(request_id.id(), "crq_1");
         let kinds = [
             RuntimeEventKind::ProjectProbed { probe },
             RuntimeEventKind::ProjectConfigPreviewed {

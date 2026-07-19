@@ -335,6 +335,12 @@ struct CountingCredentialBackend {
     calls: Arc<AtomicUsize>,
 }
 
+struct MismatchedCredentialBackend;
+
+struct FailingOnceCredentialBackend {
+    calls: Arc<AtomicUsize>,
+}
+
 impl CredentialBackend for CountingCredentialBackend {
     fn store(
         &self,
@@ -348,6 +354,37 @@ impl CredentialBackend for CountingCredentialBackend {
             backend_id: backend_id.to_string(),
             status: CredentialStatus::Available,
         })
+    }
+}
+
+impl CredentialBackend for MismatchedCredentialBackend {
+    fn store(
+        &self,
+        _provider_id: &str,
+        _backend_id: &str,
+        _credential_request_id: &str,
+    ) -> Result<CredentialHandle, String> {
+        Ok(CredentialHandle {
+            provider_id: "other-provider".to_string(),
+            backend_id: "other-backend:item".to_string(),
+            status: CredentialStatus::Available,
+        })
+    }
+}
+
+impl CredentialBackend for FailingOnceCredentialBackend {
+    fn store(
+        &self,
+        provider_id: &str,
+        backend_id: &str,
+        credential_request_id: &str,
+    ) -> Result<CredentialHandle, String> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err("platform sink unavailable".to_string());
+        }
+        Err(format!(
+            "credential request `{credential_request_id}` is missing for provider `{provider_id}` backend `{backend_id}`"
+        ))
     }
 }
 
@@ -396,6 +433,140 @@ fn project_runtime_rejects_secret_like_or_path_like_opaque_credential_ids() {
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0, "case {index}");
     }
+}
+
+#[test]
+fn project_runtime_default_credential_backend_is_unavailable_and_safe() {
+    let root = temp_dir("project_default_credential_backend");
+    let mut engine =
+        SessionEngine::new(&root, Box::new(SequenceProvider::new(Vec::new()))).unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "default-credential",
+            RuntimeCommand::StoreCredentialHandle {
+                provider_id: "sequence".to_string(),
+                backend_id: "test-keychain:item-1".to_string(),
+                credential_request_id: "request-1".to_string(),
+            },
+            &mut |_| ApprovalResponse::allow_once(None),
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "default-credential"
+                && reason.contains("credential backend")
+                && !reason.contains("sk-test")
+    )));
+}
+
+#[test]
+fn project_runtime_denies_plan_mode_before_credential_backend_consumption() {
+    let root = temp_dir("project_plan_credential_denial");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let backend = Arc::new(CountingCredentialBackend {
+        calls: Arc::clone(&calls),
+    });
+    let mut engine = SessionEngine::new(&root, Box::new(SequenceProvider::new(Vec::new())))
+        .unwrap()
+        .with_credential_backend(backend);
+    engine.set_work_mode(WorkMode::Plan).unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "plan-credential",
+            RuntimeCommand::StoreCredentialHandle {
+                provider_id: "sequence".to_string(),
+                backend_id: "test-keychain:item-1".to_string(),
+                credential_request_id: "request-1".to_string(),
+            },
+            &mut |_| ApprovalResponse::allow_once(None),
+        )
+        .unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("Plan")
+    )));
+}
+
+#[test]
+fn project_runtime_rejects_mismatched_credential_backend_handles_without_state() {
+    let root = temp_dir("project_mismatched_credential");
+    let backend = Arc::new(MismatchedCredentialBackend);
+    let mut engine = SessionEngine::new(&root, Box::new(SequenceProvider::new(Vec::new())))
+        .unwrap()
+        .with_credential_backend(backend);
+
+    let events = engine
+        .handle_runtime_command(
+            "mismatch-credential",
+            RuntimeCommand::StoreCredentialHandle {
+                provider_id: "sequence".to_string(),
+                backend_id: "test-keychain:item-1".to_string(),
+                credential_request_id: "request-1".to_string(),
+            },
+            &mut |_| ApprovalResponse::allow_once(None),
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("mismatched")
+    )));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::CredentialHandleStored { .. }))
+    );
+}
+
+#[test]
+fn project_runtime_sink_failure_does_not_publish_secret_or_handle() {
+    let root = temp_dir("project_sink_failure_credential");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let backend = Arc::new(FailingOnceCredentialBackend {
+        calls: Arc::clone(&calls),
+    });
+    let mut engine = SessionEngine::new(&root, Box::new(SequenceProvider::new(Vec::new())))
+        .unwrap()
+        .with_credential_backend(backend);
+
+    let command = RuntimeCommand::StoreCredentialHandle {
+        provider_id: "sequence".to_string(),
+        backend_id: "test-keychain:item-1".to_string(),
+        credential_request_id: "request-1".to_string(),
+    };
+    let events = engine
+        .handle_runtime_command("sink-failure", command.clone(), &mut |_| {
+            ApprovalResponse::allow_once(None)
+        })
+        .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("platform sink unavailable")
+                && !reason.contains("sk-test")
+    )));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::CredentialHandleStored { .. }))
+    );
+
+    let retried = engine
+        .handle_runtime_command("sink-retry", command, &mut |_| {
+            ApprovalResponse::allow_once(None)
+        })
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(retried.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("credential request")
+    )));
 }
 
 impl CredentialBackend for SeededCredentialBackend {

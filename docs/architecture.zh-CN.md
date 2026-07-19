@@ -53,8 +53,9 @@ flowchart TB
 - `apps/tui`：终端 frontend app 边界；完整 TUI render/input loop 后续应迁移到这里
 - `crates/core`：稳定 runtime facade，供客户端导入；拥有内部 pre-release
   `LocalCoreHost` workspace binding，并重导出共享 client/contract 类型，不引入
-  TUI 或 GUI 依赖；Core 0.3.2 gate 前不把 host 作为 frontend handshake capability
-  对外公布
+  TUI 或 GUI 依赖；同时拥有可信的一次性 credential staging，保证 secret bytes
+  不进入序列化 commands、events、transcripts 或 workflow audit；Core 0.3.2 gate
+  前不把这些 host services 作为 frontend handshake capability 对外公布
 - `crates/config`：配置加载、优先级合并和启动默认值
 - `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
@@ -175,6 +176,12 @@ Merge Gate 校验 canonical evidence，不能只信 compact summary。可选 ext
 shared contracts 消费状态，不能直接依赖 context、runtime、provider、tool 或 workflow
 internals；CLI 现在使用与 `LocalCoreHost` 相同的 `viden-runtime` bootstrap
 路径，再由 Core host 把 supervisor 包装为 transport-neutral Core client。
+
+Credential ingress 也遵守同一边界。本地前端只能通过已绑定的 host client 暂存原始
+bytes，获得 opaque request id，然后经 runtime command path 发送
+`StoreCredentialHandle`。Runtime 只持久化安全的 `CredentialHandle` metadata；platform
+credential sink 只会在 workspace/provider/backend binding、TTL 和一次性消费检查后收到
+secret。
 
 ## 终端展示
 

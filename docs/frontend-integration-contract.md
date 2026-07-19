@@ -79,6 +79,7 @@ self-referential inside the payload commit.
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
 | Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | internal pre-release service; not a handshake capability until Task 6 |
+| Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | internal Core `0.3.2` candidate; not a handshake capability until Task 6 |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
@@ -160,6 +161,17 @@ nested fields are rejected. Provider, backend, and ingress identifiers must be
 bounded opaque ASCII identifiers, not paths or secret-like labels. Serialized credential commands,
 events, transcript rows, and workflow audit never contain credential secret
 bytes.
+
+For local frontends, credential bytes cross only the trusted host API:
+`BoundCoreClient::stage_credential(provider_id, backend_id, SecretBytes)` returns
+a serializable `CredentialRequestId`. `SecretBytes` is not cloneable,
+debug-printable, or serializable and is zeroized on drop. The staged request is
+workspace-, provider-, and backend-bound, expires after five minutes, is capped
+by host capacity, and is removed exactly once before the platform credential
+sink is called. A wrong workspace/provider/backend cannot consume another
+workspace's request id; a sink failure does consume the request so replay cannot
+retry secret bytes. Until a platform sink is injected, production
+`LocalCoreHost` returns a typed unavailable error rather than storing secrets.
 
 Frontends must not synthesize successful state after sending a command. They
 should wait for `CommandAccepted` plus subsequent state events. If the command

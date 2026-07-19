@@ -74,6 +74,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
 | Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | 内部 pre-release service；Task 6 前不是 handshake capability |
+| Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | 内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
 | Mode and permissions | top bar、approval panel、permission picker | `RuntimeSnapshot.work_mode`、`RuntimeSnapshot.permission_level`、`ApprovalRequestView` | `SetWorkMode`、`SetPermissionLevel`、`RespondToApproval` | 已落地 |
@@ -152,6 +153,15 @@ schema，未知 root/nested field 一律拒绝。Provider、backend 与 ingress 
 上限的 opaque ASCII id，不能是 path 或 secret-like label。序列化的 credential
 commands、events、transcript rows 与 workflow audit 都不得包含 credential
 secret bytes。
+
+对于本地前端，credential bytes 只能穿过可信 host API：
+`BoundCoreClient::stage_credential(provider_id, backend_id, SecretBytes)` 返回可序列化的
+`CredentialRequestId`。`SecretBytes` 不能 clone、不能 debug 打印、不能序列化，并在
+drop 时清零。staged request 绑定 workspace、provider 和 backend，五分钟后过期，受 host
+capacity 限制，并且只在调用 platform credential sink 前精确移除一次。错误的
+workspace/provider/backend 不能消费其他 workspace 的 request id；sink 失败会消费该
+request，避免重放 secret bytes。在注入 platform sink 之前，production `LocalCoreHost`
+返回 typed unavailable error，而不是保存 secret。
 
 前端发送 command 后不能自行合成成功状态。必须等待 `CommandAccepted` 和后续状态事件。
 如果 command 被拒绝，渲染 `CommandRejected.reason`。
