@@ -151,6 +151,7 @@ impl ProviderOption {
 pub(super) enum InteractionPanel {
     Setup {
         selected: usize,
+        draft: String,
     },
     ConnectProvider {
         search: String,
@@ -160,10 +161,6 @@ pub(super) enum InteractionPanel {
     ProviderConfig {
         provider_id: String,
         selected: usize,
-    },
-    ProviderApiKey {
-        provider_id: String,
-        input: String,
     },
     ModelPicker {
         provider_id: Option<String>,
@@ -195,6 +192,7 @@ pub(super) struct OverlayState {
     pub(super) kind: OverlayKind,
     pub(super) filter: String,
     pub(super) selected: usize,
+    pub(super) selected_id: Option<String>,
 }
 
 impl OverlayState {
@@ -203,6 +201,7 @@ impl OverlayState {
             kind,
             filter: String::new(),
             selected: 0,
+            selected_id: None,
         }
     }
 }

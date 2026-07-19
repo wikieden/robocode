@@ -105,8 +105,10 @@ Workspace -> Project -> Lane / Session -> Subagent
   lane/agent 操作和多选项工作流也要沿用同一模式。除非是 `/config`、`/status`
   或 `/provider doctor` 这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
-- `/setup` 打开 Core-backed Setup lens 并发送 `ProbeProject`。Core 发布合法 preview 后，
-  selector 可以使用 immutable preview id/hash 发送 `ConfirmProjectConfig`。在
+- `/setup` 打开 Core-backed Setup lens 并发送 `ProbeProject`。selector 持有符合 Core D11
+  `[project]` 结构、包含必填 `name`/`pack` 且不含 secret 的 presentation draft。
+  Preview action 用 `PreviewProjectConfig` 发送 exact contents；只有 Core 返回的合法 preview
+  仍与当前 draft 完全一致时，才可使用 immutable preview id/hash 发送 `ConfirmProjectConfig`。在
   `ProjectConfigConfirmed` 到达之前 UI 始终显示 pending；本地 command acceptance 不能标记完成。
 
 - `/lanes` 从 `RuntimeViewState.lanes` 打开 Board lens。选择 lane 时只使用其 Core-owned
@@ -120,8 +122,9 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 - provider 和 model selector 的语义必须分开：`/provider`/`/connect` 是供应商连接流程，
   一级列表只展示供应商，例如 `DeepSeek`、`OpenRouter`，不要在供应商行里混入
-  key、endpoint、model 解释；选中供应商后，如果需要 key，进入独立 API key 输入面板，
-  key 必须脱敏显示且只保存环境变量名，不能保存明文；随后进入该供应商的 model picker。
+  credential、endpoint、model 解释。TUI 0.2.0 不接收 credential bytes，也不把它们重新包装成
+  slash-command 文本；它只显示 Core 已脱敏的 handle 元数据。没有可信 Core ingress 时，
+  detail surface 明确显示 unavailable 并保持只读。
   `/models` 是跨供应商模型选择器，必须按 provider 分组，用缩进表示 provider 下面的
   model；它只展示已经配置/激活过的 provider/model，不展示未配置 provider 的 descriptor
   默认模型。选中一行直接应用 provider/model 切换，不再先补全一条命令让用户猜怎么执行。

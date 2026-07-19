@@ -120,9 +120,12 @@ They must not degrade into status-only pages unless the command is explicitly a
 diagnostic or details command such as `/config`, `/status`, or `/provider
 doctor`.
 
-`/setup` opens the Core-backed Setup lens and sends `ProbeProject`. When Core
-publishes a valid preview, the selector may send `ConfirmProjectConfig` using
-its immutable preview id and hash. The UI stays pending until
+`/setup` opens the Core-backed Setup lens and sends `ProbeProject`. The selector
+holds a secret-free presentation draft shaped as Core D11 `[project]` data with
+required `name` and `pack` fields. Preview sends its exact contents through
+`PreviewProjectConfig`; only a valid Core preview whose exact contents still
+match the draft enables `ConfirmProjectConfig` with its immutable id and hash.
+The UI stays pending until
 `ProjectConfigConfirmed`; local command acceptance cannot mark it complete.
 
 `/lanes` opens the Board lens from `RuntimeViewState.lanes`. Selecting a lane
@@ -141,9 +144,10 @@ Provider/model selectors have separate semantics:
 
 - `/provider` and `/connect` are the supplier connection flow. The first-level
   list shows supplier names such as `DeepSeek` and `OpenRouter`; it must not
-  include key, endpoint, or model explanations on the supplier rows. Selecting a
-  provider opens API-key entry when needed, masks the typed key, saves only the
-  env var name, and then opens that provider's model picker.
+  include credential, endpoint, or model explanations on the supplier rows.
+  TUI 0.2.0 never accepts credential bytes or repackages them as slash-command
+  text. It displays only Core-masked handle metadata; when no trusted Core
+  ingress is available, the detail surface says so and remains read-only.
 - `/models` is the cross-provider model selector. Rows are grouped by provider
   with models indented underneath, and it only shows providers/models that have
   already been configured or activated. Descriptor-only defaults for

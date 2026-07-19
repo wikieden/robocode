@@ -54,7 +54,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             truncate(&approval.message, 68),
             format!("TARGET  {}", truncate(&approval.target.display, 56)),
             format!("INPUT   {}", truncate(&approval.input_preview, 56)),
-            "[Deny (n)]  [Diff]  [Approve (y)]".to_string(),
+            "PINNED · Ctrl-G Decisions · Enter select to focus".to_string(),
         ];
         let block = panel(
             "APPROVAL",
@@ -91,7 +91,6 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         let title = match state.ui.interaction_panel.as_ref() {
             Some(InteractionPanel::Setup { .. }) => "SETUP SELECTOR",
             Some(InteractionPanel::ConnectProvider { .. }) => "Connect a provider",
-            Some(InteractionPanel::ProviderApiKey { .. }) => "API key",
             Some(InteractionPanel::ModelPicker { .. }) => "Select model",
             Some(InteractionPanel::ProviderConfig { .. }) => "SELECT",
             None => unreachable!("panel presence checked above"),
@@ -164,7 +163,8 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
             "Ctrl-B board".to_string(),
             "Ctrl-G decisions".to_string(),
         ],
-        OverlayKind::Approval | OverlayKind::InteractionPanel => Vec::new(),
+        OverlayKind::Approval => focused_approval_rows(state),
+        OverlayKind::InteractionPanel => Vec::new(),
     };
     if !filter.is_empty() {
         let needle = filter.to_ascii_lowercase();
@@ -179,11 +179,26 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
 
 fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
-        Some(InteractionPanel::Setup { .. }) => {
-            let mut rows = vec!["Probe project through Core".to_string()];
-            if let Some(preview) = state.runtime.project_config_preview.as_ref() {
-                rows.push(format!("Confirm {} through Core", preview.relative_path));
+        Some(InteractionPanel::Setup { selected, draft }) => {
+            let mut rows = vec![
+                setup_action_row(*selected, 0, "Probe project through Core"),
+                setup_action_row(*selected, 1, "Preview exact draft through Core"),
+            ];
+            if state
+                .runtime
+                .project_config_preview
+                .as_ref()
+                .is_some_and(|preview| setup_preview_matches_draft(preview, draft))
+            {
+                let preview = state.runtime.project_config_preview.as_ref().unwrap();
+                rows.push(setup_action_row(
+                    *selected,
+                    2,
+                    &format!("Confirm {} through Core", preview.relative_path),
+                ));
             }
+            rows.push("DRAFT viden.toml (paste/type to edit)".to_string());
+            rows.extend(draft.lines().map(|line| format!("  {line}")));
             rows
         }
         Some(InteractionPanel::ConnectProvider { search, .. }) => state
@@ -201,20 +216,8 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
             .collect(),
         Some(InteractionPanel::ProviderConfig { provider_id, .. }) => vec![
             format!("configure {provider_id}"),
-            "API key".to_string(),
-            "Endpoint".to_string(),
-        ],
-        Some(InteractionPanel::ProviderApiKey { provider_id, input }) => vec![
-            format!("provider {provider_id}"),
-            state
-                .ui
-                .provider_catalog
-                .iter()
-                .find(|provider| provider.provider_id == *provider_id)
-                .and_then(|provider| provider.api_key_env.clone())
-                .unwrap_or_else(|| format!("{}_API_KEY", provider_id.to_ascii_uppercase())),
-            format!("key {}", "*".repeat(input.len())),
-            "Enter submit".to_string(),
+            "credential handles are read-only".to_string(),
+            "trusted ingress unavailable".to_string(),
         ],
         Some(InteractionPanel::ModelPicker {
             provider_id,
@@ -247,6 +250,40 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
     }
 }
 
+fn setup_action_row(selected: usize, index: usize, label: &str) -> String {
+    format!("{} {label}", if selected == index { ">" } else { " " })
+}
+
+fn focused_approval_rows(state: &TuiState) -> Vec<String> {
+    let Some(overlay) = state
+        .ui
+        .overlay
+        .as_ref()
+        .filter(|overlay| overlay.kind == OverlayKind::Approval)
+    else {
+        return Vec::new();
+    };
+    let approval = overlay.selected_id.as_ref().map_or_else(
+        || state.runtime.pending_approvals.get(overlay.selected),
+        |request_id| {
+            state
+                .runtime
+                .pending_approvals
+                .iter()
+                .find(|approval| &approval.id == request_id)
+        },
+    );
+    approval.map_or_else(Vec::new, |approval| {
+        vec![
+            format!("{} · {:?}", approval.title, approval.risk),
+            truncate(&approval.message, 68),
+            format!("TARGET  {}", truncate(&approval.target.display, 56)),
+            format!("INPUT   {}", truncate(&approval.input_preview, 56)),
+            "[Deny (n)]  [Diff (d)]  [Approve (y)]".to_string(),
+        ]
+    })
+}
+
 pub(super) fn interaction_panel_index_at(
     state: &TuiState,
     _width: u16,
@@ -261,7 +298,26 @@ pub(super) fn interaction_panel_index_at(
 }
 
 pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
-    interaction_rows(state).len()
+    match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Setup { .. }) => {
+            let draft = match state.ui.interaction_panel.as_ref() {
+                Some(InteractionPanel::Setup { draft, .. }) => draft,
+                _ => unreachable!("setup panel matched"),
+            };
+            2 + usize::from(
+                state
+                    .runtime
+                    .project_config_preview
+                    .as_ref()
+                    .is_some_and(|preview| setup_preview_matches_draft(preview, draft)),
+            )
+        }
+        _ => interaction_rows(state).len(),
+    }
+}
+
+fn setup_preview_matches_draft(preview: &viden_core::ProjectConfigPreview, draft: &str) -> bool {
+    preview.is_valid() && preview.exact_contents.as_deref() == Some(draft)
 }
 
 pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
@@ -274,9 +330,6 @@ pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
             .map(|provider| format!("/provider use {}", provider.provider_id)),
         InteractionPanel::ProviderConfig { provider_id, .. } => {
             Some(format!("/provider configure {provider_id}"))
-        }
-        InteractionPanel::ProviderApiKey { provider_id, input } => {
-            Some(format!("/provider key {provider_id} {input}"))
         }
         InteractionPanel::ModelPicker { selected, .. } => {
             interaction_rows(state).get(*selected).and_then(|row| {
@@ -301,7 +354,7 @@ pub(super) fn approval_action_at(
     column: u16,
     _row: u16,
 ) -> Option<ApprovalAction> {
-    has_pending_approval(state).then_some({
+    has_explicit_approval_focus(state).then_some({
         if column < 28 {
             ApprovalAction::Deny
         } else if column < 48 {
@@ -318,7 +371,7 @@ pub(super) fn approval_focus_cursor(
     _height: u16,
     _rail: usize,
 ) -> Option<(u16, u16)> {
-    has_pending_approval(state).then(|| {
+    has_explicit_approval_focus(state).then(|| {
         let column = match focused_approval_action(state) {
             ApprovalAction::ToggleApplyAll => 8,
             ApprovalAction::Deny => 18,
@@ -327,6 +380,15 @@ pub(super) fn approval_focus_cursor(
         };
         (column.min(width.saturating_sub(1)), 10)
     })
+}
+
+fn has_explicit_approval_focus(state: &TuiState) -> bool {
+    state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::Approval)
+        && !focused_approval_rows(state).is_empty()
 }
 
 pub(super) fn move_approval_focus(state: &mut TuiState, delta: i8) {

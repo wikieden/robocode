@@ -17,6 +17,24 @@ cargo test -p viden-tui \
   tui::app::tests::approval_shortcut_builds_response_for_core_request_id \
   --quiet
 cargo test -p viden-tui \
+  tui::app::tests::pinned_approval_never_owns_composer_y_n_d_or_enter \
+  --quiet
+cargo test -p viden-tui \
+  tui::app::tests::explicitly_focused_approval_owns_shortcuts_and_enter \
+  --quiet
+cargo test -p viden-tui \
+  tui::app::tests::exact_setup_enter_opens_setup_while_nonexact_prefix_only_completes \
+  --quiet
+cargo test -p viden-tui \
+  tui::app::tests::setup_previews_exact_draft_before_core_confirmation \
+  --quiet
+cargo test -p viden-tui \
+  tui::app::tests::runtime_replacement_atomically_clears_stale_lane_and_session_identity \
+  --quiet
+cargo test -p viden-tui \
+  tui::app::tests::lane_without_core_session_stays_on_board_with_lane_detail \
+  --quiet
+cargo test -p viden-tui \
   tui::app::tests::composer_stays_editable_while_events_stream \
   --quiet
 cargo test -p viden-tui \

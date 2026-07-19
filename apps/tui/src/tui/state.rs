@@ -347,6 +347,8 @@ mod tests {
             "tmux new-session",
             "SessionEngine",
             ".viden/lanes",
+            "ProviderApiKey",
+            "\"/provider key ",
         ];
         let mut violations = Vec::new();
         scan_production_rust_sources(&source_root, &forbidden, &mut violations);
@@ -372,7 +374,10 @@ mod tests {
                 continue;
             }
             let source = fs::read_to_string(&path).expect("read Rust source");
-            let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+            let production = source
+                .split("#[cfg(test)]\nmod tests")
+                .next()
+                .unwrap_or(&source);
             for needle in forbidden {
                 if production.contains(needle) {
                     violations.push(format!("{}: {needle}", path.display()));

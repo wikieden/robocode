@@ -18,10 +18,10 @@ run_preview() {
     -u OPENAI_API_BASE \
     -u OPENROUTER_API_BASE \
     -u ANTHROPIC_API_BASE \
-    DEEPSEEK_API_KEY="sk-preview000000demo" \
-    OPENAI_API_KEY="sk-preview000000demo" \
-    OPENROUTER_API_KEY="sk-preview000000demo" \
-    ANTHROPIC_API_KEY="sk-preview000000demo" \
+    -u DEEPSEEK_API_KEY \
+    -u OPENAI_API_KEY \
+    -u OPENROUTER_API_KEY \
+    -u ANTHROPIC_API_KEY \
     cargo run -p viden-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
   case "$name" in
     main-command-palette | main-setup-wizard | main-provider-selector | main-provider-detail | main-model-selector | main-lane-selector | main-lane)
@@ -38,10 +38,10 @@ run_ansi_preview() {
     -u OPENAI_API_BASE \
     -u OPENROUTER_API_BASE \
     -u ANTHROPIC_API_BASE \
-    DEEPSEEK_API_KEY="sk-preview000000demo" \
-    OPENAI_API_KEY="sk-preview000000demo" \
-    OPENROUTER_API_KEY="sk-preview000000demo" \
-    ANTHROPIC_API_KEY="sk-preview000000demo" \
+    -u DEEPSEEK_API_KEY \
+    -u OPENAI_API_KEY \
+    -u OPENROUTER_API_KEY \
+    -u ANTHROPIC_API_KEY \
     cargo run -p viden-cli -- "$@" --tui-theme "$THEME" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.ansi"
 }
 
@@ -396,16 +396,18 @@ assert_contains "$OUT_DIR/main-live-turn.txt" "[^C Cancel]"
 assert_contains "$OUT_DIR/main-command-palette.txt" "COMMANDS"
 assert_contains "$OUT_DIR/main-command-palette.txt" "/help"
 assert_contains "$OUT_DIR/main-command-palette.txt" "Show commands"
-assert_contains "$OUT_DIR/main-setup-wizard.txt" "SETUP WIZARD"
-assert_contains "$OUT_DIR/main-setup-wizard.txt" "provider doctor"
-assert_contains "$OUT_DIR/main-setup-wizard.txt" "fallback test-local"
+assert_contains "$OUT_DIR/main-setup-wizard.txt" "SETUP SELECTOR"
+assert_contains "$OUT_DIR/main-setup-wizard.txt" "DRAFT viden.toml"
+assert_contains "$OUT_DIR/main-setup-wizard.txt" "Preview exact draft through Core"
+assert_contains "$OUT_DIR/main-setup-wizard.txt" 'pack = "robot-pack"'
 assert_contains "$OUT_DIR/main-provider-selector.txt" "Connect a provider"
 assert_contains "$OUT_DIR/main-provider-selector.txt" "DeepSeek"
 assert_contains "$OUT_DIR/main-provider-selector.txt" "OpenRouter"
 assert_not_contains "$OUT_DIR/main-provider-selector.txt" "PROVIDER CONFIG"
-assert_contains "$OUT_DIR/main-provider-detail.txt" "API key"
-assert_contains "$OUT_DIR/main-provider-detail.txt" "OPENAI_API_KEY"
-assert_contains "$OUT_DIR/main-provider-detail.txt" "Enter submit"
+assert_contains "$OUT_DIR/main-provider-detail.txt" "PROVIDER openai healthy"
+assert_contains "$OUT_DIR/main-provider-detail.txt" "TRUSTED INGRESS unavailable"
+assert_not_contains "$OUT_DIR/main-provider-detail.txt" "API key"
+assert_not_contains "$OUT_DIR/main-provider-detail.txt" "Enter submit"
 assert_not_contains "$OUT_DIR/main-provider-detail.txt" "PROVIDER CONFIG"
 assert_not_contains "$OUT_DIR/main-provider-detail.txt" "set default provider"
 assert_contains "$OUT_DIR/main-model-selector.txt" "Select model"
@@ -466,9 +468,9 @@ assert_ansi_contains "$OUT_DIR/main-live-turn.ansi" "[^J Queue]"
 assert_ansi_contains "$OUT_DIR/main-resize.ansi" "Resize-safe redraw check"
 assert_ansi_contains "$OUT_DIR/main-cjk-input.ansi" "你好，帮我检查当前变更"
 assert_ansi_contains "$OUT_DIR/main-command-palette.ansi" "COMMANDS"
-assert_ansi_contains "$OUT_DIR/main-setup-wizard.ansi" "SETUP WIZARD"
+assert_ansi_contains "$OUT_DIR/main-setup-wizard.ansi" "SETUP SELECTOR"
 assert_ansi_contains "$OUT_DIR/main-provider-selector.ansi" "Connect a provider"
-assert_ansi_contains "$OUT_DIR/main-provider-detail.ansi" "API key"
+assert_ansi_contains "$OUT_DIR/main-provider-detail.ansi" "TRUSTED INGRESS unavailable"
 assert_ansi_contains "$OUT_DIR/main-model-selector.ansi" "Select model"
 assert_ansi_contains "$OUT_DIR/main-lane-selector.ansi" "LANE ACTIONS"
 assert_ansi_contains "$OUT_DIR/main-lane.ansi" "LANE DETAIL"

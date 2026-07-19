@@ -129,26 +129,21 @@ favorite_models = ["deepseek-v4-pro"]
 ```
 
 The stable TUI 0.2.0 project-onboarding path is Core-backed. Setup renders the
-Core project probe, config preview, active provider health, and safe credential
-handle. It can confirm an existing valid preview by id/hash, but it does not
-scan the project, persist configuration, accept raw API-key bytes, or infer
-success locally. Only `ProjectConfigConfirmed` marks a new configuration
-complete. Core 0.3.1 does not expose global session enumeration; `/lanes`
-selects only session ids advertised on each Core lane.
+Core project probe and keeps a local, secret-free D11-shaped draft containing
+`project.name` and `project.pack`. Preview sends the draft's exact bytes through
+`PreviewProjectConfig`. Confirm remains unavailable until Core returns a valid
+preview matching the current draft, and only `ProjectConfigConfirmed` marks the
+configuration complete. The TUI does not scan the project, write configuration,
+or infer success locally.
 
-The legacy provider/model setup path is panel-first after you submit the command. `/connect`,
-`/provider`, `/setup provider`, and `/settings provider` open a provider picker;
-`Enter` selects the highlighted supplier, opens API-key entry when that supplier
-needs one, and then opens the provider config action panel. That panel can
-change the API key, clear the current process key, run provider doctor, or open
-the provider-scoped model picker. Selecting a model from that provider-scoped
-picker saves the provider/model, runs provider doctor, and writes the readiness
-result back into the transcript. `/models`, `/model`, `/setup model`, and
-`/settings model` open a provider-grouped model picker; it only shows providers
-that have been configured/activated in provider settings. For configured
-providers, the picker includes active, favorite, default, and known models.
-Choosing a model applies the provider/model switch immediately. API keys are
-masked in the TUI and Viden saves the env var name, not the raw key.
+`/connect` and `/provider` show supplier metadata; `/models` and `/model` show
+configured model choices. TUI 0.2.0 has no trusted frontend secret-ingress
+method, so these panels never collect credential bytes or serialize a
+`/provider key` command. Provider detail displays active Core health and only a
+masked credential-handle summary. If Core has no safe handle or ingress, it
+shows `TRUSTED INGRESS unavailable` and remains read-only. Core 0.3.1 also does
+not expose global session enumeration; `/lanes` selects only session ids
+advertised on each Core lane.
 
 Typed commands still use compact completion while you are editing, so a large
 selector does not steal the composer before you press Enter. Direct commands

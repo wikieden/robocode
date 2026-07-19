@@ -114,16 +114,29 @@ fn setup_rows(state: &TuiState) -> Vec<String> {
         });
         rows.push(match credential {
             Some(handle) => format!(
-                "CREDENTIAL {} · {}",
+                "CREDENTIAL {} · HANDLE {}",
                 format!("{:?}", handle.status).to_ascii_lowercase(),
-                handle.backend_id
+                mask_credential_handle(&handle.backend_id)
             ),
-            None => "CREDENTIAL unavailable · trusted ingress required".to_string(),
+            None => "CREDENTIAL unavailable · TRUSTED INGRESS unavailable".to_string(),
         });
     } else {
         rows.push("PROVIDER awaiting Core health".to_string());
     }
     rows
+}
+
+fn mask_credential_handle(value: &str) -> String {
+    let characters = value.chars().collect::<Vec<_>>();
+    if characters.len() <= 8 {
+        return "***".to_string();
+    }
+    let prefix = characters.iter().take(3).collect::<String>();
+    let suffix = characters
+        .iter()
+        .skip(characters.len().saturating_sub(4))
+        .collect::<String>();
+    format!("{prefix}…{suffix}")
 }
 
 fn board_rows(state: &TuiState) -> Vec<String> {
@@ -828,18 +841,18 @@ mod structured_runtime_tests {
             config_path: "/workspace/demo/viden.toml".to_string(),
             config_state: ProjectConfigState::Missing,
             project_name: Some("demo".to_string()),
-            pack: Some("rust".to_string()),
+            pack: Some("robot-pack".to_string()),
             diagnostics: Vec::new(),
         });
         let preview = ProjectConfigPreview {
             preview_id: "preview-core".to_string(),
             relative_path: "viden.toml".to_string(),
             content_sha256: "a".repeat(64),
-            byte_len: 31,
-            exact_contents: Some("[project]\nname = \"demo\"\n".to_string()),
+            byte_len: 44,
+            exact_contents: Some("[project]\nname = \"demo\"\npack = \"robot-pack\"\n".to_string()),
             base_content_sha256: None,
             project_name: Some("demo".to_string()),
-            pack: Some("rust".to_string()),
+            pack: Some("robot-pack".to_string()),
             diagnostics: Vec::new(),
         };
         setup.runtime.project_config_preview = Some(preview.clone());
@@ -854,7 +867,7 @@ mod structured_runtime_tests {
             tokens_per_second: None,
             credential: Some(CredentialHandle {
                 provider_id: "provider-1".to_string(),
-                backend_id: "keychain:item".to_string(),
+                backend_id: "keychain:item-1234".to_string(),
                 status: CredentialStatus::Available,
             }),
         });
@@ -867,6 +880,8 @@ mod structured_runtime_tests {
         assert!(pending.contains("PENDING CORE CONFIRMATION"));
         assert!(pending.contains("PROVIDER provider-1 healthy"));
         assert!(pending.contains("CREDENTIAL available"));
+        assert!(pending.contains("HANDLE key…1234"));
+        assert!(!pending.contains("keychain:item-1234"));
         assert!(!pending.contains("COMPLETE · CORE CONFIRMED"));
 
         setup.runtime.project_config_preview = None;

@@ -117,14 +117,14 @@ if "DEEPSEEK_API_KEY" in provider_selector or "default endpoint" in provider_sel
     fail("provider selector preview should not show provider config details")
 
 provider_detail = required["provider_detail"].read_text(encoding="utf-8")
-if "API key" not in provider_detail or "OPENAI_API_KEY" not in provider_detail:
-    fail("provider detail preview does not show direct API key panel evidence")
-if "PROVIDER CONFIG" in provider_detail or "set default provider" in provider_detail:
-    fail("provider detail preview should not show the removed noisy config modal")
+if "PROVIDER openai healthy" not in provider_detail or "TRUSTED INGRESS unavailable" not in provider_detail:
+    fail("provider detail preview does not show safe Core health and trusted-ingress evidence")
+if "API key" in provider_detail or "Enter submit" in provider_detail or "/provider key" in provider_detail:
+    fail("provider detail preview must not expose raw credential entry")
 
 setup_wizard = required["setup_wizard"].read_text(encoding="utf-8")
-if "SETUP WIZARD" not in setup_wizard or "provider doctor" not in setup_wizard:
-    fail("setup wizard preview does not show first-run actions")
+if "SETUP SELECTOR" not in setup_wizard or "DRAFT viden.toml" not in setup_wizard:
+    fail("setup preview does not show the Core-backed project draft actions")
 
 model_selector = required["model_selector"].read_text(encoding="utf-8")
 if "Select model" not in model_selector or "deepseek-v4-flash" not in model_selector:
@@ -161,7 +161,7 @@ if len(artifacts) < 6:
                 "resize redraw evidence",
                 "CJK composer input",
                 "provider command stays compact before submit",
-                "provider detail modal removed from pre-submit preview",
+                "provider detail is handle-only with trusted ingress unavailable",
                 "model command stays compact before submit",
                 "side-1 lanes",
                 "side-2 tests/lsp",
@@ -189,9 +189,9 @@ Each SVG is a deterministic visual artifact for product review:
 - \`${VERSION}-tui-main-resize.svg\`: resized 100x30 redraw evidence
 - \`${VERSION}-tui-cjk-input.svg\`: CJK input and cursor-placement evidence
 - \`${VERSION}-tui-command-palette.svg\`: slash-command suggestion surface
-- \`${VERSION}-tui-setup-wizard.svg\`: first-run setup wizard
+- \`${VERSION}-tui-setup-wizard.svg\`: Core-backed project draft and preview actions
 - \`${VERSION}-tui-provider-selector.svg\`: provider supplier picker with first-level ids only
-- \`${VERSION}-tui-provider-detail.svg\`: provider detail form with key, endpoint, doctor, and model actions
+- \`${VERSION}-tui-provider-detail.svg\`: safe provider health and trusted-ingress status
 - \`${VERSION}-tui-model-selector.svg\`: provider-grouped model selector evidence
 - \`${VERSION}-tui-lane-selector.svg\`: lane action selector evidence
 - \`${VERSION}-tui-lane-detail.svg\`: focused lane detail

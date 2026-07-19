@@ -152,7 +152,7 @@ flowchart TD
     C -->|yes| E["Unified cockpit"]
 
     D --> F{"User action"}
-    F -->|/setup| G["Setup selector<br/>Core probe/preview/provider/credential facts"]
+    F -->|/setup| G["Setup selector<br/>edit D11 draft · PreviewProjectConfig"]
     F -->|/lanes| H["Core lane board"]
     F -->|real prompt| E
 
@@ -221,7 +221,8 @@ flowchart TD
     E -->|1 allow once| F["resolve_approval(once)"]
     E -->|2 allow session| G["resolve_approval(session)"]
     E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
-    E -->|4 / esc / timeout| I["resolve_approval(deny)"]
+    E -->|n / timeout| I["resolve_approval(deny)"]
+    E -->|esc| O["Close explicit approval focus"]
     E -->|inspect diff| J["Focus evidence/diff"]
     E -->|scroll/resize/type| K["Still handled by main loop"]
     J --> D
@@ -239,18 +240,21 @@ flowchart TD
 Provider setup and model selection are direct panels. They should not be hidden
 behind command-completion semantics.
 
+Pending approvals are pinned but do not own input. Composer `y`, `n`, `d`, and
+`Enter` remain ordinary draft/submission input until the operator explicitly
+opens Decisions and selects an approval. Only that `OverlayKind::Approval`
+focus accepts approval shortcuts; `Esc` closes focus without denying.
+
 ```mermaid
 flowchart TD
     A["/connect"] --> B["Provider picker<br/>providers only"]
-    B --> C["Provider setup form"]
-    C --> D{"Auth mode"}
-    D -->|API key| E["Edit/delete masked key"]
-    D -->|web login| F["Open login / confirm token"]
-    D -->|local/no key| G["Show local status"]
-    C --> H["Endpoint edit"]
-    C --> I["Default model picker"]
+    B --> C["Core provider health"]
+    C --> D{"Safe credential handle?"}
+    D -->|yes| E["Show masked handle metadata"]
+    D -->|no| F["Trusted ingress unavailable<br/>read-only"]
+    C --> I["Configured model picker"]
     I --> J["Provider-scoped model list"]
-    J --> K["Save provider config"]
+    J --> K["Send Core-owned provider/model action"]
     K --> L["Return to previous surface"]
 
     M["/models"] --> N["Configured providers only"]

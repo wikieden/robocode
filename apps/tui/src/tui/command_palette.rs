@@ -78,7 +78,33 @@ pub(super) fn command_suggestion_index_at(
 }
 
 pub(super) fn should_complete_on_enter(state: &TuiState) -> bool {
+    if is_exact_command(state) {
+        return false;
+    }
     selected_command(state).is_some_and(|selected| selected.command != state.ui.input.as_str())
+}
+
+fn is_exact_command(state: &TuiState) -> bool {
+    let input = state.ui.input.as_str();
+    matches!(
+        input,
+        "/help"
+            | "/setup"
+            | "/lanes"
+            | "/decisions"
+            | "/gallery"
+            | "/connect"
+            | "/models"
+            | "/mode plan"
+            | "/mode build"
+            | "/permissions ask"
+            | "/permissions read-only"
+            | "/status"
+    ) || state
+        .runtime
+        .lanes
+        .iter()
+        .any(|lane| input == format!("/lane inspect {}", lane.id))
 }
 
 pub(super) fn render_command_suggestions(frame: &mut Frame, state: &TuiState) {

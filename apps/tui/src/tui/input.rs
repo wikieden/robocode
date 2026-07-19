@@ -33,8 +33,6 @@ pub(super) fn input_focus(state: &TuiState) -> InputFocus {
 fn active_overlay_kind(state: &TuiState) -> Option<OverlayKind> {
     if let Some(overlay) = state.ui.overlay.as_ref() {
         Some(overlay.kind)
-    } else if !state.runtime.pending_approvals.is_empty() {
-        Some(OverlayKind::Approval)
     } else if state.ui.interaction_panel.is_some() {
         Some(OverlayKind::InteractionPanel)
     } else if is_command_palette_visible(state) {
@@ -59,7 +57,7 @@ pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool
 pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect {
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') => ApprovalKeyEffect::Resolve(true),
-        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => ApprovalKeyEffect::Resolve(false),
+        KeyCode::Char('n') | KeyCode::Char('N') => ApprovalKeyEffect::Resolve(false),
         KeyCode::Char(' ') => {
             if focused_approval_action(state) != ApprovalAction::ToggleApplyAll {
                 return ApprovalKeyEffect::None;

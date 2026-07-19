@@ -143,7 +143,7 @@ flowchart TD
     C -->|yes| E["Unified cockpit"]
 
     D --> F{"User action"}
-    F -->|/setup| G["Setup selector<br/>Core probe/preview/provider/credential facts"]
+    F -->|/setup| G["Setup selector<br/>编辑 D11 draft · PreviewProjectConfig"]
     F -->|/lanes| H["Core lane board"]
     F -->|real prompt| E
 
@@ -209,7 +209,8 @@ flowchart TD
     E -->|1 allow once| F["resolve_approval(once)"]
     E -->|2 allow session| G["resolve_approval(session)"]
     E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
-    E -->|4 / esc / timeout| I["resolve_approval(deny)"]
+    E -->|n / timeout| I["resolve_approval(deny)"]
+    E -->|esc| O["关闭显式 approval focus"]
     E -->|inspect diff| J["Focus evidence/diff"]
     E -->|scroll/resize/type| K["Still handled by main loop"]
     J --> D
@@ -226,18 +227,20 @@ flowchart TD
 
 Provider setup 和 model selection 都是直接操作面板，不应该隐藏在 command completion 语义后面。
 
+Pending approval 只保持 pinned，不自动取得输入焦点。操作者明确打开 Decisions 并选中某条
+approval 之前，composer 中的 `y`、`n`、`d`、`Enter` 都是普通草稿/提交输入。只有显式
+`OverlayKind::Approval` focus 才接受 approval 快捷键；`Esc` 仅关闭焦点，不代表拒绝。
+
 ```mermaid
 flowchart TD
     A["/connect"] --> B["Provider picker<br/>providers only"]
-    B --> C["Provider setup form"]
-    C --> D{"Auth mode"}
-    D -->|API key| E["Edit/delete masked key"]
-    D -->|web login| F["Open login / confirm token"]
-    D -->|local/no key| G["Show local status"]
-    C --> H["Endpoint edit"]
-    C --> I["Default model picker"]
+    B --> C["Core provider health"]
+    C --> D{"存在安全 credential handle?"}
+    D -->|yes| E["显示脱敏 handle 元数据"]
+    D -->|no| F["Trusted ingress unavailable<br/>只读"]
+    C --> I["Configured model picker"]
     I --> J["Provider-scoped model list"]
-    J --> K["Save provider config"]
+    J --> K["发送 Core-owned provider/model action"]
     K --> L["Return to previous surface"]
 
     M["/models"] --> N["Configured providers only"]

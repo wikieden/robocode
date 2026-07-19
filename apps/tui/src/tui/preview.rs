@@ -1,10 +1,8 @@
-#[cfg(test)]
-use super::state::Lens;
-use super::state::{InteractionPanel, ProviderAuthMode, ProviderOption, TuiEntry, TuiState};
+use super::state::{InteractionPanel, Lens, ProviderAuthMode, ProviderOption, TuiEntry, TuiState};
 use super::{render, terminal};
 use viden_core::{
     AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, ExecutionTarget, GateStrength,
-    LaneBudget, LaneStatus, MutationPolicy,
+    LaneBudget, LaneStatus, MutationPolicy, ProjectConfigState, ProjectProbe, ProviderHealthView,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -399,8 +397,22 @@ fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) 
 
 fn setup_wizard_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.ui.input = "/setup".into();
-    state.ui.command_selection = 0;
+    state.ui.input.clear();
+    state.ui.lens = Lens::Setup;
+    state.runtime.project_probe = Some(ProjectProbe {
+        root: "/workspace/demo".to_string(),
+        is_git_repository: true,
+        git_root: Some("/workspace/demo".to_string()),
+        config_path: "/workspace/demo/viden.toml".to_string(),
+        config_state: ProjectConfigState::Missing,
+        project_name: None,
+        pack: None,
+        diagnostics: Vec::new(),
+    });
+    state.ui.interaction_panel = Some(InteractionPanel::Setup {
+        selected: 1,
+        draft: "[project]\nname = \"demo\"\npack = \"robot-pack\"\n".to_string(),
+    });
     state
 }
 
@@ -417,9 +429,18 @@ fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str
 fn provider_detail_preview_state(_provider: &str, _model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state("openai", "gpt-5.2", theme_name);
     state.ui.input.clear();
-    state.ui.interaction_panel = Some(InteractionPanel::ProviderApiKey {
+    state.ui.lens = Lens::Setup;
+    state.ui.interaction_panel = None;
+    state.runtime.provider = Some(ProviderHealthView {
         provider_id: "openai".to_string(),
-        input: String::new(),
+        model: "gpt-5.2".to_string(),
+        status: "healthy".to_string(),
+        request_count: 0,
+        error_count: 0,
+        last_latency_ms: None,
+        average_latency_ms: None,
+        tokens_per_second: None,
+        credential: None,
     });
     state
 }
@@ -596,15 +617,18 @@ mod tests {
         assert!(command_palette.contains("COMMANDS"));
         assert!(command_palette.contains("/connect"));
         assert!(command_palette.contains("Configure a Core provider"));
-        assert!(setup_wizard.contains("/setup"));
+        assert!(setup_wizard.contains("SETUP SELECTOR"));
+        assert!(setup_wizard.contains("DRAFT viden.toml"));
+        assert!(setup_wizard.contains("pack = \"robot-pack\""));
         assert!(provider_selector.contains("Connect a provider"));
         assert!(provider_selector.contains("DeepSeek"));
         assert!(provider_selector.contains("OpenRouter"));
         assert!(!provider_selector.contains("DEEPSEEK_API_KEY"));
         assert!(!provider_selector.contains("default endpoint"));
-        assert!(provider_detail.contains("provider openai"));
-        assert!(provider_detail.contains("API key"));
-        assert!(!provider_detail.contains("set default provider"));
+        assert!(provider_detail.contains("PROVIDER openai"));
+        assert!(provider_detail.contains("TRUSTED INGRESS unavailable"));
+        assert!(!provider_detail.contains("API key"));
+        assert!(!provider_detail.contains("/provider key"));
         assert!(model_selector.contains("Select model"));
         assert!(model_selector.contains("deepseek-v4-flash"));
         assert!(model_selector.contains("deepseek"));

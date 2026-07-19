@@ -14,7 +14,9 @@ use super::input::{
     ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
 };
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
-use super::modal::{interaction_panel_choice_count, selected_interaction_command};
+use super::modal::{
+    DEFAULT_APPROVAL_FOCUS, interaction_panel_choice_count, selected_interaction_command,
+};
 use super::state::{InteractionPanel, Lens, OverlayState, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
 
@@ -165,6 +167,60 @@ fn ui_profile_label(preferences: &viden_core::ResolvedUiPreferences) -> String {
 /// preserving only local input/layout state and the startup/user transcript.
 fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, _cursor: &EventCursor) {
     state.runtime = view.clone();
+    reconcile_ui_state_with_runtime(state);
+}
+
+/// Drops only presentation identities invalidated by the newly committed Core
+/// view. Composer, mode, scrollback, and other local layout state survive the
+/// same atomic snapshot/replay replacement.
+fn reconcile_ui_state_with_runtime(state: &mut TuiState) {
+    let had_core_selection = state.ui.focused_lane.is_some() || !state.ui.session_id.is_empty();
+    let focused_lane = state
+        .ui
+        .focused_lane
+        .as_ref()
+        .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id));
+
+    match focused_lane {
+        None if had_core_selection => {
+            state.ui.focused_lane = None;
+            state.ui.session_id.clear();
+            if state.ui.lens == Lens::Session {
+                state.ui.lens = Lens::Board;
+            }
+        }
+        Some(lane)
+            if state.ui.session_id.is_empty()
+                || !lane.active_session_ids.contains(&state.ui.session_id) =>
+        {
+            state.ui.session_id.clear();
+            if state.ui.lens == Lens::Session {
+                state.ui.lens = Lens::Board;
+            }
+        }
+        None | Some(_) => {}
+    }
+
+    let stale_approval_focus = state
+        .ui
+        .overlay
+        .as_ref()
+        .filter(|overlay| overlay.kind == OverlayKind::Approval)
+        .is_some_and(|overlay| {
+            overlay.selected_id.as_ref().map_or_else(
+                || overlay.selected >= state.runtime.pending_approvals.len(),
+                |request_id| {
+                    !state
+                        .runtime
+                        .pending_approvals
+                        .iter()
+                        .any(|approval| &approval.id == request_id)
+                },
+            )
+        });
+    if stale_approval_focus {
+        state.ui.overlay = None;
+    }
 }
 
 pub(super) fn dispatch_intent<C: CoreClient>(
@@ -191,17 +247,27 @@ fn handle_ui_event<C: CoreClient>(
         Event::Paste(text) => {
             let approval_pending = !driver.view().pending_approvals.is_empty();
             if let Some(overlay) = state.ui.overlay.as_mut() {
-                overlay.filter.push_str(&text);
-                overlay.selected = 0;
+                if overlay.kind != OverlayKind::Approval {
+                    overlay.filter.push_str(&text);
+                    overlay.selected = 0;
+                }
+            } else if state.ui.interaction_panel.is_some() {
+                if let Some(InteractionPanel::Setup { draft, .. }) =
+                    state.ui.interaction_panel.as_mut()
+                {
+                    // A pasted candidate is an explicit operator edit and
+                    // replaces the generated template byte-for-byte.
+                    *draft = text;
+                } else {
+                    for value in text.chars() {
+                        edit_interaction_panel_text(state, Some(value));
+                    }
+                }
             } else if approval_pending {
                 // Approval remains pinned while the composer stays editable;
                 // pasted content must never resolve the approval.
                 state.ui.input.paste(&text);
                 reset_for_input_change(state);
-            } else if state.ui.interaction_panel.is_some() {
-                for value in text.chars() {
-                    edit_interaction_panel_text(state, Some(value));
-                }
             } else if matches!(
                 effective_input_mode(state),
                 InputMode::Insert | InputMode::Overlay
@@ -379,12 +445,20 @@ fn apply_pending_approval_intent<C: CoreClient>(
     key: KeyEvent,
     intent: &InputIntent,
 ) -> Result<Option<UiEventOutcome>, TuiError> {
+    let Some(approval_overlay) = state
+        .ui
+        .overlay
+        .as_ref()
+        .filter(|overlay| overlay.kind == OverlayKind::Approval)
+    else {
+        return Ok(None);
+    };
+    let approval_selected = approval_overlay.selected;
+    let approval_request_id = approval_overlay.selected_id.clone();
     if state.runtime.pending_approvals.is_empty()
-        || state.ui.overlay.is_some()
         || !matches!(
             intent,
-            InputIntent::CloseOverlay
-                | InputIntent::MoveSelection(_)
+            InputIntent::MoveSelection(_)
                 | InputIntent::CompleteSelection
                 | InputIntent::CompleteOrSubmit
                 | InputIntent::InsertChar(_)
@@ -395,10 +469,28 @@ fn apply_pending_approval_intent<C: CoreClient>(
 
     match apply_approval_key(key, state) {
         ApprovalKeyEffect::Resolve(allow) => {
-            if let Some(approval) = driver.view().pending_approvals.first()
-                && let Some(command) = approval_command(driver.view(), allow)
-            {
-                driver.send_for_owner(approval.owner.clone(), command)?;
+            let approval = approval_request_id.as_ref().map_or_else(
+                || driver.view().pending_approvals.get(approval_selected),
+                |request_id| {
+                    driver
+                        .view()
+                        .pending_approvals
+                        .iter()
+                        .find(|approval| &approval.id == request_id)
+                },
+            );
+            if let Some(approval) = approval {
+                driver.send_for_owner(
+                    approval.owner.clone(),
+                    RuntimeCommand::RespondToApproval {
+                        request_id: approval.id.clone(),
+                        response: if allow {
+                            ApprovalResponse::allow_once(None)
+                        } else {
+                            ApprovalResponse::deny(None)
+                        },
+                    },
+                )?;
             }
             Ok(Some(UiEventOutcome::Redraw))
         }
@@ -439,7 +531,10 @@ fn open_local_lens_command<C: CoreClient>(
         "/setup" => {
             state.ui.lens = Lens::Setup;
             state.ui.overlay = None;
-            state.ui.interaction_panel = Some(InteractionPanel::Setup { selected: 0 });
+            state.ui.interaction_panel = Some(InteractionPanel::Setup {
+                selected: 0,
+                draft: default_project_config_draft(&state.runtime),
+            });
             driver.send(RuntimeCommand::ProbeProject)?;
         }
         "/lanes" | "/board" => {
@@ -464,6 +559,28 @@ fn open_local_lens_command<C: CoreClient>(
     Ok(true)
 }
 
+fn default_project_config_draft(runtime: &RuntimeViewState) -> String {
+    let name = runtime
+        .project_probe
+        .as_ref()
+        .and_then(|probe| probe.project_name.as_deref())
+        .unwrap_or_default();
+    let pack = runtime
+        .project_probe
+        .as_ref()
+        .and_then(|probe| probe.pack.as_deref())
+        .unwrap_or_default();
+    format!(
+        "[project]\nname = \"{}\"\npack = \"{}\"\n",
+        escape_toml_string(name),
+        escape_toml_string(pack)
+    )
+}
+
+fn escape_toml_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
     match overlay.kind {
         OverlayKind::Lane | OverlayKind::Board => {
@@ -485,7 +602,7 @@ fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
                 match session_ids.as_slice() {
                     [] => {
                         state.ui.session_id.clear();
-                        state.ui.lens = Lens::Session;
+                        state.ui.lens = Lens::Board;
                     }
                     [session_id] => {
                         state.ui.session_id = session_id.clone();
@@ -510,9 +627,28 @@ fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
                 state.ui.lens = Lens::Session;
             }
         }
-        OverlayKind::Decisions | OverlayKind::Approval => {
+        OverlayKind::Decisions => {
             state.ui.lens = Lens::Decisions;
+            let needle = overlay.filter.to_ascii_lowercase();
+            if let Some(approval) = state
+                .runtime
+                .pending_approvals
+                .iter()
+                .filter(|approval| {
+                    needle.is_empty()
+                        || format!("{} {}", approval.id, approval.title)
+                            .to_ascii_lowercase()
+                            .contains(&needle)
+                })
+                .nth(overlay.selected)
+            {
+                let mut approval_overlay = OverlayState::new(OverlayKind::Approval);
+                approval_overlay.selected_id = Some(approval.id.clone());
+                state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
+                state.ui.overlay = Some(approval_overlay);
+            }
         }
+        OverlayKind::Approval => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
         | OverlayKind::ContextHelp
@@ -561,7 +697,7 @@ fn move_interaction_selection(state: &mut TuiState, delta: i8) {
 
 fn interaction_selected(state: &TuiState) -> usize {
     match state.ui.interaction_panel.as_ref() {
-        Some(InteractionPanel::Setup { selected })
+        Some(InteractionPanel::Setup { selected, .. })
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected,
@@ -592,7 +728,7 @@ fn cycle_agent_focus(state: &mut TuiState) {
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
     match state.ui.interaction_panel.as_mut() {
-        Some(InteractionPanel::Setup { selected })
+        Some(InteractionPanel::Setup { selected, .. })
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected = index,
@@ -614,15 +750,13 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
             }
             *selected = 0;
         }
-        Some(InteractionPanel::ProviderApiKey { input, .. }) => match value {
-            Some(value) => input.push(value),
+        Some(InteractionPanel::Setup { draft, .. }) => match value {
+            Some(value) => draft.push(value),
             None => {
-                input.pop();
+                draft.pop();
             }
         },
-        Some(InteractionPanel::Setup { .. })
-        | Some(InteractionPanel::ProviderConfig { .. })
-        | None => {}
+        Some(InteractionPanel::ProviderConfig { .. }) | None => {}
     }
 }
 
@@ -630,25 +764,27 @@ fn apply_interaction_panel_selection<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
 ) -> Result<bool, TuiClientError> {
-    if let Some(InteractionPanel::Setup { selected }) = state.ui.interaction_panel.as_ref() {
+    if let Some(InteractionPanel::Setup { selected, draft }) = state.ui.interaction_panel.as_ref() {
         let selected = *selected;
-        let command = if selected == 0 {
-            Some(RuntimeCommand::ProbeProject)
-        } else {
-            state
+        let command = match selected {
+            0 => Some(RuntimeCommand::ProbeProject),
+            1 => Some(RuntimeCommand::PreviewProjectConfig {
+                contents: draft.clone(),
+            }),
+            2 => state
                 .runtime
                 .project_config_preview
                 .as_ref()
                 .and_then(|preview| {
-                    preview
-                        .is_valid()
-                        .then(|| RuntimeCommand::ConfirmProjectConfig {
-                            preview_id: preview.preview_id.clone(),
-                            content_sha256: preview.content_sha256.clone(),
-                        })
-                })
+                    (preview.is_valid()
+                        && preview.exact_contents.as_deref() == Some(draft.as_str()))
+                    .then(|| RuntimeCommand::ConfirmProjectConfig {
+                        preview_id: preview.preview_id.clone(),
+                        content_sha256: preview.content_sha256.clone(),
+                    })
+                }),
+            _ => None,
         };
-        state.ui.interaction_panel = None;
         if let Some(command) = command {
             driver.send(command)?;
         }
@@ -727,6 +863,7 @@ fn runtime_has_active_work(view: &RuntimeViewState) -> bool {
         || !view.queued_inputs.is_empty()
 }
 
+#[cfg(test)]
 fn approval_command(view: &RuntimeViewState, allow: bool) -> Option<RuntimeCommand> {
     let approval = view.pending_approvals.first()?;
     Some(RuntimeCommand::RespondToApproval {
@@ -879,6 +1016,70 @@ mod tests {
         }
     }
 
+    fn pending_approval_driver() -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    ) {
+        let mut view = RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        });
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-allow-deny.json"
+        ))
+        .expect("approval fixture");
+        let envelope: RuntimeEventEnvelope =
+            serde_json::from_value(fixture["events"][0].clone()).expect("approval event");
+        if let RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.ui.input_mode = InputMode::Insert;
+        (driver, state, sent)
+    }
+
+    fn focus_pending_approval(driver: &mut TuiClientDriver<FakeCoreClient>, state: &mut TuiState) {
+        handle_ui_event(
+            driver,
+            state,
+            Event::Key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("open decisions");
+        handle_ui_event(
+            driver,
+            state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("focus approval");
+        assert!(
+            state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.kind == OverlayKind::Approval)
+        );
+    }
+
     #[test]
     fn submit_queue_cancel_and_approval_use_runtime_commands() {
         let client = FakeCoreClient::default();
@@ -931,6 +1132,94 @@ mod tests {
     }
 
     #[test]
+    fn pinned_approval_never_owns_composer_y_n_d_or_enter() {
+        let (mut driver, mut state, sent) = pending_approval_driver();
+        assert!(
+            super::super::modal::approval_focus_cursor(&state, 120, 40, 0).is_none(),
+            "a pinned approval must leave terminal cursor ownership with composer"
+        );
+        let pinned = super::super::render::render_frame(&state, 120, 40);
+        assert!(pinned.contains("PINNED · Ctrl-G Decisions"));
+        assert!(!pinned.contains("[Deny (n)]"));
+
+        for value in ['y', 'n', 'd'] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char(value), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("approval-time composer key");
+        }
+        assert_eq!(state.ui.input, "ynd");
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("approval-time composer submit");
+
+        assert!(state.ui.input.is_empty());
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::QueueFollowUp { content },
+                ..
+            }] if content == "ynd"
+        ));
+    }
+
+    #[test]
+    fn explicitly_focused_approval_owns_shortcuts_and_enter() {
+        for (key, expected_allowed) in [
+            (KeyCode::Char('y'), true),
+            (KeyCode::Char('n'), false),
+            (KeyCode::Enter, true),
+        ] {
+            let (mut driver, mut state, sent) = pending_approval_driver();
+            focus_pending_approval(&mut driver, &mut state);
+            assert!(
+                super::super::modal::approval_focus_cursor(&state, 120, 40, 0).is_some(),
+                "explicit focus owns the approval cursor"
+            );
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("focused approval action");
+
+            assert!(matches!(
+                sent.lock().expect("sent commands").as_slice(),
+                [RuntimeCommandEnvelope {
+                    command: RuntimeCommand::RespondToApproval { response, .. },
+                    ..
+                }] if response.is_allowed() == expected_allowed
+            ));
+        }
+
+        let (mut driver, mut state, sent) = pending_approval_driver();
+        focus_pending_approval(&mut driver, &mut state);
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("focused diff action");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert_eq!(
+            super::super::modal::focused_approval_action(&state),
+            super::super::modal::ApprovalAction::Diff
+        );
+    }
+
+    #[test]
     fn setup_and_lanes_routes_change_lens_without_becoming_chat_input() {
         let client = FakeCoreClient::default();
         let sent = Arc::clone(&client.sent);
@@ -966,43 +1255,153 @@ mod tests {
     }
 
     #[test]
-    fn setup_confirm_selection_dispatches_typed_command_without_local_completion() {
+    fn exact_setup_enter_opens_setup_while_nonexact_prefix_only_completes() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "/set".into();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("complete setup prefix");
+        assert_eq!(state.ui.input, "/setup");
+        assert_eq!(state.ui.lens, Lens::Welcome);
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("submit exact setup");
+
+        assert_eq!(state.ui.lens, Lens::Setup);
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::Setup { ref draft, .. })
+                if draft == "[project]\nname = \"\"\npack = \"\"\n"
+        ));
+        assert!(state.ui.input.is_empty());
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::ProbeProject,
+                ..
+            }]
+        ));
+
+        let operator_draft =
+            "[project]\nname = \"operator-demo\"\npack = \"robot-pack\"\n".to_string();
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Paste(operator_draft.clone()),
+            (120, 40),
+        )
+        .expect("replace setup draft by paste");
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::Setup { ref draft, .. }) if draft == &operator_draft
+        ));
+    }
+
+    #[test]
+    fn setup_previews_exact_draft_before_core_confirmation() {
         let client = FakeCoreClient::default();
         let sent = Arc::clone(&client.sent);
         let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::default();
         state.ui.lens = Lens::Setup;
-        state.runtime.project_config_preview = Some(ProjectConfigPreview {
-            preview_id: "preview-core".to_string(),
-            relative_path: "viden.toml".to_string(),
-            content_sha256: "b".repeat(64),
-            byte_len: 24,
-            exact_contents: Some("[project]\nname = \"demo\"\n".to_string()),
-            base_content_sha256: None,
-            project_name: Some("demo".to_string()),
-            pack: None,
-            diagnostics: Vec::new(),
+        let exact_contents = "[project]\nname = \"demo\"\npack = \"robot-pack\"\n".to_string();
+        state.ui.interaction_panel = Some(InteractionPanel::Setup {
+            selected: 1,
+            draft: exact_contents.clone(),
         });
-        state.ui.interaction_panel = Some(InteractionPanel::Setup { selected: 1 });
 
-        apply_input_intent(
+        handle_ui_event(
             &mut driver,
             &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-            InputIntent::CompleteOrSubmit,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
             (112, 40),
         )
-        .expect("confirm preview");
+        .expect("preview exact draft");
 
         assert!(matches!(
             sent.lock().expect("sent commands").as_slice(),
             [RuntimeCommandEnvelope {
-                command: RuntimeCommand::ConfirmProjectConfig {
-                    preview_id,
-                    content_sha256,
-                },
+                command: RuntimeCommand::PreviewProjectConfig { contents },
                 ..
-            }] if preview_id == "preview-core" && content_sha256 == &"b".repeat(64)
+            }] if contents == &exact_contents
+        ));
+        assert!(state.runtime.project_config_preview.is_none());
+        assert!(state.runtime.confirmed_project_config.is_none());
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::Setup { ref draft, .. }) if draft == &exact_contents
+        ));
+
+        state.runtime.project_config_preview = Some(ProjectConfigPreview {
+            preview_id: "preview-core".to_string(),
+            relative_path: "viden.toml".to_string(),
+            content_sha256: "b".repeat(64),
+            byte_len: exact_contents.len() as u64,
+            exact_contents: Some(exact_contents.clone()),
+            base_content_sha256: None,
+            project_name: Some("demo".to_string()),
+            pack: Some("robot-pack".to_string()),
+            diagnostics: Vec::new(),
+        });
+        if let Some(InteractionPanel::Setup {
+            selected, draft, ..
+        }) = state.ui.interaction_panel.as_mut()
+        {
+            *selected = 2;
+            draft.push_str("# changed after preview\n");
+        }
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (112, 40),
+        )
+        .expect("reject stale preview");
+        assert_eq!(sent.lock().expect("sent commands").len(), 1);
+        assert!(state.runtime.confirmed_project_config.is_none());
+
+        if let Some(InteractionPanel::Setup { draft, .. }) = state.ui.interaction_panel.as_mut() {
+            *draft = exact_contents.clone();
+        }
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (112, 40),
+        )
+        .expect("confirm matching preview");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [
+                RuntimeCommandEnvelope {
+                    command: RuntimeCommand::PreviewProjectConfig { .. },
+                    ..
+                },
+                RuntimeCommandEnvelope {
+                    command: RuntimeCommand::ConfirmProjectConfig {
+                        preview_id,
+                        content_sha256,
+                    },
+                    ..
+                }
+            ] if preview_id == "preview-core" && content_sha256 == &"b".repeat(64)
         ));
         assert!(state.runtime.confirmed_project_config.is_none());
         assert_eq!(state.ui.lens, Lens::Setup);
@@ -1036,6 +1435,36 @@ mod tests {
         assert_eq!(state.ui.lens, Lens::Session);
         assert_eq!(state.ui.focused_lane.as_deref(), Some(lane_id.as_str()));
         assert_eq!(state.ui.session_id, "session-from-core");
+    }
+
+    #[test]
+    fn lane_without_core_session_stays_on_board_with_lane_detail() {
+        let client = FakeCoreClient::default();
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids.clear();
+        let lane_id = lanes[0].id.clone();
+        state.runtime.lanes = lanes;
+        state.ui.lens = Lens::Board;
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Lane));
+
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (112, 40),
+        )
+        .expect("select lane without session");
+
+        assert_eq!(state.ui.lens, Lens::Board);
+        assert_eq!(state.ui.focused_lane.as_deref(), Some(lane_id.as_str()));
+        assert!(state.ui.session_id.is_empty());
     }
 
     #[test]
@@ -1087,6 +1516,14 @@ mod tests {
     #[test]
     fn event_cursor_stream_never_overwrites_selected_session_identity() {
         let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids = vec!["session-from-lane".to_string()];
+        state.ui.focused_lane = Some(lanes[0].id.clone());
+        state.runtime.lanes = lanes;
         state.ui.session_id = "session-from-lane".to_string();
         let view = state.runtime.clone();
 
@@ -1100,6 +1537,78 @@ mod tests {
         );
 
         assert_eq!(state.ui.session_id, "session-from-lane");
+    }
+
+    #[test]
+    fn runtime_replacement_atomically_clears_stale_lane_and_session_identity() {
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids = vec!["session-core".to_string()];
+        let lane_id = lanes[0].id.clone();
+        let mut state = TuiState::default();
+        state.runtime.lanes = lanes.clone();
+        state.ui.focused_lane = Some(lane_id.clone());
+        state.ui.session_id = "session-core".to_string();
+        state.ui.lens = Lens::Session;
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "preserve draft".into();
+
+        let mut without_session = state.runtime.clone();
+        without_session.lanes[0].active_session_ids.clear();
+        project_runtime_view(
+            &mut state,
+            &without_session,
+            &EventCursor {
+                stream_id: "fixture".to_string(),
+                sequence: 8,
+            },
+        );
+
+        assert_eq!(state.ui.focused_lane.as_deref(), Some(lane_id.as_str()));
+        assert!(state.ui.session_id.is_empty());
+        assert_eq!(state.ui.lens, Lens::Board);
+        assert_eq!(state.ui.input, "preserve draft");
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
+
+        let mut without_lane = without_session;
+        without_lane.lanes.clear();
+        project_runtime_view(
+            &mut state,
+            &without_lane,
+            &EventCursor {
+                stream_id: "fixture".to_string(),
+                sequence: 9,
+            },
+        );
+
+        assert!(state.ui.focused_lane.is_none());
+        assert!(state.ui.session_id.is_empty());
+        assert_eq!(state.ui.lens, Lens::Board);
+        assert_eq!(state.ui.input, "preserve draft");
+    }
+
+    #[test]
+    fn runtime_replacement_closes_stale_explicit_approval_focus() {
+        let (_driver, mut state, _sent) = pending_approval_driver();
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Approval));
+        state.ui.input = "preserve draft".into();
+        let mut replacement = state.runtime.clone();
+        replacement.pending_approvals.clear();
+
+        project_runtime_view(
+            &mut state,
+            &replacement,
+            &EventCursor {
+                stream_id: "fixture".to_string(),
+                sequence: 1,
+            },
+        );
+
+        assert!(state.ui.overlay.is_none());
+        assert_eq!(state.ui.input, "preserve draft");
     }
 
     #[test]
