@@ -51,6 +51,22 @@ Every fixture requirement must be present in this set. A fixture requiring an
 unknown mandatory capability fails compatibility validation; malformed or
 ambiguous legacy input is rejected rather than guessed.
 
+## Schema-1 Post-Freeze Extension Candidate
+
+The Core 0.3.0 frozen capability set and fixture digests above remain unchanged.
+The Core 0.3.1 candidate advertises the additive
+`runtime.lane_lifecycle` capability separately through
+`FRONTEND_V1_EXTENSION_CAPABILITIES` and
+`crates/core/frontend-contract-extensions.toml`.
+
+Clients written against Core 0.3.0 continue to require only the frozen set and
+must preserve unsupported schema-1 events as `RuntimeWireEvent::Unknown`. A
+client enables the 13 lane lifecycle commands and the `LaneUpdated`,
+`LaneOutputAppended`, `LaneConflictDetected`, and `LaneRecoveryRequired` event
+projections only after negotiating `runtime.lane_lifecycle`. Empty extension
+projection vectors are omitted during serialization, so replaying the frozen
+0.3.0 corpus retains its recorded canonical bytes and digests.
+
 ## Client Boundary
 
 Frontend clients use only `CoreClient` and protocol/view contracts re-exported

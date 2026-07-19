@@ -10,8 +10,8 @@ mod local_transport;
 
 pub use client::{CoreClient, CoreClientError, CoreTransport, StatefulCoreClient};
 pub use compatibility::{
-    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, frontend_capabilities, local_core_handshake,
-    validate_handshake, validate_schema_version,
+    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES,
+    frontend_capabilities, local_core_handshake, validate_handshake, validate_schema_version,
 };
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{

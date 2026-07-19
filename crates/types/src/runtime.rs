@@ -555,11 +555,11 @@ pub struct RuntimeViewState {
     pub tasks: Vec<AgentTaskRecord>,
     pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_outputs: Vec<LaneOutputView>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_conflicts: Vec<LaneConflictView>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_recoveries: Vec<LaneRecoveryView>,
     pub latest_evidence: Vec<EvidenceView>,
     pub assistant_stream: String,

@@ -47,6 +47,19 @@ ui.preferences
 每个 fixture 的 requirement 都必须存在于该集合。要求未知 mandatory capability 的
 fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input 必须拒绝，不能猜测。
 
+## Schema-1 冻结后的扩展候选
+
+上面的 Core 0.3.0 冻结 capability 集合与 fixture digest 保持不变。Core 0.3.1 候选
+通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
+`crates/core/frontend-contract-extensions.toml` 单独公布增量 capability
+`runtime.lane_lifecycle`。
+
+基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
+`RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
+13 个 Lane 生命周期命令以及 `LaneUpdated`、`LaneOutputAppended`、
+`LaneConflictDetected`、`LaneRecoveryRequired` 投影。扩展投影为空时不会参与序列化，
+因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
+
 ## Client 边界
 
 前端 client 只能使用 `CoreClient` 和 `viden-core` 重导出的 protocol/view contracts。

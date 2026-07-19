@@ -24,6 +24,11 @@ pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
     "ui.preferences",
 ];
 
+/// Compatible schema-1 additions shipped after the immutable Core 0.3.0
+/// checkpoint. They are advertised separately so the frozen capability
+/// evidence remains byte-for-byte stable.
+pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &["runtime.lane_lifecycle"];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SchemaVersion(pub u32);

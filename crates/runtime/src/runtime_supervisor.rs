@@ -13,10 +13,11 @@ use viden_provider::ModelRequestControl;
 use viden_types::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
     ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
-    FRONTEND_V1_CAPABILITIES, GapRecovery, PermissionPrompt, ReplayBatch, ReplayRequest,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
-    TranscriptPage, TranscriptPageRequest, fresh_id, now_timestamp,
+    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionPrompt,
+    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, fresh_id,
+    now_timestamp,
 };
 
 use crate::{
@@ -916,6 +917,7 @@ fn install_runtime_event_sink(
 fn runtime_frontend_capabilities() -> BTreeSet<CapabilityId> {
     FRONTEND_V1_CAPABILITIES
         .iter()
+        .chain(FRONTEND_V1_EXTENSION_CAPABILITIES)
         .map(|capability| CapabilityId(capability.to_string()))
         .collect()
 }

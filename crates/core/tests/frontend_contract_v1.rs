@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use viden_core::{CORE_CLIENT_CAPABILITIES, frontend_capabilities};
+use viden_core::{CORE_CLIENT_CAPABILITIES, CORE_EXTENSION_CAPABILITIES, frontend_capabilities};
 use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
     AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
@@ -109,10 +109,19 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
             .all(|pair| pair[0] < pair[1])
     );
     let advertised = frontend_capabilities();
-    assert_eq!(advertised.len(), expected.len());
+    assert_eq!(CORE_EXTENSION_CAPABILITIES, ["runtime.lane_lifecycle"]);
+    assert_eq!(
+        advertised.len(),
+        expected.len() + CORE_EXTENSION_CAPABILITIES.len()
+    );
     for capability in expected {
         assert!(advertised.contains(&CapabilityId(capability.to_string())));
     }
+    assert!(advertised.contains(&CapabilityId("runtime.lane_lifecycle".to_string())));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.1\""));
+    assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
 }
 
 #[test]
