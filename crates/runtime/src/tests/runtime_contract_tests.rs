@@ -741,6 +741,55 @@ fn runtime_command_bus_switches_mode_and_submits_input() {
 }
 
 #[test]
+fn failed_permission_controls_do_not_mutate_live_runtime_state() {
+    for (case, successful_appends, command) in [
+        (
+            "permission",
+            0,
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        ),
+        (
+            "work-mode",
+            1,
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_command_failed_{case}_cwd"));
+        let home = temp_dir(&format!("runtime_command_failed_{case}_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        let before = engine.runtime_snapshot();
+        let before_permission_mode = engine.mode();
+        let session_id = engine.session_id().to_string();
+        let store = SessionStore::new_with_home(&home, &cwd, Some(session_id)).unwrap();
+        let transcript_before = store.load_entries().unwrap();
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+        engine.fail_after_transcript_appends_for_test(successful_appends);
+
+        let error = engine
+            .handle_runtime_command(format!("failed_{case}"), command, &mut approver)
+            .expect_err("injected transcript failure rejects the control command");
+
+        assert!(error.contains("injected transcript append failure"));
+        assert_eq!(engine.runtime_snapshot(), before, "{case} snapshot leaked");
+        assert_eq!(
+            engine.mode(),
+            before_permission_mode,
+            "{case} permission engine leaked"
+        );
+        assert_eq!(
+            store.load_entries().unwrap(),
+            transcript_before,
+            "{case} control left partial session metadata"
+        );
+    }
+}
+
+#[test]
 fn runtime_command_bus_covers_plan_build_review_permission_contract() {
     let cwd = temp_dir("runtime_command_mode_contract_cwd");
     let home = temp_dir("runtime_command_mode_contract_home");

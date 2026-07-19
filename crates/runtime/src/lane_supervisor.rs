@@ -79,6 +79,22 @@ pub(crate) struct LaneSupervisor {
 }
 
 impl LaneSupervisor {
+    #[cfg(test)]
+    pub(crate) fn lane_permission_snapshot_for_test(
+        &self,
+        lane_id: &str,
+    ) -> Result<(viden_types::PermissionMode, u64), String> {
+        let lanes = self
+            .lanes
+            .lock()
+            .map_err(|_| "lane registry poisoned".to_string())?;
+        let worker = lanes
+            .get(lane_id)
+            .ok_or_else(|| format!("lane `{lane_id}` is not active"))?;
+        let (permissions, epoch) = worker.permission_snapshot()?;
+        Ok((permissions.mode(), epoch))
+    }
+
     pub(crate) fn new(
         repo: PathBuf,
         persistence: Arc<dyn LanePersistence>,

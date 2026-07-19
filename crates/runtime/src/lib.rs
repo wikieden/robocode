@@ -695,17 +695,27 @@ impl SessionEngine {
     }
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
-        self.permissions.set_mode(mode);
-        self.runtime_snapshot.permission_mode = mode;
-        self.runtime_snapshot.permission_level = PermissionLevel::from_legacy_mode(mode);
+        let mut next_permissions = self.permissions.clone();
+        let mut next_snapshot = self.runtime_snapshot.clone();
+        next_permissions.set_mode(mode);
+        next_snapshot.permission_mode = mode;
+        next_snapshot.permission_level = PermissionLevel::from_legacy_mode(mode);
+        let mut metadata = Vec::with_capacity(2);
         if mode == PermissionMode::Plan {
-            self.runtime_snapshot.work_mode = WorkMode::Plan;
-            self.persist_meta("work_mode", WorkMode::Plan.cli_name())?;
-        } else if self.runtime_snapshot.work_mode == WorkMode::Plan {
-            self.runtime_snapshot.work_mode = WorkMode::Build;
-            self.persist_meta("work_mode", WorkMode::Build.cli_name())?;
+            next_snapshot.work_mode = WorkMode::Plan;
+            metadata.push(("work_mode", WorkMode::Plan.cli_name()));
+        } else if next_snapshot.work_mode == WorkMode::Plan {
+            next_snapshot.work_mode = WorkMode::Build;
+            metadata.push(("work_mode", WorkMode::Build.cli_name()));
         }
-        self.persist_meta("permission_mode", mode.cli_name())
+        metadata.push(("permission_mode", mode.cli_name()));
+
+        // Publish the PermissionEngine and snapshot only after their complete
+        // metadata batch is durable; failed control commands must remain invisible.
+        self.persist_meta_batch(&metadata)?;
+        self.permissions = next_permissions;
+        self.runtime_snapshot = next_snapshot;
+        Ok(())
     }
 
     pub fn work_mode(&self) -> WorkMode {
@@ -717,27 +727,33 @@ impl SessionEngine {
     }
 
     pub fn set_work_mode(&mut self, mode: WorkMode) -> Result<(), String> {
-        self.runtime_snapshot.work_mode = mode;
-        self.persist_meta("work_mode", mode.cli_name())?;
+        let mut next_permissions = self.permissions.clone();
+        let mut next_snapshot = self.runtime_snapshot.clone();
+        next_snapshot.work_mode = mode;
+        let mut metadata = vec![("work_mode", mode.cli_name())];
         match mode {
             WorkMode::Plan | WorkMode::Review | WorkMode::Explore => {
-                self.permissions.set_mode(PermissionMode::Plan);
-                self.runtime_snapshot.permission_mode = PermissionMode::Plan;
-                self.runtime_snapshot.permission_level = PermissionLevel::ReadOnly;
-                self.persist_meta("permission_mode", PermissionMode::Plan.cli_name())?;
+                next_permissions.set_mode(PermissionMode::Plan);
+                next_snapshot.permission_mode = PermissionMode::Plan;
+                next_snapshot.permission_level = PermissionLevel::ReadOnly;
+                metadata.push(("permission_mode", PermissionMode::Plan.cli_name()));
             }
             WorkMode::Build => {
-                if self.permissions.mode() == PermissionMode::Plan {
-                    self.permissions.set_mode(PermissionMode::Default);
-                    self.runtime_snapshot.permission_mode = PermissionMode::Default;
-                    self.runtime_snapshot.permission_level = PermissionLevel::Ask;
-                    self.persist_meta("permission_mode", PermissionMode::Default.cli_name())?;
+                if next_permissions.mode() == PermissionMode::Plan {
+                    next_permissions.set_mode(PermissionMode::Default);
+                    next_snapshot.permission_mode = PermissionMode::Default;
+                    next_snapshot.permission_level = PermissionLevel::Ask;
+                    metadata.push(("permission_mode", PermissionMode::Default.cli_name()));
                 } else {
-                    self.runtime_snapshot.permission_level =
-                        PermissionLevel::from_legacy_mode(self.permissions.mode());
+                    next_snapshot.permission_level =
+                        PermissionLevel::from_legacy_mode(next_permissions.mode());
                 }
             }
         }
+
+        self.persist_meta_batch(&metadata)?;
+        self.permissions = next_permissions;
+        self.runtime_snapshot = next_snapshot;
         Ok(())
     }
 }

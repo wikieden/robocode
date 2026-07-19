@@ -9,8 +9,8 @@ use viden_provider::ModelProvider;
 use viden_types::{
     AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, EventCursor, ExecutionTarget,
     FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MutationPolicy, PermissionLevel,
-    RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, WorkMode,
+    PermissionMode, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, WorkMode,
 };
 use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
@@ -1496,6 +1496,113 @@ fn lane_supervisor_pairs_applied_engine_with_its_applied_epoch() {
             !effects.calls.lock().unwrap().contains(&"apply".to_string()),
             "{case} stale approval must not execute after later controls apply"
         );
+    }
+}
+
+#[test]
+fn failed_permission_controls_leave_lane_engine_and_epoch_unchanged() {
+    for (case, successful_appends, control) in [
+        (
+            "permission",
+            0,
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        ),
+        (
+            "work-mode",
+            1,
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+    ] {
+        let lane_id = format!("lane-failed-control-{case}");
+        let cwd = temp_dir(&format!("lane_failed_control_{case}_cwd"));
+        let home = temp_dir(&format!("lane_failed_control_{case}_home"));
+        persist_done_propose_lane(&home, &cwd, &lane_id);
+        let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let before = engine.runtime_snapshot();
+        engine.fail_after_transcript_appends_for_test(successful_appends);
+        let effects = Arc::new(RecordingLaneEffects::default());
+        let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+            engine,
+            effects.clone() as Arc<dyn LaneEffectExecutor>,
+        );
+        let lane_owner = owner(&lane_id);
+        supervisor
+            .send_command_from_owner(
+                lane_owner.clone(),
+                format!("apply_before_failed_{case}"),
+                RuntimeCommand::ApplyLaneChanges {
+                    lane_id: lane_id.clone(),
+                    unified_diff: "diff --git a/a b/a\n".to_string(),
+                },
+            )
+            .unwrap();
+        let requested = collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalRequested { approval }, .. }) if approval.tool_name == "lane_apply"))
+        });
+        let request_id = requested
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == "lane_apply" => Some(approval.id.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            supervisor
+                .lane_permission_snapshot_for_test(&lane_id)
+                .unwrap(),
+            (PermissionMode::Default, 0)
+        );
+
+        supervisor
+            .send_command_from_owner(
+                lane_owner.clone(),
+                format!("failed_control_{case}"),
+                control,
+            )
+            .unwrap();
+        let failed = collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::Error { error }, .. }) if error.message.contains("injected transcript append failure")))
+        });
+
+        assert!(failed.iter().all(|envelope| !matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, .. },
+                ..
+            }) if resolved == &request_id
+        )));
+        assert_eq!(supervisor.snapshot_envelope().unwrap().snapshot, before);
+        assert_eq!(
+            supervisor
+                .lane_permission_snapshot_for_test(&lane_id)
+                .unwrap(),
+            (PermissionMode::Default, 0),
+            "{case} failure must not install a new lane engine under the old epoch"
+        );
+        assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
+
+        supervisor
+            .send_command_from_owner(
+                lane_owner,
+                format!("deny_after_failed_{case}"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: viden_types::ApprovalResponse::deny(None),
+                },
+            )
+            .unwrap();
+        collect_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::ApprovalResolved { request_id: resolved, decision: viden_types::ApprovalDecision::Deny, .. }, .. }) if resolved == &request_id))
+        });
+        assert!(!effects.calls.lock().unwrap().contains(&"apply".to_string()));
     }
 }
 

@@ -470,6 +470,15 @@ impl RuntimeSupervisor {
         self.lane_supervisor.active_worker_count_for_test()
     }
 
+    #[cfg(test)]
+    pub(crate) fn lane_permission_snapshot_for_test(
+        &self,
+        lane_id: &str,
+    ) -> Result<(viden_types::PermissionMode, u64), String> {
+        self.lane_supervisor
+            .lane_permission_snapshot_for_test(lane_id)
+    }
+
     pub fn send_command(
         &self,
         command_id: impl Into<String>,

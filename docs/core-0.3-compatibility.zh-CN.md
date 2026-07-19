@@ -73,8 +73,11 @@ arguments、environment、input 和 diff payload。重启时，处于 starting�
 但两者刻意采用不同的 generation 语义：普通 tool 读取已提交的 permission control
 generation，因此 permission 或 work-mode 命令一经接收，即使 worker 尚未应用，也会立即
 使阻塞中的审批失效。Lane 请求则原子冻结 worker 已应用的 generation 及其所描述的
-permission engine；只有队列中的控制命令成功应用后，这一 generation 才会推进。审批等待
-期间只要已应用的 permission 或 work mode 代际发生过变化，即使可见 flags 随后恢复原值，
+permission engine；只有队列中的控制命令成功应用后，这一 generation 才会推进。permission
+与 work-mode 控制命令会先原子持久化完整的 session metadata batch，再发布新的
+live snapshot 与 permission engine；batch 失败时，engine、snapshot、Lane 配对和已应用
+generation 都保持不变。审批等待期间只要已应用的 permission 或 work mode 代际发生过变化，
+即使可见 flags 随后恢复原值，
 旧 Lane 审批也会失效。Lane 响应被接受后，supervisor
 必须等待终态 `ApprovalResolved` 以及 effect/persistence 完成，才能处理或发布后续 permission
 snapshot。审批产生的 session/repository allow rule 只保存在所属 Lane worker 内，因此会在
