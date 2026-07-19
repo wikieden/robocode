@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use viden_core::{
-    CoreClient, CoreClientError, CoreHandshake, EventCursor, ReplayRequest, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeSnapshotEnvelope, RuntimeViewState,
-    RuntimeWireEvent, validate_handshake, validate_schema_version,
+    CORE_CLIENT_CAPABILITIES, CoreClient, CoreClientError, CoreHandshake, EventCursor,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, validate_handshake,
+    validate_schema_version,
 };
-use viden_types::{FRONTEND_SCHEMA_V1, RuntimeOwner};
+use viden_types::{CapabilityId, FRONTEND_SCHEMA_V1, RuntimeOwner};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PumpOutcome {
@@ -58,7 +59,7 @@ impl<C: CoreClient> TuiClientDriver<C> {
     pub(super) fn connect(mut client: C) -> Result<Self, TuiClientError> {
         let handshake = client.discover()?;
         validate_handshake(&handshake).map_err(CoreClientError::Compatibility)?;
-        let confirmed = client.snapshot()?;
+        let confirmed = acquire_validated_snapshot(&mut client)?;
         Ok(Self {
             client,
             handshake,
@@ -101,7 +102,7 @@ impl<C: CoreClient> TuiClientDriver<C> {
         validate_event_envelope(&delivered)?;
 
         if delivered.cursor.stream_id != before.stream_id {
-            self.confirmed = self.client.snapshot()?;
+            self.confirmed = acquire_validated_snapshot(&mut self.client)?;
             return Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()));
         }
         if delivered.cursor.sequence <= before.sequence {
@@ -131,7 +132,7 @@ impl<C: CoreClient> TuiClientDriver<C> {
             let batch = match self.client.replay(request.clone()) {
                 Ok(batch) => batch,
                 Err(CoreClientError::SnapshotRequired { .. }) => {
-                    self.confirmed = self.client.snapshot()?;
+                    self.confirmed = acquire_validated_snapshot(&mut self.client)?;
                     return Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()));
                 }
                 Err(error) => return Err(error.into()),
@@ -192,6 +193,42 @@ impl<C: CoreClient> TuiClientDriver<C> {
     }
 }
 
+fn acquire_validated_snapshot<C: CoreClient>(
+    client: &mut C,
+) -> Result<RuntimeSnapshotEnvelope, TuiClientError> {
+    let snapshot = client.snapshot()?;
+    validate_snapshot_envelope(&snapshot)?;
+    Ok(snapshot)
+}
+
+fn validate_snapshot_envelope(snapshot: &RuntimeSnapshotEnvelope) -> Result<(), TuiClientError> {
+    validate_schema_version(snapshot.schema_version).map_err(CoreClientError::Compatibility)?;
+    for required in CORE_CLIENT_CAPABILITIES {
+        if !snapshot
+            .capabilities
+            .contains(&CapabilityId((*required).to_string()))
+        {
+            return Err(CoreClientError::Compatibility(format!(
+                "missing core capability `{required}`"
+            ))
+            .into());
+        }
+    }
+    if snapshot.cursor.stream_id.is_empty() {
+        return Err(CoreClientError::Protocol(
+            "runtime snapshot stream id must not be empty".to_string(),
+        )
+        .into());
+    }
+    if snapshot.snapshot != snapshot.view.snapshot {
+        return Err(CoreClientError::Protocol(
+            "runtime snapshot and projected view disagree".to_string(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn validate_event_envelope(envelope: &RuntimeEventEnvelope) -> Result<(), TuiClientError> {
     validate_schema_version(envelope.schema_version).map_err(CoreClientError::Compatibility)?;
     if let RuntimeWireEvent::Known(event) = &envelope.event
@@ -234,8 +271,11 @@ mod tests {
     struct FakeCoreClient {
         handshake: Option<CoreHandshake>,
         snapshot: Option<RuntimeSnapshotEnvelope>,
+        recovery_snapshot: Option<RuntimeSnapshotEnvelope>,
+        snapshot_calls: usize,
         events: VecDeque<RuntimeEventEnvelope>,
         replay: VecDeque<ReplayBatch>,
+        replay_error: Option<CoreClientError>,
         sent: Vec<RuntimeCommandEnvelope>,
     }
 
@@ -280,12 +320,21 @@ mod tests {
         }
 
         fn snapshot(&mut self) -> Result<RuntimeSnapshotEnvelope, CoreClientError> {
+            self.snapshot_calls = self.snapshot_calls.saturating_add(1);
+            if self.snapshot_calls > 1
+                && let Some(snapshot) = &self.recovery_snapshot
+            {
+                return Ok(snapshot.clone());
+            }
             self.snapshot
                 .clone()
                 .ok_or(CoreClientError::MissingSnapshot)
         }
 
         fn replay(&mut self, _request: ReplayRequest) -> Result<ReplayBatch, CoreClientError> {
+            if let Some(error) = self.replay_error.take() {
+                return Err(error);
+            }
             self.replay
                 .pop_front()
                 .ok_or_else(|| CoreClientError::Transport("missing replay fixture".to_string()))
@@ -357,6 +406,127 @@ mod tests {
             error,
             TuiClientError::Core(CoreClientError::Compatibility(_))
         ));
+    }
+
+    #[test]
+    fn unsupported_snapshot_schema_is_rejected_on_connect() {
+        let mut fake = FakeCoreClient::compatible();
+        fake.snapshot.as_mut().unwrap().schema_version = viden_types::SchemaVersion(2);
+
+        let error = TuiClientDriver::connect(fake).expect_err("snapshot schema must be validated");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Compatibility(_))
+        ));
+    }
+
+    #[test]
+    fn missing_required_snapshot_capability_is_rejected_on_connect() {
+        let mut fake = FakeCoreClient::compatible();
+        fake.snapshot
+            .as_mut()
+            .unwrap()
+            .capabilities
+            .remove(&CapabilityId("runtime.commands".to_string()));
+
+        let error =
+            TuiClientDriver::connect(fake).expect_err("snapshot capabilities must be validated");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Compatibility(_))
+        ));
+    }
+
+    #[test]
+    fn empty_snapshot_stream_id_is_rejected_on_connect() {
+        let mut fake = FakeCoreClient::compatible();
+        fake.snapshot.as_mut().unwrap().cursor.stream_id.clear();
+
+        let error = TuiClientDriver::connect(fake).expect_err("snapshot stream id must be valid");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Protocol(_))
+        ));
+    }
+
+    #[test]
+    fn snapshot_view_disagreement_is_rejected_on_connect() {
+        let mut fake = FakeCoreClient::compatible();
+        fake.snapshot
+            .as_mut()
+            .unwrap()
+            .snapshot
+            .model_label
+            .push_str("-disagrees");
+
+        let error = TuiClientDriver::connect(fake).expect_err("snapshot and view must agree");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Protocol(_))
+        ));
+    }
+
+    #[test]
+    fn stream_change_recovery_rejects_an_invalid_snapshot() {
+        let mut fake = FakeCoreClient::compatible();
+        let mut replacement = fake.snapshot.clone().unwrap();
+        replacement.schema_version = viden_types::SchemaVersion(2);
+        fake.recovery_snapshot = Some(replacement);
+        let mut replacement_event = event(
+            1,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "replacement".to_string(),
+                task_id: None,
+                content: "replacement".to_string(),
+            },
+        );
+        replacement_event.cursor.stream_id = "replacement".to_string();
+        fake.events.push_back(replacement_event);
+
+        let mut driver = TuiClientDriver::connect(fake).expect("initial snapshot is valid");
+        let error = driver
+            .pump()
+            .expect_err("stream recovery snapshot must be validated");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Compatibility(_))
+        ));
+        assert_eq!(driver.cursor().stream_id, "fixture");
+    }
+
+    #[test]
+    fn snapshot_required_recovery_rejects_an_invalid_snapshot() {
+        let mut fake = FakeCoreClient::compatible();
+        let mut replacement = fake.snapshot.clone().unwrap();
+        replacement.snapshot.model_label.push_str("-disagrees");
+        fake.recovery_snapshot = Some(replacement);
+        fake.replay_error = Some(CoreClientError::SnapshotRequired {
+            reason_code: "expired".to_string(),
+        });
+        fake.events.push_back(event(
+            3,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "gap".to_string(),
+                task_id: None,
+                content: "gap".to_string(),
+            },
+        ));
+
+        let mut driver = TuiClientDriver::connect(fake).expect("initial snapshot is valid");
+        let error = driver
+            .pump()
+            .expect_err("SnapshotRequired recovery snapshot must be validated");
+
+        assert!(matches!(
+            error,
+            TuiClientError::Core(CoreClientError::Protocol(_))
+        ));
+        assert_eq!(driver.cursor().sequence, 0);
     }
 
     #[test]
