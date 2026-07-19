@@ -80,6 +80,13 @@ pub(crate) struct LaneSupervisor {
 
 impl LaneSupervisor {
     #[cfg(test)]
+    pub(crate) fn permission_template_snapshot_for_test(
+        &self,
+    ) -> Result<(viden_types::PermissionMode, u64), String> {
+        Ok((self.permission_template()?.mode(), self.permission_epoch()))
+    }
+
+    #[cfg(test)]
     pub(crate) fn lane_permission_snapshot_for_test(
         &self,
         lane_id: &str,

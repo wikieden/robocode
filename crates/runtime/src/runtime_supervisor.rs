@@ -35,7 +35,7 @@ struct PendingApproval {
     owner: RuntimeOwner,
     audit_id: String,
     expires_at: u64,
-    // An approval cannot survive any permission/work-mode generation change.
+    // An ordinary approval cannot survive any permission-control reservation.
     permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
     target: PendingApprovalTarget,
@@ -127,29 +127,25 @@ impl PermissionControlState {
         }
     }
 
-    fn projected(&self) -> (PermissionControlValues, u64) {
+    fn projected(&self) -> PermissionControlValues {
         let mut values = self.applied;
         for submitted in &self.submitted {
             values.apply(&submitted.command);
         }
-        let epoch = self
-            .submitted
-            .last()
-            .map(|submitted| submitted.epoch)
-            .unwrap_or(self.applied_epoch);
-        (values, epoch)
+        values
     }
 
     fn blocks_mutation(&self) -> bool {
-        self.projected().0.blocks_mutation()
+        self.projected().blocks_mutation()
     }
 
     fn epoch(&self) -> u64 {
-        self.projected().1
+        self.next_epoch
     }
 
-    // A generation is reserved at submission. Failure removes only that
-    // reservation: decrementing/reusing it can mispair a later queued control.
+    // Ordinary approvals fail closed at reservation time. A failed control is
+    // removed from the applied-state projection, but its generation is never
+    // rolled back or reused; lane approvals remain tied to applied_epoch.
     fn reserve(&mut self, command: &RuntimeCommand) -> u64 {
         self.next_epoch = self.next_epoch.saturating_add(1);
         let epoch = self.next_epoch;
@@ -323,6 +319,38 @@ fn before_supervisor_command_for_test(command_id: &str) {
 
 #[cfg(not(test))]
 fn before_supervisor_command_for_test(_command_id: &str) {}
+
+#[cfg(test)]
+type BeforePermissionControlHook = Arc<dyn Fn(&str, &SessionEngine) + Send + Sync>;
+
+#[cfg(test)]
+static BEFORE_PERMISSION_CONTROL_HOOK: OnceLock<Mutex<Option<BeforePermissionControlHook>>> =
+    OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_before_permission_control_hook(hook: Option<BeforePermissionControlHook>) {
+    if let Ok(mut slot) = BEFORE_PERMISSION_CONTROL_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        *slot = hook;
+    }
+}
+
+#[cfg(test)]
+fn before_permission_control_for_test(command_id: &str, engine: &SessionEngine) {
+    let hook = BEFORE_PERMISSION_CONTROL_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(command_id, engine);
+    }
+}
+
+#[cfg(not(test))]
+fn before_permission_control_for_test(_command_id: &str, _engine: &SessionEngine) {}
 
 // Internal channel payload mirrors RuntimeCommand construction. Boxing command
 // variants would add indirection at every supervisor send site without changing
@@ -560,33 +588,32 @@ impl RuntimeSupervisor {
     }
 
     #[cfg(test)]
-    pub(crate) fn insert_pending_tool_approval_for_test(
+    pub(crate) fn lane_permission_template_snapshot_for_test(
         &self,
-        request_id: String,
-        owner: RuntimeOwner,
-    ) -> Receiver<ApprovalResponse> {
-        let (sender, receiver) = mpsc::channel();
-        let permission_epoch = self
+    ) -> Result<(viden_types::PermissionMode, u64), String> {
+        self.lane_supervisor.permission_template_snapshot_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn permission_control_state_for_test(
+        &self,
+    ) -> (u64, u64, u64, Vec<u64>, WorkMode, PermissionLevel) {
+        let control = self
             .permission_control
             .lock()
-            .expect("permission control state")
-            .epoch();
-        insert_pending_approval(
-            &self.pending_approvals,
-            request_id,
-            PendingApproval {
-                owner: owner.clone(),
-                audit_id: "test-tool-approval".to_string(),
-                expires_at: u64::MAX,
-                permission_epoch,
-                allowed_scopes: allowed_approval_scopes(&owner, &[]),
-                target: PendingApprovalTarget::Channel {
-                    owner_id: "test-tool-approval".to_string(),
-                    sender,
-                },
-            },
-        );
-        receiver
+            .expect("permission control state");
+        (
+            control.applied_epoch,
+            control.epoch(),
+            control.next_epoch,
+            control
+                .submitted
+                .iter()
+                .map(|submitted| submitted.epoch)
+                .collect(),
+            control.applied.work_mode,
+            control.applied.permission_level,
+        )
     }
 
     pub fn send_command(
@@ -1166,6 +1193,9 @@ fn run_supervisor_worker(
                         );
                     }
                     command => {
+                        if submitted_permission_epoch.is_some() {
+                            before_permission_control_for_test(&command_id, &engine);
+                        }
                         let mut approver = |_prompt: PermissionPrompt| {
                             ApprovalResponse::deny(Some(
                                 "runtime supervisor command path does not own this approval"

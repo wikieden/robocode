@@ -84,13 +84,15 @@ Ordinary tool and lane approval responses observe supervisor command ordering
 with permission and mode changes, but use two deliberately different generation
 semantics. Ordinary tools consult submitted permission-control reservations, so
 a queued permission or work-mode command invalidates a blocked approval
-immediately, before the worker applies that command. A reservation commits only
-after its complete SessionMeta batch persists. A failed reservation is removed,
-so it does not invalidate an approval that predates it; its monotonic generation
-is never decremented or reused, which keeps later queued controls paired with
-their own generations. Lane requests instead capture the worker's applied
-generation atomically with the permission engine it describes; that generation
-advances only after the queued control command is successfully applied.
+immediately and permanently, before the worker applies that command. Its
+submitted generation is never decremented or reused, even when the control's
+SessionMeta batch later fails to persist. The stale ordinary request resolves as
+`Deny` and cannot be restored; the user must retrigger the tool to obtain a new
+request. A failed reservation is still removed from the projected applied-state
+queue so it cannot leak policy into later controls. Lane requests instead
+capture the worker's applied generation atomically with the permission engine it
+describes; that generation advances only after the queued control command is
+successfully applied, so a lane approval may survive a failed control.
 Permission and work-mode controls persist their complete session-metadata batch
 before publishing the new live snapshot or permission engine; a failed batch
 leaves the engine, snapshot, lane pair, and applied generation unchanged. Any

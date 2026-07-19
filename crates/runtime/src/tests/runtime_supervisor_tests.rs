@@ -20,13 +20,16 @@ use viden_workflows::stores::WorkflowStore;
 use crate::{
     RuntimeSupervisor, SessionEngine,
     runtime_contract::{set_retrieve_context_publish_test_hook, set_retrieve_context_test_hook},
-    runtime_supervisor::set_before_context_resume_enqueue_hook,
+    runtime_supervisor::{
+        set_before_context_resume_enqueue_hook, set_before_permission_control_hook,
+    },
 };
 
 use super::{SequenceProvider, temp_dir};
 
 static CUSTOM_ACP_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static RETRIEVE_CONTEXT_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static PERMISSION_CONTROL_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn assert_no_project_side_channel_events(events: &[viden_workflows::stores::WorkflowAgentEvent]) {
     let forbidden = [
@@ -2218,91 +2221,374 @@ fn runtime_supervisor_permission_downgrade_precedes_pending_tool_allow() {
 }
 
 #[test]
-fn runtime_supervisor_failed_permission_control_preserves_pending_tool_approval_epoch() {
-    for (case, successful_control_appends, control) in [
-        (
-            "permission",
-            0,
+fn runtime_supervisor_failed_permission_control_still_terminally_stales_real_tool_approval() {
+    let _guard = PERMISSION_CONTROL_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+    let cwd = temp_dir("runtime_supervisor_failed_control_real_approval_cwd");
+    let home = temp_dir("runtime_supervisor_failed_control_real_approval_home");
+    let output = cwd.join("retriggered-tool.txt");
+    let tool_turn = |id: &str| {
+        let mut input = ToolInput::new();
+        input.insert(
+            "command".to_string(),
+            format!("printf allowed > {}", output.display()),
+        );
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: id.to_string(),
+                name: "shell".to_string(),
+                input,
+            }),
+            ModelEvent::Done,
+        ]
+    };
+    let provider = Box::new(SequenceProvider::new(vec![
+        tool_turn("tool-before-failed-control"),
+        vec![ModelEvent::Done],
+        tool_turn("tool-after-retrigger"),
+        vec![ModelEvent::Done],
+    ]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-failed-control-real-approval");
+    set_before_permission_control_hook(Some(Arc::new(|command_id, engine| {
+        if command_id == "failed_permission_control" {
+            engine.fail_after_transcript_appends_for_test(0);
+        }
+    })));
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "input_before_failed_control",
+            RuntimeCommand::SubmitUserInput {
+                content: "request a mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let stale_request_id = approval_id(&requested);
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "failed_permission_control",
             RuntimeCommand::SetPermissionLevel {
                 level: PermissionLevel::Auto,
             },
-        ),
-        (
-            "work-mode",
-            1,
-            RuntimeCommand::SetWorkMode {
-                mode: WorkMode::Plan,
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "allow_stale_after_failed_control",
+            RuntimeCommand::RespondToApproval {
+                request_id: stale_request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
             },
-        ),
-    ] {
-        let cwd = temp_dir(&format!("runtime_supervisor_failed_{case}_epoch_cwd"));
-        let home = temp_dir(&format!("runtime_supervisor_failed_{case}_epoch_home"));
+        )
+        .unwrap();
+    let first_events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let stale_denied = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id,
+                    decision: ApprovalDecision::Deny,
+                    ..
+                } if request_id == &stale_request_id
+            )
+        });
+        let control_failed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("injected transcript append failure")
+            )
+        });
+        stale_denied && control_failed
+    });
+    set_before_permission_control_hook(None);
+
+    assert!(first_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id,
+                decision: ApprovalDecision::Deny,
+                ..
+            } if request_id == &stale_request_id
+        )
+    }));
+    assert!(!output.exists(), "the stale AllowOnce must have no effect");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "input_after_failed_control",
+            RuntimeCommand::SubmitUserInput {
+                content: "retrigger the mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let retriggered = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let new_request_id = approval_id(&retriggered);
+    assert_ne!(new_request_id, stale_request_id);
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "allow_retriggered_tool",
+            RuntimeCommand::RespondToApproval {
+                request_id: new_request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id,
+                    decision: ApprovalDecision::Allow { .. },
+                    ..
+                } if request_id == &new_request_id
+            )
+        }) && output.exists()
+    });
+    assert!(output.exists(), "only the retriggered approval may execute");
+}
+
+#[test]
+fn runtime_supervisor_permission_reservations_interleave_without_reuse_or_leak() {
+    let _guard = PERMISSION_CONTROL_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+    struct Case {
+        name: &'static str,
+        failures: &'static [&'static str],
+        controls: Vec<(&'static str, RuntimeCommand)>,
+        expected_applied_epoch: u64,
+        expected_level: PermissionLevel,
+    }
+
+    let cases = [
+        Case {
+            name: "fail-e1-success-e2",
+            failures: &["matrix-fail-e1-success-e2-e1"],
+            controls: vec![
+                (
+                    "matrix-fail-e1-success-e2-e1",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Auto,
+                    },
+                ),
+                (
+                    "matrix-fail-e1-success-e2-e2",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Ask,
+                    },
+                ),
+            ],
+            expected_applied_epoch: 2,
+            expected_level: PermissionLevel::Ask,
+        },
+        Case {
+            name: "success-e1-fail-e2-success-e3",
+            failures: &["matrix-success-e1-fail-e2-success-e3-e2"],
+            controls: vec![
+                (
+                    "matrix-success-e1-fail-e2-success-e3-e1",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Auto,
+                    },
+                ),
+                (
+                    "matrix-success-e1-fail-e2-success-e3-e2",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::ReadOnly,
+                    },
+                ),
+                (
+                    "matrix-success-e1-fail-e2-success-e3-e3",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Ask,
+                    },
+                ),
+            ],
+            expected_applied_epoch: 3,
+            expected_level: PermissionLevel::Ask,
+        },
+        Case {
+            name: "fail-e1-fail-e2",
+            failures: &["matrix-fail-e1-fail-e2-e1", "matrix-fail-e1-fail-e2-e2"],
+            controls: vec![
+                (
+                    "matrix-fail-e1-fail-e2-e1",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Auto,
+                    },
+                ),
+                (
+                    "matrix-fail-e1-fail-e2-e2",
+                    RuntimeCommand::SetWorkMode {
+                        mode: WorkMode::Plan,
+                    },
+                ),
+            ],
+            expected_applied_epoch: 0,
+            expected_level: PermissionLevel::Ask,
+        },
+    ];
+
+    for case in cases {
+        let cwd = temp_dir(&format!("runtime_supervisor_{}_cwd", case.name));
+        let home = temp_dir(&format!("runtime_supervisor_{}_home", case.name));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-        engine.fail_after_transcript_appends_for_test(successful_control_appends);
         let supervisor = RuntimeSupervisor::start(engine);
-        let owner = owner_for_lane(&format!("lane-failed-{case}-epoch"));
-        let request_id = format!("tool-approval-before-failed-{case}-control");
-        let response_receiver =
-            supervisor.insert_pending_tool_approval_for_test(request_id.clone(), owner.clone());
+        let first_id = case.controls[0].0;
+        let failures = case.failures;
+        let (entered_sender, entered_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let release_receiver = Arc::new(Mutex::new(release_receiver));
+        set_before_permission_control_hook(Some(Arc::new(move |command_id, engine| {
+            if failures.contains(&command_id) {
+                engine.fail_after_transcript_appends_for_test(0);
+            }
+            if command_id == first_id {
+                let _ = entered_sender.send(());
+                let _ = release_receiver.lock().unwrap().recv();
+            }
+        })));
 
+        for (index, (command_id, command)) in case.controls.iter().cloned().enumerate() {
+            supervisor
+                .send_command(command_id, command)
+                .unwrap_or_else(|error| panic!("{} control {index}: {error}", case.name));
+            if index == 0 {
+                entered_receiver
+                    .recv_timeout(Duration::from_secs(2))
+                    .unwrap_or_else(|_| panic!("{} first reservation did not pause", case.name));
+            }
+        }
+        let reservation_count = case.controls.len() as u64;
+        let (_, ordinary_epoch, next_epoch, submitted, _, _) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(ordinary_epoch, reservation_count, "{}", case.name);
+        assert_eq!(next_epoch, reservation_count, "{}", case.name);
+        assert_eq!(
+            submitted,
+            (1..=reservation_count).collect::<Vec<_>>(),
+            "{}",
+            case.name
+        );
+        release_sender.send(()).unwrap();
+
+        let success_ids = case
+            .controls
+            .iter()
+            .map(|(command_id, _)| *command_id)
+            .filter(|command_id| !case.failures.contains(command_id))
+            .collect::<Vec<_>>();
+        let expected_failures = case.failures.len();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            let failures = events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        &event.kind,
+                        RuntimeEventKind::Error { error }
+                            if error.message.contains("injected transcript append failure")
+                    )
+                })
+                .count();
+            let successes = success_ids.iter().all(|expected| {
+                events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        RuntimeEventKind::CommandAccepted { command_id, .. }
+                            if command_id == expected
+                    )
+                })
+            });
+            failures == expected_failures && successes
+        });
+        set_before_permission_control_hook(None);
+
+        let (applied_epoch, ordinary_epoch, next_epoch, submitted, work_mode, level) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(applied_epoch, case.expected_applied_epoch, "{}", case.name);
+        assert_eq!(ordinary_epoch, reservation_count, "{}", case.name);
+        assert_eq!(next_epoch, reservation_count, "{}", case.name);
+        assert!(submitted.is_empty(), "{} leaked {submitted:?}", case.name);
+        assert_eq!(work_mode, WorkMode::Build, "{}", case.name);
+        assert_eq!(level, case.expected_level, "{}", case.name);
+        let snapshot = supervisor.snapshot_envelope().unwrap().snapshot;
+        assert_eq!(snapshot.work_mode, work_mode, "{}", case.name);
+        assert_eq!(snapshot.permission_level, level, "{}", case.name);
+        assert_eq!(
+            supervisor
+                .lane_permission_template_snapshot_for_test()
+                .unwrap(),
+            (snapshot.permission_mode, applied_epoch),
+            "{} lane permissions diverged from the applied supervisor state",
+            case.name
+        );
+
+        let next_command_id = format!("matrix-{}-next-reservation", case.name);
+        let next_command_id_for_hook = next_command_id.clone();
+        let (next_entered_sender, next_entered_receiver) = std::sync::mpsc::channel();
+        let (next_release_sender, next_release_receiver) = std::sync::mpsc::channel();
+        let next_release_receiver = Arc::new(Mutex::new(next_release_receiver));
+        set_before_permission_control_hook(Some(Arc::new(move |command_id, _engine| {
+            if command_id == next_command_id_for_hook {
+                let _ = next_entered_sender.send(());
+                let _ = next_release_receiver.lock().unwrap().recv();
+            }
+        })));
         supervisor
-            .send_command_from_owner(owner.clone(), format!("failed_{case}_control"), control)
+            .send_command(
+                next_command_id.clone(),
+                RuntimeCommand::SetPermissionLevel { level },
+            )
             .unwrap();
+        next_entered_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_else(|_| panic!("{} next reservation did not pause", case.name));
+        let expected_next_epoch = reservation_count + 1;
+        let (_, ordinary_epoch, next_epoch, submitted, _, _) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(ordinary_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(next_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(submitted, vec![expected_next_epoch], "{}", case.name);
+        next_release_sender.send(()).unwrap();
         collect_events_until(&supervisor, Duration::from_secs(2), |events| {
             events.iter().any(|event| {
                 matches!(
                     &event.kind,
-                    RuntimeEventKind::Error { error }
-                        if error.message.contains("injected transcript append failure")
+                    RuntimeEventKind::CommandAccepted { command_id, .. }
+                        if command_id == &next_command_id
                 )
             })
         });
-
-        supervisor
-            .send_command_from_owner(
-                owner,
-                format!("allow_after_failed_{case}_control"),
-                RuntimeCommand::RespondToApproval {
-                    request_id: request_id.clone(),
-                    response: ApprovalResponse::allow_once(None),
-                },
-            )
-            .unwrap();
-        let resolved = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
-            events.iter().any(|event| {
-                matches!(
-                    &event.kind,
-                    RuntimeEventKind::ApprovalResolved {
-                        request_id: resolved,
-                        decision: ApprovalDecision::Allow { .. },
-                        ..
-                    } if resolved == &request_id
-                )
-            })
-        });
-
-        assert!(
-            resolved.iter().any(|event| matches!(
-                &event.kind,
-                RuntimeEventKind::ApprovalResolved {
-                    request_id: resolved,
-                    decision: ApprovalDecision::Allow { .. },
-                    ..
-                } if resolved == &request_id
-            )),
-            "{case} AllowOnce must preserve the outstanding ordinary tool approval"
-        );
-        assert!(
-            matches!(
-                response_receiver.recv_timeout(Duration::from_secs(2)),
-                Ok(ApprovalResponse {
-                    decision: ApprovalDecision::Allow { .. },
-                    ..
-                })
-            ),
-            "{case} failed control must not make the earlier tool approval stale"
-        );
+        set_before_permission_control_hook(None);
+        let (applied_epoch, ordinary_epoch, next_epoch, submitted, _, _) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(applied_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(ordinary_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(next_epoch, expected_next_epoch, "{}", case.name);
+        assert!(submitted.is_empty(), "{} leaked {submitted:?}", case.name);
     }
 }
 
