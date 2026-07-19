@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use toml::{Value, map::Map};
@@ -795,17 +795,83 @@ where
 }
 
 fn is_project_config_path(cwd: &Path, path: &Path) -> bool {
-    let project_path = cwd.join(".viden").join("config.toml");
-    let candidate = if path.is_absolute() {
+    let Some(candidate_raw) = absolute_path(cwd, path) else {
+        return true;
+    };
+    let Some(project_raw) = absolute_path(cwd, Path::new(".viden/config.toml")) else {
+        return true;
+    };
+    let candidate = lexical_normalize(&candidate_raw);
+    let project_path = lexical_normalize(&project_raw);
+    if candidate == project_path {
+        return true;
+    }
+
+    // Resolve every existing prefix before applying later parent components.
+    // This preserves filesystem symlink semantics even when the final target
+    // is missing, while unresolved components remain a lexical suffix.
+    resolve_existing_components(&candidate_raw)
+        .zip(resolve_existing_components(&project_raw))
+        .is_some_and(|(candidate, project)| candidate == project)
+}
+
+fn absolute_path(cwd: &Path, path: &Path) -> Option<PathBuf> {
+    let absolute_cwd = if cwd.is_absolute() {
+        cwd.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(cwd)
+    };
+    let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        cwd.join(path)
+        absolute_cwd.join(path)
     };
-    candidate == project_path
-        || fs::canonicalize(&candidate)
-            .ok()
-            .zip(fs::canonicalize(project_path).ok())
-            .is_some_and(|(candidate, project)| candidate == project)
+    Some(absolute)
+}
+
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => match normalized.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normalized.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                Some(Component::ParentDir) | None => normalized.push(component.as_os_str()),
+                Some(Component::CurDir) => unreachable!("curdir components are never retained"),
+            },
+        }
+    }
+    normalized
+}
+
+fn resolve_existing_components(path: &Path) -> Option<PathBuf> {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                resolved.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            Component::Normal(_) => {
+                let next = resolved.join(component.as_os_str());
+                match fs::canonicalize(&next) {
+                    Ok(canonical) => resolved = canonical,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => resolved = next,
+                    Err(_) => return None,
+                }
+            }
+        }
+    }
+    Some(lexical_normalize(&resolved))
 }
 
 fn apply_file_config(

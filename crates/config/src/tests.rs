@@ -424,6 +424,106 @@ fn ui_preferences_project_config_path_is_never_a_personal_write_target() {
 }
 
 #[test]
+fn ui_preferences_missing_project_path_lexical_aliases_never_become_write_targets() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_missing_project_write_target_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let project_dir = cwd.join(".viden");
+    let project_path = project_dir.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&cwd).unwrap();
+    let cwd_mtime = fs::metadata(&cwd).unwrap().modified().unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let expected = default_config_path_for_test(&root);
+    let aliases = [
+        PathBuf::from(".viden/../.viden/config.toml"),
+        cwd.join(".viden/../.viden/config.toml"),
+        PathBuf::from("./.viden/./nested/../config.toml"),
+        cwd.join("./.viden/subdir/../../.viden/./config.toml"),
+    ];
+
+    for alias in aliases {
+        let selected =
+            user_ui_config_path_with_env(&cwd, Some(&alias), &|key| env_map.get(key).cloned())
+                .unwrap();
+        assert_eq!(selected, expected, "alias escaped exclusion: {alias:?}");
+    }
+
+    save_user_ui_preferences_at(
+        &expected,
+        &UiPreferencePatch {
+            locale: Some(LocaleId::ZhCn),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap();
+
+    assert!(!project_path.exists());
+    assert!(!project_dir.exists());
+    assert_eq!(fs::metadata(&cwd).unwrap().modified().unwrap(), cwd_mtime);
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_preferences_missing_project_path_resolves_existing_parent_symlink_alias() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_project_symlink_target_{}",
+        std::process::id()
+    ));
+    let real_cwd = root.join("real-project");
+    let linked_cwd = root.join("linked-project");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&real_cwd).unwrap();
+    symlink(&real_cwd, &linked_cwd).unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let selected = user_ui_config_path_with_env(
+        &linked_cwd,
+        Some(&real_cwd.join(".viden/child/../config.toml")),
+        &|key| env_map.get(key).cloned(),
+    )
+    .unwrap();
+
+    assert_eq!(selected, default_config_path_for_test(&root));
+    assert!(!real_cwd.join(".viden").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_preferences_symlink_parent_traversal_cannot_hide_missing_project_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_project_symlink_parent_traversal_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let symlink_target = cwd.join("nested").join("target");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&symlink_target).unwrap();
+    symlink(&symlink_target, cwd.join("alias")).unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    // Filesystem traversal follows `alias` before applying the parent
+    // components, so this resolves to `<cwd>/.viden/config.toml` even though a
+    // purely lexical collapse points outside `cwd`.
+    let selected = user_ui_config_path_with_env(
+        &cwd,
+        Some(&cwd.join("alias/../../.viden/config.toml")),
+        &|key| env_map.get(key).cloned(),
+    )
+    .unwrap();
+
+    assert_eq!(selected, default_config_path_for_test(&root));
+    assert!(!cwd.join(".viden").exists());
+}
+
+#[test]
 fn ui_preferences_corrupt_table_preserves_file_and_returns_one_diagnostic() {
     let root = std::env::temp_dir().join(format!("viden_ui_corrupt_{}", std::process::id()));
     let path = default_config_path_for_test(&root);
