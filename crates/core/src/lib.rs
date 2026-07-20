@@ -29,12 +29,13 @@ pub use viden_types::{
     FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus, LocaleId,
     MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
     ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView,
-    ReplayBatch, ReplayRequest, ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot,
-    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView,
-    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest,
+    ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, ToolCallView, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
+    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
+    UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -75,5 +76,8 @@ mod tests {
         assert!(std::any::type_name::<ProjectProbe>().contains("ProjectProbe"));
         assert!(std::any::type_name::<ProjectConfigPreview>().contains("ProjectConfigPreview"));
         assert!(std::any::type_name::<CredentialHandle>().contains("CredentialHandle"));
+        assert!(std::any::type_name::<RecentWorkQuery>().contains("RecentWorkQuery"));
+        assert!(std::any::type_name::<RecentProjectSummary>().contains("RecentProjectSummary"));
+        assert!(std::any::type_name::<RecentSessionSummary>().contains("RecentSessionSummary"));
     }
 }

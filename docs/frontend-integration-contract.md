@@ -94,6 +94,7 @@ self-referential inside the payload commit.
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
 | UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
+| Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
 
 ## Event Consumption Rules
 
@@ -124,6 +125,8 @@ flowchart LR
 - `ProjectProbed`, `ProjectConfigPreviewed`, `ProjectConfigConfirmed`, and
   `CredentialHandleStored` update onboarding state; clients must not infer a
   successful write from command acceptance alone.
+- `RecentWorkLoaded` atomically replaces the three recent-work view slices;
+  snapshot and replay recover the most recently loaded safe result.
 - Every command, snapshot, and event envelope uses schema `1`. A known event's
   sequence must equal its cursor sequence.
 - Clients call `discover` before sending commands or consuming state. Missing
@@ -152,6 +155,7 @@ flowchart LR
 | Configure provider/model | provider/model commands | config persistence, registry validation, health |
 | Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
+| Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
 
 `PreviewProjectConfig` is read-only. A valid preview includes the exact UTF-8
 contents that its SHA-256 describes; invalid or secret-bearing candidates omit
@@ -380,6 +384,40 @@ GUI `pages/Viden - D11 首启与项目接入 (GUI).html` is subordinate first-ru
 onboarding. It is not the GUI cockpit and must not replace D1 as the desktop
 visual target. All relative paths in this list start at
 `docs/viden-design/Viden/`.
+
+## Recent Work Contract
+
+`QueryRecentWork` is read-only, available in Plan mode, and never requests
+approval. Core emits exactly `CommandAccepted` followed by `RecentWorkLoaded`
+on success. The loaded fact is retained in the supervisor snapshot/replay view,
+but is not copied into session or workflow durable JSONL.
+
+Production `LocalCoreHost::new()` resolves one user-scoped shared session home;
+project-local `.viden` directories are not a cross-project inventory. Core
+alone scans `<session-home>/projects`. Frontends must not inspect session files,
+SQLite, or project directories.
+
+Each new transcript begins with one committed metadata batch containing its
+canonical root and stable creation timestamp. Inventory rebuild streams JSONL
+line by line, recognizes only entry kinds, safe counts, those two metadata
+facts, and stable timestamps, and never loads transcript bodies as summaries.
+It validates the root-derived project key against the containing project
+directory. Legacy records without a root and tampered identities are skipped
+with stable diagnostics; the current cwd is never substituted. A non-empty
+SQLite index is reconciled with this canonical inventory rather than trusted as
+complete.
+
+`RecentSessionSummary` is a whitelist DTO containing only canonical root,
+session id, stable timestamps, and message/tool-call/command counts.
+`RecentProjectSummary` contains canonical root, derived display name, latest
+stable timestamp, and latest session id. Neither DTO contains transcript path,
+title, preview text, arbitrary metadata, credential/backend values, or any
+message, tool, or command body. Identity is `(canonical_root, session_id)`.
+
+Core clamps `limit` to `1..=100`, globally orders sessions by
+`(last_updated_at DESC, canonical_root ASC, session_id ASC)`, truncates that
+session list first, and only then aggregates projects from the bounded result.
+Both returned collections are therefore bounded.
 
 ## TUI Requirements
 

@@ -15,6 +15,8 @@
 - `SessionStore`
 - `SessionPaths`
 - `project_key_for_path`
+- `default_session_home_dir`
+- `SessionStore::query_recent_work`
 
 ## 不变量
 
@@ -22,6 +24,10 @@
 - SQLite index 是 derived 且可重建。
 - Resume 从 transcript 顺序恢复历史。
 - Workflow state 不能以此 crate 为事实源。
+- 跨项目 recent-work 发现只扫描 shared `<session-home>/projects` inventory，并校验
+  canonical root metadata。
+- Recent-work 返回有界白名单 DTO；transcript path、preview、任意 metadata 与 body
+  不得跨越该边界。
 
 ## `.ref` 对齐
 

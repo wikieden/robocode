@@ -5,13 +5,33 @@ use viden_config::{
     reset_user_ui_preferences_at, resolve_user_ui_preferences_at, save_user_ui_preferences_at,
 };
 use viden_types::{
-    ApprovalResponse, RuntimeCommand, RuntimeEvent, RuntimeEventKind, UiPreferencePatch,
-    UiPreferences, resolve_ui_preferences,
+    ApprovalResponse, RecentWorkQuery, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
+    UiPreferencePatch, UiPreferences, resolve_ui_preferences,
 };
 
 use crate::SessionEngine;
 
 impl SessionEngine {
+    /// Loads bounded history through the Core-owned session inventory.
+    ///
+    /// The session crate returns whitelist DTOs only; frontend code never sees
+    /// transcript paths, body previews, or arbitrary metadata values.
+    pub(crate) fn query_recent_work(
+        &self,
+        query: RecentWorkQuery,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        let inventory =
+            viden_session::SessionStore::query_recent_work(self.store.home_dir(), query)?;
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::RecentWorkLoaded {
+                projects: inventory.projects,
+                sessions: inventory.sessions,
+                diagnostics: inventory.diagnostics,
+            },
+        )])
+    }
+
     /// Installs only the non-secret inputs required to re-resolve preferences.
     /// The complete CLI override object may contain provider credentials and is
     /// deliberately never retained by the engine.

@@ -7,9 +7,10 @@ use crate::{
     ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
     DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
     HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
-    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
-    ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
+    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, RecentProjectSummary,
+    RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences, RevertRecord,
+    ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot, ToolCallId,
+    TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
     UiPreferences, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,6 +41,9 @@ pub enum RuntimeCommand {
         patch: UiPreferencePatch,
     },
     ResetUiPreferences,
+    QueryRecentWork {
+        query: RecentWorkQuery,
+    },
     SubmitUserInput {
         content: String,
     },
@@ -520,6 +524,11 @@ pub enum RuntimeEventKind {
         persisted: Option<UiPreferences>,
         diagnostics: Vec<UiPreferenceDiagnostic>,
     },
+    RecentWorkLoaded {
+        projects: Vec<RecentProjectSummary>,
+        sessions: Vec<RecentSessionSummary>,
+        diagnostics: Vec<String>,
+    },
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
@@ -678,6 +687,12 @@ pub struct RuntimeViewState {
     // frozen v1 wire view continues to carry the same fact in `snapshot`.
     #[serde(skip)]
     pub ui_preferences: ResolvedUiPreferences,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_projects: Vec<RecentProjectSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_sessions: Vec<RecentSessionSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_work_diagnostics: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_probe: Option<ProjectProbe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -752,6 +767,9 @@ impl RuntimeViewState {
         Self {
             snapshot,
             ui_preferences,
+            recent_projects: Vec::new(),
+            recent_sessions: Vec::new(),
+            recent_work_diagnostics: Vec::new(),
             project_probe: None,
             project_config_preview: None,
             confirmed_project_config: None,
@@ -816,6 +834,15 @@ impl RuntimeViewState {
             RuntimeEventKind::UiPreferencesUpdated { resolved, .. } => {
                 self.ui_preferences = resolved.clone();
                 self.snapshot.ui_preferences = resolved.clone();
+            }
+            RuntimeEventKind::RecentWorkLoaded {
+                projects,
+                sessions,
+                diagnostics,
+            } => {
+                self.recent_projects = projects.clone();
+                self.recent_sessions = sessions.clone();
+                self.recent_work_diagnostics = diagnostics.clone();
             }
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();

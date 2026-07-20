@@ -89,6 +89,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
 | UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
+| Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
 
 ## Event 消费规则
 
@@ -119,6 +120,8 @@ flowchart LR
 - `ProjectProbed`、`ProjectConfigPreviewed`、`ProjectConfigConfirmed` 与
   `CredentialHandleStored` 更新项目接入状态；client 不能只凭 command acceptance
   推断文件已经写入成功。
+- `RecentWorkLoaded` 原子替换三组 recent-work view slice；snapshot 与 replay 可恢复最近
+  一次已加载的安全结果。
 - 每个 command、snapshot 和 event envelope 都使用 schema `1`。已知 event 的
   sequence 必须等于 cursor sequence。
 - client 必须先调用 `discover`，才能发送 command 或消费状态。缺少 required
@@ -145,6 +148,7 @@ flowchart LR
 | 配置 provider/model | provider/model commands | config persistence、registry validation、health |
 | 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
+| 加载 recent work | `QueryRecentWork { query }` | shared-home 发现、canonical metadata 校验、稳定排序、边界、diagnostic 与安全 view projection |
 
 `PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
 内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。此类
@@ -339,6 +343,33 @@ projection，不会再复制一份到 project workflow JSONL。
 GUI `pages/Viden - D11 首启与项目接入 (GUI).html` 是下级的首次接入流程，不是 GUI
 驾驶舱，也不能替代 D1 作为桌面视觉目标。本列表中所有相对路径均从
 `docs/viden-design/Viden/` 起算。
+
+## Recent Work 契约
+
+`QueryRecentWork` 是只读命令，可在 Plan mode 使用，且绝不请求 approval。成功时 Core
+精确发送 `CommandAccepted`，随后发送 `RecentWorkLoaded`。该 loaded fact 保留在
+supervisor snapshot/replay view 中，但不会复制到 session 或 workflow durable JSONL。
+
+生产 `LocalCoreHost::new()` 解析到同一个用户级 shared session home；project-local
+`.viden` 目录不能冒充跨项目 inventory。只有 Core 可以扫描
+`<session-home>/projects`，前端不得检查 session 文件、SQLite 或项目目录。
+
+每个新 transcript 以一个已提交 metadata batch 开始，其中包含 canonical root 与稳定
+创建时间。Inventory rebuild 逐行流式读取 JSONL，只识别 entry kind、安全计数、上述两项
+metadata fact 与稳定 timestamp，绝不把 transcript body 加载成 summary。Core 会用记录的
+root 重算 project key，并与所在 project directory 校验。缺 root 的 legacy record 与身份
+被篡改的 record 会以稳定 diagnostic 跳过；禁止使用当前 cwd 替代。即使 SQLite index
+非空，也必须与 canonical inventory 对账，不能将其直接视为完整事实。
+
+`RecentSessionSummary` 是白名单 DTO，只包含 canonical root、session id、稳定时间与
+message/tool-call/command 计数。`RecentProjectSummary` 只包含 canonical root、派生的
+display name、最近稳定时间与 latest session id。两者都不包含 transcript path、title、
+preview、任意 metadata、credential/backend 值，也不包含 message、tool 或 command body。
+身份使用 `(canonical_root, session_id)`。
+
+Core 把 `limit` clamp 到 `1..=100`，先按
+`(last_updated_at DESC, canonical_root ASC, session_id ASC)` 对全局 session 排序并截断，
+再从 bounded session result 聚合 project，因此两个返回集合都有界。
 
 ## TUI 要求
 

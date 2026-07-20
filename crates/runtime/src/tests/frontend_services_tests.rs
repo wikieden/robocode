@@ -5,9 +5,201 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use viden_config::CliOverrides;
 use viden_types::{
-    ApprovalResponse, LocaleId, RuntimeCommand, RuntimeEventKind, UiColorMode, UiDensity, UiMotion,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
+    ApprovalResponse, EventCursor, LocaleId, Message, RecentWorkQuery, ReplayRequest, Role,
+    RuntimeCommand, RuntimeEventKind, RuntimeWireEvent, SessionMetaEntry, TranscriptEntry,
+    UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
 };
+
+fn append_recent_runtime_fixture(home: &Path, root: &Path, session_id: &str, timestamp: u64) {
+    let root = root.canonicalize().unwrap();
+    let store =
+        viden_session::SessionStore::new_with_home(home, &root, Some(session_id.to_string()))
+            .unwrap();
+    store
+        .append_entries_atomic(&[
+            TranscriptEntry::SessionMeta {
+                entry: SessionMetaEntry {
+                    timestamp,
+                    key: "canonical_root".to_string(),
+                    value: root.display().to_string(),
+                },
+            },
+            TranscriptEntry::SessionMeta {
+                entry: SessionMetaEntry {
+                    timestamp,
+                    key: "session_created_at".to_string(),
+                    value: timestamp.to_string(),
+                },
+            },
+            TranscriptEntry::Message {
+                message: Message {
+                    id: format!("message-{session_id}"),
+                    role: Role::User,
+                    content: "sk-secret-runtime-body".to_string(),
+                    timestamp: timestamp + 1,
+                    tool_name: None,
+                    tool_call_id: None,
+                },
+            },
+        ])
+        .unwrap();
+}
+
+#[test]
+fn recent_work_command_is_read_only_in_plan_and_emits_exactly_accepted_then_loaded() {
+    let cwd = temp_dir("recent_work_runtime_cwd");
+    let other = temp_dir("recent_work_runtime_other");
+    let home = temp_dir("recent_work_runtime_home");
+    append_recent_runtime_fixture(&home, &other, "recent-runtime", 10);
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    engine.set_work_mode(WorkMode::Plan).unwrap();
+    let mut approver = |_prompt| panic!("read-only recent work must not request approval");
+
+    let events = engine
+        .handle_runtime_command(
+            "recent-work",
+            RuntimeCommand::QueryRecentWork {
+                query: RecentWorkQuery { limit: 10 },
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(events.len(), 2);
+    assert!(matches!(
+        &events[0].kind,
+        RuntimeEventKind::CommandAccepted { command_id, .. } if command_id == "recent-work"
+    ));
+    assert!(matches!(
+        &events[1].kind,
+        RuntimeEventKind::RecentWorkLoaded { sessions, .. }
+            if sessions.len() == 1 && sessions[0].session_id == "recent-runtime"
+    ));
+    assert!(
+        !serde_json::to_string(&events)
+            .unwrap()
+            .contains("sk-secret-runtime-body")
+    );
+    assert!(
+        engine
+            .workflow_store()
+            .load_agent_events()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !fs::read_to_string(engine.store.transcript_path())
+            .unwrap()
+            .contains("recent_work_loaded")
+    );
+}
+
+#[test]
+fn recent_work_new_transcript_starts_with_canonical_root_and_stable_timestamp_metadata() {
+    let cwd = temp_dir("recent_work_initial_metadata_cwd")
+        .canonicalize()
+        .unwrap();
+    let home = temp_dir("recent_work_initial_metadata_home");
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+
+    let entries = engine.store.load_entries().unwrap();
+    let root = entries.iter().find_map(|entry| match entry {
+        TranscriptEntry::SessionMeta { entry } if entry.key == "canonical_root" => {
+            Some((entry.timestamp, entry.value.clone()))
+        }
+        _ => None,
+    });
+    let created = entries.iter().find_map(|entry| match entry {
+        TranscriptEntry::SessionMeta { entry } if entry.key == "session_created_at" => {
+            Some((entry.timestamp, entry.value.clone()))
+        }
+        _ => None,
+    });
+
+    assert_eq!(root.as_ref().map(|(_, value)| value.as_str()), cwd.to_str());
+    assert_eq!(
+        created
+            .as_ref()
+            .and_then(|(_, value)| value.parse::<u64>().ok()),
+        created.as_ref().map(|(timestamp, _)| *timestamp)
+    );
+    let raw = fs::read_to_string(engine.store.transcript_path()).unwrap();
+    assert!(raw.starts_with("{\"type\":\"runtime_event_batch_begin\""));
+}
+
+#[test]
+fn recent_work_supervisor_snapshot_and_replay_restore_the_last_loaded_result() {
+    let cwd = temp_dir("recent_work_supervisor_cwd")
+        .canonicalize()
+        .unwrap();
+    let other = temp_dir("recent_work_supervisor_other")
+        .canonicalize()
+        .unwrap();
+    let home = temp_dir("recent_work_supervisor_home");
+    append_recent_runtime_fixture(&home, &other, "other-session", 10);
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "recent-work-supervisor",
+            RuntimeCommand::QueryRecentWork {
+                query: RecentWorkQuery { limit: 10 },
+            },
+        )
+        .unwrap();
+
+    let events = collect_until(&supervisor, |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::RecentWorkLoaded { .. }))
+    });
+    let loaded = events
+        .iter()
+        .find(|event| matches!(event.kind, RuntimeEventKind::RecentWorkLoaded { .. }))
+        .unwrap();
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(snapshot.view.recent_sessions.len(), 2);
+    assert!(
+        snapshot
+            .view
+            .recent_sessions
+            .iter()
+            .any(|session| session.session_id == "other-session")
+    );
+
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: EventCursor {
+                stream_id: snapshot.cursor.stream_id.clone(),
+                sequence: 0,
+            },
+            limit: 10,
+        })
+        .unwrap();
+    assert!(replay.events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(event)
+                if event.sequence == loaded.sequence
+                    && matches!(event.kind, RuntimeEventKind::RecentWorkLoaded { .. })
+        )
+    }));
+}
 
 fn preference_engine(slug: &str) -> (SessionEngine, PathBuf, PathBuf) {
     let cwd = temp_dir(slug);
