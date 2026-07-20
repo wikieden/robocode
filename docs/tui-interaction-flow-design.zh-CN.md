@@ -36,6 +36,12 @@ input loop，也不能编造 core runtime 无法解释的状态。
   底部。
 - 输入包含三个明确模式：Normal 负责 cockpit 导航，Insert 负责 composer 编辑，Overlay
   负责 selector、panel 与审批。`Esc` 每次只退出一层，`Ctrl-C` 只打断活动工作。
+- `Ctrl-P` 打开 selector-first 全局跳转。它只投影 Core 的 typed lane、其
+  `active_session_ids`、merge gate、pending approval，以及受控的导航/补全命令注册表。
+  `:`、`@`、`#`、`>`、`~` 分别限定 lane、会话、闸/问询、命令和文件；方向键或
+  `j`/`k` 移动，Enter 选择，Esc 精确恢复之前的 overlay 所有权与 composer 上下文。
+  Core 目前没有 typed 文件清单能力，所以 File 会保留可见但禁用，并显示具体原因；
+  TUI 绝不扫描文件系统或 Git。
 
 ## 顶层状态模型
 

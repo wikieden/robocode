@@ -11,6 +11,7 @@ mod geometry;
 mod indicators;
 #[allow(dead_code)]
 mod input;
+mod jump;
 mod keymap;
 #[allow(dead_code)]
 mod lane;
