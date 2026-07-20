@@ -42,6 +42,13 @@ runtime cannot explain.
 - Input has three explicit modes: Normal for cockpit navigation, Insert for
   composer editing, and Overlay for selectors, panels, and approvals. `Esc`
   unwinds one layer at a time; `Ctrl-C` interrupts active work.
+- `Ctrl-P` opens selector-first Global Jump. It projects only typed Core lanes,
+  their active session IDs, merge gates, pending approvals, and a controlled
+  navigation/completion command registry. `:`, `@`, `#`, `>`, and `~` scope
+  lane, session, gate/ask, command, and file results; arrows or `j`/`k` move,
+  Enter selects, and Esc restores the prior overlay owner and composer context.
+  Core does not yet expose a typed file inventory, so File remains visible but
+  disabled with that concrete reason; the TUI never scans the filesystem or Git.
 
 ## Top-Level State Model
 

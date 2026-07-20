@@ -1,6 +1,7 @@
 use super::{
     canvas::Frame,
     command_palette::render_command_suggestions,
+    jump::JumpIndex,
     keymap::OverlayKind,
     panel::panel,
     state::{InteractionPanel, TuiState},
@@ -12,6 +13,7 @@ const APPROVAL_FOCUS_APPLY_ALL: usize = 0;
 const APPROVAL_FOCUS_DENY: usize = 1;
 const APPROVAL_FOCUS_DIFF: usize = 2;
 const APPROVAL_FOCUS_APPROVE: usize = 3;
+const GLOBAL_JUMP_VISIBLE_ROWS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ApprovalAction {
@@ -24,6 +26,7 @@ pub(super) enum ApprovalAction {
 pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_width: usize) {
     if let Some(overlay) = state.ui.overlay.as_ref() {
         let title = match overlay.kind {
+            OverlayKind::GlobalJump => "GLOBAL JUMP",
             OverlayKind::Lane => "LANES",
             OverlayKind::Session => "SESSIONS",
             OverlayKind::NewSession => "NEW SESSION",
@@ -41,7 +44,11 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             global_overlay_rows(state, overlay.kind, &overlay.filter),
             frame.width.min(76),
             10,
-            Some("Esc close · arrows move · Enter open"),
+            Some(if overlay.kind == OverlayKind::GlobalJump {
+                "Esc restore · arrows/jk move · Enter jump"
+            } else {
+                "Esc close · arrows move · Enter open"
+            }),
         );
         frame.write_block(
             4,
@@ -114,6 +121,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
 
 fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec<String> {
     let mut rows = match kind {
+        OverlayKind::GlobalJump => return global_jump_rows(state, filter),
         OverlayKind::Lane => state
             .runtime
             .lanes
@@ -175,6 +183,68 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
         rows.push("No matching items.".to_string());
     }
     rows
+}
+
+fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
+    let index = JumpIndex::from_view(&state.runtime);
+    let mut rows = Vec::new();
+    let mut previous_kind = None;
+    for (position, item) in index.search(filter).into_iter().enumerate() {
+        if previous_kind != Some(item.kind) {
+            rows.push((format!("[{}]", item.kind.label()), None, item.kind));
+            previous_kind = Some(item.kind);
+        }
+        let marker = state
+            .ui
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| overlay.selected == position);
+        let detail = item.disabled_reason.as_deref().unwrap_or(&item.context);
+        rows.push((
+            format!(
+                "{} {:<16} {}{}",
+                if marker { ">" } else { " " },
+                truncate(&item.title, 16),
+                truncate(detail, 42),
+                if item.enabled { "" } else { " · unavailable" },
+            ),
+            Some(position),
+            item.kind,
+        ));
+    }
+    if rows.is_empty() {
+        return vec!["No matching items. Try : @ # > or ~.".to_string()];
+    }
+    let selected = state
+        .ui
+        .overlay
+        .as_ref()
+        .map_or(0, |overlay| overlay.selected);
+    let selected_row = rows
+        .iter()
+        .position(|(_, result_index, _)| *result_index == Some(selected))
+        .unwrap_or(0);
+    let start = selected_row
+        .saturating_sub(GLOBAL_JUMP_VISIBLE_ROWS / 2)
+        .min(rows.len().saturating_sub(GLOBAL_JUMP_VISIBLE_ROWS));
+    let mut visible = rows
+        .iter()
+        .skip(start)
+        .take(GLOBAL_JUMP_VISIBLE_ROWS)
+        .map(|(text, _, _)| text.clone())
+        .collect::<Vec<_>>();
+    if start > 0 && rows[start].1.is_some() && rows[start - 1].2 == rows[start].2 {
+        visible.insert(0, format!("[{}] · continued", rows[start].2.label()));
+        if visible
+            .iter()
+            .position(|row| row.starts_with("> "))
+            .is_some_and(|position| position >= GLOBAL_JUMP_VISIBLE_ROWS)
+        {
+            visible.remove(1);
+        }
+        visible.truncate(GLOBAL_JUMP_VISIBLE_ROWS);
+    }
+    visible
 }
 
 fn interaction_rows(state: &TuiState) -> Vec<String> {
@@ -420,6 +490,7 @@ pub(super) fn focused_approval_action(state: &TuiState) -> ApprovalAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::state::OverlayState;
 
     #[test]
     fn approvals_are_not_inferred_from_transcript() {
@@ -451,5 +522,56 @@ mod tests {
 
         assert!(!rows.contains("anthropic"));
         assert!(rows.contains("deepseek"));
+    }
+
+    #[test]
+    fn global_jump_windows_rows_to_keep_selected_item_visible() {
+        let mut state = TuiState::default();
+        let mut overlay = OverlayState::global_jump(None);
+        overlay.selected = 10;
+        state.ui.overlay = Some(overlay);
+        let mut frame = Frame::new(120, 40);
+
+        render_overlays(&mut frame, &state, 0);
+
+        let rendered = frame.to_string();
+        assert!(
+            rendered.contains("> /permissions rea"),
+            "selected result must stay visible inside the fixed-height panel:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn global_jump_empty_and_disabled_windows_keep_rows_aligned_with_selection() {
+        let mut state = TuiState::default();
+        let mut overlay = OverlayState::global_jump(None);
+        overlay.filter = ">no-such-command".to_string();
+        state.ui.overlay = Some(overlay);
+
+        assert_eq!(
+            global_jump_rows(&state, ">no-such-command"),
+            vec!["No matching items. Try : @ # > or ~."]
+        );
+
+        state.ui.overlay.as_mut().expect("jump").filter = "~".to_string();
+        let rows = global_jump_rows(&state, "~");
+        assert_eq!(rows[0], "[FILES]");
+        assert!(rows[1].starts_with("> Files unavailabl"));
+        assert!(rows[1].contains("Core file inventory is unavailable."));
+    }
+
+    #[test]
+    fn global_jump_window_keeps_default_disabled_tail_selected() {
+        let mut state = TuiState::default();
+        let mut overlay = OverlayState::global_jump(None);
+        overlay.selected = 12;
+        state.ui.overlay = Some(overlay);
+
+        let rows = global_jump_rows(&state, "");
+
+        assert!(
+            rows.iter().any(|row| row.starts_with("> Files unavailabl")),
+            "the disabled tail result must not be dropped by a continued header: {rows:?}"
+        );
     }
 }

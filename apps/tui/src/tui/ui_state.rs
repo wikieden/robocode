@@ -193,6 +193,7 @@ pub(super) struct OverlayState {
     pub(super) filter: String,
     pub(super) selected: usize,
     pub(super) selected_id: Option<String>,
+    pub(super) previous_overlay: Option<Box<OverlayState>>,
 }
 
 impl OverlayState {
@@ -202,6 +203,14 @@ impl OverlayState {
             filter: String::new(),
             selected: 0,
             selected_id: None,
+            previous_overlay: None,
+        }
+    }
+
+    pub(super) fn global_jump(previous_overlay: Option<OverlayState>) -> Self {
+        Self {
+            previous_overlay: previous_overlay.map(Box::new),
+            ..Self::new(OverlayKind::GlobalJump)
         }
     }
 }

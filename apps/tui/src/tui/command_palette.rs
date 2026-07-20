@@ -8,6 +8,79 @@ pub(super) struct CommandSuggestion {
     pub(super) summary: String,
 }
 
+pub(super) struct CommandDefinition {
+    pub(super) command: &'static str,
+    pub(super) summary: &'static str,
+    pub(super) keywords: &'static str,
+}
+
+const COMMANDS: &[CommandDefinition] = &[
+    CommandDefinition {
+        command: "/help",
+        summary: "Show commands",
+        keywords: "help shortcuts",
+    },
+    CommandDefinition {
+        command: "/setup",
+        summary: "Open first-run setup",
+        keywords: "setup onboarding",
+    },
+    CommandDefinition {
+        command: "/lanes",
+        summary: "Open the Core lane board",
+        keywords: "lane board",
+    },
+    CommandDefinition {
+        command: "/decisions",
+        summary: "Open approvals and gates",
+        keywords: "approval gate ask",
+    },
+    CommandDefinition {
+        command: "/gallery",
+        summary: "Open Core evidence gallery",
+        keywords: "evidence gallery",
+    },
+    CommandDefinition {
+        command: "/connect",
+        summary: "Configure a Core provider",
+        keywords: "provider connect",
+    },
+    CommandDefinition {
+        command: "/models",
+        summary: "Select an available Core model",
+        keywords: "model",
+    },
+    CommandDefinition {
+        command: "/mode plan",
+        summary: "Request Plan work mode",
+        keywords: "plan",
+    },
+    CommandDefinition {
+        command: "/mode build",
+        summary: "Request Build work mode",
+        keywords: "build",
+    },
+    CommandDefinition {
+        command: "/permissions ask",
+        summary: "Request ask permission level",
+        keywords: "permission approval",
+    },
+    CommandDefinition {
+        command: "/permissions read-only",
+        summary: "Request read-only permission level",
+        keywords: "permission readonly",
+    },
+    CommandDefinition {
+        command: "/status",
+        summary: "Inspect structured runtime status",
+        keywords: "status runtime",
+    },
+];
+
+pub(super) fn command_registry() -> &'static [CommandDefinition] {
+    COMMANDS
+}
+
 pub(super) fn is_command_palette_query(input: &str) -> bool {
     input.starts_with('/')
 }
@@ -154,29 +227,13 @@ fn suggestions(state: &TuiState) -> Vec<CommandSuggestion> {
         })
         .collect();
     }
-    let mut values = [
-        ("/help", "Show commands"),
-        ("/setup", "Open first-run setup"),
-        ("/lanes", "Open the Core lane board"),
-        ("/decisions", "Open approvals, gates, and errors"),
-        ("/gallery", "Open Core evidence gallery"),
-        ("/connect", "Configure a Core provider"),
-        ("/models", "Select an available Core model"),
-        ("/mode plan", "Request Plan work mode"),
-        ("/mode build", "Request Build work mode"),
-        ("/permissions ask", "Request ask permission level"),
-        (
-            "/permissions read-only",
-            "Request read-only permission level",
-        ),
-        ("/status", "Inspect structured runtime status"),
-    ]
-    .into_iter()
-    .map(|(command, summary)| CommandSuggestion {
-        command: command.to_string(),
-        summary: summary.to_string(),
-    })
-    .collect::<Vec<_>>();
+    let mut values = command_registry()
+        .iter()
+        .map(|command| CommandSuggestion {
+            command: command.command.to_string(),
+            summary: command.summary.to_string(),
+        })
+        .collect::<Vec<_>>();
     values.extend(state.runtime.lanes.iter().map(|lane| CommandSuggestion {
         command: format!("/lane inspect {}", lane.id),
         summary: format!("{} [{:?}]", lane.summary, lane.status),

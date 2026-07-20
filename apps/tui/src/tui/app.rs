@@ -13,6 +13,7 @@ use super::geometry::effective_layout_width;
 use super::input::{
     ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
 };
+use super::jump::{JumpIndex, JumpItem, JumpKind};
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{
     DEFAULT_APPROVAL_FOCUS, interaction_panel_choice_count, selected_interaction_command,
@@ -315,14 +316,24 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::EnterInsert => state.ui.input_mode = InputMode::Insert,
         InputIntent::LeaveInsert => state.ui.input_mode = InputMode::Normal,
         InputIntent::OpenOverlay(kind) => {
-            state.ui.overlay = Some(OverlayState::new(kind));
+            let previous_overlay = state.ui.overlay.take();
+            state.ui.overlay = Some(if kind == OverlayKind::GlobalJump {
+                OverlayState::global_jump(previous_overlay)
+            } else {
+                OverlayState::new(kind)
+            });
             state.ui.idle_ctrl_c_armed = false;
         }
-        InputIntent::CloseOverlay => {
-            if state.ui.overlay.take().is_none() && state.ui.interaction_panel.take().is_none() {
+        InputIntent::CloseOverlay => match state.ui.overlay.take() {
+            Some(overlay) if overlay.kind == OverlayKind::GlobalJump => {
+                state.ui.overlay = overlay.previous_overlay.map(|previous| *previous);
+            }
+            Some(_) => {}
+            None if state.ui.interaction_panel.take().is_none() => {
                 close_on_escape(key, state);
             }
-        }
+            None => {}
+        },
         InputIntent::ClearSelection => {
             close_focus_on_escape(key, state);
         }
@@ -379,10 +390,20 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::Submit => submit_composer(driver, state)?,
         InputIntent::MoveSelection(delta) => {
             if let Some(overlay) = state.ui.overlay.as_mut() {
+                let item_count = if overlay.kind == OverlayKind::GlobalJump {
+                    JumpIndex::from_view(&state.runtime)
+                        .search(&overlay.filter)
+                        .len()
+                } else {
+                    usize::MAX
+                };
                 overlay.selected = if delta < 0 {
                     overlay.selected.saturating_sub(1)
                 } else {
-                    overlay.selected.saturating_add(1)
+                    overlay
+                        .selected
+                        .saturating_add(1)
+                        .min(item_count.saturating_sub(1))
                 };
             } else if state.ui.interaction_panel.is_some() {
                 move_interaction_selection(state, delta);
@@ -409,7 +430,11 @@ fn apply_input_intent<C: CoreClient>(
                 }
                 return Ok(UiEventOutcome::Exit);
             } else if let Some(overlay) = state.ui.overlay.take() {
-                complete_overlay_selection(state, overlay);
+                if overlay.kind == OverlayKind::GlobalJump {
+                    complete_global_jump_selection(state, overlay);
+                } else {
+                    complete_overlay_selection(state, overlay);
+                }
             } else if state.ui.interaction_panel.is_some() {
                 if apply_interaction_panel_selection(driver, state)? {
                     submit_composer(driver, state)?;
@@ -583,6 +608,7 @@ fn escape_toml_string(value: &str) -> String {
 
 fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
     match overlay.kind {
+        OverlayKind::GlobalJump => {}
         OverlayKind::Lane | OverlayKind::Board => {
             let needle = overlay.filter.to_ascii_lowercase();
             let selected = state
@@ -655,6 +681,61 @@ fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
         | OverlayKind::ExitConfirm
         | OverlayKind::InteractionPanel
         | OverlayKind::ComposerCommands => {}
+    }
+}
+
+fn complete_global_jump_selection(state: &mut TuiState, overlay: OverlayState) {
+    let index = JumpIndex::from_view(&state.runtime);
+    let results = index.search(&overlay.filter);
+    let Some(item) = results.get(overlay.selected).map(|item| (*item).clone()) else {
+        state.ui.overlay = overlay.previous_overlay.map(|previous| *previous);
+        return;
+    };
+    if !item.enabled {
+        state.ui.overlay = Some(overlay);
+        return;
+    }
+    match item.kind {
+        JumpKind::Lane => select_jump_lane(state, &item),
+        JumpKind::Session => {
+            state.ui.focused_lane = item.parent_id;
+            state.ui.session_id = item.id;
+            state.ui.lens = Lens::Session;
+        }
+        JumpKind::Gate => state.ui.lens = Lens::Decisions,
+        JumpKind::Ask => {
+            state.ui.lens = Lens::Decisions;
+            let mut approval = OverlayState::new(OverlayKind::Approval);
+            approval.selected_id = Some(item.id);
+            state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
+            state.ui.overlay = Some(approval);
+        }
+        JumpKind::Command => {
+            state.ui.input.replace(item.id);
+            reset_for_input_change(state);
+        }
+        JumpKind::File => unreachable!("unavailable file inventory cannot activate"),
+    }
+}
+
+fn select_jump_lane(state: &mut TuiState, item: &JumpItem) {
+    let sessions = state
+        .runtime
+        .lanes
+        .iter()
+        .find(|lane| lane.id == item.id)
+        .map(|lane| lane.active_session_ids.clone())
+        .unwrap_or_default();
+    state.ui.focused_lane = Some(item.id.clone());
+    match sessions.as_slice() {
+        [session] => {
+            state.ui.session_id = session.clone();
+            state.ui.lens = Lens::Session;
+        }
+        _ => {
+            state.ui.session_id.clear();
+            state.ui.lens = Lens::Board;
+        }
     }
 }
 
@@ -2386,6 +2467,336 @@ mod tests {
         handle_ui_event(&mut driver, &mut state, escape, (120, 40)).expect("leave insert");
         assert_eq!(state.ui.input_mode, InputMode::Normal);
         assert_eq!(state.ui.input, "keep this draft");
+    }
+
+    #[test]
+    fn global_jump_escape_restores_approval_owner_selected_id_and_composer_context() {
+        let mut driver =
+            TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
+                .expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "keep this draft".into();
+        state.ui.focused_lane = Some("lane-before-jump".to_string());
+        state.ui.session_id = "session-before-jump".to_string();
+        let mut approval = OverlayState::new(OverlayKind::Approval);
+        approval.selected = 2;
+        approval.selected_id = Some("approval-core-id".to_string());
+        state.ui.overlay = Some(approval);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("open global jump");
+        assert!(matches!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::GlobalJump)
+        ));
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("restore approval owner");
+
+        let restored = state.ui.overlay.expect("approval restored");
+        assert_eq!(restored.kind, OverlayKind::Approval);
+        assert_eq!(restored.selected, 2);
+        assert_eq!(restored.selected_id.as_deref(), Some("approval-core-id"));
+        assert_eq!(state.ui.input.as_str(), "keep this draft");
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
+        assert_eq!(state.ui.focused_lane.as_deref(), Some("lane-before-jump"));
+        assert_eq!(state.ui.session_id, "session-before-jump");
+    }
+
+    #[test]
+    fn global_jump_escape_exactly_restores_interaction_panel_ownership() {
+        let panels = [
+            InteractionPanel::Setup {
+                selected: 1,
+                draft: "[project]\nname = \"edited\"\n".to_string(),
+            },
+            InteractionPanel::ConnectProvider {
+                search: "deep".to_string(),
+                selected: 2,
+            },
+            InteractionPanel::ModelPicker {
+                provider_id: Some("fallback".to_string()),
+                search: "test".to_string(),
+                selected: 1,
+            },
+        ];
+
+        for expected in panels {
+            let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+            let mut state = TuiState::default();
+            state.ui.interaction_panel = Some(expected.clone());
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+                (120, 40),
+            )
+            .expect("open global jump above interaction panel");
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("close only global jump");
+
+            assert_eq!(state.ui.interaction_panel, Some(expected));
+            assert!(state.ui.overlay.is_none());
+        }
+    }
+
+    #[test]
+    fn global_jump_escape_preserves_visible_composer_command_suggestions() {
+        let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.input = "/con".into();
+        state.ui.command_selection = 1;
+        let hidden_before = state.ui.command_palette_hidden_for.clone();
+        assert!(super::super::command_palette::is_command_palette_visible(
+            &state
+        ));
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("open global jump above command suggestions");
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("close only global jump");
+
+        assert_eq!(state.ui.command_palette_hidden_for, hidden_before);
+        assert!(super::super::command_palette::is_command_palette_visible(
+            &state
+        ));
+        assert!(state.ui.overlay.is_none());
+    }
+
+    #[test]
+    fn global_jump_enter_completes_commands_but_disabled_file_never_activates() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.overlay = Some(OverlayState::global_jump(None));
+        state.ui.overlay.as_mut().expect("jump overlay").filter = ">help".to_string();
+
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (120, 40),
+        )
+        .expect("complete command intent");
+        assert_eq!(state.ui.input.as_str(), "/help");
+        assert!(state.ui.overlay.is_none());
+        assert!(sent.lock().expect("commands").is_empty());
+
+        state.ui.overlay = Some(OverlayState::global_jump(None));
+        state.ui.overlay.as_mut().expect("jump overlay").filter = "~".to_string();
+        apply_input_intent(
+            &mut driver,
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            InputIntent::CompleteOrSubmit,
+            (120, 40),
+        )
+        .expect("disabled file row remains inert");
+        assert!(matches!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::GlobalJump)
+        ));
+        assert_eq!(state.ui.input.as_str(), "/help");
+    }
+
+    fn open_global_jump_with_filter(
+        driver: &mut TuiClientDriver<FakeCoreClient>,
+        state: &mut TuiState,
+        filter: &str,
+    ) {
+        handle_ui_event(
+            driver,
+            state,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("open global jump");
+        handle_ui_event(driver, state, Event::Paste(filter.to_string()), (120, 40))
+            .expect("filter global jump");
+    }
+
+    fn enter_global_jump(driver: &mut TuiClientDriver<FakeCoreClient>, state: &mut TuiState) {
+        handle_ui_event(
+            driver,
+            state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("activate global jump result");
+    }
+
+    #[test]
+    fn global_jump_lane_enter_routes_from_typed_lane_and_session_facts() {
+        let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+        let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids = vec!["session-lane-route".to_string()];
+        let lane_id = lanes[0].id.clone();
+        state.runtime.lanes = lanes;
+
+        open_global_jump_with_filter(&mut driver, &mut state, &format!(":{lane_id}"));
+        enter_global_jump(&mut driver, &mut state);
+
+        assert_eq!(state.ui.focused_lane.as_deref(), Some(lane_id.as_str()));
+        assert_eq!(state.ui.session_id, "session-lane-route");
+        assert_eq!(state.ui.lens, Lens::Session);
+    }
+
+    #[test]
+    fn global_jump_session_enter_uses_typed_parent_lane_and_session_id() {
+        let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+        let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids = vec!["session-global".to_string()];
+        let lane_id = lanes[0].id.clone();
+        state.runtime.lanes = lanes;
+
+        open_global_jump_with_filter(&mut driver, &mut state, "@session-global");
+        enter_global_jump(&mut driver, &mut state);
+
+        assert_eq!(state.ui.focused_lane.as_deref(), Some(lane_id.as_str()));
+        assert_eq!(state.ui.session_id, "session-global");
+        assert_eq!(state.ui.lens, Lens::Session);
+    }
+
+    #[test]
+    fn global_jump_gate_enter_routes_from_typed_merge_gate_fact() {
+        let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+        let mut state = TuiState::default();
+        state.runtime.merge_gates.push(
+            serde_json::from_value(serde_json::json!({
+                "gate_id": "gate-review",
+                "task_id": "task-review",
+                "status": "proposed",
+                "required_evidence": [],
+                "evidence_ids": [],
+                "updated_at": 1
+            }))
+            .expect("typed merge gate"),
+        );
+
+        open_global_jump_with_filter(&mut driver, &mut state, "#gate-review");
+        enter_global_jump(&mut driver, &mut state);
+
+        assert_eq!(state.ui.lens, Lens::Decisions);
+        assert!(state.ui.overlay.is_none());
+    }
+
+    #[test]
+    fn global_jump_ask_enter_focuses_exact_typed_approval_id() {
+        let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+        let mut state = TuiState::default();
+        state.runtime.pending_approvals.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "approval-review",
+                "tool_name": "shell",
+                "title": "Approval review",
+                "message": "Review the proposed command",
+                "input_preview": "cargo test",
+                "is_mutating": true,
+                "reason": "operator decision"
+            }))
+            .expect("typed approval"),
+        );
+
+        open_global_jump_with_filter(&mut driver, &mut state, "#approval");
+        enter_global_jump(&mut driver, &mut state);
+
+        let approval = state.ui.overlay.expect("approval focus overlay");
+        assert_eq!(state.ui.lens, Lens::Decisions);
+        assert_eq!(approval.kind, OverlayKind::Approval);
+        assert_eq!(approval.selected_id.as_deref(), Some("approval-review"));
+    }
+
+    #[test]
+    fn global_jump_navigation_clamps_arrows_and_jk_for_results_empty_and_disabled_rows() {
+        let mut driver = TuiClientDriver::connect(FakeCoreClient::default()).expect("connect");
+        let mut state = TuiState::default();
+        open_global_jump_with_filter(&mut driver, &mut state, ">");
+
+        for code in [KeyCode::Up, KeyCode::Char('k')] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(code, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("clamp at first result");
+        }
+        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 0);
+
+        state.ui.overlay.as_mut().expect("jump").selected = 11;
+        for code in [KeyCode::Down, KeyCode::Char('j')] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(code, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("clamp at last result");
+        }
+        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 11);
+
+        let overlay = state.ui.overlay.as_mut().expect("jump");
+        overlay.filter = ">no-such-command".to_string();
+        overlay.selected = 0;
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("empty results stay at zero");
+        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 0);
+
+        let overlay = state.ui.overlay.as_mut().expect("jump");
+        overlay.filter = "~".to_string();
+        overlay.selected = 0;
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("disabled singleton stays selected");
+        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 0);
     }
 
     #[test]

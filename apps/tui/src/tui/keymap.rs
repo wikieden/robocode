@@ -20,6 +20,7 @@ impl InputMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OverlayKind {
+    GlobalJump,
     Lane,
     Session,
     NewSession,
@@ -163,6 +164,16 @@ pub(super) fn reduce_input(
             InputIntent::MoveSelection(-1)
         }
         (InputMode::Overlay, KeyCode::Down | KeyCode::Right) => InputIntent::MoveSelection(1),
+        (InputMode::Overlay, KeyCode::Char('k'))
+            if focus.overlay == Some(OverlayKind::GlobalJump) =>
+        {
+            InputIntent::MoveSelection(-1)
+        }
+        (InputMode::Overlay, KeyCode::Char('j'))
+            if focus.overlay == Some(OverlayKind::GlobalJump) =>
+        {
+            InputIntent::MoveSelection(1)
+        }
         (InputMode::Overlay, KeyCode::Tab) => InputIntent::CompleteSelection,
         (InputMode::Overlay, KeyCode::Enter) => InputIntent::CompleteOrSubmit,
         (InputMode::Overlay, KeyCode::Backspace) => InputIntent::Backspace,
@@ -184,6 +195,7 @@ fn global_overlay(key: KeyEvent) -> Option<OverlayKind> {
         return None;
     }
     match key.code {
+        KeyCode::Char('p') => Some(OverlayKind::GlobalJump),
         KeyCode::Char('l') => Some(OverlayKind::Lane),
         KeyCode::Char('s') => Some(OverlayKind::Session),
         KeyCode::Char('t') => Some(OverlayKind::NewSession),
@@ -233,6 +245,7 @@ mod tests {
     #[test]
     fn every_global_chord_and_context_help_pierces_all_modes() {
         let cases = [
+            ('p', OverlayKind::GlobalJump),
             ('l', OverlayKind::Lane),
             ('s', OverlayKind::Session),
             ('t', OverlayKind::NewSession),
@@ -369,6 +382,44 @@ mod tests {
         assert_eq!(
             reduce(InputMode::Overlay, key(KeyCode::Enter)),
             InputIntent::CompleteOrSubmit
+        );
+    }
+
+    #[test]
+    fn global_jump_adds_j_and_k_without_stealing_other_overlay_filters() {
+        let jump_focus = InputFocus {
+            overlay: Some(OverlayKind::GlobalJump),
+            ..InputFocus::default()
+        };
+        assert_eq!(
+            reduce_input(
+                InputMode::Overlay,
+                jump_focus,
+                key(KeyCode::Char('j')),
+                RuntimeFacts::default()
+            ),
+            InputIntent::MoveSelection(1)
+        );
+        assert_eq!(
+            reduce_input(
+                InputMode::Overlay,
+                jump_focus,
+                key(KeyCode::Char('k')),
+                RuntimeFacts::default()
+            ),
+            InputIntent::MoveSelection(-1)
+        );
+        assert_eq!(
+            reduce_input(
+                InputMode::Overlay,
+                InputFocus {
+                    overlay: Some(OverlayKind::Lane),
+                    ..InputFocus::default()
+                },
+                key(KeyCode::Char('j')),
+                RuntimeFacts::default(),
+            ),
+            InputIntent::InsertChar('j')
         );
     }
 
