@@ -121,13 +121,14 @@ impl RuntimeEventEnvelope {
             crate::RuntimeEventKind::StarterLanePreviewed { preview } => Some(&preview.owner),
             crate::RuntimeEventKind::StarterLaneCreated { receipt } => Some(&receipt.owner),
             crate::RuntimeEventKind::StarterLanePreviewInvalidated { owner, .. } => Some(owner),
+            crate::RuntimeEventKind::LaneRuntimeOwnerBound { binding } => Some(&binding.owner),
             _ => None,
         };
         if payload_owner.is_none_or(|owner| owner == &self.owner) {
             return Ok(());
         }
 
-        Err("starter lane event payload owner does not match envelope owner".to_string())
+        Err("owner-scoped event payload owner does not match envelope owner".to_string())
     }
 
     fn validate_known_event(&self) -> Result<(), String> {
@@ -293,6 +294,7 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "task_updated"
             | "agent_dag_updated"
             | "lane_updated"
+            | "lane_runtime_owner_bound"
             | "lane_output_appended"
             | "lane_conflict_detected"
             | "lane_recovery_required"

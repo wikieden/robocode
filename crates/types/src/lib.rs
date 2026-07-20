@@ -43,9 +43,9 @@ pub use runtime::{
     ApprovalRequestView, CanonicalEvidenceReference, CommandAction, EvidenceCanonicalReasonCode,
     EvidenceCanonicalStatus, EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts,
     EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, LaneConflictView,
-    LaneOutputView, LaneRecoveryView, ProviderHealthView, QueuedInputView, RuntimeCommand,
-    RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeViewState,
-    TokenCostView, ToolCallView, canonical_evidence_status,
+    LaneOutputView, LaneRecoveryView, LaneRuntimeOwnerBinding, ProviderHealthView, QueuedInputView,
+    RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
+    RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
 };
 pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,

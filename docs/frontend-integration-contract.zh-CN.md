@@ -87,6 +87,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
+| Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | schema `1` 上的内部 Core `0.3.2` 候选；`runtime.lane_owner_projection` 留到 Task 6 发布 |
 | 已审阅 starter Lane | 首启 starter 选择、branch/worktree 审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | 内部 pre-release service；Task 6 前不是 handshake capability |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
 | UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
@@ -127,6 +128,11 @@ flowchart LR
   `StarterLanePreviewInvalidated` 只移除精确 owner/id；`StarterLaneCreated` 用权威
   receipt 和持久 Lane fact 替换该 preview。payload owner 必须等于 envelope owner。
   这些 event 使用正常的进程内 snapshot 和 replay 恢复语义。
+- `LaneRuntimeOwnerBound` 按 `lane_id` upsert 一条精确 live-worker binding；同一
+  Lane 的后续 binding 替换旧值。payload owner 与 envelope owner 不同时在 wire
+  boundary 拒绝；若 `owner.lane_id` 与 `lane_id` 不精确相等则由 reducer 忽略。
+  `LaneUpdated` 进入 `done`、`failed`、`cancelled` 或 `archived` 时，只移除该 Lane
+  的 binding。
 - 每个 command、snapshot 和 event envelope 都使用 schema `1`。已知 event 的
   sequence 必须等于 cursor sequence。
 - client 必须先调用 `discover`，才能发送 command 或消费状态。缺少 required
@@ -142,7 +148,7 @@ flowchart LR
 | --- | --- | --- |
 | 启动普通 turn | `SubmitUserInput` | provider loop、context bundle、tools、transcript |
 | 工作运行时追加输入 | `QueueFollowUp` | queue ordering 和后续 dequeue |
-| 取消当前工作 | `CancelActiveTurn` 或 `CancelAgentTask` | request cancellation 和 task state |
+| 取消当前工作 | 携带所选 Lane 精确 bound envelope owner 的 `CancelActiveTurn`，或 `CancelAgentTask` | 精确 owner 校验、request cancellation 与 task/Lane state |
 | 启动受监督 workflow | `StartAgentDag` 然后 `StartAgentTask` | DAG validation、dependencies、workflow events |
 | 修改 mode/permissions | `SetWorkMode`、`SetPermissionLevel` | permission mode mapping 和 policy enforcement |
 | 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution |
@@ -200,6 +206,29 @@ preview 在当前 runtime stream 内属于正常 owner-scoped state，重连后�
 replay 恢复。进程重启会创建新 stream 和 preview cache，因此旧 preview 必须重新生成。
 旧 `CreateLane` command 继续兼容已有调用方；首启 D4 flow 使用已审阅 command pair。
 capability/version/fixture 的发布留给 Task 6。
+
+### Live Lane Runtime Owner
+
+`LaneRuntimeOwnerBinding { lane_id, owner }` 是 live `LaneWorkerHandle` 的进程内
+authority。Core 从真实 worker handle 直接复制 `owner`；禁止从持久 Lane state、当前
+selection、显示文案或 frontend default 重建 workspace、project、Lane、session、task、
+turn 中的任何字段。新 worker spawn 后，Core 先发布 `LaneCommandAccepted`，再发布
+`LaneRuntimeOwnerBound`，之后 worker 才能发布该 command 驱动的 Lane state。同一
+runtime stream 内，snapshot 与 replay 保留精确 binding。
+
+进程重启会建立新 stream，并且刻意不从 hydrated Lane record 恢复 runtime owner。第一条
+被接受且会 spawn 新 live worker 的 owner-scoped command 才发布 fresh binding。owner
+mismatch、Lane 缺失或已终止、Plan mode 拒绝、hydration failure，或任何没有创建 live
+worker 的路径都不发布 binding。
+
+Frontend cancel 必须 fail-closed。client 先 discover 后续
+`runtime.lane_owner_projection` extension capability，再要求所选 active Lane 恰好一条
+合法 binding，并把完整 bound owner 原样放入 `CancelActiveTurn` envelope。capability
+缺失、零条或多条匹配、或任意 `owner.lane_id` mismatch 时，cancel 显示 unavailable，
+command transport 零发送。Task 1 只暴露 schema-1 event 与 projection；Task 6 才负责
+capability 发布和原子 Core `0.3.2` checkpoint。因此 reviewed capability 出现之前，前端
+必须保持 cancel unavailable。未来未知 runtime-owner event 只作为可检查 wire event
+保留，不修改 `RuntimeViewState`。
 
 ## Agent DAG 和 Task UI 契约
 

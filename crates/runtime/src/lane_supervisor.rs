@@ -12,9 +12,10 @@ use sha2::{Digest, Sha256};
 use viden_permissions::PermissionEngine;
 use viden_types::{
     AgentLaneRecord, AgentRole, AgentRoute, ApprovalResponse, DataEgressPolicy, ExecutionTarget,
-    GateStrength, LaneBudget, LaneStatus, MutationPolicy, RuntimeCommand, RuntimeEventKind,
-    RuntimeOwner, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, StarterLaneRequest, WorkMode, fresh_id, now_timestamp,
+    GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MutationPolicy, RuntimeCommand,
+    RuntimeEventKind, RuntimeOwner, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, WorkMode,
+    fresh_id, now_timestamp,
 };
 use viden_workflows::{
     lanes::{LaneEvent, LaneEventKind},
@@ -455,6 +456,7 @@ impl LaneSupervisor {
                 return Ok(());
             }
         }
+        let mut spawned_worker = false;
         if !lanes.contains_key(&lane_id) {
             let hydrated = self
                 .hydrated_lanes
@@ -495,6 +497,7 @@ impl LaneSupervisor {
                             .clone(),
                     ),
                 );
+                spawned_worker = true;
             }
         }
         let Some(worker) = lanes.get(&lane_id) else {
@@ -520,6 +523,11 @@ impl LaneSupervisor {
                 command: redacted_runtime_command_for_event(&command),
             },
         );
+        if spawned_worker {
+            // Publish the binding before the worker can emit a terminal Lane
+            // update, so replay can never resurrect a cleared owner.
+            self.emit_worker_binding(&lane_id, worker)?;
+        }
         worker.send(LaneWorkerMessage::Command {
             command_id,
             command: Box::new(command),
@@ -1017,11 +1025,33 @@ impl LaneSupervisor {
                 .expect("lane terminal reaper sender")
                 .clone(),
         );
+        let lane_id = lane.id.clone();
+        lanes.insert(lane_id.clone(), worker);
+        let worker = lanes.get(&lane_id).expect("freshly inserted Lane worker");
+        // Bind the exact live handle before its first command can publish Lane
+        // state. The fresh worker is waiting on this sender at this boundary.
+        self.emit_worker_binding(&lane_id, worker)?;
         worker.send(LaneWorkerMessage::Command {
             command_id,
-            command: Box::new(RuntimeCommand::CreateLane { lane: lane.clone() }),
+            command: Box::new(RuntimeCommand::CreateLane { lane }),
         })?;
-        lanes.insert(lane.id, worker);
+        Ok(())
+    }
+
+    fn emit_worker_binding(&self, lane_id: &str, worker: &LaneWorkerHandle) -> Result<(), String> {
+        if worker.owner.lane_id.as_deref() != Some(lane_id) {
+            return Err(format!("lane `{lane_id}` worker owner mismatch"));
+        }
+        let worker_owner = worker.owner.clone();
+        self.emit(
+            worker_owner.clone(),
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: lane_id.to_string(),
+                    owner: worker_owner,
+                },
+            },
+        );
         Ok(())
     }
 

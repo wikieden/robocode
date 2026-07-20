@@ -1759,6 +1759,188 @@ fn starter_lane_events_roundtrip_as_known_with_exact_owner_and_cursor() {
 }
 
 #[test]
+fn lane_runtime_owner_binding_reduces_by_lane_and_clears_only_terminal_lane() {
+    let owner = |lane_id: &str, turn_id: &str| RuntimeOwner {
+        workspace_id: "workspace-owner".to_string(),
+        project_id: "project-owner".to_string(),
+        lane_id: Some(lane_id.to_string()),
+        session_id: Some(format!("session-{lane_id}")),
+        task_id: Some(format!("task-{lane_id}")),
+        turn_id: Some(turn_id.to_string()),
+    };
+    let binding_a = LaneRuntimeOwnerBinding {
+        lane_id: "lane-a".to_string(),
+        owner: owner("lane-a", "turn-a"),
+    };
+    let replacement_a = LaneRuntimeOwnerBinding {
+        lane_id: "lane-a".to_string(),
+        owner: owner("lane-a", "turn-a-next"),
+    };
+    let binding_b = LaneRuntimeOwnerBinding {
+        lane_id: "lane-b".to_string(),
+        owner: owner("lane-b", "turn-b"),
+    };
+
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    for binding in [binding_a.clone(), replacement_a.clone(), binding_b.clone()] {
+        view.apply_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+        ));
+    }
+    assert_eq!(
+        view.lane_runtime_owners,
+        vec![replacement_a.clone(), binding_b.clone()]
+    );
+
+    let mismatched = LaneRuntimeOwnerBinding {
+        lane_id: "lane-a".to_string(),
+        owner: owner("lane-other", "turn-invalid"),
+    };
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: mismatched,
+        },
+    ));
+    assert_eq!(
+        view.lane_runtime_owners,
+        vec![replacement_a.clone(), binding_b.clone()]
+    );
+
+    let mut running_lane = starter_lane_for_contract("lane-a");
+    running_lane.status = LaneStatus::Running;
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::LaneUpdated { lane: running_lane },
+    ));
+    assert_eq!(
+        view.lane_runtime_owners,
+        vec![replacement_a.clone(), binding_b.clone()]
+    );
+
+    for status in [
+        LaneStatus::Done,
+        LaneStatus::Failed,
+        LaneStatus::Cancelled,
+        LaneStatus::Archived,
+    ] {
+        let mut terminal_view = RuntimeViewState::new(runtime_snapshot_for_contract());
+        for binding in [replacement_a.clone(), binding_b.clone()] {
+            terminal_view.apply_event(&RuntimeEvent::new(
+                1,
+                RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+            ));
+        }
+        let mut lane = starter_lane_for_contract("lane-a");
+        lane.status = status;
+        terminal_view.apply_event(&RuntimeEvent::new(
+            2,
+            RuntimeEventKind::LaneUpdated { lane },
+        ));
+        assert_eq!(terminal_view.lane_runtime_owners, vec![binding_b.clone()]);
+    }
+}
+
+#[test]
+fn lane_runtime_owner_event_roundtrips_as_known_while_future_event_is_inert() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-owner".to_string(),
+        project_id: "project-owner".to_string(),
+        lane_id: Some("lane-a".to_string()),
+        session_id: Some("session-a".to_string()),
+        task_id: Some("task-a".to_string()),
+        turn_id: Some("turn-a".to_string()),
+    };
+    let binding = LaneRuntimeOwnerBinding {
+        lane_id: "lane-a".to_string(),
+        owner: owner.clone(),
+    };
+    let envelope = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner,
+        cursor: EventCursor {
+            stream_id: "stream-owner".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: binding.clone(),
+            },
+        )),
+    };
+
+    let encoded = serde_json::to_value(&envelope).unwrap();
+    assert_eq!(encoded["event"]["kind"]["type"], "lane_runtime_owner_bound");
+    let decoded: RuntimeEventEnvelope = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, envelope);
+    assert!(matches!(
+        decoded.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding: decoded },
+            ..
+        }) if decoded == binding
+    ));
+
+    let future: RuntimeWireEvent = serde_json::from_value(serde_json::json!({
+        "sequence": 2,
+        "timestamp": null,
+        "kind": {
+            "type": "future_lane_runtime_owner_rotated",
+            "payload": {"lane_id": "lane-a"}
+        }
+    }))
+    .unwrap();
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+    ));
+    let before = view.clone();
+    if let RuntimeWireEvent::Known(event) = future {
+        view.apply_event(&event);
+    }
+    assert_eq!(view, before);
+}
+
+#[test]
+fn lane_runtime_owner_event_transport_rejects_payload_owner_mismatch() {
+    let payload_owner = RuntimeOwner {
+        workspace_id: "workspace-owner".to_string(),
+        project_id: "project-owner".to_string(),
+        lane_id: Some("lane-a".to_string()),
+        session_id: Some("session-payload".to_string()),
+        task_id: Some("task-a".to_string()),
+        turn_id: Some("turn-payload".to_string()),
+    };
+    let envelope_owner = RuntimeOwner {
+        session_id: Some("session-envelope".to_string()),
+        turn_id: Some("turn-envelope".to_string()),
+        ..payload_owner.clone()
+    };
+    let envelope = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: envelope_owner,
+        cursor: EventCursor {
+            stream_id: "stream-owner".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: "lane-a".to_string(),
+                    owner: payload_owner,
+                },
+            },
+        )),
+    };
+
+    assert!(serde_json::to_value(envelope).is_err());
+}
+
+#[test]
 fn starter_lane_view_keys_previews_receipts_and_invalidation_by_owner_and_preview_id() {
     let owner_a = RuntimeOwner {
         workspace_id: "workspace-a".to_string(),
