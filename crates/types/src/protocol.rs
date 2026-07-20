@@ -28,10 +28,16 @@ pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
 /// checkpoint. They are advertised separately so the frozen capability
 /// evidence remains byte-for-byte stable.
 pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
+    "core.workspace_host",
     "runtime.credential_handles",
+    "runtime.credential_staging",
     "runtime.lane_lifecycle",
+    "runtime.lane_owner_projection",
     "runtime.project_onboarding",
+    "runtime.recent_work",
+    "runtime.starter_lane_preview",
     "runtime.trust_loop",
+    "ui.preference_persistence",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -112,6 +118,29 @@ impl RuntimeEventEnvelope {
             self.cursor.sequence, event.sequence
         ))
     }
+
+    fn validate_known_event_owner(&self) -> Result<(), String> {
+        let RuntimeWireEvent::Known(event) = &self.event else {
+            return Ok(());
+        };
+        let payload_owner = match &event.kind {
+            crate::RuntimeEventKind::StarterLanePreviewed { preview } => Some(&preview.owner),
+            crate::RuntimeEventKind::StarterLaneCreated { receipt } => Some(&receipt.owner),
+            crate::RuntimeEventKind::StarterLanePreviewInvalidated { owner, .. } => Some(owner),
+            crate::RuntimeEventKind::LaneRuntimeOwnerBound { binding } => Some(&binding.owner),
+            _ => None,
+        };
+        if payload_owner.is_none_or(|owner| owner == &self.owner) {
+            return Ok(());
+        }
+
+        Err("owner-scoped event payload owner does not match envelope owner".to_string())
+    }
+
+    fn validate_known_event(&self) -> Result<(), String> {
+        self.validate_known_event_sequence()?;
+        self.validate_known_event_owner()
+    }
 }
 
 impl Serialize for RuntimeEventEnvelope {
@@ -119,7 +148,7 @@ impl Serialize for RuntimeEventEnvelope {
     where
         S: Serializer,
     {
-        self.validate_known_event_sequence()
+        self.validate_known_event()
             .map_err(serde::ser::Error::custom)?;
         RuntimeEventEnvelopeRef {
             schema_version: &self.schema_version,
@@ -144,7 +173,7 @@ impl<'de> Deserialize<'de> for RuntimeEventEnvelope {
             event: envelope.event,
         };
         envelope
-            .validate_known_event_sequence()
+            .validate_known_event()
             .map_err(serde::de::Error::custom)?;
         Ok(envelope)
     }
@@ -256,7 +285,9 @@ struct UnknownRuntimeEventKind<'a> {
 fn is_known_runtime_event_type(event_type: &str) -> bool {
     matches!(
         event_type,
-        "snapshot_updated"
+        "ui_preferences_updated"
+            | "recent_work_loaded"
+            | "snapshot_updated"
             | "assistant_delta"
             | "tool_call_started"
             | "tool_call_finished"
@@ -271,6 +302,7 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "task_updated"
             | "agent_dag_updated"
             | "lane_updated"
+            | "lane_runtime_owner_bound"
             | "lane_output_appended"
             | "lane_conflict_detected"
             | "lane_recovery_required"
@@ -278,6 +310,9 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "project_config_previewed"
             | "project_config_confirmed"
             | "credential_handle_stored"
+            | "starter_lane_previewed"
+            | "starter_lane_created"
+            | "starter_lane_preview_invalidated"
             | "evidence_recorded"
             | "context_updated"
             | "context_bundle_built"

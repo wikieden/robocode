@@ -23,7 +23,11 @@ pub use context::{
     CostUsageOutcome, CostUsageRecord, EvidenceCanonicalizationRecord,
     ProviderCacheObservationRecord, TokenUsage,
 };
-pub use frontend_services::UiPreferencePatch;
+pub use frontend_services::{
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, StarterLanePreset,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, UiPreferencePatch,
+};
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
     CredentialHandle, CredentialRequestId, CredentialStatus, ProjectConfigPreview,
@@ -39,13 +43,14 @@ pub use runtime::{
     ApprovalRequestView, CanonicalEvidenceReference, CommandAction, EvidenceCanonicalReasonCode,
     EvidenceCanonicalStatus, EvidenceCanonicalStatusReport, EvidenceProducer, EvidenceQualityFacts,
     EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, LaneConflictView,
-    LaneOutputView, LaneRecoveryView, ProviderHealthView, QueuedInputView, RuntimeCommand,
-    RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeViewState,
-    TokenCostView, ToolCallView, canonical_evidence_status,
+    LaneOutputView, LaneRecoveryView, LaneRuntimeOwnerBinding, ProviderHealthView, QueuedInputView,
+    RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
+    RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
 };
 pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,
     TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind,
+    transcript_entry_timestamp, transcript_entry_type,
 };
 pub use trust::{
     ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,

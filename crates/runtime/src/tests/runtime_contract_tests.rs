@@ -4415,6 +4415,31 @@ fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
 }
 
 #[test]
+fn lane_runtime_owner_restart_projection_never_synthesizes_from_durable_lanes() {
+    let cwd = temp_dir("lane_runtime_owner_contract_cwd");
+    let home = temp_dir("lane_runtime_owner_contract_home");
+    let lane_dir = cwd.join(".viden");
+    fs::create_dir_all(&lane_dir).unwrap();
+    fs::write(
+        lane_dir.join("lanes.tsv"),
+        include_str!("../../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"),
+    )
+    .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+
+    let first = engine.runtime_view_state();
+    assert!(!first.lanes.is_empty());
+    assert!(first.lane_runtime_owners.is_empty());
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let restarted = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let restarted = restarted.runtime_view_state();
+    assert!(!restarted.lanes.is_empty());
+    assert!(restarted.lane_runtime_owners.is_empty());
+}
+
+#[test]
 fn legacy_lane_migration_runs_once_at_resume_and_runtime_replays_typed_state() {
     let cwd = temp_dir("runtime_contract_lane_resume_cwd");
     let home = temp_dir("runtime_contract_lane_resume_home");

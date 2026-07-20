@@ -1,16 +1,18 @@
 use crate::{
-    AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
+    AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
     ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
     ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
     ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
     ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
     DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
-    HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
-    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, ResolvedUiPreferences,
+    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
+    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
     RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
-    ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
-    UiPreferences, WorkMode, now_timestamp,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,6 +42,17 @@ pub enum RuntimeCommand {
         patch: UiPreferencePatch,
     },
     ResetUiPreferences,
+    QueryRecentWork {
+        query: RecentWorkQuery,
+    },
+    PreviewStarterLane {
+        request: StarterLaneRequest,
+    },
+    CreateStarterLane {
+        request: StarterLaneRequest,
+        preview_id: String,
+        content_sha256: String,
+    },
     SubmitUserInput {
         content: String,
     },
@@ -249,6 +262,15 @@ pub struct CommandAction {
     pub disabled_reason: Option<String>,
     pub shortcut: Option<String>,
     pub destructive: bool,
+}
+
+/// Exact live worker identity exposed to frontend clients for owner-scoped
+/// controls. The owner is copied from the worker handle and is never inferred
+/// from durable Lane or display state.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneRuntimeOwnerBinding {
+    pub lane_id: AgentLaneId,
+    pub owner: RuntimeOwner,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -520,6 +542,22 @@ pub enum RuntimeEventKind {
         persisted: Option<UiPreferences>,
         diagnostics: Vec<UiPreferenceDiagnostic>,
     },
+    RecentWorkLoaded {
+        projects: Vec<RecentProjectSummary>,
+        sessions: Vec<RecentSessionSummary>,
+        diagnostics: Vec<String>,
+    },
+    StarterLanePreviewed {
+        preview: StarterLanePreview,
+    },
+    StarterLaneCreated {
+        receipt: StarterLaneReceipt,
+    },
+    StarterLanePreviewInvalidated {
+        owner: RuntimeOwner,
+        preview_id: String,
+        reason: StarterLanePreviewInvalidationReason,
+    },
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
@@ -578,6 +616,9 @@ pub enum RuntimeEventKind {
     },
     LaneUpdated {
         lane: AgentLaneRecord,
+    },
+    LaneRuntimeOwnerBound {
+        binding: LaneRuntimeOwnerBinding,
     },
     LaneOutputAppended {
         lane_id: crate::AgentLaneId,
@@ -678,6 +719,16 @@ pub struct RuntimeViewState {
     // frozen v1 wire view continues to carry the same fact in `snapshot`.
     #[serde(skip)]
     pub ui_preferences: ResolvedUiPreferences,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_projects: Vec<RecentProjectSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_sessions: Vec<RecentSessionSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_work_diagnostics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starter_lane_previews: Vec<StarterLanePreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starter_lane_receipts: Vec<StarterLaneReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_probe: Option<ProjectProbe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -692,6 +743,8 @@ pub struct RuntimeViewState {
     pub tasks: Vec<AgentTaskRecord>,
     pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_runtime_owners: Vec<LaneRuntimeOwnerBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_outputs: Vec<LaneOutputView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -752,6 +805,11 @@ impl RuntimeViewState {
         Self {
             snapshot,
             ui_preferences,
+            recent_projects: Vec::new(),
+            recent_sessions: Vec::new(),
+            recent_work_diagnostics: Vec::new(),
+            starter_lane_previews: Vec::new(),
+            starter_lane_receipts: Vec::new(),
             project_probe: None,
             project_config_preview: None,
             confirmed_project_config: None,
@@ -762,6 +820,7 @@ impl RuntimeViewState {
             tasks: Vec::new(),
             agent_dags: Vec::new(),
             lanes: Vec::new(),
+            lane_runtime_owners: Vec::new(),
             lane_outputs: Vec::new(),
             lane_conflicts: Vec::new(),
             lane_recoveries: Vec::new(),
@@ -816,6 +875,47 @@ impl RuntimeViewState {
             RuntimeEventKind::UiPreferencesUpdated { resolved, .. } => {
                 self.ui_preferences = resolved.clone();
                 self.snapshot.ui_preferences = resolved.clone();
+            }
+            RuntimeEventKind::RecentWorkLoaded {
+                projects,
+                sessions,
+                diagnostics,
+            } => {
+                self.recent_projects = projects.clone();
+                self.recent_sessions = sessions.clone();
+                self.recent_work_diagnostics = diagnostics.clone();
+            }
+            RuntimeEventKind::StarterLanePreviewed { preview } => {
+                upsert_by_id(
+                    &mut self.starter_lane_previews,
+                    preview.clone(),
+                    |existing| {
+                        existing.owner == preview.owner && existing.preview_id == preview.preview_id
+                    },
+                );
+                cap_vec(&mut self.starter_lane_previews);
+            }
+            RuntimeEventKind::StarterLaneCreated { receipt } => {
+                self.starter_lane_previews.retain(|preview| {
+                    preview.preview_id != receipt.preview_id || preview.owner != receipt.owner
+                });
+                upsert_by_id(
+                    &mut self.starter_lane_receipts,
+                    receipt.clone(),
+                    |existing| {
+                        existing.owner == receipt.owner && existing.preview_id == receipt.preview_id
+                    },
+                );
+                cap_vec(&mut self.starter_lane_receipts);
+                upsert_by_id(&mut self.lanes, receipt.lane.clone(), |existing| {
+                    existing.id == receipt.lane.id
+                });
+            }
+            RuntimeEventKind::StarterLanePreviewInvalidated {
+                owner, preview_id, ..
+            } => {
+                self.starter_lane_previews
+                    .retain(|preview| preview.owner != *owner || preview.preview_id != *preview_id);
             }
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();
@@ -906,6 +1006,25 @@ impl RuntimeViewState {
                 upsert_by_id(&mut self.lanes, lane.clone(), |existing| {
                     existing.id == lane.id
                 });
+                if matches!(
+                    lane.status,
+                    LaneStatus::Done
+                        | LaneStatus::Failed
+                        | LaneStatus::Cancelled
+                        | LaneStatus::Archived
+                ) {
+                    self.lane_runtime_owners
+                        .retain(|binding| binding.lane_id != lane.id);
+                }
+            }
+            RuntimeEventKind::LaneRuntimeOwnerBound { binding } => {
+                // A mismatched payload is untrusted protocol input. Never
+                // normalize it into an authority the Core did not publish.
+                if binding.owner.lane_id.as_ref() == Some(&binding.lane_id) {
+                    upsert_by_id(&mut self.lane_runtime_owners, binding.clone(), |existing| {
+                        existing.lane_id == binding.lane_id
+                    });
+                }
             }
             RuntimeEventKind::LaneOutputAppended {
                 lane_id,

@@ -184,7 +184,12 @@ impl LocalCoreHost {
 
         let mut cli_overrides = CliOverrides::from(request.overrides);
         if cli_overrides.session_home.is_none() {
-            cli_overrides.session_home = self.session_home.clone();
+            cli_overrides.session_home = Some(match &self.session_home {
+                Some(home) => home.clone(),
+                None => {
+                    viden_runtime::default_session_home_dir().map_err(CoreHostError::Bootstrap)?
+                }
+            });
         }
         let mut bootstrap_request =
             RuntimeBootstrapRequest::new(canonical_root.clone(), cli_overrides);

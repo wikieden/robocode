@@ -2354,3 +2354,179 @@ fn emit_known_event(bus: &RuntimeEventBus, owner: RuntimeOwner, event: RuntimeEv
     // producers cannot make a later envelope visible first.
     let _ = bus.sender.send(envelope);
 }
+
+#[cfg(test)]
+mod contract_freeze_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use viden_types::{
+        AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, ExecutionTarget, GateStrength,
+        LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MutationPolicy, PermissionMode,
+        RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences, StarterLanePreview,
+        StarterLanePreviewInvalidationReason, StarterLaneReceipt, UiColorMode, UiDensity, UiMotion,
+        UiPreferences, UiSkin,
+    };
+
+    #[test]
+    fn frontend_host_extension_journal_snapshot_and_replay_preserve_normal_facts() {
+        let snapshot = viden_types::RuntimeSnapshot {
+            cwd: PathBuf::from("workspace/project"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: String::new(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: ResolvedUiPreferences::default(),
+        };
+        let (sender, _receiver) = mpsc::channel();
+        let bus = RuntimeEventBus {
+            sender,
+            state: Arc::new(Mutex::new(RuntimeEventState {
+                journal: RuntimeEventJournal::default_with_stream("fixture:frontend-host-services"),
+                live_view: RuntimeViewState::new(snapshot.clone()),
+            })),
+        };
+        let owner = RuntimeOwner {
+            workspace_id: "workspace-host-fixture".to_string(),
+            project_id: "project-host-fixture".to_string(),
+            lane_id: Some("lane-host-fixture".to_string()),
+            session_id: Some("session-host-fixture".to_string()),
+            task_id: Some("task_host_fixture".to_string()),
+            turn_id: Some("turn-host-fixture".to_string()),
+        };
+        let lane = AgentLaneRecord {
+            id: "lane-host-fixture".to_string(),
+            task_id: owner.task_id.clone(),
+            role: AgentRole::Coder,
+            route: AgentRoute::BuiltIn,
+            gate_strength: GateStrength::Full,
+            mutation_policy: MutationPolicy::ProposeOnly,
+            worktree: Some("workspace/.worktrees/lane-host-fixture".to_string()),
+            branch: Some("codex/lane-host-fixture".to_string()),
+            target: ExecutionTarget::Local,
+            data_egress: DataEgressPolicy::Deny,
+            status: LaneStatus::Running,
+            budget: LaneBudget::default(),
+            active_session_ids: vec!["session-host-fixture".to_string()],
+            summary: "reviewed starter Lane".to_string(),
+            evidence: Vec::new(),
+        };
+        let preview = StarterLanePreview {
+            preview_id: "preview-host-fixture".to_string(),
+            content_sha256: "ab".repeat(32),
+            owner: owner.clone(),
+            lane: lane.clone(),
+            branch: "codex/lane-host-fixture".to_string(),
+            worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
+            base_revision: "cd".repeat(20),
+            diagnostics: Vec::new(),
+        };
+        let resolved = ResolvedUiPreferences {
+            locale: viden_types::LocaleId::ZhCn,
+            skin: UiSkin::Ice,
+            mode: UiColorMode::Dark,
+            density: UiDensity::Compact,
+            motion: UiMotion::Reduced,
+            diagnostics: Vec::new(),
+        };
+        let facts = vec![
+            RuntimeEventKind::UiPreferencesUpdated {
+                resolved: resolved.clone(),
+                persisted: Some(UiPreferences {
+                    locale: resolved.locale,
+                    skin: resolved.skin,
+                    mode: resolved.mode,
+                    density: resolved.density,
+                    motion: resolved.motion,
+                }),
+                diagnostics: Vec::new(),
+            },
+            RuntimeEventKind::RecentWorkLoaded {
+                projects: vec![RecentProjectSummary {
+                    canonical_root: "workspace/project".to_string(),
+                    display_name: "project".to_string(),
+                    last_updated_at: 20,
+                    latest_session_id: owner.session_id.clone(),
+                }],
+                sessions: vec![RecentSessionSummary {
+                    canonical_root: "workspace/project".to_string(),
+                    session_id: owner.session_id.clone().unwrap(),
+                    created_at: 10,
+                    last_updated_at: 20,
+                    message_count: 2,
+                    tool_call_count: 1,
+                    command_count: 1,
+                }],
+                diagnostics: Vec::new(),
+            },
+            RuntimeEventKind::StarterLanePreviewed {
+                preview: preview.clone(),
+            },
+            RuntimeEventKind::StarterLaneCreated {
+                receipt: StarterLaneReceipt {
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                    lane,
+                    branch: preview.branch.clone(),
+                    worktree_path: preview.worktree_path.clone(),
+                    base_revision: preview.base_revision.clone(),
+                    owner: owner.clone(),
+                },
+            },
+            RuntimeEventKind::StarterLanePreviewInvalidated {
+                owner: owner.clone(),
+                preview_id: preview.preview_id,
+                reason: StarterLanePreviewInvalidationReason::BaseRevisionChanged,
+            },
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: "lane-host-fixture".to_string(),
+                    owner: owner.clone(),
+                },
+            },
+        ];
+        for fact in facts {
+            emit_event(&bus, owner.clone(), fact);
+        }
+
+        let state = bus.state.lock().unwrap();
+        let snapshot_cursor = state.journal.current_cursor();
+        let snapshot_view = state.live_view.clone();
+        let replay = state
+            .journal
+            .replay(ReplayRequest {
+                after: state.journal.initial_cursor(),
+                limit: 100,
+            })
+            .unwrap();
+        assert_eq!(replay.next, snapshot_cursor);
+        assert!(replay.complete);
+        assert_eq!(replay.events.len(), 6);
+        assert!(
+            replay
+                .events
+                .iter()
+                .all(|envelope| matches!(envelope.event, RuntimeWireEvent::Known(_)))
+        );
+        drop(state);
+
+        let mut replayed_view = RuntimeViewState::new(snapshot);
+        for envelope in replay.events {
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                replayed_view.apply_event(&event);
+            }
+        }
+        assert_eq!(replayed_view, snapshot_view);
+        assert_eq!(
+            replayed_view.ui_preferences.locale,
+            viden_types::LocaleId::ZhCn
+        );
+        assert_eq!(replayed_view.recent_sessions.len(), 1);
+        assert!(replayed_view.starter_lane_previews.is_empty());
+        assert_eq!(replayed_view.starter_lane_receipts.len(), 1);
+        assert_eq!(replayed_view.lane_runtime_owners.len(), 1);
+    }
+}

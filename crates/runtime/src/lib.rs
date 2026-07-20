@@ -54,6 +54,7 @@ use viden_plugin_api::{ContextReducerAdapterConfig, ContextReducerDescriptor};
 use viden_plugin_host::ContextReducerCircuitBreaker;
 use viden_provider::{ModelProvider, ProviderDescriptor, ProviderHost};
 use viden_session::SessionStore;
+pub use viden_session::default_session_home_dir;
 use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
@@ -61,8 +62,8 @@ use viden_types::{
     AgentDagRecord, AgentTaskRecord, ConflictBounce, ContextBundleRecord, ContractRecord,
     CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord, MemoryEntry,
     MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, TaskRecord, UiPreferences,
-    WorkMode, now_timestamp,
+    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, SessionMetaEntry, TaskRecord,
+    TranscriptEntry, UiPreferences, WorkMode, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -424,6 +425,7 @@ impl SessionEngine {
             Some(home) => SessionStore::new_with_home(home, &cwd, session_id)?,
             None => SessionStore::new(&cwd, session_id)?,
         };
+        let transcript_is_new = !store.transcript_path().exists();
         let workflows = WorkflowStore::new(store.home_dir().to_path_buf(), &cwd)?;
         let legacy_lanes_path = cwd.join(".viden").join("lanes.tsv");
         if legacy_lanes_path.is_file() {
@@ -500,10 +502,46 @@ impl SessionEngine {
             #[cfg(test)]
             fail_transcript_append_after: Cell::new(None),
         };
-        engine.persist_meta("work_mode", engine.runtime_snapshot.work_mode.cli_name())?;
-        engine.persist_meta("permission_mode", engine.permissions.mode().cli_name())?;
         let model = engine.provider.model().to_string();
-        engine.persist_meta("model", &model)?;
+        if transcript_is_new {
+            let timestamp = now_timestamp();
+            let canonical_root = cwd
+                .canonicalize()
+                .map_err(|error| format!("failed to canonicalize session root: {error}"))?
+                .display()
+                .to_string();
+            let initial_metadata = [
+                ("canonical_root", canonical_root),
+                ("session_created_at", timestamp.to_string()),
+                (
+                    "work_mode",
+                    engine.runtime_snapshot.work_mode.cli_name().to_string(),
+                ),
+                (
+                    "permission_mode",
+                    engine.permissions.mode().cli_name().to_string(),
+                ),
+                ("model", model),
+            ]
+            .into_iter()
+            .map(|(key, value)| TranscriptEntry::SessionMeta {
+                entry: SessionMetaEntry {
+                    timestamp,
+                    key: key.to_string(),
+                    value,
+                },
+            })
+            .collect::<Vec<_>>();
+            // Root identity and stable creation time must commit with the first
+            // transcript batch so rebuild never substitutes cwd or filesystem time.
+            engine.store.append_entries_atomic(&initial_metadata)?;
+        } else {
+            engine.persist_meta_batch(&[
+                ("work_mode", engine.runtime_snapshot.work_mode.cli_name()),
+                ("permission_mode", engine.permissions.mode().cli_name()),
+                ("model", &model),
+            ])?;
+        }
         Ok(engine)
     }
 

@@ -42,6 +42,24 @@ runtime.typed_tasks
 ui.preferences
 ```
 
+Core `0.3.2` keeps schema `1` and advertises the following separately versioned,
+lexically sorted extension capabilities. Base-only clients still connect; each
+feature checks its own extension and remains visibly unavailable with zero
+command transport when that extension is absent.
+
+```text
+core.workspace_host
+runtime.credential_handles
+runtime.credential_staging
+runtime.lane_lifecycle
+runtime.lane_owner_projection
+runtime.project_onboarding
+runtime.recent_work
+runtime.starter_lane_preview
+runtime.trust_loop
+ui.preference_persistence
+```
+
 The recorded SHA is the reviewed payload commit. This document is stored in a
 separate evidence commit, which is the exact common TUI/GUI branch base; its
 parent must equal the recorded payload SHA. No SHA is guessed or made
@@ -58,10 +76,9 @@ self-referential inside the payload commit.
   canonicalizes an existing workspace directory, runs the shared runtime
   bootstrap, starts a `RuntimeSupervisor`, and returns a bound `CoreClient`.
   Rebinding to another workspace creates an independent binding and stream; it
-  must not mutate an existing client's cursor or snapshot. This is an internal
-  Core `0.3.2` candidate service; it is not advertised as a handshake
-  capability and does not change the `0.3.1` manifest before the final Task 6
-  compatibility gate.
+  must not mutate an existing client's cursor or snapshot. Clients gate this
+  trusted boundary on `core.workspace_host`; credential ingress separately
+  requires `runtime.credential_staging`.
 - Frontends send intent through `RuntimeCommand`; they do not call tools,
   providers, or permission engines directly.
 - `RuntimeViewState::apply_event` is the canonical reducer for client-visible
@@ -78,8 +95,8 @@ self-referential inside the payload commit.
 
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
-| Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | internal pre-release service; not a handshake capability until Task 6 |
-| Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | internal Core `0.3.2` candidate; not a handshake capability until Task 6 |
+| Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
+| Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
@@ -89,11 +106,14 @@ self-referential inside the payload commit.
 | Agent workflow visibility | Mission Control board, workflow strip, plan/now/done/acceptance/blocked columns | `AgentDagRecord`, `AgentTaskRecord`, `EvidenceView`, `MergeGateRecord`, `RuntimeErrorView` | existing workflow/task/evidence/merge commands | proposed |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
 | Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
-| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
+| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
-| Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
+| Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
+| Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | Core `0.3.2` extension `runtime.lane_owner_projection` |
+| Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview` |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
-| UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
+| UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
+| Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 
 ## Event Consumption Rules
 
@@ -124,6 +144,22 @@ flowchart LR
 - `ProjectProbed`, `ProjectConfigPreviewed`, `ProjectConfigConfirmed`, and
   `CredentialHandleStored` update onboarding state; clients must not infer a
   successful write from command acceptance alone.
+- `UiPreferencesUpdated` is the only persistence confirmation for a preference
+  command and updates both the top-level and snapshot preference facts.
+- `RecentWorkLoaded` atomically replaces the three recent-work view slices;
+  snapshot and replay recover the most recently loaded safe result.
+- `StarterLanePreviewed` upserts one owner-scoped preview;
+  `StarterLanePreviewInvalidated` removes only its exact owner/id pair; and
+  `StarterLaneCreated` replaces that preview with the authoritative receipt and
+  durable Lane fact. The payload owner must equal the envelope owner. These
+  events participate in normal in-process snapshot and replay recovery.
+- `LaneRuntimeOwnerBound` upserts one exact live-worker binding by `lane_id`.
+  A later binding for the same Lane replaces the previous value; a binding
+  whose payload owner differs from the envelope owner is rejected at the wire
+  boundary, and one whose `owner.lane_id` does not exactly match its `lane_id`
+  is ignored by the reducer.
+  `LaneUpdated` with `done`, `failed`, `cancelled`, or `archived` removes only
+  that Lane's binding.
 - Every command, snapshot, and event envelope uses schema `1`. A known event's
   sequence must equal its cursor sequence.
 - Clients call `discover` before sending commands or consuming state. Missing
@@ -141,7 +177,7 @@ flowchart LR
 | --- | --- | --- |
 | Start a normal turn | `SubmitUserInput` | provider loop, context bundle, tools, transcript |
 | Add input while work runs | `QueueFollowUp` | queue ordering and later dequeue |
-| Cancel current work | `CancelActiveTurn` or `CancelAgentTask` | request cancellation and task state |
+| Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, and task/Lane state |
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
 | Approve or deny a tool | `RespondToApproval` | decision recording and gated execution |
@@ -152,6 +188,8 @@ flowchart LR
 | Configure provider/model | provider/model commands | config persistence, registry validation, health |
 | Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
+| Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
+| Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, repository/base/path checks, permission gate, execution-time recheck, compensation, typed receipt |
 
 `PreviewProjectConfig` is read-only. A valid preview includes the exact UTF-8
 contents that its SHA-256 describes; invalid or secret-bearing candidates omit
@@ -176,6 +214,62 @@ retry secret bytes. Until a platform sink is injected, production
 Frontends must not synthesize successful state after sending a command. They
 should wait for `CommandAccepted` plus subsequent state events. If the command
 is rejected, render `CommandRejected.reason`.
+
+### Reviewed Starter Lane
+
+The read-only preview resolves the `coder`, `reviewer`, or `tester` preset into
+an exact owner, Lane record, branch, canonical worktree path, current Git base,
+diagnostics, preview id, and SHA-256. The hash binds the owner and every resolved
+creation field. A create request is one-shot and must match the original request,
+owner, id, hash, current base, branch availability, and worktree availability.
+Core performs the permission check before any Git or workflow effect and repeats
+the base/path/branch checks immediately before execution after a pending approval.
+While that approval is pending, the reviewed preview remains visible, and any
+second reviewed create or other Lane mutation for the same Lane is rejected
+without replacing its receipt association.
+`CancelActiveTurn` is the exception: after the approval is visible it resolves
+that approval as denied, invalidates the preview with `permission_denied`, and
+emits no Lane, recovery, error, Git, or workflow effect.
+
+Matched invalid requests and denied or failed execution emit
+`StarterLanePreviewInvalidated` with a closed reason code. An unknown id or a
+wrong owner does not consume another owner's preview. Only
+`StarterLaneCreated.receipt` authorizes immediate navigation to the created Lane;
+`LaneUpdated` remains the durable Lane fact and is not a substitute for this
+review receipt. If persistence fails after Git worktree creation, Core removes
+both the worktree and the newly created branch before reporting recovery.
+
+Previews are normal owner-scoped state within the current runtime stream and are
+available through snapshot and replay after reconnect. A process restart creates
+a new stream and preview cache, so an old preview must be generated again. The
+legacy `CreateLane` command remains supported for existing callers; first-run D4
+flows use the reviewed command pair. Clients enable that pair only when
+`runtime.starter_lane_preview` is advertised.
+
+### Live Lane Runtime Owner
+
+`LaneRuntimeOwnerBinding { lane_id, owner }` is process-local authority for a
+live `LaneWorkerHandle`. Core copies `owner` from the actual worker handle; it
+does not reconstruct workspace, project, Lane, session, task, or turn fields
+from durable Lane state, current selection, display text, or frontend defaults.
+For a newly spawned worker, Core publishes `LaneCommandAccepted`, then
+`LaneRuntimeOwnerBound`, before that worker can publish command-driven Lane
+state. Snapshot and replay preserve the exact binding within the same runtime
+stream.
+
+A process restart creates a new stream and deliberately restores no runtime
+owner from hydrated Lane records. The first accepted owner-scoped command that
+spawns a new live worker publishes a fresh binding. Owner mismatch, missing or
+terminal Lane, Plan-mode denial, hydration failure, or any path that does not
+create a live worker publishes no binding.
+
+Frontend cancel is fail-closed. A client must first discover the
+`runtime.lane_owner_projection` extension capability, then require exactly one
+valid binding for the selected active Lane and send `CancelActiveTurn` with the
+entire bound owner unchanged. Missing capability, zero or ambiguous matches,
+or any `owner.lane_id` mismatch means cancel is unavailable and command
+transport sends nothing. Unknown future runtime-owner events remain inspectable
+wire events and do not mutate `RuntimeViewState`.
 
 ## Agent DAG And Task UI Contract
 
@@ -380,6 +474,40 @@ GUI `pages/Viden - D11 首启与项目接入 (GUI).html` is subordinate first-ru
 onboarding. It is not the GUI cockpit and must not replace D1 as the desktop
 visual target. All relative paths in this list start at
 `docs/viden-design/Viden/`.
+
+## Recent Work Contract
+
+`QueryRecentWork` is read-only, available in Plan mode, and never requests
+approval. Core emits exactly `CommandAccepted` followed by `RecentWorkLoaded`
+on success. The loaded fact is retained in the supervisor snapshot/replay view,
+but is not copied into session or workflow durable JSONL.
+
+Production `LocalCoreHost::new()` resolves one user-scoped shared session home;
+project-local `.viden` directories are not a cross-project inventory. Core
+alone scans `<session-home>/projects`. Frontends must not inspect session files,
+SQLite, or project directories.
+
+Each new transcript begins with one committed metadata batch containing its
+canonical root and stable creation timestamp. Inventory rebuild streams JSONL
+line by line, recognizes only entry kinds, safe counts, those two metadata
+facts, and stable timestamps, and never loads transcript bodies as summaries.
+It validates the root-derived project key against the containing project
+directory. Legacy records without a root and tampered identities are skipped
+with stable diagnostics; the current cwd is never substituted. A non-empty
+SQLite index is reconciled with this canonical inventory rather than trusted as
+complete.
+
+`RecentSessionSummary` is a whitelist DTO containing only canonical root,
+session id, stable timestamps, and message/tool-call/command counts.
+`RecentProjectSummary` contains canonical root, derived display name, latest
+stable timestamp, and latest session id. Neither DTO contains transcript path,
+title, preview text, arbitrary metadata, credential/backend values, or any
+message, tool, or command body. Identity is `(canonical_root, session_id)`.
+
+Core clamps `limit` to `1..=100`, globally orders sessions by
+`(last_updated_at DESC, canonical_root ASC, session_id ASC)`, truncates that
+session list first, and only then aggregates projects from the bounded result.
+Both returned collections are therefore bounded.
 
 ## TUI Requirements
 

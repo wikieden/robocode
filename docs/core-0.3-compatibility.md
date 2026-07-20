@@ -2,10 +2,11 @@
 
 Chinese version: [core-0.3-compatibility.zh-CN.md](core-0.3-compatibility.zh-CN.md)
 
-This document is the human-readable compatibility manifest for the Core 0.3.0
-`frontend-contract-v1` payload. It records the frontend schema, handshake
-capabilities, migration order, deterministic fixture corpus, UI preference
-contract, and design-entry hierarchy.
+This document is the human-readable compatibility manifest for the frozen Core
+0.3.0 `frontend-contract-v1` payload and its backward-compatible Core 0.3.2
+extension candidate. It records the frontend schema, handshake capabilities,
+migration order, deterministic fixture corpus, UI preference contract, and
+design-entry hierarchy.
 
 ## Freeze Status
 
@@ -47,18 +48,39 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-Every fixture requirement must be present in this set. A fixture requiring an
-unknown mandatory capability fails compatibility validation; malformed or
-ambiguous legacy input is rejected rather than guessed.
+Every frozen base-fixture requirement must be present in this set. The separately
+registered extension fixture may require only advertised extension capabilities.
+A fixture requiring any unknown mandatory capability fails compatibility
+validation; malformed or ambiguous legacy input is rejected rather than guessed.
 
 ## Schema-1 Post-Freeze Extension Candidate
 
-The Core 0.3.0 frozen capability set and fixture digests above remain unchanged.
-The Core 0.3.1 candidate advertises the additive
-`runtime.lane_lifecycle`, `runtime.project_onboarding`,
-`runtime.credential_handles`, and `runtime.trust_loop` capabilities separately through
-`FRONTEND_V1_EXTENSION_CAPABILITIES` and
-`crates/core/frontend-contract-extensions.toml`.
+The Core 0.3.0 frozen capability set and its original nine fixture bytes remain
+unchanged. The Core 0.3.2 candidate advertises this exact lexically sorted
+additive set through `FRONTEND_V1_EXTENSION_CAPABILITIES` and
+`crates/core/frontend-contract-extensions.toml`:
+
+```text
+core.workspace_host
+runtime.credential_handles
+runtime.credential_staging
+runtime.lane_lifecycle
+runtime.lane_owner_projection
+runtime.project_onboarding
+runtime.recent_work
+runtime.starter_lane_preview
+runtime.trust_loop
+ui.preference_persistence
+```
+
+The schema remains `1`. A client may connect with only the frozen base set;
+missing extension capabilities disable only the corresponding feature and must
+not block unrelated startup. A disabled feature stays visibly unavailable and
+sends no command. In particular, the TUI gates stable Settings on
+`ui.preference_persistence`; GUI gates D11 recent work on
+`core.workspace_host` plus `runtime.recent_work`; TUI and GUI gate reviewed D4
+creation on `runtime.starter_lane_preview`; and exact active-Lane cancellation
+requires `runtime.lane_owner_projection` plus one authoritative binding.
 
 Clients written against Core 0.3.0 continue to require only the frozen set and
 must preserve unsupported schema-1 events as `RuntimeWireEvent::Unknown`. A
@@ -176,7 +198,22 @@ the tested fixture values and must change with the corresponding fixture state.
 | `plan-denial` | Plan-mode mutation rejection without a successful mutation fact | `fa1fa859af8f056686c06b30b789706539d9ed19e02756519757993d5ee31b2d` |
 | `d1-vertical-slice` | D1-visible transcript/tool, lane/task, decision, evidence/gate, context/cost, recovery, and UI preferences | `7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804` |
 
-Each JSON envelope contains:
+The original nine rows above are the frozen base corpus. The separately
+registered schema-1 extension fixture is:
+
+| Fixture id | Extension scenario | Expected final view SHA-256 | Canonical fixture bytes SHA-256 |
+| --- | --- | --- | --- |
+| `frontend-host-services` | UI preference persistence, safe recent work, reviewed starter-Lane preview/create/invalidation, exact live Lane owner, and one tolerated future optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
+
+The extension fixture uses the six real known events
+`UiPreferencesUpdated`, `RecentWorkLoaded`, `StarterLanePreviewed`,
+`StarterLaneCreated`, `StarterLanePreviewInvalidated`, and
+`LaneRuntimeOwnerBound`; it does not substitute a transient error or display
+placeholder. The normal in-memory journal, snapshot, and replay path must
+reduce these facts to the same `RuntimeViewState`. The optional future event
+advances the cursor without mutating that state.
+
+Each JSON fixture envelope contains:
 
 - `fixture_id`;
 - `schema_version: 1`;

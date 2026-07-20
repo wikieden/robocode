@@ -408,6 +408,10 @@ impl SessionEngine {
                     );
                 }
             },
+            RuntimeCommand::QueryRecentWork { query } => match self.query_recent_work(query) {
+                Ok(recent_events) => append_resequenced(&mut events, recent_events),
+                Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+            },
             RuntimeCommand::SubmitUserInput { content } => {
                 match self.process_runtime_input_with_approval(&content, approver) {
                     Ok(input_events) => append_resequenced(&mut events, input_events),
@@ -839,7 +843,9 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
-            RuntimeCommand::CreateLane { .. }
+            RuntimeCommand::PreviewStarterLane { .. }
+            | RuntimeCommand::CreateStarterLane { .. }
+            | RuntimeCommand::CreateLane { .. }
             | RuntimeCommand::StartLane { .. }
             | RuntimeCommand::StopLane { .. }
             | RuntimeCommand::AttachLane { .. }
@@ -1467,6 +1473,9 @@ impl SessionEngine {
         }
         match self.workflows.load_lane_state() {
             Ok(lane_state) => {
+                // Durable Lane records survive restart, but live worker owners
+                // do not. Only LaneSupervisor may publish a fresh binding when
+                // it creates a process-local worker from an owner-scoped command.
                 for lane in lane_state.lanes().values() {
                     events.push(RuntimeEvent::new(
                         next_sequence(&events),
@@ -5413,6 +5422,21 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             RuntimeCommand::SetUiPreferences { patch: *patch }
         }
         RuntimeCommand::ResetUiPreferences => RuntimeCommand::ResetUiPreferences,
+        RuntimeCommand::QueryRecentWork { query } => {
+            RuntimeCommand::QueryRecentWork { query: *query }
+        }
+        RuntimeCommand::PreviewStarterLane { request } => RuntimeCommand::PreviewStarterLane {
+            request: redacted_starter_lane_request(request),
+        },
+        RuntimeCommand::CreateStarterLane {
+            request,
+            preview_id,
+            content_sha256,
+        } => RuntimeCommand::CreateStarterLane {
+            request: redacted_starter_lane_request(request),
+            preview_id: redact_identifier_for_event(preview_id),
+            content_sha256: redact_identifier_for_event(content_sha256),
+        },
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
             content: redact_command_text(content),
         },
@@ -5745,6 +5769,20 @@ fn redacted_runtime_owner(owner: &RuntimeOwner) -> RuntimeOwner {
         session_id: owner.session_id.as_deref().map(redact_identifier_for_event),
         task_id: owner.task_id.as_deref().map(redact_identifier_for_event),
         turn_id: owner.turn_id.as_deref().map(redact_identifier_for_event),
+    }
+}
+
+fn redacted_starter_lane_request(
+    request: &viden_types::StarterLaneRequest,
+) -> viden_types::StarterLaneRequest {
+    viden_types::StarterLaneRequest {
+        lane_id: redact_identifier_for_event(&request.lane_id),
+        preset: request.preset,
+        branch: request.branch.as_deref().map(redact_identifier_for_event),
+        worktree_path: request
+            .worktree_path
+            .as_ref()
+            .map(|_| "[REDACTED]".to_string()),
     }
 }
 
