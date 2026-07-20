@@ -312,7 +312,12 @@ fn apply_event_envelope(
 mod tests {
     use super::*;
     use crate::tui::preferences::{ColorDepth, PreferenceValue, SettingsPanel};
-    use std::{collections::VecDeque, path::PathBuf, time::Duration};
+    use sha2::{Digest, Sha256};
+    use std::{
+        collections::{BTreeMap, VecDeque},
+        path::PathBuf,
+        time::Duration,
+    };
     use viden_core::{
         CORE_EXTENSION_CAPABILITIES, CoreClientError, frontend_capabilities, local_core_handshake,
     };
@@ -412,40 +417,103 @@ mod tests {
             initial_snapshot: RuntimeSnapshot,
             events: Vec<RuntimeEventEnvelope>,
             expected_final_cursor: EventCursor,
+            expected_view_sha256: String,
         }
-        let fixture: Fixture = serde_json::from_str(include_str!(
-            "../../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
-        ))
-        .expect("shared frontend fixture");
-        let initial_cursor = EventCursor {
-            stream_id: fixture.expected_final_cursor.stream_id.clone(),
-            sequence: 0,
-        };
-        let snapshot = fixture.initial_snapshot;
-        let fake = FakeCoreClient {
-            handshake: Some(local_core_handshake()),
-            snapshot: Some(RuntimeSnapshotEnvelope {
-                schema_version: FRONTEND_SCHEMA_V1,
-                capabilities: frontend_capabilities(),
-                cursor: initial_cursor,
-                view: RuntimeViewState::new(snapshot.clone()),
-                snapshot,
-            }),
-            events: fixture.events.into(),
-            ..FakeCoreClient::default()
-        };
-        let event_count = fake.events.len();
+        let fixtures = [
+            (
+                "stream-tool",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/stream-tool.json"
+                ),
+            ),
+            (
+                "approval-allow-deny",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-allow-deny.json"
+                ),
+            ),
+            (
+                "queued-follow-up",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/queued-follow-up.json"
+                ),
+            ),
+            (
+                "dag-blocker",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/dag-blocker.json"
+                ),
+            ),
+            (
+                "multi-lane",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/multi-lane.json"
+                ),
+            ),
+            (
+                "merge-gate",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/merge-gate.json"
+                ),
+            ),
+            (
+                "context-pressure-cost-blind",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/context-pressure-cost-blind.json"
+                ),
+            ),
+            (
+                "plan-denial",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/plan-denial.json"
+                ),
+            ),
+            (
+                "d1-vertical-slice",
+                include_str!(
+                    "../../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
+                ),
+            ),
+        ];
 
-        let mut driver = TuiClientDriver::connect(fake).expect("connect");
+        for (fixture_id, fixture_json) in fixtures {
+            let fixture: Fixture =
+                serde_json::from_str(fixture_json).expect("shared frontend fixture");
+            let fake = FakeCoreClient {
+                handshake: Some(local_core_handshake()),
+                snapshot: Some(RuntimeSnapshotEnvelope {
+                    schema_version: FRONTEND_SCHEMA_V1,
+                    capabilities: frontend_capabilities(),
+                    cursor: EventCursor {
+                        stream_id: fixture.expected_final_cursor.stream_id.clone(),
+                        sequence: 0,
+                    },
+                    view: RuntimeViewState::new(fixture.initial_snapshot.clone()),
+                    snapshot: fixture.initial_snapshot,
+                }),
+                events: fixture.events.into(),
+                ..FakeCoreClient::default()
+            };
+            let event_count = fake.events.len();
+            let mut driver = TuiClientDriver::connect(fake).expect("connect");
 
-        for _ in 0..event_count {
-            assert!(matches!(driver.pump().unwrap(), PumpOutcome::Applied(_)));
+            for _ in 0..event_count {
+                assert!(
+                    matches!(driver.pump().unwrap(), PumpOutcome::Applied(_)),
+                    "{fixture_id}"
+                );
+            }
+            assert_eq!(
+                canonical_view_sha256(driver.view()),
+                fixture.expected_view_sha256,
+                "{fixture_id}"
+            );
+            assert_eq!(
+                driver.cursor(),
+                &fixture.expected_final_cursor,
+                "{fixture_id}"
+            );
         }
-        assert_eq!(driver.view().assistant_stream, "D1 cockpit state");
-        assert_eq!(driver.view().tasks.len(), 1);
-        assert!(!driver.view().errors.is_empty());
-        assert!(driver.view().cost_ledger.total_tokens > 0);
-        assert_eq!(driver.cursor(), &fixture.expected_final_cursor);
     }
 
     #[test]
@@ -455,6 +523,7 @@ mod tests {
             initial_snapshot: RuntimeSnapshot,
             events: Vec<RuntimeEventEnvelope>,
             expected_final_cursor: EventCursor,
+            expected_view_sha256: String,
         }
         let fixture: Fixture = serde_json::from_str(include_str!(
             "../../../../crates/types/tests/fixtures/frontend-contract-v1/frontend-host-services.json"
@@ -484,6 +553,10 @@ mod tests {
         }
 
         assert_eq!(driver.cursor(), &fixture.expected_final_cursor);
+        assert_eq!(
+            canonical_view_sha256(driver.view()),
+            fixture.expected_view_sha256
+        );
         assert_eq!(driver.view().lane_runtime_owners.len(), 1);
         let binding = &driver.view().lane_runtime_owners[0];
         assert_eq!(binding.lane_id, "lane-host-fixture");
@@ -494,6 +567,29 @@ mod tests {
         );
         assert_eq!(binding.owner.task_id.as_deref(), Some("task_host_fixture"));
         assert_eq!(binding.owner.turn_id.as_deref(), Some("turn-host-fixture"));
+    }
+
+    fn canonical_view_sha256(view: &RuntimeViewState) -> String {
+        let value = serde_json::to_value(view).expect("runtime view must serialize");
+        let sorted = sort_json(value);
+        let bytes = serde_json::to_vec(&sorted).expect("canonical json must serialize");
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    fn sort_json(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(map) => {
+                let sorted = map
+                    .into_iter()
+                    .map(|(key, value)| (key, sort_json(value)))
+                    .collect::<BTreeMap<_, _>>();
+                serde_json::Value::Object(sorted.into_iter().collect())
+            }
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.into_iter().map(sort_json).collect())
+            }
+            other => other,
+        }
     }
 
     #[test]

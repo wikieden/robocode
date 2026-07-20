@@ -73,3 +73,18 @@ algorithm = "sha256"
 tokens_css = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
 catalog_en = "e2b01eee9ee74a057a879398d1c459ddc629aee3429f2ef53cffc1c2f18f7e79"
 catalog_zh_cn = "84c7732cd7ffe7147f0b8e76977b40b12fc3c0e03b61138eae1199ff8bfb7162"
+
+[fixture_revisions]
+algorithm = "sha256"
+base_corpus_sha256 = "e272d7bee25af5d4a0e719aa7226f1b5bf22086e90f0d02224196c41ce67fcab"
+base_fixture_sha256 = [
+  "approval-allow-deny.json:a31d8c64ecfb5477f8e7b9c0ac53fbda2c447f7972e818be16ae2e388700248e",
+  "context-pressure-cost-blind.json:dbae6f879036248de2509f79a1afbfc6a8be27bc63b8198a39f4bc5be270d697",
+  "d1-vertical-slice.json:d8dc7a14d2f4a16ff6ebbab27a6760fbf0a22bce3a3dc74e98d46c248a71df5e",
+  "dag-blocker.json:98e2ad2b91b136df312aef38c4d58be054634d7c0828053e3021abc37c85e5c7",
+  "merge-gate.json:d71807abacf7ed55d5bd9b8a687853f94786f4a8967bb04f681cd50365becf11",
+  "multi-lane.json:1a20e8ec733774bc734e06252a635105b954c6a40b44f3aeead90788331fc5cd",
+  "plan-denial.json:6a04b5ef3f3847ec1cac2453eb07fe74058a1422aafa1a05da762d55d783b307",
+  "queued-follow-up.json:83c31272bba0831807aeb14fc4dcb3faabec078442243038470c7a6892299031",
+  "stream-tool.json:a097f17da294e0a32d7df88f5948eff2be2d93e966eb318b00e39951c9fd548a",
+]

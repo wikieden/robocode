@@ -75,7 +75,8 @@ viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 - `--tui`：启动主 cockpit。现在这是默认行为。
 - `--no-tui`：启动旧版行式 REPL。
 - `--tui-screen <main|side-1|side-2>`：启动指定屏幕。
-- `--tui-theme <aurora-cyan|ember-gold|plasma-violet|monochrome-ice>`：选择内置主题。
+- `--tui-theme <aurora|aurora-light|ice|ice-light|mono|mono-light|amber|phosphor>`：
+  选择八个已登记 palette profile 之一。
 
 用于视觉 review 的 preview flags：
 
@@ -88,12 +89,16 @@ viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 - `--tui-preview-lane`
 - `--tui-preview-setup-wizard`
 - `--tui-preview-provider-selector`
+- `--tui-preview-provider-detail`
 - `--tui-preview-model-selector`
 - `--tui-preview-lane-selector`
 - `--tui-preview-side`
 - `--tui-preview-side-2`
 
 每个 preview flag 都有对应的 `-ansi` 版本。
+`scripts/tui-previews.sh` 默认写入 `target/tui-previews/0.3.1`；
+`scripts/tui-regression.sh target/tui-regression/0.3.1` 会追加结构化 TUI 0.3.1
+认证报告，并且不修改已接受的设计 reference。
 
 ## 配置
 
@@ -274,36 +279,25 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
 
 ## TUI 操作
 
-以下快捷键描述当前 `0.1.x` 实现，不是下一版 TUI 视觉/交互目标。接受目标是
-[Viden 设计接入](viden-design-adoption.zh-CN.md) 所链接的 T4 契约；`v3-tui-client`
-分支交付对应行为时，必须同步更新本节。
+TUI 0.3.1 使用明确的 Normal、Insert、Overlay ownership；状态栏始终显示当前 mode。
 
-- `Enter`：提交输入区。
-- `Ctrl-J`：显式发送。
-- `Ctrl-K`：清空输入区。
-- `Ctrl-R`：把最近一次用户输入重新放回输入区，便于重新生成。
-- `Ctrl-N`：开始一个新的 `/task add ...` 命令。
-- `?`：输入区为空时打开帮助。
-- `Esc` 或 `Ctrl-C`：退出。
-- `/quit` 或 `/exit`：从命令输入退出。
-- `/`：打开命令提示。可以用 `Up` / `Down`、`Tab` 或 `Enter`。当前 CoreClient TUI
-  默认关闭鼠标捕获，因此不启用点击选择。
-- transcript 历史：用 `PageUp` / `PageDown` 浏览更早的 transcript 行。鼠标滚轮导航
-  默认关闭；后续如提供鼠标模式，必须显式选择启用，并完整支持审批和选择器命中测试。
-  `Ctrl-Home` 跳到最早可见历史，`Ctrl-End` 回到实时尾部。进入历史模式时，
-  transcript 面板角标会从 `live session` 变成 `history N`。
-- 审批弹窗：`y` 通过，`n` 拒绝，`d` 聚焦 diff，`Tab` / 方向键移动焦点。
-  diff 焦点会优先展示本次审批 prompt 里的真实 evidence / preview lines，而不是装饰性占位内容。
-- provider turn 运行中，TUI event loop 会继续工作；transcript live tail 会在最近
-  对话内容下面显示更醒目的 `LIVE WORK` strip，展示 phase、signal 和下一步 guidance。
-  Provider thinking 不再显示假进度百分比。状态栏、elapsed time、lane snapshot 和审批桥接
-  都可以持续刷新。`Ctrl-C` 会请求取消；但已经发出的 HTTP provider 请求仍可能先完成。
-- 支持 streaming 的 HTTP provider 在 TUI turn 中会请求 server-sent streaming。
-  模型返回的 text delta 会先追加到临时 assistant transcript 行里；turn 完成后，
-  再替换为正式持久化 transcript event。
-- provider turn 尚未结束时，输入区仍可编辑。按 `Enter` 会把当前草稿排成下一条
-  prompt，Viden 会立即清空输入区，并在当前 turn 结束后自动执行队列里的 prompt。
-  如果当前 turn 失败，会把第一条已排队 prompt 放回输入区，方便你修改后重试。
+- Normal：按 `i` 进入 Insert。上下文单键作用于所选 runtime fact，不会写入 composer。
+- Insert：可打印按键编辑 grapheme-safe multiline composer。空闲时 `Enter` 提交；工作中
+  `Enter` 排队 follow-up。`Shift-Enter` 或 `Alt-Enter` 插入换行；未闭合三反引号代码块内
+  的 `Enter` 也只插入换行。Bracketed paste 保留换行且绝不发送。
+- Overlay：方向键或 `j`/`k` 移动 focus，输入用于筛选，`Enter` 应用聚焦 action。
+  `Esc` 依次退出 overlay、清除 selection、退出 Insert，并保留 draft。
+- 全局 chords 在三种 mode 都有效：`Ctrl-L` lane、`Ctrl-S` session、`Ctrl-T` 新 session、
+  `Ctrl-K` command palette、`Ctrl-B` board、`Ctrl-G` decisions、`?` context help。
+- `Ctrl-C` 只请求取消 Core 给出的 exact active owner；它不会拒绝 approval，也不会直接
+  退出。只有 Core 报告没有 current work 时，空闲状态连续按两次才打开退出确认。
+- streaming、tool execution、pinned approval 都不会锁住 composer。只有显式聚焦的
+  approval 才拥有快捷键：方向键或 `Tab` 可到 Deny、Diff、Approve；typed scope 会携带
+  stable Core request id 与 owner 发送。
+- `PageUp` / `PageDown` 浏览 transcript history；`Ctrl-Home` 跳到最早可见 history，
+  `Ctrl-End` 回到 live tail。CJK 与 grapheme cursor 使用 terminal cell width。
+- 默认关闭 mouse capture，以保留终端原生文本选择。TUI 0.3.1 已有完整键盘路径，但尚未
+  提供设计中可选的 `mouse_capture=true` opt-in。
 
 ## Slash Commands
 

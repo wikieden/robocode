@@ -2,7 +2,7 @@
 
 Chinese version: [tui-stability-zero-bug-gate.zh-CN.md](tui-stability-zero-bug-gate.zh-CN.md)
 
-Last updated: 2026-06-09
+Last updated: 2026-07-20
 
 ## Purpose
 
@@ -18,6 +18,41 @@ residue, stale state, or scrollback bugs.
 - every release-blocking TUI regression has a repeatable test;
 - P2 visual issues are documented, clearly downgraded, and do not affect the
   daily coding loop.
+
+## TUI 0.3.1 Thin-Client Certification
+
+The current gate preserves the historical 0.1.30 zero-bug baseline while
+certifying the CoreClient-only TUI 0.3.1 boundary. Run:
+
+```bash
+cargo test -p viden-tui
+scripts/tui-turn-controller-smoke.sh
+scripts/rc-tui-stability-smoke.sh target/tui-stability/0.3.1
+scripts/tui-regression.sh target/tui-regression/0.3.1
+```
+
+The regression output must include `tui-0.3.1-certification.json`, the shared
+fixture digest list, a static boundary report, deterministic previews, and
+versioned SVG exports. Evidence belongs under `target/` or `/tmp`; accepted
+reference shots under `docs/viden-design/reference-shots/` remain read-only.
+
+The structured certification must prove all of these together:
+
+- Core checkpoint `a927e2f31d2cb9bb6015c30bc0ed0976e958c77e`, schema `1`,
+  the frozen 15-capability base, the 10-capability feature extension, and the
+  recorded extension-fixture digest;
+- shared fixture replay parity, composer input during streaming/tool/approval,
+  Normal/Insert/Overlay ownership, paste-no-send, CJK cursor placement,
+  approval actions, and exact lane-owner cancellation;
+- deterministic 80/112/160 render models, `en`/`zh-CN`, eight registered
+  palettes across truecolor/256/16, three densities, reduced motion, Settings
+  Apply/Reset receipts, and atomic invalid-appearance fallback;
+- no TUI-owned authoritative effect, runtime-internal dependency, or private
+  preference persistence.
+
+This is a component certification, not a distribution release. Real macOS
+Terminal and iTerm2 evidence remains manual, and no tag, push, GitHub Release,
+or Homebrew claim follows from the automated gate.
 
 ## Bug Severity
 
@@ -55,7 +90,7 @@ residue, stale state, or scrollback bugs.
 - Non-blocking visual deviations in uncommon terminal/font combinations.
 - Low-priority copy polish that does not affect workflow decisions.
 
-## 0.1.x Final Exit Criteria
+## Historical 0.1.x Final Exit Criteria
 
 Before the final 0.1.x release is declared complete:
 
@@ -113,6 +148,14 @@ Before the final 0.1.x release is declared complete:
   approval, scrolling, or status understanding; they are P0/P1.
 
 ## Active Regression Notes
+
+- 2026-07-20: TUI 0.3.1 certification moves generated evidence to `target/`,
+  requires every named smoke filter to match a passing test, and records the
+  Core/schema/capability/fixture and presentation matrices in one JSON report.
+  The source scan rejects authoritative effects, private persistence, and
+  runtime-internal dependencies. Mouse capture remains off by default; the
+  optional `mouse_capture=true` path is a documented gap rather than inferred
+  frontend state.
 
 - 2026-06-08: Long-running coding sessions can expose terminal repaint drift
   after sleep/focus/idle: the dirty-row cache may believe the full screen is

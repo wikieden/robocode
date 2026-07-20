@@ -82,8 +82,8 @@ Common flags:
 - `--tui`: start the main cockpit. This is the default.
 - `--no-tui`: start the legacy line REPL.
 - `--tui-screen <main|side-1|side-2>`: start a specific screen.
-- `--tui-theme <aurora-cyan|ember-gold|plasma-violet|monochrome-ice>`: select
-  a built-in theme.
+- `--tui-theme <aurora|aurora-light|ice|ice-light|mono|mono-light|amber|phosphor>`:
+  select one of the eight registered palette profiles.
 
 Preview flags for visual review:
 
@@ -96,12 +96,16 @@ Preview flags for visual review:
 - `--tui-preview-lane`
 - `--tui-preview-setup-wizard`
 - `--tui-preview-provider-selector`
+- `--tui-preview-provider-detail`
 - `--tui-preview-model-selector`
 - `--tui-preview-lane-selector`
 - `--tui-preview-side`
 - `--tui-preview-side-2`
 
 Each preview also has an ANSI variant ending in `-ansi`.
+`scripts/tui-previews.sh` writes to `target/tui-previews/0.3.1` by default;
+`scripts/tui-regression.sh target/tui-regression/0.3.1` adds the structured
+TUI 0.3.1 certification report without modifying accepted design references.
 
 ## Configuration
 
@@ -310,46 +314,34 @@ setting `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
 
 ## TUI Controls
 
-The controls below describe the current `0.1.x` implementation, not the next
-TUI visual/interaction target. The accepted target is the T4 contract linked
-from [Viden Design Adoption](viden-design-adoption.md); the `v3-tui-client`
-branch must update this section when that behavior ships.
+TUI 0.3.1 uses explicit Normal, Insert, and Overlay ownership. The status bar
+always shows the active mode.
 
-- `Enter`: submit composer.
-- `Ctrl-J`: explicit send action.
-- `Ctrl-K`: clear composer.
-- `Ctrl-R`: reload the latest user prompt into the composer for regeneration.
-- `Ctrl-N`: start a new `/task add ...` command.
-- `?`: open help when the composer is empty.
-- `Esc` or `Ctrl-C`: exit.
-- `/quit` or `/exit`: exit from command input.
-- `/`: open command suggestions. Use `Up` / `Down`, `Tab`, or `Enter`. Mouse
-  capture is disabled by default, so click selection is not active in the
-  current CoreClient TUI.
-- Transcript history: use `PageUp` / `PageDown` to browse older transcript
-  rows. Mouse-wheel navigation is disabled by default; any future mouse mode
-  must be an explicit opt-in with complete approval and selector hit-testing.
-  `Ctrl-Home` jumps to the oldest visible history and
-  `Ctrl-End` returns to the live tail. When history mode is active, the
-  transcript panel badge changes from `live session` to `history N`.
-- Approval modal: `y` approve, `n` deny, `d` focus diff, `Tab` / arrows move
-  focus. Diff focus now shows the prompt's actual evidence/preview lines when
-  they are available instead of a decorative placeholder.
-- Active provider turns keep the TUI event loop alive. The transcript live tail
-  shows a prominent `LIVE WORK` strip directly below the latest conversation
-  content, with phase, signal, and next-action guidance while Viden works.
-  Provider thinking does not show fake progress percentages. The status bar,
-  elapsed time, lane snapshots, and pending approval bridge can repaint while
-  the provider worker runs. `Ctrl-C` requests cancellation; an already in-flight
-  HTTP request may still complete before the provider returns.
-- Streaming-capable HTTP providers request server-sent streaming during TUI
-  turns. Text deltas are appended to a temporary assistant transcript row while
-  the provider is still responding, then replaced by the canonical transcript
-  event when the turn completes.
-- During an active provider turn, the composer stays editable. Press `Enter` to
-  queue the draft as the next prompt; Viden clears the composer immediately
-  and runs queued prompts after the current turn finishes. If the active turn
-  fails, the first queued prompt is restored to the composer.
+- Normal: press `i` to enter Insert. Context keys act on the selected runtime
+  fact instead of inserting text.
+- Insert: printable keys edit the grapheme-safe multiline composer. `Enter`
+  submits when idle and queues a follow-up during active work. `Shift-Enter` or
+  `Alt-Enter` inserts a newline; `Enter` inside an open triple-backtick fence
+  also inserts a newline. Bracketed paste preserves newlines and never sends.
+- Overlay: arrows or `j`/`k` move focus, typing filters, and `Enter` applies the
+  focused action. `Esc` unwinds overlay, then selection, then Insert while
+  preserving the draft.
+- Global chords work in every mode: `Ctrl-L` lane, `Ctrl-S` session, `Ctrl-T`
+  new session, `Ctrl-K` command palette, `Ctrl-B` board, `Ctrl-G` decisions,
+  and `?` context help.
+- `Ctrl-C` requests cancellation only for the exact active Core owner. It does
+  not deny an approval or exit directly. Two idle presses open exit
+  confirmation only when Core reports no current work.
+- Streaming, tool execution, and pinned approvals never lock the composer.
+  Approval shortcuts belong to an explicitly focused approval: arrows or
+  `Tab` reach Deny, Diff, and Approve; typed scopes are sent with the stable
+  Core request id and owner.
+- `PageUp` / `PageDown` browse transcript history; `Ctrl-Home` jumps to the
+  oldest visible history and `Ctrl-End` returns to the live tail. CJK and
+  grapheme cursor placement use terminal cell width.
+- Mouse capture is off by default so native text selection keeps working. TUI
+  0.3.1 has complete keyboard paths but does not yet expose the optional
+  `mouse_capture=true` opt-in described by the design.
 
 ## Slash Commands
 
