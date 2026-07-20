@@ -273,4 +273,48 @@ mod tests {
         }
         assert_ne!(ansi256.accent, ansi16.accent);
     }
+
+    #[test]
+    fn all_eight_palettes_map_across_truecolor_ansi256_and_ansi16() {
+        for palette in Palette::all() {
+            for depth in [
+                ColorDepth::Truecolor,
+                ColorDepth::Ansi256,
+                ColorDepth::Ansi16,
+            ] {
+                let mapped = palette.for_depth(depth);
+                let colors = [
+                    mapped.background,
+                    mapped.surface,
+                    mapped.overlay,
+                    mapped.chip,
+                    mapped.text,
+                    mapped.secondary,
+                    mapped.muted,
+                    mapped.faint,
+                    mapped.frame,
+                    mapped.title,
+                    mapped.accent,
+                    mapped.accent_dim,
+                    mapped.on_accent,
+                    mapped.gold,
+                    mapped.success,
+                    mapped.warning,
+                    mapped.error,
+                    mapped.progress,
+                    mapped.builtin,
+                ];
+
+                assert_eq!(
+                    colors
+                        .iter()
+                        .filter(|color| matches!(color, Color::Rgb { .. }))
+                        .count(),
+                    usize::from(depth == ColorDepth::Truecolor) * colors.len(),
+                    "palette {:?} at {depth:?}",
+                    palette.key()
+                );
+            }
+        }
+    }
 }

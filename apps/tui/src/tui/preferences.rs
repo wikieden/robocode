@@ -852,6 +852,75 @@ mod tests {
     }
 
     #[test]
+    fn apply_and_reset_wait_for_matching_core_receipts() {
+        let resolved = ResolvedUiPreferences {
+            locale: LocaleId::ZhCn,
+            ..ResolvedUiPreferences::default()
+        };
+        let persisted = UiPreferences {
+            locale: LocaleId::ZhCn,
+            ..UiPreferences::default()
+        };
+
+        let mut apply = SettingsPanel::new(&ResolvedUiPreferences::default(), ColorDepth::Auto);
+        assert!(apply.select(PreferenceValue::Locale(LocaleId::ZhCn)));
+        let apply_command = apply.apply_command().expect("typed Apply patch");
+        apply.begin_pending("apply-1".to_string(), apply_command.clone());
+        apply.observe_event(&RuntimeEvent {
+            sequence: 1,
+            timestamp: Some(1),
+            kind: RuntimeEventKind::CommandAccepted {
+                command_id: "apply-1".to_string(),
+                command: apply_command,
+            },
+        });
+        assert!(apply.is_pending());
+        apply.observe_event(&RuntimeEvent {
+            sequence: 2,
+            timestamp: Some(2),
+            kind: RuntimeEventKind::UiPreferencesUpdated {
+                resolved: resolved.clone(),
+                persisted: Some(persisted),
+                diagnostics: Vec::new(),
+            },
+        });
+        assert!(apply.has_succeeded());
+
+        let mut reset = SettingsPanel::new(&resolved, ColorDepth::Auto);
+        let reset_command = reset.reset_command();
+        reset.begin_pending("reset-1".to_string(), reset_command.clone());
+        reset.observe_event(&RuntimeEvent {
+            sequence: 3,
+            timestamp: Some(3),
+            kind: RuntimeEventKind::CommandAccepted {
+                command_id: "reset-1".to_string(),
+                command: reset_command,
+            },
+        });
+        reset.observe_event(&RuntimeEvent {
+            sequence: 4,
+            timestamp: Some(4),
+            kind: RuntimeEventKind::UiPreferencesUpdated {
+                resolved: ResolvedUiPreferences::default(),
+                persisted: Some(persisted),
+                diagnostics: Vec::new(),
+            },
+        });
+        assert!(reset.is_pending(), "Reset ignores a non-default receipt");
+        reset.observe_event(&RuntimeEvent {
+            sequence: 5,
+            timestamp: Some(5),
+            kind: RuntimeEventKind::UiPreferencesUpdated {
+                resolved: ResolvedUiPreferences::default(),
+                persisted: None,
+                diagnostics: Vec::new(),
+            },
+        });
+        assert!(reset.has_succeeded());
+        assert!(!reset.is_pending());
+    }
+
+    #[test]
     fn rejection_keeps_the_draft_and_surfaces_the_core_reason() {
         let mut panel = SettingsPanel::new(&ResolvedUiPreferences::default(), ColorDepth::Auto);
         panel.select(PreferenceValue::Skin(Skin::Ice));

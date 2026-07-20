@@ -107,6 +107,8 @@ run_cargo_test "gap-replay" sequence_gap_requests_replay_before_success_is_visib
 run_cargo_test "atomic-replay-rollback" failed_replay_does_not_publish_partial_view_or_cursor
 run_cargo_test "core-preference-skin-mode" core_color_mode_changes_the_effective_palette
 run_cargo_test "core-preference-color-depth" core_color_depth_selects_a_non_rgb_terminal_palette
+run_cargo_test "all-palettes-all-depths" all_eight_palettes_map_across_truecolor_ansi256_and_ansi16
+run_cargo_test "settings-apply-reset-receipts" apply_and_reset_wait_for_matching_core_receipts
 run_cargo_test "synthetic-planning-clears-after-result" agent_tasks_do_not_keep_failed_provider_turn_active
 run_step "tui-regression-preview" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
 

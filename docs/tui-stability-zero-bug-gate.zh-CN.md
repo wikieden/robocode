@@ -2,7 +2,7 @@
 
 英文版： [tui-stability-zero-bug-gate.md](tui-stability-zero-bug-gate.md)
 
-最后更新：2026-06-09
+最后更新：2026-07-20
 
 ## 目的
 
@@ -15,6 +15,40 @@
 - 所有用户可见 TUI 功能都有截图或 deterministic preview 证据；
 - 所有 release-blocking TUI regression 都有可复跑测试；
 - P2 视觉瑕疵必须记录、降级说明清楚，且不影响日常开发闭环。
+
+## TUI 0.3.1 Thin-Client 认证
+
+当前 gate 在保留历史 0.1.30 zero-bug baseline 的同时，认证 TUI 0.3.1
+CoreClient-only 边界。运行：
+
+```bash
+cargo test -p viden-tui
+scripts/tui-turn-controller-smoke.sh
+scripts/rc-tui-stability-smoke.sh target/tui-stability/0.3.1
+scripts/tui-regression.sh target/tui-regression/0.3.1
+```
+
+Regression 输出必须包含 `tui-0.3.1-certification.json`、shared fixture digest
+列表、static boundary report、deterministic preview 和带版本的 SVG export。证据只放
+`target/` 或 `/tmp`；`docs/viden-design/reference-shots/` 下已接受的 reference shot
+保持只读。
+
+结构化认证必须同时证明：
+
+- Core checkpoint `a927e2f31d2cb9bb6015c30bc0ed0976e958c77e`、schema `1`、
+  冻结的 15 capability base、10 capability feature extension 与已记录的 extension
+  fixture digest；
+- shared fixture replay parity、streaming/tool/approval 期间 composer 可输入、
+  Normal/Insert/Overlay ownership、paste 不发送、CJK cursor、approval action 与 exact
+  lane-owner cancel；
+- 80/112/160 deterministic render model、`en`/`zh-CN`、八个已登记 palette ×
+  truecolor/256/16、三种 density、reduced motion、Settings Apply/Reset receipt 与
+  invalid appearance atomic fallback；
+- TUI 不拥有 authoritative effect、runtime-internal dependency 或 private preference
+  persistence。
+
+这是 component certification，不是 distribution release。真实 macOS Terminal 与 iTerm2
+证据仍需人工完成；自动 gate 不等于 tag、push、GitHub Release 或 Homebrew 发布。
 
 ## Bug 分级
 
@@ -43,7 +77,7 @@
 - 少数不常见 terminal/font 下的非阻断视觉偏差。
 - 不影响工作流判断的低优先级文案 polish。
 
-## 0.1.x Final 退出标准
+## 历史 0.1.x Final 退出标准
 
 在宣布 0.1.x 最后一版完成前，必须满足：
 
@@ -92,6 +126,12 @@
 - 不能把“已知显示错误”标成 polish；只要影响用户判断、输入、审批、滚动或状态理解，就是 P0/P1。
 
 ## 当前回归记录
+
+- 2026-07-20：TUI 0.3.1 certification 把生成证据迁到 `target/`，要求每个 smoke
+  名称都匹配一个真实通过的测试，并在单个 JSON 中记录 Core/schema/capability/fixture 与
+  presentation matrix。source scan 拒绝 authoritative effect、private persistence 和
+  runtime-internal dependency。mouse capture 保持默认关闭；可选 `mouse_capture=true`
+  路径作为已记录 gap，不由 frontend 猜测实现。
 
 - 2026-06-08：长时间 coding session 在 sleep/focus/idle 后可能暴露 terminal repaint
   drift：dirty-row cache 仍以为全屏内容存在，但终端已经丢了部分行；同时类似

@@ -3937,6 +3937,16 @@ mod tests {
         assert!(manifest.contains(
             "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
         ));
+        assert!(manifest.contains(
+            "base_corpus_sha256 = \"e272d7bee25af5d4a0e719aa7226f1b5bf22086e90f0d02224196c41ce67fcab\""
+        ));
+        assert_eq!(
+            parsed["fixture_revisions"]["base_fixture_sha256"]
+                .as_array()
+                .expect("base fixture digests")
+                .len(),
+            9
+        );
         for capability in viden_core::CORE_CLIENT_CAPABILITIES {
             assert!(manifest.contains(&format!("\"{capability}\"")));
         }
