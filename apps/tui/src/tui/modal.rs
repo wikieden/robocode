@@ -203,7 +203,8 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
 }
 
 fn decision_center_rows(state: &TuiState) -> Vec<String> {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     let mut rows = projection
         .approval_actions
         .iter()
@@ -313,6 +314,9 @@ fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
 fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
         Some(InteractionPanel::Setup { selected, draft }) => {
+            if !state.has_capability("runtime.project_onboarding") {
+                return vec![super::i18n::text(state, "interaction.setup.unavailable")];
+            }
             let mut rows = vec![
                 setup_action_row(*selected, 0, "Probe project through Core"),
                 setup_action_row(*selected, 1, "Preview exact draft through Core"),
@@ -506,6 +510,9 @@ pub(super) fn interaction_panel_index_at(
 pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
     match state.ui.interaction_panel.as_ref() {
         Some(InteractionPanel::Setup { .. }) => {
+            if !state.has_capability("runtime.project_onboarding") {
+                return 0;
+            }
             let draft = match state.ui.interaction_panel.as_ref() {
                 Some(InteractionPanel::Setup { draft, .. }) => draft,
                 _ => unreachable!("setup panel matched"),

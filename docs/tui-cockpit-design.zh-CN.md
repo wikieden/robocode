@@ -102,8 +102,10 @@ Workspace -> Project -> Lane / Session -> Subagent
 - 主 cockpit 与右栏的每项事实都通过 `CoreClient` 来自 `RuntimeViewState`。
   TUI 不自行扫描 workspace 文件、不读取 lane artifacts、不修改配置，也不独立持久化 runtime facts。
 - Setup 消费 `ProjectProbe`、`ProjectConfigPreview`、`confirmed_project_config`、
-  active provider health 和安全 credential handle。Core 0.3.1 client 尚未提供 raw secret ingress，
+  active provider health 和安全 credential handle。Core 0.3.2 client 尚未提供 raw secret ingress，
   TUI 不能把它重新包装成 slash command。
+- 启动只要求冻结的 Core 基础契约。Core 0.3.2 的每项 extension 都独立 gate 对应 feature，
+  且必须由 handshake 与 confirmed snapshot 共同确认；缺少 extension 不得阻塞无关 cockpit 功能。
 - 新增 cockpit 指标必须在代码或文档里标明运行时数据来源。
 
 ## 命令提示列表
@@ -131,7 +133,9 @@ Workspace -> Project -> Lane / Session -> Subagent
   lane/agent 操作和多选项工作流也要沿用同一模式。除非是 `/config`、`/status`
   或 `/provider doctor` 这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
-- `/setup` 打开 Core-backed Setup lens 并发送 `ProbeProject`。selector 持有符合 Core D11
+- `/setup` 打开 Core-backed Setup lens；只有 `runtime.project_onboarding` 可用时才发送
+  `ProbeProject`。否则该入口保持可见且只读，显示明确 unavailable 原因，并且不发送 Setup
+  command。selector 持有符合 Core D11
   `[project]` 结构、包含必填 `name`/`pack` 且不含 secret 的 presentation draft。
   Preview action 用 `PreviewProjectConfig` 发送 exact contents；只有 Core 返回的合法 preview
   仍与当前 draft 完全一致时，才可使用 immutable preview id/hash 发送 `ConfirmProjectConfig`。在
@@ -139,7 +143,7 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 - `/lanes` 从 `RuntimeViewState.lanes` 打开 Board lens。选择 lane 时只使用其 Core-owned
   `active_session_ids`；存在多个 id 时先打开第二级 selector，再进入 Session/Cockpit lens。
-  Core 0.3.1 没有全局 session list，因此 TUI 不得自行构造。
+  Core 0.3.2 没有全局 session list，因此 TUI 不得自行构造。
 
 - `/lane` 是编排动作 selector。它会列出 lane 启动命令；已有 lane 时，还会列出带
   lane id 的 inspect、timeline、diff 和 artifacts 动作，避免用户记 lane id。
@@ -184,8 +188,11 @@ Workspace -> Project -> Lane / Session -> Subagent
   `3` 添加 Core 提供的精确 repository allowlist、`4` 拒绝。缺失 scope 必须显示为
   unavailable。`y`/`n` 保留 allow-once/deny 兼容语义，`d` 打开 request diff/evidence，
   方向键移动当前 action，`Enter` 执行选中 action。
-- `Esc` 只关闭显式 approval focus，绝不拒绝或以其他方式处理 request。`Ctrl-C` 不是审批
-  答案，且只有拿到 Core 提供的精确 owner 时才发送 active-work interrupt。
+- `Esc` 只关闭显式 approval focus，绝不拒绝或以其他方式处理 request。overlay 与本地
+  selection unwind 完成后，只有 `runtime.lane_owner_projection` 为所选 active lane 提供唯一
+  owner 时，Normal-mode `Esc`、`Ctrl-C` 与 ExitConfirm 才发送 active-work interrupt。
+  owner 缺失、歧义、lane 不匹配、inactive 或 stale 时必须显示 unavailable，并产生零条
+  transport command。
 - 只有 request 的 typed `allowed_scopes` 带有精确 Core payload 时，才显示 session 级允许
   和 repository allowlist。TUI 原样转发该 scope 与原 request owner。
 - 鼠标为可选输入；启用后也只选择当前可用 action。

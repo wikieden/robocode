@@ -164,7 +164,8 @@ fn board_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn decision_rows(state: &TuiState) -> Vec<String> {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     let mut rows = projection
         .approvals
         .iter()
@@ -214,7 +215,8 @@ fn decision_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn gallery_rows(state: &TuiState) -> Vec<String> {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     if projection.evidence.is_empty() && projection.evidence_decisions.is_empty() {
         return vec![super::i18n::text(state, "gallery.empty")];
     }
@@ -360,7 +362,8 @@ fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
 }
 
 fn supervision_rows(state: &TuiState, width: usize) -> Vec<String> {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     if projection.approval_actions.is_empty()
         && projection.merge_gates.is_empty()
         && projection.recovery_actions.is_empty()

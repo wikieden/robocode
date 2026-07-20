@@ -41,16 +41,35 @@ runtime cannot explain.
   marks the badge; it does not yank the user back to the bottom.
 - Input has three explicit modes: Normal for cockpit navigation, Insert for
   composer editing, and Overlay for selectors, panels, and approvals. `Esc`
-  unwinds one layer at a time. `Ctrl-C` sends owner-scoped cancellation only
-  when the exact Core owner is available; lanes that expose only an ID render
-  cancellation as unavailable and request the missing Core contract.
+  unwinds one layer at a time. `Ctrl-C`, Normal-mode `Esc` after local selection
+  unwind, and ExitConfirm send owner-scoped cancellation only when Core exposes
+  exactly one owner binding for the selected active lane. Missing capability,
+  zero or multiple bindings, lane mismatch, inactive/stale lanes, and a fresh
+  Core event stream before its owner binding arrives all render cancellation as
+  unavailable and send no transport command. Repeated `Ctrl-C` in those active
+  ownerless states must not open exit confirmation.
 - `Ctrl-P` opens selector-first Global Jump. It projects only typed Core lanes,
   their active session IDs, merge gates, pending approvals, and a controlled
   navigation/completion command registry. `:`, `@`, `#`, `>`, and `~` scope
   lane, session, gate/ask, command, and file results; arrows or `j`/`k` move,
   Enter selects, and Esc restores the prior overlay owner and composer context.
-  Core does not yet expose a typed file inventory, so File remains visible but
-  disabled with that concrete reason; the TUI never scans the filesystem or Git.
+Core does not yet expose a typed file inventory, so File remains visible but
+disabled with that concrete reason; the TUI never scans the filesystem or Git.
+
+## Core 0.3.2 Compatibility
+
+TUI 0.3.0 requires only the frozen 15-capability base contract at startup. The
+10 Core 0.3.2 extension capabilities are negotiated individually and gate only
+their owning feature; one absent extension must not block connection. Both the
+handshake and the confirmed snapshot must advertise an extension before the TUI
+uses it. In particular, cancellation requires
+`runtime.lane_owner_projection`, while setup transport requires
+`runtime.project_onboarding`.
+
+The TUI release manifest pins Core checkpoint
+`a927e2f31d2cb9bb6015c30bc0ed0976e958c77e`, preserves the frozen payload SHA,
+and records the Core-owned extension fixture SHA-256. The fixture is replayed as
+typed state; display text is never parsed to recover an owner.
 
 ## Top-Level State Model
 
@@ -155,14 +174,16 @@ flowchart TD
 
 ## Welcome And Configuration Flow
 
-Welcome is not a session. TUI 0.3.0 negotiates the Core 0.3.1 onboarding
-capabilities and requests `ProbeProject`, but remains on Welcome until the
-operator opens Setup/Lanes or starts real work. The event cursor is not a
-session id.
+Welcome is not a session. TUI 0.3.0 negotiates the Core 0.3.2 base contract and
+then requests `ProbeProject` only when `runtime.project_onboarding` is confirmed
+by both handshake and snapshot. Without that extension, Welcome and `/setup`
+remain usable, the setup panel explains the unavailable Core service, and the
+TUI sends no onboarding transport command. The event cursor is not a session
+id.
 
 ```mermaid
 flowchart TD
-    A["Launch Viden"] --> B["Negotiate Core capabilities<br/>ProbeProject"]
+    A["Launch Viden"] --> B["Negotiate Core base + extensions<br/>ProbeProject only when available"]
     B --> C{"Selected Core lane/session<br/>or real prompt?"}
     C -->|no| D["Welcome surface<br/>logo + composer + context row"]
     C -->|yes| E["Unified cockpit"]

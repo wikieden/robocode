@@ -51,7 +51,8 @@ pub(super) fn render_bottom_bar(frame: &mut Frame, state: &TuiState) {
         state.runtime.merge_gates.len(),
         state.runtime.errors.len()
     );
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     let context = match projection.context_pressure {
         ContextPressure::Unavailable => "unavailable",
         ContextPressure::Nominal => "nominal",

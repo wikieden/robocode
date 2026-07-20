@@ -6,7 +6,8 @@ use super::{
 };
 
 pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<String> {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     let mut rows = vec!["CHANGES · EVIDENCE · CONTEXT".to_string()];
     if projection.provider.is_some()
         || projection.context.is_some()

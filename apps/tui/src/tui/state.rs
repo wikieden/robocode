@@ -1,10 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use viden_core::{
     AgentTaskRecord, CostLedgerTotals, PermissionLevel, ProviderHealthView, RuntimeSnapshot,
     RuntimeViewState, WorkMode,
 };
-use viden_types::AgentNextAction;
+use viden_types::{AgentNextAction, CapabilityId};
 
 pub(super) use super::ui_state::{
     InteractionPanel, Lens, OverlayState, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
@@ -14,6 +17,9 @@ pub(super) use super::ui_state::{
 pub(super) struct TuiState {
     pub(super) runtime: RuntimeViewState,
     pub(super) ui: TuiUiState,
+    /// Read-only compatibility facts negotiated by the Core client. They gate
+    /// presentation actions but never reduce business state locally.
+    pub(super) capabilities: BTreeSet<CapabilityId>,
 }
 
 impl TuiState {
@@ -21,7 +27,13 @@ impl TuiState {
         Self {
             runtime,
             ui: TuiUiState::default(),
+            capabilities: BTreeSet::new(),
         }
+    }
+
+    pub(super) fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities
+            .contains(&CapabilityId(capability.to_string()))
     }
 }
 

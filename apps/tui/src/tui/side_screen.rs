@@ -1,7 +1,7 @@
 use super::{
     canvas::Frame,
     panel::panel,
-    projection::CockpitProjection,
+    projection::{CancelOwnerProjection, CancelUnavailableReason, CockpitProjection},
     state::{TuiState, agent_lanes, provider_status},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::truncate,
@@ -36,7 +36,8 @@ pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
 }
 
 fn lane_rows(state: &TuiState) -> Vec<String> {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     let mut rows = agent_lanes(state)
         .into_iter()
         .flat_map(|lane| {
@@ -52,17 +53,27 @@ fn lane_rows(state: &TuiState) -> Vec<String> {
                     ("summary", summary.as_str()),
                 ],
             )];
-            if projection
-                .owner_actions
-                .iter()
-                .any(|action| action.target_lane_id == lane.id)
-            {
-                lane_rows.push(super::i18n::translate(
-                    state,
-                    "side.lane.cancel_unavailable",
-                    &[("lane_id", lane.id.as_str())],
-                ));
-            }
+            let cancel_key = match projection.cancel_owner_for_lane(&lane.id) {
+                CancelOwnerProjection::Available(_) => "side.lane.cancel_available",
+                CancelOwnerProjection::Unavailable(CancelUnavailableReason::MissingCapability) => {
+                    "side.lane.cancel_unavailable_capability"
+                }
+                CancelOwnerProjection::Unavailable(CancelUnavailableReason::AmbiguousOwner) => {
+                    "side.lane.cancel_unavailable_ambiguous"
+                }
+                CancelOwnerProjection::Unavailable(CancelUnavailableReason::OwnerLaneMismatch) => {
+                    "side.lane.cancel_unavailable_mismatch"
+                }
+                CancelOwnerProjection::Unavailable(
+                    CancelUnavailableReason::CoreOwnerRequired
+                    | CancelUnavailableReason::LaneNotActive,
+                ) => "side.lane.cancel_unavailable",
+            };
+            lane_rows.push(super::i18n::translate(
+                state,
+                cancel_key,
+                &[("lane_id", lane.id.as_str())],
+            ));
             lane_rows
         })
         .collect::<Vec<_>>();
@@ -134,7 +145,7 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viden_types::LaneRecoveryView;
+    use viden_types::{CapabilityId, LaneRecoveryView, LaneRuntimeOwnerBinding, RuntimeOwner};
 
     #[test]
     fn side_rows_use_runtime_snapshot() {
@@ -164,6 +175,9 @@ mod tests {
     #[test]
     fn side_screen_exposes_lane_switch_owner_cancel_and_recovery_without_inference() {
         let mut state = TuiState::default();
+        state
+            .capabilities
+            .insert(CapabilityId("runtime.lane_owner_projection".to_string()));
         state.runtime.lanes = serde_json::from_str(include_str!(
             "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
         ))
@@ -189,6 +203,34 @@ mod tests {
         ] {
             assert!(rows.contains(expected), "missing {expected}:\n{rows}");
         }
+    }
+
+    #[test]
+    fn lane_runtime_owner_copy_is_bilingual_and_preserves_ids_and_shortcuts() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lane fixture");
+        state
+            .capabilities
+            .insert(CapabilityId("runtime.lane_owner_projection".to_string()));
+        state.runtime.lane_runtime_owners = vec![LaneRuntimeOwnerBinding {
+            lane_id: "L-start".to_string(),
+            owner: RuntimeOwner {
+                lane_id: Some("L-start".to_string()),
+                ..RuntimeOwner::default()
+            },
+        }];
+
+        let english = lane_rows(&state).join("\n");
+        assert!(english.contains("CANCEL L-start · Ctrl-C"));
+        assert!(english.contains("CANCEL UNAVAILABLE L-conflict · Core owner required"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese = lane_rows(&state).join("\n");
+        assert!(chinese.contains("取消 L-start · Ctrl-C"));
+        assert!(chinese.contains("无法取消 L-conflict · 需要 Core owner"));
     }
 
     #[test]
