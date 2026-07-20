@@ -18,6 +18,7 @@ use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_in
 use super::modal::{
     DEFAULT_APPROVAL_FOCUS, interaction_panel_choice_count, selected_interaction_command,
 };
+use super::preferences::{ColorDepth, TerminalCapabilities};
 use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{InteractionPanel, Lens, OverlayState, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
@@ -83,9 +84,12 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
         let _state = state_from_driver(&driver, &options);
         return Ok(());
     }
+    let terminal_capabilities = TerminalCapabilities::detect();
+    let color_depth = ColorDepth::from(options.color_depth);
     let mut terminal = TerminalGuard::enter_with_preferences(
         &driver.view().snapshot.ui_preferences,
-        options.color_depth,
+        color_depth,
+        terminal_capabilities,
     )
     .map_err(TuiError::Terminal)?;
     let mut state = state_from_driver(&driver, &options);
@@ -94,6 +98,11 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
     loop {
         apply_pump_outcome(&mut state, driver.pump()?);
         project_driver_view(&mut state, &driver);
+        terminal.refresh_appearance(
+            &driver.view().snapshot.ui_preferences,
+            color_depth,
+            terminal_capabilities,
+        );
         terminal.draw(&state).map_err(TuiError::Terminal)?;
 
         if !event::poll(std::time::Duration::from_millis(100))
@@ -112,15 +121,10 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
 }
 
 fn detect_color_depth() -> TuiColorDepth {
-    if std::env::var("COLORTERM")
-        .ok()
-        .is_some_and(|value| value.contains("truecolor") || value.contains("24bit"))
-    {
+    let capabilities = TerminalCapabilities::detect();
+    if capabilities.truecolor {
         TuiColorDepth::Truecolor
-    } else if std::env::var("TERM")
-        .ok()
-        .is_some_and(|value| value.contains("256color"))
-    {
+    } else if capabilities.ansi256 {
         TuiColorDepth::Ansi256
     } else {
         TuiColorDepth::Ansi16

@@ -75,6 +75,15 @@ TUI 决策。
 - skin/mode 继续使用 Core 校验后的组合与终端色深降级。后续 Settings 界面可以把它们开放为
   配置选项，但必须发送 typed Core preference command，并渲染 Core 返回的 effective value
   与 diagnostics。
+- 生产 TUI 在构建时从 `docs/viden-design/Viden/tokens.css` 生成恰好八套完整语义 palette：
+  Aurora、Ice、Mono 各有 dark/light，Amber、Phosphor 仅 dark。登记 token 缺失会让构建失败；
+  无效或不完整外观会原子回退到 Aurora dark/regular，不得拼接不同 profile 的轴。
+- 终端展示会按检测到的能力解析 `auto | truecolor | ansi256 | ansi16`，应用
+  compact/regular/comfy 几何，reduced motion 使用静态 indicator；Unicode 不可用时把登记字形
+  替换为单格 ASCII fallback。`UiPreferencesUpdated` projection 会在内存中刷新 theme、density、
+  motion，不建立 TUI preference store。
+- Mouse capture 保持禁用。只有 Core resolved preference 合同新增并返回显式 true 后才可启用；
+  环境猜测或 TUI 私有持久化都不能替代该合同。
 - 新增 locale 或 skin 必须同时补齐双语 copy/token coverage 与确定性 preview evidence；
   frontend-only 的 skin fork 不是可接受扩展方式。
 

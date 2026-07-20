@@ -8,6 +8,7 @@ mod command_palette;
 mod composer;
 mod composer_buffer;
 mod geometry;
+mod glyphs;
 mod i18n;
 mod indicators;
 #[allow(dead_code)]
@@ -20,6 +21,7 @@ mod lane_presenter;
 #[allow(dead_code)]
 mod modal;
 mod ops_screen;
+mod palette;
 mod panel;
 mod preferences;
 mod preview;

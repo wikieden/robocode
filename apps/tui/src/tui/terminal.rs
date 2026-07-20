@@ -10,13 +10,15 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use viden_core::{ResolvedUiPreferences, TuiColorDepth, UiMotion};
+use viden_core::{ResolvedUiPreferences, UiMotion};
 
 use super::{
     command_palette::is_command_palette_visible,
     composer::{composer_cursor_position, should_render_welcome},
+    glyphs::ascii_fallback,
     modal::{approval_focus_cursor, has_pending_approval},
-    render::{render_frame, render_ops_frame, render_side_frame},
+    preferences::{ColorDepth, TerminalCapabilities, resolve_appearance},
+    render::{render_frame, render_ops_frame, render_side_frame, right_rail_width},
     state::TuiState,
     statusbar::BOTTOM_BAR_HEIGHT,
     text::char_width,
@@ -27,33 +29,49 @@ pub(super) struct TerminalGuard {
     active: bool,
     theme: TuiTheme,
     motion: UiMotion,
+    color_depth: ColorDepth,
+    capabilities: TerminalCapabilities,
     last_lines: Vec<String>,
     last_size: Option<(u16, u16)>,
     last_style_signature: Option<String>,
     last_full_redraw: Instant,
 }
 
-const MAIN_RIGHT_RAIL_WIDTH: usize = 38;
 // Terminal emulators can lose alternate-screen contents after sleep, focus, or
 // long idle periods; periodic full redraw keeps the dirty-row cache honest.
 const FULL_REDRAW_INTERVAL: Duration = Duration::from_secs(5);
 
 impl TerminalGuard {
     pub(super) fn enter_with_theme(theme_name: Option<&str>) -> Result<Self, String> {
-        Self::enter(TuiTheme::from_name_or_env(theme_name), UiMotion::System)
+        let capabilities = TerminalCapabilities::detect();
+        Self::enter(
+            TuiTheme::from_name_or_env(theme_name),
+            UiMotion::System,
+            ColorDepth::Auto,
+            capabilities,
+        )
     }
 
     pub(super) fn enter_with_preferences(
         preferences: &ResolvedUiPreferences,
-        color_depth: TuiColorDepth,
+        color_depth: ColorDepth,
+        capabilities: TerminalCapabilities,
     ) -> Result<Self, String> {
+        let appearance = resolve_appearance(preferences, color_depth, capabilities);
         Self::enter(
-            TuiTheme::from_preferences(preferences).with_color_depth(color_depth),
+            TuiTheme::from_palette(appearance.palette, appearance.color_depth),
             preferences.motion,
+            color_depth,
+            capabilities,
         )
     }
 
-    fn enter(theme: TuiTheme, motion: UiMotion) -> Result<Self, String> {
+    fn enter(
+        theme: TuiTheme,
+        motion: UiMotion,
+        color_depth: ColorDepth,
+        capabilities: TerminalCapabilities,
+    ) -> Result<Self, String> {
         let mut stdout = io::stdout();
         terminal::enable_raw_mode().map_err(|err| err.to_string())?;
         if let Err(err) = execute!(
@@ -71,6 +89,8 @@ impl TerminalGuard {
             active: true,
             theme,
             motion,
+            color_depth,
+            capabilities,
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
@@ -84,6 +104,8 @@ impl TerminalGuard {
             active: false,
             theme: TuiTheme::named("aurora"),
             motion: UiMotion::System,
+            color_depth: ColorDepth::Auto,
+            capabilities: TerminalCapabilities::default(),
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
@@ -94,7 +116,7 @@ impl TerminalGuard {
     pub(super) fn draw(&mut self, state: &TuiState) -> Result<(), String> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
         let frame = render_frame(state, width, height);
-        let cursor = approval_focus_cursor(state, width, height, MAIN_RIGHT_RAIL_WIDTH)
+        let cursor = approval_focus_cursor(state, width, height, right_rail_width(state))
             .unwrap_or_else(|| composer_cursor_position(state, width, height, BOTTOM_BAR_HEIGHT));
         self.draw_frame(&frame, Some(cursor), style_signature(state, &self.theme))
     }
@@ -145,7 +167,10 @@ impl TerminalGuard {
                         Clear(ClearType::CurrentLine)
                     )?;
                     let mut drawn_width = 0usize;
-                    for segment in line_segments(line, &self.theme) {
+                    for mut segment in line_segments(line, &self.theme) {
+                        if !self.capabilities.unicode {
+                            segment.text = ascii_fallback(&segment.text);
+                        }
                         drawn_width += char_width(&segment.text);
                         queue!(
                             stdout,
@@ -194,6 +219,27 @@ impl TerminalGuard {
     pub(super) fn cycle_theme(&mut self) -> &'static str {
         self.theme = self.theme.next();
         self.theme.name
+    }
+
+    pub(super) fn refresh_appearance(
+        &mut self,
+        preferences: &ResolvedUiPreferences,
+        color_depth: ColorDepth,
+        capabilities: TerminalCapabilities,
+    ) {
+        let appearance = resolve_appearance(preferences, color_depth, capabilities);
+        let next_theme = TuiTheme::from_palette(appearance.palette, appearance.color_depth);
+        if self.theme != next_theme
+            || self.motion != appearance.motion
+            || self.capabilities != capabilities
+        {
+            self.theme = next_theme;
+            self.motion = appearance.motion;
+            self.color_depth = color_depth;
+            self.capabilities = capabilities;
+            // The dirty-row cache contains styled output from the old profile.
+            self.last_style_signature = None;
+        }
     }
 
     pub(super) fn set_theme(&mut self, theme_name: &str) -> Result<&'static str, String> {
@@ -1126,6 +1172,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn runtime_preference_refresh_rebuilds_theme_motion_and_color_depth() {
+        let mut terminal = TerminalGuard::test();
+        let capabilities = crate::tui::preferences::TerminalCapabilities {
+            truecolor: true,
+            ansi256: true,
+            unicode: true,
+            reduced_motion: false,
+        };
+        let preferences = ResolvedUiPreferences {
+            skin: viden_core::UiSkin::Ice,
+            mode: viden_core::UiColorMode::Light,
+            motion: UiMotion::Reduced,
+            ..ResolvedUiPreferences::default()
+        };
+
+        terminal.refresh_appearance(
+            &preferences,
+            crate::tui::preferences::ColorDepth::Ansi256,
+            capabilities,
+        );
+
+        assert_eq!(terminal.theme.name, "ice-light");
+        assert_eq!(
+            terminal.theme.depth(),
+            crate::tui::preferences::ColorDepth::Ansi256
+        );
+        assert_eq!(terminal.motion, UiMotion::Reduced);
+    }
+
+    #[test]
     fn colors_approval_and_actions_by_semantics() {
         let theme = TuiTheme::aurora_cyan();
 
@@ -1612,7 +1688,7 @@ mod tests {
         let ember = render_ansi_preview_with_theme(frame, Some("ember-gold"));
 
         assert_ne!(aurora, ember);
-        assert!(ember.contains("\x1b[38;2;255;176;64m"));
+        assert!(ember.contains("\x1b[38;2;224;154;62m"));
     }
 
     #[test]
