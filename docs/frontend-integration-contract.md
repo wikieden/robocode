@@ -92,6 +92,7 @@ self-referential inside the payload commit.
 | Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
+| Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | internal Core `0.3.2` candidate on schema `1`; `runtime.lane_owner_projection` advertisement is deferred to Task 6 |
 | Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | internal pre-release service; not a handshake capability until Task 6 |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
 | UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
@@ -133,6 +134,13 @@ flowchart LR
   `StarterLaneCreated` replaces that preview with the authoritative receipt and
   durable Lane fact. The payload owner must equal the envelope owner. These
   events participate in normal in-process snapshot and replay recovery.
+- `LaneRuntimeOwnerBound` upserts one exact live-worker binding by `lane_id`.
+  A later binding for the same Lane replaces the previous value; a binding
+  whose payload owner differs from the envelope owner is rejected at the wire
+  boundary, and one whose `owner.lane_id` does not exactly match its `lane_id`
+  is ignored by the reducer.
+  `LaneUpdated` with `done`, `failed`, `cancelled`, or `archived` removes only
+  that Lane's binding.
 - Every command, snapshot, and event envelope uses schema `1`. A known event's
   sequence must equal its cursor sequence.
 - Clients call `discover` before sending commands or consuming state. Missing
@@ -150,7 +158,7 @@ flowchart LR
 | --- | --- | --- |
 | Start a normal turn | `SubmitUserInput` | provider loop, context bundle, tools, transcript |
 | Add input while work runs | `QueueFollowUp` | queue ordering and later dequeue |
-| Cancel current work | `CancelActiveTurn` or `CancelAgentTask` | request cancellation and task state |
+| Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, and task/Lane state |
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
 | Approve or deny a tool | `RespondToApproval` | decision recording and gated execution |
@@ -218,6 +226,34 @@ a new stream and preview cache, so an old preview must be generated again. The
 legacy `CreateLane` command remains supported for existing callers; first-run D4
 flows use the reviewed command pair. Capability/version/fixture advertisement is
 deferred to Task 6.
+
+### Live Lane Runtime Owner
+
+`LaneRuntimeOwnerBinding { lane_id, owner }` is process-local authority for a
+live `LaneWorkerHandle`. Core copies `owner` from the actual worker handle; it
+does not reconstruct workspace, project, Lane, session, task, or turn fields
+from durable Lane state, current selection, display text, or frontend defaults.
+For a newly spawned worker, Core publishes `LaneCommandAccepted`, then
+`LaneRuntimeOwnerBound`, before that worker can publish command-driven Lane
+state. Snapshot and replay preserve the exact binding within the same runtime
+stream.
+
+A process restart creates a new stream and deliberately restores no runtime
+owner from hydrated Lane records. The first accepted owner-scoped command that
+spawns a new live worker publishes a fresh binding. Owner mismatch, missing or
+terminal Lane, Plan-mode denial, hydration failure, or any path that does not
+create a live worker publishes no binding.
+
+Frontend cancel is fail-closed. A client must first discover the future
+`runtime.lane_owner_projection` extension capability, then require exactly one
+valid binding for the selected active Lane and send `CancelActiveTurn` with the
+entire bound owner unchanged. Missing capability, zero or ambiguous matches,
+or any `owner.lane_id` mismatch means cancel is unavailable and command
+transport sends nothing. Task 1 exposes the schema-1 event and projection, but
+Task 6 owns capability advertisement and the atomic Core `0.3.2` checkpoint;
+frontends must therefore keep cancel unavailable until that reviewed
+capability is present. Unknown future runtime-owner events remain inspectable
+wire events and do not mutate `RuntimeViewState`.
 
 ## Agent DAG And Task UI Contract
 

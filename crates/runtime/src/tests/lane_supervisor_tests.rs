@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use viden_provider::ModelProvider;
 use viden_types::{
     AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, EventCursor, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MutationPolicy, PermissionLevel,
-    PermissionMode, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, WorkMode,
+    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
+    MutationPolicy, PermissionLevel, PermissionMode, ReplayRequest, RuntimeCommand, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
+    RuntimeWireEvent, WorkMode,
 };
 use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
@@ -167,6 +168,583 @@ fn lane_supervisor_protocol_round_trips_owner_scoped_events_and_projects_view() 
 }
 
 #[test]
+fn lane_runtime_owner_create_publishes_exact_binding_to_snapshot_and_replay() {
+    let cwd = temp_dir("lane_runtime_owner_create_cwd");
+    let home = temp_dir("lane_runtime_owner_create_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    let exact_owner = owner("lane-owner-create");
+
+    supervisor
+        .send_command_from_owner(
+            exact_owner.clone(),
+            "create_lane_owner",
+            RuntimeCommand::CreateLane {
+                lane: autonomous_lane("lane-owner-create"),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        let binding = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                    ..
+                })
+            )
+        });
+        let lane = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-create"
+            )
+        });
+        binding && lane
+    });
+    let binding_envelope = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                    ..
+                })
+            )
+        })
+        .unwrap();
+    let expected = LaneRuntimeOwnerBinding {
+        lane_id: "lane-owner-create".to_string(),
+        owner: exact_owner.clone(),
+    };
+    assert_eq!(binding_envelope.owner, exact_owner);
+    assert!(matches!(
+        &binding_envelope.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+            ..
+        }) if binding == &expected
+    ));
+    let lane_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-create"
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    assert!(binding_envelope.cursor.sequence < lane_sequence);
+
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(snapshot.view.lane_runtime_owners, vec![expected.clone()]);
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: EventCursor {
+                stream_id: snapshot.cursor.stream_id,
+                sequence: 0,
+            },
+            limit: 100,
+        })
+        .unwrap();
+    assert!(replay.events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                ..
+            }) if binding == &expected
+        )
+    }));
+}
+
+#[test]
+fn lane_runtime_owner_hydrated_start_publishes_fresh_exact_binding() {
+    let cwd = temp_dir("lane_runtime_owner_start_cwd");
+    let home = temp_dir("lane_runtime_owner_start_home");
+    persist_lane(&home, &cwd, autonomous_lane("lane-owner-start"));
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .is_empty()
+    );
+    let exact_owner = owner("lane-owner-start");
+
+    supervisor
+        .send_command_from_owner(
+            exact_owner.clone(),
+            "start_lane_owner",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-owner-start".to_string(),
+                command: "worker".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        let bound = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                    ..
+                }) if binding.owner == exact_owner
+            )
+        });
+        let running = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-start" && lane.status == LaneStatus::Running
+            )
+        });
+        bound && running
+    });
+    let binding_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                    ..
+                })
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    let running_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.status == LaneStatus::Running
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    assert!(binding_sequence < running_sequence);
+    assert_eq!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners,
+        vec![LaneRuntimeOwnerBinding {
+            lane_id: "lane-owner-start".to_string(),
+            owner: exact_owner,
+        }]
+    );
+}
+
+#[test]
+fn lane_runtime_owner_rejections_publish_no_binding_or_lane_mutation() {
+    let cwd = temp_dir("lane_runtime_owner_reject_cwd");
+    let home = temp_dir("lane_runtime_owner_reject_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner("lane-wrong-owner"),
+            "create_wrong_owner",
+            RuntimeCommand::CreateLane {
+                lane: autonomous_lane("lane-target"),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                    ..
+                }) if command_id == "create_wrong_owner"
+            )
+        })
+    });
+    assert!(!events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                ..
+            })
+        )
+    }));
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .is_empty()
+    );
+    assert!(effects.calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn lane_runtime_owner_cancel_requires_exact_binding_and_terminal_clears_only_its_lane() {
+    let cwd = temp_dir("lane_runtime_owner_cancel_cwd");
+    let home = temp_dir("lane_runtime_owner_cancel_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let owner_a = owner("lane-owner-a");
+    let owner_b = owner("lane-owner-b");
+    for (command_id, exact_owner) in [
+        ("create_owner_a", owner_a.clone()),
+        ("create_owner_b", owner_b.clone()),
+    ] {
+        let lane_id = exact_owner.lane_id.clone().unwrap();
+        supervisor
+            .send_command_from_owner(
+                exact_owner.clone(),
+                command_id,
+                RuntimeCommand::CreateLane {
+                    lane: autonomous_lane(&lane_id),
+                },
+            )
+            .unwrap();
+        collect_envelopes_until(&supervisor, |events| {
+            let bound = events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                        ..
+                    }) if binding.lane_id == lane_id
+                )
+            });
+            let durable = events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneUpdated { lane },
+                        ..
+                    }) if lane.id == lane_id
+                )
+            });
+            bound && durable
+        });
+    }
+    assert_eq!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .len(),
+        2
+    );
+
+    let default_cancel =
+        supervisor.send_command("cancel_default_owner", RuntimeCommand::CancelActiveTurn);
+    assert!(default_cancel.is_ok());
+    let mut partial_owner = RuntimeOwner {
+        lane_id: Some("lane-owner-a".to_string()),
+        ..RuntimeOwner::default()
+    };
+    assert!(
+        supervisor
+            .send_command_from_owner(
+                partial_owner.clone(),
+                "cancel_partial_owner",
+                RuntimeCommand::CancelActiveTurn,
+            )
+            .is_err()
+    );
+    partial_owner.workspace_id = owner_a.workspace_id.clone();
+    partial_owner.project_id = owner_a.project_id.clone();
+    partial_owner.session_id = owner_a.session_id.clone();
+    partial_owner.turn_id = Some("turn-stale".to_string());
+    assert!(
+        supervisor
+            .send_command_from_owner(
+                partial_owner,
+                "cancel_stale_owner",
+                RuntimeCommand::CancelActiveTurn,
+            )
+            .is_err()
+    );
+    supervisor
+        .send_command_from_owner(
+            owner("lane-not-running"),
+            "cancel_other_lane",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    assert!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|call| !call.starts_with("stop:"))
+    );
+    assert_eq!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .len(),
+        2
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner_b.clone(),
+            "complete_owner_b",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-owner-b".to_string(),
+                summary: "lane B done".to_string(),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-b" && lane.status == LaneStatus::Done
+            )
+        })
+    });
+    assert_eq!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners,
+        vec![LaneRuntimeOwnerBinding {
+            lane_id: "lane-owner-a".to_string(),
+            owner: owner_a.clone(),
+        }]
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner_a,
+            "cancel_exact_owner",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-a" && lane.status == LaneStatus::Cancelled
+            )
+        })
+    });
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .is_empty()
+    );
+    assert!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"stop:lane-owner-a".to_string())
+    );
+}
+
+#[test]
+fn lane_runtime_owner_restart_has_no_stale_binding_and_rebinds_on_live_worker_spawn() {
+    let cwd = temp_dir("lane_runtime_owner_restart_cwd");
+    let home = temp_dir("lane_runtime_owner_restart_home");
+    let exact_owner = owner("lane-owner-restart");
+    let first_stream = {
+        let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        engine
+            .set_permission_mode(viden_types::PermissionMode::DontAsk)
+            .unwrap();
+        let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+            engine,
+            Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+        );
+        supervisor
+            .send_command_from_owner(
+                exact_owner.clone(),
+                "create_owner_restart",
+                RuntimeCommand::CreateLane {
+                    lane: autonomous_lane("lane-owner-restart"),
+                },
+            )
+            .unwrap();
+        collect_envelopes_until(&supervisor, |events| {
+            let bound = events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                        ..
+                    })
+                )
+            });
+            let durable = events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::LaneUpdated { lane },
+                        ..
+                    }) if lane.id == "lane-owner-restart"
+                )
+            });
+            bound && durable
+        });
+        supervisor.snapshot_envelope().unwrap().cursor.stream_id
+    };
+
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    let restarted = supervisor.snapshot_envelope().unwrap();
+    assert_ne!(restarted.cursor.stream_id, first_stream);
+    assert!(restarted.view.lane_runtime_owners.is_empty());
+
+    supervisor
+        .send_command_from_owner(
+            exact_owner.clone(),
+            "complete_restarted_owner",
+            RuntimeCommand::AcceptLaneOutput {
+                lane_id: "lane-owner-restart".to_string(),
+                summary: "recovered".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_envelopes_until(&supervisor, |events| {
+        let rebound = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                    ..
+                }) if binding.owner == exact_owner
+            )
+        });
+        let done = events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-restart" && lane.status == LaneStatus::Done
+            )
+        });
+        rebound && done
+    });
+    let rebound_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                    ..
+                })
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    let done_sequence = events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-owner-restart" && lane.status == LaneStatus::Done
+            )
+        })
+        .unwrap()
+        .cursor
+        .sequence;
+    assert!(rebound_sequence < done_sequence);
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .is_empty()
+    );
+}
+
+#[test]
 fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
     let cwd = temp_dir("lane_supervisor_plan_gate_cwd");
     let home = temp_dir("lane_supervisor_plan_gate_home");
@@ -267,6 +845,23 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
         envelopes
             .iter()
             .all(|envelope| envelope.owner == lane_owner)
+    );
+    assert!(!envelopes.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                ..
+            })
+        )
+    }));
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .is_empty()
     );
 }
 
@@ -2240,6 +2835,23 @@ fn lane_supervisor_hydration_failure_blocks_duplicate_create_effects() {
             }) if error.recoverable
         )
     }));
+    assert!(!events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneRuntimeOwnerBound { .. },
+                ..
+            })
+        )
+    }));
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .lane_runtime_owners
+            .is_empty()
+    );
     assert!(effects.calls.lock().unwrap().is_empty());
 }
 

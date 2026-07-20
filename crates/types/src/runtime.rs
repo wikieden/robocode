@@ -1,15 +1,15 @@
 use crate::{
-    AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
+    AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
     ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
     ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
     ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
     ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
     DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
-    HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
-    ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, RecentProjectSummary,
-    RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences, RevertRecord,
-    ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
+    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
+    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
     StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
     UiPreferencePatch, UiPreferences, WorkMode, now_timestamp,
@@ -262,6 +262,15 @@ pub struct CommandAction {
     pub disabled_reason: Option<String>,
     pub shortcut: Option<String>,
     pub destructive: bool,
+}
+
+/// Exact live worker identity exposed to frontend clients for owner-scoped
+/// controls. The owner is copied from the worker handle and is never inferred
+/// from durable Lane or display state.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneRuntimeOwnerBinding {
+    pub lane_id: AgentLaneId,
+    pub owner: RuntimeOwner,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -608,6 +617,9 @@ pub enum RuntimeEventKind {
     LaneUpdated {
         lane: AgentLaneRecord,
     },
+    LaneRuntimeOwnerBound {
+        binding: LaneRuntimeOwnerBinding,
+    },
     LaneOutputAppended {
         lane_id: crate::AgentLaneId,
         stream: String,
@@ -732,6 +744,8 @@ pub struct RuntimeViewState {
     pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_runtime_owners: Vec<LaneRuntimeOwnerBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_outputs: Vec<LaneOutputView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_conflicts: Vec<LaneConflictView>,
@@ -806,6 +820,7 @@ impl RuntimeViewState {
             tasks: Vec::new(),
             agent_dags: Vec::new(),
             lanes: Vec::new(),
+            lane_runtime_owners: Vec::new(),
             lane_outputs: Vec::new(),
             lane_conflicts: Vec::new(),
             lane_recoveries: Vec::new(),
@@ -991,6 +1006,25 @@ impl RuntimeViewState {
                 upsert_by_id(&mut self.lanes, lane.clone(), |existing| {
                     existing.id == lane.id
                 });
+                if matches!(
+                    lane.status,
+                    LaneStatus::Done
+                        | LaneStatus::Failed
+                        | LaneStatus::Cancelled
+                        | LaneStatus::Archived
+                ) {
+                    self.lane_runtime_owners
+                        .retain(|binding| binding.lane_id != lane.id);
+                }
+            }
+            RuntimeEventKind::LaneRuntimeOwnerBound { binding } => {
+                // A mismatched payload is untrusted protocol input. Never
+                // normalize it into an authority the Core did not publish.
+                if binding.owner.lane_id.as_ref() == Some(&binding.lane_id) {
+                    upsert_by_id(&mut self.lane_runtime_owners, binding.clone(), |existing| {
+                        existing.lane_id == binding.lane_id
+                    });
+                }
             }
             RuntimeEventKind::LaneOutputAppended {
                 lane_id,

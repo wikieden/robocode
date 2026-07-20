@@ -26,17 +26,18 @@ pub use viden_types::{
     CapabilityId, CommandAction, ContextBundleRecord, ContextOmittedSourceRecord,
     ContextSourceRecord, CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle,
     CredentialRequestId, CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus,
-    LocaleId, MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
-    ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView,
-    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest,
-    ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
-    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget,
+    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
+    MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
+    ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
+    SchemaVersion, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
+    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
+    UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -68,6 +69,9 @@ mod tests {
         assert!(std::any::type_name::<EvidenceView>().contains("EvidenceView"));
         assert!(std::any::type_name::<QueuedInputView>().contains("QueuedInputView"));
         assert!(std::any::type_name::<AgentLaneRecord>().contains("AgentLaneRecord"));
+        assert!(
+            std::any::type_name::<LaneRuntimeOwnerBinding>().contains("LaneRuntimeOwnerBinding")
+        );
         assert!(std::any::type_name::<AgentTaskStatus>().contains("AgentTaskStatus"));
         assert!(std::any::type_name::<MergeGateStatus>().contains("MergeGateStatus"));
         assert!(std::any::type_name::<ResolvedUiPreferences>().contains("ResolvedUiPreferences"));

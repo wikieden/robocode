@@ -1473,6 +1473,9 @@ impl SessionEngine {
         }
         match self.workflows.load_lane_state() {
             Ok(lane_state) => {
+                // Durable Lane records survive restart, but live worker owners
+                // do not. Only LaneSupervisor may publish a fresh binding when
+                // it creates a process-local worker from an owner-scoped command.
                 for lane in lane_state.lanes().values() {
                     events.push(RuntimeEvent::new(
                         next_sequence(&events),
