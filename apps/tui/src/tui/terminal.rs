@@ -906,20 +906,26 @@ fn collect_bracket_spans(line: &str, theme: &TuiTheme, spans: &mut Vec<(usize, u
 }
 
 fn is_shortcut_chip(text: &str) -> bool {
-    text.starts_with("[^") || text == "[? Help]"
+    text.starts_with("[^") || text.starts_with("[? ")
 }
 
 fn shortcut_chip_color(text: &str, theme: &TuiTheme) -> Color {
-    if text.contains("Theme") {
+    // Chords are stable identifiers while their action copy is localized.
+    // Style by the chord so switching locale cannot change semantic color.
+    if text.starts_with("[^T ") || text.contains("Theme") {
         theme.warning
-    } else if text.contains("Lane")
+    } else if text.starts_with("[^J ")
+        || text.starts_with("[^R ")
+        || text.starts_with("[^N ")
+        || text.starts_with("[^L ")
+        || text.contains("Lane")
         || text.contains("Route")
         || text.contains("Send")
         || text.contains("Regenerate")
         || text.contains("New Task")
     {
         theme.accent
-    } else if text.contains("Help") {
+    } else if text.starts_with("[? ") || text.contains("Help") {
         theme.muted
     } else {
         theme.title
@@ -1107,6 +1113,7 @@ fn is_panel_title(line: &str) -> bool {
         || line.contains(" PROVIDER HEALTH ")
         || line.contains(" RECENT FILES ")
         || line.contains(" APPROVAL ")
+        || line.contains(" APPROVAL · 审批 ")
         || line.contains(" AGENT LANES ")
         || line.contains(" LIVE OUTPUT ")
         || line.contains(" SIDE STATUS ")
@@ -1138,6 +1145,24 @@ mod tests {
                 .iter()
                 .any(|segment| segment.text == "APPROVAL REQUIRED"
                     && segment.foreground == theme.warning)
+        );
+    }
+
+    #[test]
+    fn localized_and_numbered_rows_do_not_invent_approval_semantics() {
+        let theme = TuiTheme::aurora_cyan();
+
+        assert_eq!(color_for_line("│ 1 本次允许", &theme), theme.text);
+        assert_eq!(color_for_line("│ 4 拒绝", &theme), theme.text);
+        assert_eq!(
+            color_for_line("│ 1 retry command output", &theme),
+            theme.text
+        );
+        assert_eq!(color_for_line("│ 4 failed cases", &theme), theme.text);
+        assert_eq!(color_for_line("1 arbitrary output", &theme), theme.text);
+        assert_eq!(
+            color_for_line("┌ APPROVAL · 审批 ─────────────┐", &theme),
+            theme.title
         );
     }
 
@@ -1517,6 +1542,24 @@ mod tests {
                     && segment.background == theme.chip)
         );
         assert!(segments.iter().any(|segment| segment.text == "[? Help]"
+            && segment.foreground == theme.muted
+            && segment.background == theme.chip));
+    }
+
+    #[test]
+    fn highlights_localized_composer_shortcuts_by_stable_key_chords() {
+        let theme = TuiTheme::aurora_cyan();
+        let segments = line_segments(
+            "│ ACTIONS: [^J 发送] [^K 清空] [^R 重新生成] [^N 新任务] [? 帮助] │",
+            &theme,
+        );
+
+        for shortcut in ["[^J 发送]", "[^R 重新生成]", "[^N 新任务]"] {
+            assert!(segments.iter().any(|segment| segment.text == shortcut
+                && segment.foreground == theme.accent
+                && segment.background == theme.chip));
+        }
+        assert!(segments.iter().any(|segment| segment.text == "[? 帮助]"
             && segment.foreground == theme.muted
             && segment.background == theme.chip));
     }

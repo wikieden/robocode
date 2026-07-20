@@ -26,34 +26,36 @@ pub(super) enum ApprovalAction {
 
 pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_width: usize) {
     if let Some(overlay) = state.ui.overlay.as_ref() {
-        let title = match overlay.kind {
-            OverlayKind::GlobalJump => "GLOBAL JUMP",
-            OverlayKind::Lane => "LANES",
-            OverlayKind::Session => "SESSIONS",
-            OverlayKind::NewSession => "NEW SESSION",
-            OverlayKind::CommandPalette => "COMMANDS",
-            OverlayKind::Board => "BOARD",
-            OverlayKind::Decisions => "DECISIONS",
-            OverlayKind::ContextHelp => "CONTEXT HELP",
-            OverlayKind::ExitConfirm => "EXIT CONFIRMATION",
-            OverlayKind::Approval => "APPROVAL",
-            OverlayKind::InteractionPanel => "SELECT",
-            OverlayKind::ComposerCommands => "COMMANDS",
+        let title_key = match overlay.kind {
+            OverlayKind::GlobalJump => "overlay.title.global_jump",
+            OverlayKind::Lane => "overlay.title.lanes",
+            OverlayKind::Session => "overlay.title.sessions",
+            OverlayKind::NewSession => "overlay.title.new_session",
+            OverlayKind::CommandPalette => "overlay.title.commands",
+            OverlayKind::Board => "overlay.title.board",
+            OverlayKind::Decisions => "overlay.title.decisions",
+            OverlayKind::ContextHelp => "overlay.title.context_help",
+            OverlayKind::ExitConfirm => "overlay.title.exit",
+            OverlayKind::Approval => "overlay.title.approval",
+            OverlayKind::InteractionPanel => "overlay.title.select",
+            OverlayKind::ComposerCommands => "overlay.title.commands",
         };
+        let title = super::i18n::text(state, title_key);
         let overlay_height = match overlay.kind {
             OverlayKind::Approval | OverlayKind::Decisions => 14,
             _ => 10,
         };
+        let hint = if overlay.kind == OverlayKind::GlobalJump {
+            super::i18n::text(state, "overlay.global_hint")
+        } else {
+            super::i18n::text(state, "overlay.close_hint")
+        };
         let block = panel(
-            title,
+            &title,
             global_overlay_rows(state, overlay.kind, &overlay.filter),
             frame.width.min(76),
             overlay_height,
-            Some(if overlay.kind == OverlayKind::GlobalJump {
-                "Esc restore · arrows/jk move · Enter jump"
-            } else {
-                "Esc close · arrows move · Enter open"
-            }),
+            Some(&hint),
         );
         frame.write_block(
             4,
@@ -61,15 +63,22 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             &block,
         );
     } else if let Some(approval) = state.runtime.pending_approvals.first() {
+        let target = truncate(&approval.target.display, 56);
+        let input = truncate(&approval.input_preview, 56);
         let rows = vec![
             format!("{} · {:?}", approval.title, approval.risk),
             truncate(&approval.message, 68),
-            format!("TARGET  {}", truncate(&approval.target.display, 56)),
-            format!("INPUT   {}", truncate(&approval.input_preview, 56)),
-            "PINNED · Ctrl-G Decisions · Enter select to focus".to_string(),
+            super::i18n::translate(
+                state,
+                "approval.target_only",
+                &[("target", target.as_str())],
+            ),
+            super::i18n::translate(state, "approval.input", &[("input", input.as_str())]),
+            super::i18n::text(state, "approval.pinned"),
         ];
+        let title = super::i18n::text(state, "overlay.title.approval");
         let block = panel(
-            "APPROVAL",
+            &title,
             rows,
             frame.width.min(76),
             8,
@@ -93,22 +102,24 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         ];
         rows.extend(lane.evidence.iter().cloned());
         rows.push("CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string());
-        let block = panel("LANE DETAIL", rows, frame.width.min(76), 10, Some(&lane.id));
+        let title = super::i18n::text(state, "overlay.title.lane_detail");
+        let block = panel(&title, rows, frame.width.min(76), 10, Some(&lane.id));
         frame.write_block(
             4,
             frame.width.saturating_sub(frame.width.min(76)) / 2,
             &block,
         );
     } else if state.ui.interaction_panel.is_some() {
-        let title = match state.ui.interaction_panel.as_ref() {
-            Some(InteractionPanel::Setup { .. }) => "SETUP SELECTOR",
-            Some(InteractionPanel::ConnectProvider { .. }) => "Connect a provider",
-            Some(InteractionPanel::ModelPicker { .. }) => "Select model",
-            Some(InteractionPanel::ProviderConfig { .. }) => "SELECT",
+        let title_key = match state.ui.interaction_panel.as_ref() {
+            Some(InteractionPanel::Setup { .. }) => "interaction.setup",
+            Some(InteractionPanel::ConnectProvider { .. }) => "interaction.connect_provider",
+            Some(InteractionPanel::ModelPicker { .. }) => "interaction.select_model",
+            Some(InteractionPanel::ProviderConfig { .. }) => "interaction.select",
             None => unreachable!("panel presence checked above"),
         };
+        let title = super::i18n::text(state, title_key);
         let block = panel(
-            title,
+            &title,
             interaction_rows(state),
             frame.width.min(72),
             10,
@@ -140,20 +151,23 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
             .map(|task| format!("{}  {}  {}", task.id, task.role, task.status.as_str()))
             .collect(),
         OverlayKind::Decisions => decision_center_rows(state),
-        OverlayKind::ContextHelp => vec![
-            "i Insert · Esc back · ? help".to_string(),
-            "Ctrl-L lanes · Ctrl-S sessions · Ctrl-T new session".to_string(),
-            "Ctrl-K commands · Ctrl-B board · Ctrl-G decisions".to_string(),
-            "Ctrl-C cancel current work · double Ctrl-C exit confirm".to_string(),
-        ],
+        OverlayKind::ContextHelp => [
+            "modal.context_help.mode",
+            "modal.context_help.lanes",
+            "modal.context_help.commands",
+            "modal.context_help.exit",
+        ]
+        .into_iter()
+        .map(|key| super::i18n::text(state, key))
+        .collect(),
         OverlayKind::ExitConfirm if has_active_work(state) => vec![
-            "Active work is still running; exit is blocked.".to_string(),
-            "Wait for Core to resolve it or expose a cancellable owner.".to_string(),
-            "Press Esc to stay.".to_string(),
+            super::i18n::text(state, "modal.exit.active.blocked"),
+            super::i18n::text(state, "modal.exit.active.core"),
+            super::i18n::text(state, "modal.exit.active.stay"),
         ],
         OverlayKind::ExitConfirm => vec![
-            "No current work is active.".to_string(),
-            "Press Enter to exit or Esc to stay.".to_string(),
+            super::i18n::text(state, "modal.exit.idle.ready"),
+            super::i18n::text(state, "modal.exit.idle.select"),
         ],
         OverlayKind::Session => state
             .ui
@@ -167,14 +181,12 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
                     .collect()
             })
             .unwrap_or_default(),
-        OverlayKind::NewSession => {
-            vec!["New session awaits the Core command contract.".to_string()]
-        }
+        OverlayKind::NewSession => vec![super::i18n::text(state, "modal.new_session.pending")],
         OverlayKind::CommandPalette | OverlayKind::ComposerCommands => vec![
-            "Ctrl-L lanes".to_string(),
-            "Ctrl-S sessions".to_string(),
-            "Ctrl-B board".to_string(),
-            "Ctrl-G decisions".to_string(),
+            super::i18n::text(state, "modal.command.lanes"),
+            super::i18n::text(state, "modal.command.sessions"),
+            super::i18n::text(state, "modal.command.board"),
+            super::i18n::text(state, "modal.command.decisions"),
         ],
         OverlayKind::Approval => focused_approval_rows(state),
         OverlayKind::InteractionPanel => Vec::new(),
@@ -389,25 +401,61 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
             .allowed_scopes
             .iter()
             .any(|scope| matches!(scope, viden_core::ApprovalScope::RepoAllowlist { .. }));
-        let availability = |available: bool| if available { "" } else { " · unavailable" };
-        let expiry = if approval_is_expired(approval) {
-            "EXPIRED · default Deny · awaiting Core ApprovalResolved".to_string()
-        } else if approval.expires_at > 0 {
-            format!("auto-deny @{} · default Deny", approval.expires_at)
-        } else {
-            "default Deny · no local expiry action".to_string()
+        let availability = |available: bool| {
+            if available {
+                String::new()
+            } else {
+                super::i18n::text(state, "approval.scope_unavailable")
+            }
         };
+        let expiry = if approval_is_expired(approval) {
+            super::i18n::text(state, "approval.expiry.core")
+        } else if approval.expires_at > 0 {
+            let expires_at = approval.expires_at.to_string();
+            super::i18n::translate(
+                state,
+                "approval.expiry.auto_deny",
+                &[("expires_at", expires_at.as_str())],
+            )
+        } else {
+            super::i18n::text(state, "approval.expiry.none")
+        };
+        let target = truncate(&approval.target.display, 56);
+        let input = truncate(&approval.input_preview, 56);
+        let once_availability = availability(once);
+        let session_availability = availability(session);
+        let repo_availability = availability(repo);
         vec![
             format!("{} · {:?}", approval.title, approval.risk),
             truncate(&approval.message, 68),
-            format!("TARGET  {}", truncate(&approval.target.display, 56)),
-            format!("INPUT   {}", truncate(&approval.input_preview, 56)),
-            format!("1 Allow once{}", availability(once)),
-            format!("2 Allow for session{}", availability(session)),
-            format!("3 Add repo allowlist{}", availability(repo)),
-            "4 Deny".to_string(),
+            super::i18n::translate(
+                state,
+                "approval.target_only",
+                &[("target", target.as_str())],
+            ),
+            super::i18n::translate(state, "approval.input", &[("input", input.as_str())]),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_once",
+                &[("availability", once_availability.as_str())],
+            ),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_session",
+                &[("availability", session_availability.as_str())],
+            ),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_repo",
+                &[("availability", repo_availability.as_str())],
+            ),
+            super::i18n::text(state, "approval.action.deny"),
             expiry,
-            format!("AUDIT   {}", approval.audit_id),
+            super::i18n::translate(
+                state,
+                "approval.audit",
+                &[("audit_id", approval.audit_id.as_str())],
+            ),
         ]
     })
 }
@@ -598,6 +646,21 @@ mod tests {
     }
 
     #[test]
+    fn setup_selector_title_follows_core_resolved_locale() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        state.ui.interaction_panel = Some(InteractionPanel::Setup {
+            selected: 0,
+            draft: String::new(),
+        });
+        let mut frame = Frame::new(100, 30);
+
+        render_overlays(&mut frame, &state, 0);
+
+        assert!(frame.to_string().contains("SETUP SELECTOR · 设置选择"));
+    }
+
+    #[test]
     fn models_selector_filters_unconfigured_providers() {
         let mut state = TuiState::default();
         let mut catalog = super::super::state::ProviderOption::fixture();
@@ -720,6 +783,26 @@ mod tests {
         ] {
             assert!(rows.contains(expected), "missing {expected}:\n{rows}");
         }
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese_rows = focused_approval_rows(&state).join("\n");
+        for expected in [
+            "1 本次允许",
+            "2 本会话允许",
+            "3 加入仓库白名单",
+            "4 拒绝",
+            "等待 Core ApprovalResolved",
+            "git push --force",
+            "audit-four",
+        ] {
+            assert!(
+                chinese_rows.contains(expected),
+                "missing {expected}:\n{chinese_rows}"
+            );
+        }
+        let mut frame = Frame::new(100, 30);
+        render_overlays(&mut frame, &state, 0);
+        assert!(frame.to_string().contains("APPROVAL · 审批"));
         assert_eq!(state.runtime.pending_approvals.len(), 1);
     }
 
@@ -826,5 +909,12 @@ mod tests {
         let inactive = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
         assert!(inactive.contains("No current work is active"));
         assert!(inactive.contains("Press Enter to exit"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let help = global_overlay_rows(&state, OverlayKind::ContextHelp, "").join("\n");
+        let inactive = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
+        assert!(help.contains("Ctrl-C 取消当前工作"));
+        assert!(inactive.contains("当前没有正在运行的工作"));
+        assert!(inactive.contains("按 Enter 退出"));
     }
 }

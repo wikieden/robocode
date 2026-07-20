@@ -167,6 +167,7 @@ fn ui_profile_label(preferences: &viden_core::ResolvedUiPreferences) -> String {
 /// Replaces TUI runtime presentation from the Core-owned projection while
 /// preserving only local input/layout state and the startup/user transcript.
 fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, _cursor: &EventCursor) {
+    state.ui.theme_name = ui_profile_label(&view.snapshot.ui_preferences);
     state.runtime = view.clone();
     reconcile_ui_state_with_runtime(state);
 }
@@ -1747,6 +1748,31 @@ mod tests {
         assert!(state.ui.session_id.is_empty());
         assert_eq!(state.ui.lens, Lens::Board);
         assert_eq!(state.ui.input, "preserve draft");
+    }
+
+    #[test]
+    fn runtime_replacement_switches_locale_without_cached_tui_authority() {
+        let mut state = TuiState::default();
+        state.ui.lens = Lens::Board;
+        let english = crate::tui::render::render_frame(&state, 112, 40);
+        assert!(english.contains("No Core lanes available."));
+
+        let mut replacement = state.runtime.clone();
+        replacement.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        replacement.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        project_runtime_view(
+            &mut state,
+            &replacement,
+            &EventCursor {
+                stream_id: "ui-preferences".to_string(),
+                sequence: 10,
+            },
+        );
+
+        let chinese = crate::tui::render::render_frame(&state, 112, 40);
+        assert!(chinese.contains("Core 暂无 lane。"));
+        assert!(state.ui.theme_name.contains("zh-CN"));
+        assert_eq!(state.ui.lens, Lens::Board);
     }
 
     #[test]

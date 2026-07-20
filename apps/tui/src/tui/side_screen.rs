@@ -15,7 +15,7 @@ pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
         body_top,
         0,
         &panel(
-            "AGENT LANES",
+            &super::i18n::text(state, "side.title.lanes"),
             lane_rows(state),
             frame.width,
             lane_height,
@@ -26,7 +26,7 @@ pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
         body_top + lane_height,
         0,
         &panel(
-            "SIDE STATUS",
+            &super::i18n::text(state, "side.title.status"),
             side_status_rows(state),
             frame.width,
             body_height.saturating_sub(lane_height).max(5),
@@ -40,27 +40,34 @@ fn lane_rows(state: &TuiState) -> Vec<String> {
     let mut rows = agent_lanes(state)
         .into_iter()
         .flat_map(|lane| {
-            let mut lane_rows = vec![format!(
-                "SWITCH {:<12} {:<10} {}",
-                truncate(&lane.id, 12),
-                lane.status,
-                truncate(&lane.summary, 36)
+            let lane_id = truncate(&lane.id, 12);
+            let status = lane.status.to_string();
+            let summary = truncate(&lane.summary, 36);
+            let mut lane_rows = vec![super::i18n::translate(
+                state,
+                "side.lane.switch",
+                &[
+                    ("lane_id", lane_id.as_str()),
+                    ("status", status.as_str()),
+                    ("summary", summary.as_str()),
+                ],
             )];
             if projection
                 .owner_actions
                 .iter()
                 .any(|action| action.target_lane_id == lane.id)
             {
-                lane_rows.push(format!(
-                    "CANCEL UNAVAILABLE {} · Core owner required",
-                    lane.id
+                lane_rows.push(super::i18n::translate(
+                    state,
+                    "side.lane.cancel_unavailable",
+                    &[("lane_id", lane.id.as_str())],
                 ));
             }
             lane_rows
         })
         .collect::<Vec<_>>();
     if rows.is_empty() {
-        rows.push("no Core lanes".to_string());
+        rows.push(super::i18n::text(state, "side.empty"));
     }
     rows
 }
@@ -68,28 +75,57 @@ fn lane_rows(state: &TuiState) -> Vec<String> {
 pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
     let lanes = agent_lanes(state);
     let status = provider_status(state);
+    let workspace = truncate(&state.runtime.snapshot.cwd.display().to_string(), 28);
+    let active = lanes
+        .iter()
+        .filter(|lane| lane.is_active())
+        .count()
+        .to_string();
+    let total = lanes.len().to_string();
     let mut rows = vec![
-        format!(
-            "PROVIDER  {} / {}",
-            state.runtime.snapshot.provider_family, state.runtime.snapshot.model_label
+        super::i18n::translate(
+            state,
+            "side.status.provider",
+            &[
+                ("provider", state.runtime.snapshot.provider_family.as_str()),
+                ("model", state.runtime.snapshot.model_label.as_str()),
+            ],
         ),
-        format!(
-            "WORKSPACE {}",
-            truncate(&state.runtime.snapshot.cwd.display().to_string(), 28)
+        super::i18n::translate(
+            state,
+            "side.status.workspace",
+            &[("workspace", workspace.as_str())],
         ),
-        format!(
-            "LANES     active {}/{}",
-            lanes.iter().filter(|lane| lane.is_active()).count(),
-            lanes.len()
+        super::i18n::translate(
+            state,
+            "side.status.lanes",
+            &[("active", active.as_str()), ("total", total.as_str())],
         ),
-        format!("TELEMETRY {}", status.telemetry),
-        format!("CONTEXT   {}", status.context_window),
-        format!("THEME     {}", state.ui.theme_name),
+        super::i18n::translate(
+            state,
+            "side.status.telemetry",
+            &[("telemetry", status.telemetry.as_str())],
+        ),
+        super::i18n::translate(
+            state,
+            "side.status.context",
+            &[("context", status.context_window.as_str())],
+        ),
+        super::i18n::translate(
+            state,
+            "side.status.theme",
+            &[("theme", state.ui.theme_name.as_str())],
+        ),
     ];
     rows.extend(state.runtime.lane_recoveries.iter().map(|recovery| {
-        format!(
-            "RECOVERY  {} · {} · {}",
-            recovery.lane_id, recovery.reason, recovery.next_action
+        super::i18n::translate(
+            state,
+            "side.status.recovery",
+            &[
+                ("lane_id", recovery.lane_id.as_str()),
+                ("reason", recovery.reason.as_str()),
+                ("next_action", recovery.next_action.as_str()),
+            ],
         )
     }));
     rows
@@ -152,6 +188,39 @@ mod tests {
             "reconnect and replay",
         ] {
             assert!(rows.contains(expected), "missing {expected}:\n{rows}");
+        }
+    }
+
+    #[test]
+    fn side_screen_follows_core_locale_without_translating_runtime_facts() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        state.runtime.snapshot.provider_family = "provider-raw".to_string();
+        state.runtime.snapshot.model_label = "model-raw".to_string();
+        state.runtime.lane_recoveries.push(LaneRecoveryView {
+            lane_id: "lane-raw".to_string(),
+            reason: "reason-raw".to_string(),
+            next_action: "action-raw".to_string(),
+            timestamp: None,
+        });
+        let mut frame = Frame::new(100, 30);
+
+        render_side_body(&mut frame, &state);
+        let rendered = frame.to_string();
+
+        for expected in [
+            "AGENT 通道",
+            "侧栏状态",
+            "provider-raw",
+            "model-raw",
+            "lane-raw",
+            "reason-raw",
+            "action-raw",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "missing {expected}:\n{rendered}"
+            );
         }
     }
 }

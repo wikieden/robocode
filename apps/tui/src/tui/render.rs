@@ -58,14 +58,15 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
 fn render_lens_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
     let body_height = frame.height.saturating_sub(body_top + BOTTOM_BAR_HEIGHT);
-    let (title, rows) = match state.ui.lens {
-        Lens::Setup => ("SETUP", setup_rows(state)),
-        Lens::Board => ("LANE BOARD", board_rows(state)),
-        Lens::Decisions => ("DECISIONS", decision_rows(state)),
-        Lens::Gallery => ("GALLERY", gallery_rows(state)),
+    let (title_key, rows) = match state.ui.lens {
+        Lens::Setup => ("catalog.setup", setup_rows(state)),
+        Lens::Board => ("catalog.board", board_rows(state)),
+        Lens::Decisions => ("catalog.decisions", decision_rows(state)),
+        Lens::Gallery => ("catalog.gallery", gallery_rows(state)),
         Lens::Welcome | Lens::Session => return,
     };
-    let block = panel(title, rows, frame.width, body_height, None);
+    let title = super::i18n::text(state, title_key);
+    let block = panel(&title, rows, frame.width, body_height, None);
     frame.write_block(body_top, 0, &block);
 }
 
@@ -142,7 +143,7 @@ fn mask_credential_handle(value: &str) -> String {
 
 fn board_rows(state: &TuiState) -> Vec<String> {
     if state.runtime.lanes.is_empty() {
-        return vec!["No Core lanes available.".to_string()];
+        return vec![super::i18n::text(state, "lane_board.empty")];
     }
     state
         .runtime
@@ -207,7 +208,7 @@ fn decision_rows(state: &TuiState) -> Vec<String> {
             .map(|error| format!("ERROR {}", error.message)),
     );
     if rows.is_empty() {
-        rows.push("No Core decisions pending.".to_string());
+        rows.push(super::i18n::text(state, "decisions.empty"));
     }
     rows
 }
@@ -215,7 +216,7 @@ fn decision_rows(state: &TuiState) -> Vec<String> {
 fn gallery_rows(state: &TuiState) -> Vec<String> {
     let projection = CockpitProjection::from(&state.runtime, &state.ui);
     if projection.evidence.is_empty() && projection.evidence_decisions.is_empty() {
-        return vec!["No Core evidence available.".to_string()];
+        return vec![super::i18n::text(state, "gallery.empty")];
     }
     let mut rows = projection
         .evidence
@@ -268,8 +269,9 @@ fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
         body_height.saturating_sub(2),
     );
     let transcript_badge = transcript_status_label(state);
+    let transcript_title = super::i18n::text(state, "catalog.transcript");
     let transcript = panel(
-        "TRANSCRIPT",
+        &transcript_title,
         transcript_rows,
         transcript_width,
         body_height,
@@ -290,8 +292,9 @@ fn render_compact_body(frame: &mut Frame, state: &TuiState) {
         frame.width.saturating_sub(4),
         body_height.saturating_sub(2),
     );
+    let transcript_title = super::i18n::text(state, "catalog.transcript");
     let transcript = panel(
-        "TRANSCRIPT",
+        &transcript_title,
         transcript_rows,
         frame.width,
         body_height,
@@ -329,7 +332,7 @@ fn transcript_status_label(state: &TuiState) -> String {
 fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     let status = live_activity_status(state);
     let mut rows = if status.is_live {
-        live_work_strip_rows(&status, width)
+        live_work_strip_rows(state, &status, width)
     } else {
         let mut inactive_rows = vec![truncate(
             &format!("     ┊  ✦ {} {}", status.summary, thinking_pulse()),
@@ -365,7 +368,8 @@ fn supervision_rows(state: &TuiState, width: usize) -> Vec<String> {
     {
         return Vec::new();
     }
-    let mut rows = vec![truncate("     ┊  SUPERVISION · Core facts", width)];
+    let supervision = super::i18n::text(state, "supervision.header");
+    let mut rows = vec![truncate(&format!("     ┊  {supervision}"), width)];
     rows.extend(projection.approval_actions.iter().map(|approval| {
         truncate(
             &format!(
@@ -404,7 +408,11 @@ fn supervision_rows(state: &TuiState, width: usize) -> Vec<String> {
     rows
 }
 
-fn live_work_strip_rows(status: &LiveActivityStatus, width: usize) -> Vec<String> {
+fn live_work_strip_rows(
+    state: &TuiState,
+    status: &LiveActivityStatus,
+    width: usize,
+) -> Vec<String> {
     let header_rule = "─".repeat(width.saturating_sub(24).min(96));
     let footer_rule = "─".repeat(width.saturating_sub(7).min(112));
     let phase = status.phase.as_deref().unwrap_or("active");
@@ -415,12 +423,11 @@ fn live_work_strip_rows(status: &LiveActivityStatus, width: usize) -> Vec<String
         .next_action
         .as_deref()
         .map(|action| format!("next {action} · input open"))
-        .unwrap_or_else(|| {
-            "input open · type next step anytime; Enter queues follow-up".to_string()
-        });
+        .unwrap_or_else(|| super::i18n::text(state, "live.input_open"));
+    let title = super::i18n::text(state, "live.title");
     let mut rows = vec![
         truncate(
-            &format!("     ╭─ LIVE WORK {} {header_rule}", thinking_pulse()),
+            &format!("     ╭─ {title} {} {header_rule}", thinking_pulse()),
             width,
         ),
         truncate(
@@ -999,6 +1006,18 @@ mod structured_runtime_tests {
     }
 
     #[test]
+    fn cockpit_lens_copy_follows_core_resolved_chinese_locale() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        state.ui.lens = Lens::Board;
+
+        let rendered = render_frame(&state, 112, 40);
+
+        assert!(rendered.contains("LANE BOARD · LANE 看板"));
+        assert!(rendered.contains("Core 暂无 lane。"));
+    }
+
+    #[test]
     fn active_cockpit_keeps_composer_and_pinned_actions_at_all_widths() {
         #[derive(serde::Deserialize)]
         struct Fixture {
@@ -1210,6 +1229,12 @@ mod structured_runtime_tests {
         assert!(rendered.contains("LIVE WORK"));
         assert!(rendered.contains("L-start"));
         assert!(rendered.contains("search"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese = render_frame(&state, 140, 40);
+        assert!(chinese.contains("LIVE WORK · 实时工作"));
+        assert!(chinese.contains("L-start"));
+        assert!(chinese.contains("search"));
     }
 
     #[test]
