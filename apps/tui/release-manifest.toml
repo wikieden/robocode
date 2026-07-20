@@ -1,6 +1,6 @@
 [release]
 component = "tui"
-version = "0.2.0"
+version = "0.3.0"
 min_core_version = "0.3.1"
 base_core_checkpoint = "afd6fcc9aaf3039ba79bb4588ed33bf1547209f5"
 contract_payload_sha = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"

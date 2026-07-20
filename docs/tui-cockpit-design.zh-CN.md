@@ -140,7 +140,7 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 - provider 和 model selector 的语义必须分开：`/provider`/`/connect` 是供应商连接流程，
   一级列表只展示供应商，例如 `DeepSeek`、`OpenRouter`，不要在供应商行里混入
-  credential、endpoint、model 解释。TUI 0.2.0 不接收 credential bytes，也不把它们重新包装成
+  credential、endpoint、model 解释。TUI 0.3.0 不接收 credential bytes，也不把它们重新包装成
   slash-command 文本；它只显示 Core 已脱敏的 handle 元数据。没有可信 Core ingress 时，
   detail surface 明确显示 unavailable 并保持只读。
   `/models` 是跨供应商模型选择器，必须按 provider 分组，用缩进表示 provider 下面的

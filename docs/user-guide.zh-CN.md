@@ -30,7 +30,7 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` 默认启动主 TUI。TUI 0.2.0 会协商 Core 0.3.1 onboarding extensions 并请求
+`viden` 默认启动主 TUI。TUI 0.3.0 会协商 Core 0.3.1 onboarding extensions 并请求
 project probe，但干净会话仍停留在聚焦的 Welcome composer。`/setup` 打开
 Core-backed Setup selector；`/lanes` 打开 Core lane board。提交普通任务 prompt，
 或选择 Core lane/session 后进入完整 cockpit。
@@ -120,14 +120,14 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-TUI 0.2.0 的稳定 project-onboarding 路径由 Core 驱动。Setup 展示 Core project probe，
+TUI 0.3.0 的稳定 project-onboarding 路径由 Core 驱动。Setup 展示 Core project probe，
 并持有只用于 presentation、不含 secret、符合 D11 的 `project.name`/`project.pack` draft。
 Preview action 用 `PreviewProjectConfig` 发送 exact bytes；只有 Core 返回的合法 preview
 仍与当前 draft 一致时才允许 Confirm，且只有 `ProjectConfigConfirmed` 能标记完成。
 TUI 不自行扫描项目、写入配置或在本地推断成功。
 
 `/connect`、`/provider` 只展示供应商元数据；`/models`、`/model` 展示已配置的 model choices。
-TUI 0.2.0 没有可信 frontend secret-ingress，因此面板绝不收集 credential bytes，也不会序列化
+TUI 0.3.0 没有可信 frontend secret-ingress，因此面板绝不收集 credential bytes，也不会序列化
 `/provider key` 命令。Provider detail 只显示 active Core health 和脱敏 credential-handle 摘要；
 没有安全 handle/ingress 时显示 `TRUSTED INGRESS unavailable` 并保持只读。Core 0.3.1 也没有
 全局 session 枚举；`/lanes` 只选择各 Core lane 公布的 session id。

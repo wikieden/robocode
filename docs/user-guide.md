@@ -35,7 +35,7 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` starts the main TUI by default. TUI 0.2.0 negotiates the Core 0.3.1
+`viden` starts the main TUI by default. TUI 0.3.0 negotiates the Core 0.3.1
 onboarding extensions and requests a project probe, but a clean session remains
 on the focused Welcome composer. `/setup` opens the Core-backed Setup selector;
 `/lanes` opens the Core lane board. The full cockpit appears after a normal task
@@ -128,7 +128,7 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-The stable TUI 0.2.0 project-onboarding path is Core-backed. Setup renders the
+The stable TUI 0.3.0 project-onboarding path is Core-backed. Setup renders the
 Core project probe and keeps a local, secret-free D11-shaped draft containing
 `project.name` and `project.pack`. Preview sends the draft's exact bytes through
 `PreviewProjectConfig`. Confirm remains unavailable until Core returns a valid
@@ -137,7 +137,7 @@ configuration complete. The TUI does not scan the project, write configuration,
 or infer success locally.
 
 `/connect` and `/provider` show supplier metadata; `/models` and `/model` show
-configured model choices. TUI 0.2.0 has no trusted frontend secret-ingress
+configured model choices. TUI 0.3.0 has no trusted frontend secret-ingress
 method, so these panels never collect credential bytes or serialize a
 `/provider key` command. Provider detail displays active Core health and only a
 masked credential-handle summary. If Core has no safe handle or ingress, it

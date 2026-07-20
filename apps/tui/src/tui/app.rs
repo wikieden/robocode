@@ -3306,8 +3306,8 @@ mod tests {
     fn release_manifest_declares_requested_and_effective_presentation_inputs() {
         let manifest = include_str!("../../release-manifest.toml");
 
-        assert_eq!(env!("CARGO_PKG_VERSION"), "0.2.0");
-        assert!(manifest.contains("version = \"0.2.0\""));
+        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.0");
+        assert!(manifest.contains("version = \"0.3.0\""));
         assert!(manifest.contains("min_core_version = \"0.3.1\""));
         assert!(
             manifest

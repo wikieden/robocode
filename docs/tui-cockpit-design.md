@@ -168,7 +168,7 @@ Provider/model selectors have separate semantics:
 - `/provider` and `/connect` are the supplier connection flow. The first-level
   list shows supplier names such as `DeepSeek` and `OpenRouter`; it must not
   include credential, endpoint, or model explanations on the supplier rows.
-  TUI 0.2.0 never accepts credential bytes or repackages them as slash-command
+  TUI 0.3.0 never accepts credential bytes or repackages them as slash-command
   text. It displays only Core-masked handle metadata; when no trusted Core
   ingress is available, the detail surface says so and remains read-only.
 - `/models` is the cross-provider model selector. Rows are grouped by provider

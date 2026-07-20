@@ -477,7 +477,7 @@ mod tests {
             .remove(&CapabilityId("runtime.project_onboarding".to_string()));
 
         let error = TuiClientDriver::connect(fake)
-            .expect_err("TUI 0.2.0 must require onboarding extensions");
+            .expect_err("TUI 0.3.0 must require onboarding extensions");
 
         assert!(matches!(
             error,
@@ -495,7 +495,7 @@ mod tests {
             .remove(&CapabilityId("runtime.credential_handles".to_string()));
 
         let error = TuiClientDriver::connect(fake)
-            .expect_err("TUI 0.2.0 snapshot must advertise Task 6 extensions");
+            .expect_err("TUI 0.3.0 snapshot must advertise Task 6 extensions");
 
         assert!(matches!(
             error,

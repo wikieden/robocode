@@ -146,7 +146,7 @@ flowchart TD
 
 ## Welcome 与配置流程
 
-Welcome 不是会话。TUI 0.2.0 会先协商 Core 0.3.1 onboarding capability 并请求
+Welcome 不是会话。TUI 0.3.0 会先协商 Core 0.3.1 onboarding capability 并请求
 `ProbeProject`，但在操作者打开 Setup/Lanes 或开始真实任务之前仍停留在 Welcome。
 event cursor 不是 session id。
 

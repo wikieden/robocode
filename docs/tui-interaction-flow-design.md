@@ -155,7 +155,7 @@ flowchart TD
 
 ## Welcome And Configuration Flow
 
-Welcome is not a session. TUI 0.2.0 negotiates the Core 0.3.1 onboarding
+Welcome is not a session. TUI 0.3.0 negotiates the Core 0.3.1 onboarding
 capabilities and requests `ProbeProject`, but remains on Welcome until the
 operator opens Setup/Lanes or starts real work. The event cursor is not a
 session id.
