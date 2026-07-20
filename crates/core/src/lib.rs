@@ -23,19 +23,20 @@ pub use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute,
     AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
-    CommandAction, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
-    CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle, CredentialRequestId,
-    CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus, LocaleId,
-    MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
+    CapabilityId, CommandAction, ContextBundleRecord, ContextOmittedSourceRecord,
+    ContextSourceRecord, CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle,
+    CredentialRequestId, CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget, LaneStatus,
+    LocaleId, MergeGateRecord, MergeGateStatus, MutationPolicy, PermissionLevel, PermissionMode,
     ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView,
     RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest,
     ResolvedUiPreferences, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, ToolCallView, TranscriptPage,
-    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
-    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
-    UiSkin, WorkMode,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, SchemaVersion, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
+    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
+    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -79,5 +80,40 @@ mod tests {
         assert!(std::any::type_name::<RecentWorkQuery>().contains("RecentWorkQuery"));
         assert!(std::any::type_name::<RecentProjectSummary>().contains("RecentProjectSummary"));
         assert!(std::any::type_name::<RecentSessionSummary>().contains("RecentSessionSummary"));
+    }
+
+    #[test]
+    fn facade_exports_starter_lane_frontend_types() {
+        let capability = CapabilityId("runtime.lane_lifecycle".to_string());
+        let owner = RuntimeOwner {
+            workspace_id: "workspace-test".to_string(),
+            project_id: "project-test".to_string(),
+            ..RuntimeOwner::default()
+        };
+        let handshake = CoreHandshake {
+            core_version: "test-core".to_string(),
+            supported_schema_versions: vec![FRONTEND_SCHEMA_V1],
+            active_schema_version: FRONTEND_SCHEMA_V1,
+            capabilities: std::collections::BTreeSet::from([capability]),
+        };
+        let request = StarterLaneRequest {
+            lane_id: "lane-coder".to_string(),
+            preset: StarterLanePreset::Coder,
+            branch: Some("codex/lane-coder".to_string()),
+            worktree_path: Some(".worktrees/lane-coder".to_string()),
+        };
+        let command = RuntimeCommand::PreviewStarterLane {
+            request: request.clone(),
+        };
+
+        assert_eq!(handshake.active_schema_version, FRONTEND_SCHEMA_V1);
+        assert_eq!(owner.workspace_id, "workspace-test");
+        assert_eq!(command, RuntimeCommand::PreviewStarterLane { request });
+        assert!(std::any::type_name::<StarterLanePreview>().contains("StarterLanePreview"));
+        assert!(std::any::type_name::<StarterLaneReceipt>().contains("StarterLaneReceipt"));
+        assert!(
+            std::any::type_name::<StarterLanePreviewInvalidationReason>()
+                .contains("StarterLanePreviewInvalidationReason")
+        );
     }
 }
