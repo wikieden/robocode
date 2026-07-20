@@ -99,6 +99,19 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   color-depth fallback. A later Settings surface may expose these as open
   configuration options, but it must send the typed Core preference command
   and render the returned effective value and diagnostics.
+- The production TUI generates exactly eight complete semantic palettes from
+  `docs/viden-design/Viden/tokens.css` at build time: Aurora, Ice, and Mono in
+  dark/light plus dark-only Amber and Phosphor. Missing registered tokens fail
+  the build; an invalid or partial appearance falls back atomically to Aurora
+  dark/regular instead of combining axes from different profiles.
+- Terminal presentation resolves `auto | truecolor | ansi256 | ansi16` against
+  detected capabilities, applies compact/regular/comfy geometry, keeps reduced
+  motion indicators static, and substitutes registered one-cell ASCII glyphs
+  when Unicode is unavailable. A `UiPreferencesUpdated` projection refreshes
+  theme, density, and motion in memory without creating a TUI preference store.
+- Mouse capture remains disabled. It may be enabled only after the Core
+  resolved preference contract exposes and returns an explicit true value;
+  environment guesses and TUI-private persistence are not valid substitutes.
 - Adding a locale or skin requires paired copy/token coverage and deterministic
   preview evidence. A frontend-only skin fork is not an accepted extension
   path.

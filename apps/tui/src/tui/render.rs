@@ -5,6 +5,7 @@ use super::{
     modal::render_overlays,
     ops_screen::render_ops_body,
     panel::panel,
+    preferences::{ColorDepth, TerminalCapabilities, resolve_appearance},
     projection::CockpitProjection,
     right_rail::right_rail,
     side_screen::render_side_body,
@@ -17,7 +18,6 @@ use super::{
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MIN_HEIGHT: usize = 24;
-const RIGHT_RAIL_WIDTH: usize = 38;
 pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String {
     let width = effective_layout_width(width);
     let height = (height as usize).max(MIN_HEIGHT);
@@ -50,7 +50,7 @@ pub(super) fn render_frame(state: &TuiState, width: u16, height: u16) -> String 
     }
     render_composer(&mut frame, state, BOTTOM_BAR_HEIGHT);
     render_bottom_bar(&mut frame, state);
-    render_overlays(&mut frame, state, RIGHT_RAIL_WIDTH);
+    render_overlays(&mut frame, state, right_rail_width(state));
 
     frame.to_string()
 }
@@ -262,7 +262,8 @@ fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
     let body_top = 3;
     let body_bottom = frame.height - composer_height(state, frame.width) - BOTTOM_BAR_HEIGHT - 1;
     let body_height = body_bottom.saturating_sub(body_top) + 1;
-    let rail_left = frame.width - RIGHT_RAIL_WIDTH;
+    let rail_width = right_rail_width(state);
+    let rail_left = frame.width.saturating_sub(rail_width);
     let transcript_width = rail_left.saturating_sub(1);
 
     let transcript_rows = main_transcript_rows(
@@ -281,7 +282,7 @@ fn render_landscape_body(frame: &mut Frame, state: &TuiState) {
     );
     frame.write_block(body_top, 0, &transcript);
 
-    let rail = right_rail(state, RIGHT_RAIL_WIDTH, body_height);
+    let rail = right_rail(state, rail_width, body_height);
     frame.write_block(body_top, rail_left, &rail);
 }
 
@@ -337,7 +338,11 @@ fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
         live_work_strip_rows(state, &status, width)
     } else {
         let mut inactive_rows = vec![truncate(
-            &format!("     ┊  ✦ {} {}", status.summary, thinking_pulse()),
+            &format!(
+                "     ┊  ✦ {} {}",
+                status.summary,
+                thinking_indicator(state, pulse_frame())
+            ),
             width,
         )];
         if let Some(detail) = status.details.first() {
@@ -430,7 +435,10 @@ fn live_work_strip_rows(
     let title = super::i18n::text(state, "live.title");
     let mut rows = vec![
         truncate(
-            &format!("     ╭─ {title} {} {header_rule}", thinking_pulse()),
+            &format!(
+                "     ╭─ {title} {} {header_rule}",
+                thinking_indicator(state, pulse_frame())
+            ),
             width,
         ),
         truncate(
@@ -788,13 +796,80 @@ fn activity_separator(width: usize) -> String {
     )
 }
 
-fn thinking_pulse() -> &'static str {
-    const FRAMES: [&str; 4] = ["·", "∙", "•", "∙"];
+fn pulse_frame() -> usize {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
-    FRAMES[((now / 350) as usize) % FRAMES.len()]
+    (now / 350) as usize
+}
+
+fn thinking_indicator(state: &TuiState, frame: usize) -> &'static str {
+    let capabilities = TerminalCapabilities::detect();
+    let appearance = resolve_appearance(
+        &state.runtime.snapshot.ui_preferences,
+        ColorDepth::Auto,
+        capabilities,
+    );
+    appearance
+        .glyphs
+        .activity_indicator(appearance.reduced_motion(), frame)
+}
+
+pub(super) fn right_rail_width(state: &TuiState) -> usize {
+    resolve_appearance(
+        &state.runtime.snapshot.ui_preferences,
+        ColorDepth::Auto,
+        TerminalCapabilities::default(),
+    )
+    .geometry
+    .right_rail_width
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+    use viden_core::{UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiSkin};
+
+    #[test]
+    fn reduced_motion_keeps_the_live_indicator_static() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.motion = UiMotion::Reduced;
+
+        assert_eq!(thinking_indicator(&state, 0), thinking_indicator(&state, 7));
+
+        state.runtime.snapshot.ui_preferences.motion = UiMotion::Full;
+        assert_ne!(thinking_indicator(&state, 0), thinking_indicator(&state, 1));
+    }
+
+    #[test]
+    fn core_density_changes_the_rendered_right_rail_geometry() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.density = UiDensity::Compact;
+        assert_eq!(right_rail_width(&state), 34);
+
+        state.runtime.snapshot.ui_preferences.density = UiDensity::Regular;
+        assert_eq!(right_rail_width(&state), 38);
+
+        state.runtime.snapshot.ui_preferences.density = UiDensity::Comfy;
+        assert_eq!(right_rail_width(&state), 42);
+    }
+
+    #[test]
+    fn invalid_appearance_falls_back_to_regular_render_geometry() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.skin = UiSkin::Amber;
+        state.runtime.snapshot.ui_preferences.mode = UiColorMode::Light;
+        state.runtime.snapshot.ui_preferences.density = UiDensity::Comfy;
+        state.runtime.snapshot.ui_preferences.diagnostics = vec![UiPreferenceDiagnostic::new(
+            "ui.invalid_skin_mode_pair",
+            "skin_mode",
+            "ui.mode",
+            Some("amber/light".to_string()),
+        )];
+
+        assert_eq!(right_rail_width(&state), 38);
+    }
 }
 
 struct LiveActivityStatus {
