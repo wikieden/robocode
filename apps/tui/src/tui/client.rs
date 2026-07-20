@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use viden_core::{
     CORE_CLIENT_CAPABILITIES, CoreClient, CoreClientError, CoreHandshake, EventCursor,
-    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope,
     RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, validate_handshake,
     validate_schema_version,
 };
@@ -42,6 +42,7 @@ pub(super) struct TuiClientDriver<C: CoreClient> {
     confirmed: RuntimeSnapshotEnvelope,
     next_command: u64,
     owner: RuntimeOwner,
+    applied_events: Vec<RuntimeEvent>,
 }
 
 impl<C: CoreClient> std::fmt::Debug for TuiClientDriver<C> {
@@ -66,6 +67,7 @@ impl<C: CoreClient> TuiClientDriver<C> {
             confirmed,
             next_command: 1,
             owner: RuntimeOwner::default(),
+            applied_events: Vec::new(),
         })
     }
 
@@ -92,6 +94,13 @@ impl<C: CoreClient> TuiClientDriver<C> {
             .intersection(&self.confirmed.capabilities)
             .cloned()
             .collect()
+    }
+
+    /// Returns the ordered known events applied since the last projection.
+    /// UI workflows use these receipts to distinguish command acceptance from
+    /// the later authoritative fact that confirms an operation.
+    pub(super) fn take_applied_events(&mut self) -> Vec<RuntimeEvent> {
+        std::mem::take(&mut self.applied_events)
     }
 
     pub(super) fn send(&mut self, command: RuntimeCommand) -> Result<String, TuiClientError> {
@@ -127,7 +136,17 @@ impl<C: CoreClient> TuiClientDriver<C> {
         validate_event_envelope(&delivered)?;
 
         if delivered.cursor.stream_id != before.stream_id {
-            self.confirmed = acquire_validated_snapshot(&mut self.client)?;
+            let recovered = acquire_validated_snapshot(&mut self.client)?;
+            // A replacement snapshot may already include the event that
+            // announced its stream. Keep that Core receipt only when the
+            // recovered cursor proves the authoritative view covers it.
+            if recovered.cursor.stream_id == delivered.cursor.stream_id
+                && recovered.cursor.sequence >= delivered.cursor.sequence
+                && let RuntimeWireEvent::Known(event) = delivered.event
+            {
+                self.applied_events.push(event);
+            }
+            self.confirmed = recovered;
             return Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()));
         }
         if delivered.cursor.sequence <= before.sequence {
@@ -140,6 +159,9 @@ impl<C: CoreClient> TuiClientDriver<C> {
         let mut staged = self.confirmed.clone();
         apply_event_envelope(&mut staged, &delivered)?;
         self.confirmed = staged;
+        if let RuntimeWireEvent::Known(event) = delivered.event {
+            self.applied_events.push(event);
+        }
         Ok(PumpOutcome::Applied(delivered.cursor))
     }
 
@@ -148,6 +170,7 @@ impl<C: CoreClient> TuiClientDriver<C> {
         incoming: RuntimeEventEnvelope,
     ) -> Result<PumpOutcome, TuiClientError> {
         let mut staged = self.confirmed.clone();
+        let mut staged_events = Vec::new();
         let mut request = ReplayRequest {
             after: staged.cursor.clone(),
             limit: 500,
@@ -183,6 +206,9 @@ impl<C: CoreClient> TuiClientDriver<C> {
                     .into());
                 }
                 apply_event_envelope(&mut staged, envelope)?;
+                if let RuntimeWireEvent::Known(event) = &envelope.event {
+                    staged_events.push(event.clone());
+                }
                 delivered |= envelope.cursor == incoming.cursor;
             }
             if batch.next != staged.cursor {
@@ -214,6 +240,7 @@ impl<C: CoreClient> TuiClientDriver<C> {
             .into());
         }
         self.confirmed = staged;
+        self.applied_events.extend(staged_events);
         Ok(PumpOutcome::Recovered(self.confirmed.cursor.clone()))
     }
 }
@@ -284,6 +311,7 @@ fn apply_event_envelope(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::preferences::{ColorDepth, PreferenceValue, SettingsPanel};
     use std::{collections::VecDeque, path::PathBuf, time::Duration};
     use viden_core::{
         CORE_EXTENSION_CAPABILITIES, CoreClientError, frontend_capabilities, local_core_handshake,
@@ -502,6 +530,69 @@ mod tests {
 
         assert!(matches!(driver.pump().unwrap(), PumpOutcome::Recovered(_)));
         assert!(driver.view().lane_runtime_owners.is_empty());
+    }
+
+    #[test]
+    fn stream_change_preference_update_finishes_the_accepted_settings_command() {
+        let command = RuntimeCommand::SetUiPreferences {
+            patch: viden_types::UiPreferencePatch {
+                density: Some(viden_core::UiDensity::Comfy),
+                ..viden_types::UiPreferencePatch::default()
+            },
+        };
+        let accepted = event(
+            1,
+            RuntimeEventKind::CommandAccepted {
+                command_id: "tui-1".to_string(),
+                command: command.clone(),
+            },
+        );
+        let persisted = viden_types::UiPreferences {
+            density: viden_core::UiDensity::Comfy,
+            ..viden_types::UiPreferences::default()
+        };
+        let resolved = viden_core::ResolvedUiPreferences {
+            density: viden_core::UiDensity::Comfy,
+            ..viden_core::ResolvedUiPreferences::default()
+        };
+        let mut updated = event(
+            1,
+            RuntimeEventKind::UiPreferencesUpdated {
+                resolved,
+                persisted: Some(persisted),
+                diagnostics: Vec::new(),
+            },
+        );
+        updated.cursor.stream_id = "replacement".to_string();
+
+        let mut fake = FakeCoreClient::compatible();
+        let baseline = fake.snapshot.as_ref().unwrap().view.ui_preferences.clone();
+        let mut replacement = fake.snapshot.clone().unwrap();
+        replacement.cursor = updated.cursor.clone();
+        if let RuntimeWireEvent::Known(event) = &updated.event {
+            replacement.view.apply_event(event);
+        }
+        replacement.snapshot = replacement.view.snapshot.clone();
+        fake.recovery_snapshot = Some(replacement);
+        fake.events.extend([accepted, updated]);
+
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
+        let mut panel = SettingsPanel::new(&baseline, ColorDepth::Auto);
+        assert!(panel.select(PreferenceValue::Density(viden_core::UiDensity::Comfy)));
+        panel.begin_pending("tui-1".to_string(), command);
+
+        assert!(matches!(driver.pump().unwrap(), PumpOutcome::Applied(_)));
+        for event in driver.take_applied_events() {
+            panel.observe_event(&event);
+        }
+        assert!(panel.is_pending());
+
+        assert!(matches!(driver.pump().unwrap(), PumpOutcome::Recovered(_)));
+        for event in driver.take_applied_events() {
+            panel.observe_event(&event);
+        }
+        assert!(!panel.is_pending());
+        assert!(panel.has_succeeded());
     }
 
     #[test]

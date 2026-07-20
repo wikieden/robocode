@@ -18,7 +18,10 @@ use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_in
 use super::modal::{
     DEFAULT_APPROVAL_FOCUS, interaction_panel_choice_count, selected_interaction_command,
 };
-use super::preferences::{ColorDepth, TerminalCapabilities};
+use super::preferences::{
+    ColorDepth, PreferenceField, SettingsPanel, TerminalCapabilities,
+    UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+};
 use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{InteractionPanel, Lens, OverlayState, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
@@ -98,9 +101,10 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
     loop {
         apply_pump_outcome(&mut state, driver.pump()?);
         project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver);
         terminal.refresh_appearance(
             &driver.view().snapshot.ui_preferences,
-            color_depth,
+            state.ui.color_depth,
             terminal_capabilities,
         );
         terminal.draw(&state).map_err(TuiError::Terminal)?;
@@ -133,6 +137,7 @@ fn detect_color_depth() -> TuiColorDepth {
 
 fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOptions) -> TuiState {
     let mut state = TuiState::new(driver.view().clone());
+    state.ui.color_depth = ColorDepth::from(options.color_depth);
     state.ui.theme_name = ui_profile_label(&state.runtime.snapshot.ui_preferences);
     state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
@@ -349,10 +354,7 @@ fn apply_input_intent<C: CoreClient>(
                 state.ui.overlay = overlay.previous_overlay.map(|previous| *previous);
             }
             Some(_) => {}
-            None if state.ui.interaction_panel.take().is_none() => {
-                close_on_escape(key, state);
-            }
-            None => {}
+            None => close_interaction_panel_or_palette(key, state),
         },
         InputIntent::ClearSelection => {
             close_focus_on_escape(key, state);
@@ -621,6 +623,12 @@ fn open_local_lens_command<C: CoreClient>(
             state.ui.overlay = None;
             state.ui.interaction_panel = None;
         }
+        "/settings" => {
+            state.ui.overlay = None;
+            state.ui.interaction_panel = Some(InteractionPanel::Settings(Box::new(
+                SettingsPanel::new(&state.runtime.snapshot.ui_preferences, state.ui.color_depth),
+            )));
+        }
         _ => return Ok(false),
     }
     state.ui.input.clear();
@@ -822,6 +830,7 @@ fn move_interaction_selection(state: &mut TuiState, delta: i8) {
 
 fn interaction_selected(state: &TuiState) -> usize {
     match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Settings(panel)) => panel.selected,
         Some(InteractionPanel::Setup { selected, .. })
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
@@ -853,6 +862,7 @@ fn cycle_agent_focus(state: &mut TuiState) {
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
     match state.ui.interaction_panel.as_mut() {
+        Some(InteractionPanel::Settings(panel)) => panel.selected = index,
         Some(InteractionPanel::Setup { selected, .. })
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
@@ -863,6 +873,7 @@ fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
 
 fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
     match state.ui.interaction_panel.as_mut() {
+        Some(InteractionPanel::Settings(_)) => {}
         Some(InteractionPanel::ConnectProvider { search, selected })
         | Some(InteractionPanel::ModelPicker {
             search, selected, ..
@@ -889,6 +900,13 @@ fn apply_interaction_panel_selection<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
 ) -> Result<bool, TuiClientError> {
+    if matches!(
+        state.ui.interaction_panel,
+        Some(InteractionPanel::Settings(_))
+    ) {
+        apply_settings_selection(driver, state)?;
+        return Ok(false);
+    }
     if let Some(InteractionPanel::Setup { selected, draft }) = state.ui.interaction_panel.as_ref() {
         if !driver.has_capability(PROJECT_ONBOARDING_CAPABILITY) {
             return Ok(false);
@@ -928,6 +946,130 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         Ok(true)
     } else {
         Ok(false)
+    }
+}
+
+fn apply_settings_selection<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    if !driver.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
+        return Ok(());
+    }
+    let action = {
+        let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() else {
+            return Ok(());
+        };
+        if panel.is_pending() {
+            return Ok(());
+        }
+        if let Some(field) = panel.field {
+            let choice = panel.choices(field).get(panel.selected).copied();
+            if let Some(choice) = choice
+                && panel.select(choice.value)
+            {
+                if field == PreferenceField::ColorDepth {
+                    state.ui.color_depth = panel.color_depth();
+                }
+                panel.field = None;
+                panel.selected = settings_field_index(field);
+            }
+            return Ok(());
+        }
+        match panel.selected {
+            0..=5 => {
+                let field = settings_field_at(panel.selected);
+                panel.field = Some(field);
+                panel.selected = panel
+                    .choices(field)
+                    .iter()
+                    .position(|choice| settings_choice_is_selected(panel, choice.value))
+                    .unwrap_or(0);
+                return Ok(());
+            }
+            6 => panel.apply_command(),
+            7 => Some(panel.reset_command()),
+            _ => None,
+        }
+    };
+    if let Some(command) = action {
+        let command_id = driver.send(command.clone())?;
+        if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
+            panel.begin_pending(command_id, command);
+        }
+    }
+    Ok(())
+}
+
+fn settings_field_at(index: usize) -> PreferenceField {
+    match index {
+        0 => PreferenceField::Locale,
+        1 => PreferenceField::Skin,
+        2 => PreferenceField::Mode,
+        3 => PreferenceField::Density,
+        4 => PreferenceField::Motion,
+        5 => PreferenceField::ColorDepth,
+        _ => PreferenceField::Locale,
+    }
+}
+
+fn settings_field_index(field: PreferenceField) -> usize {
+    match field {
+        PreferenceField::Locale => 0,
+        PreferenceField::Skin => 1,
+        PreferenceField::Mode => 2,
+        PreferenceField::Density => 3,
+        PreferenceField::Motion => 4,
+        PreferenceField::ColorDepth => 5,
+    }
+}
+
+fn settings_choice_is_selected(
+    panel: &SettingsPanel,
+    value: super::preferences::PreferenceValue,
+) -> bool {
+    match value {
+        super::preferences::PreferenceValue::Locale(value) => panel.selected_locale() == value,
+        super::preferences::PreferenceValue::Skin(value) => panel.selected_skin() == value,
+        super::preferences::PreferenceValue::Mode(value) => panel.selected_mode() == value,
+        super::preferences::PreferenceValue::Density(value) => panel.selected_density() == value,
+        super::preferences::PreferenceValue::Motion(value) => panel.selected_motion() == value,
+        super::preferences::PreferenceValue::ColorDepth(value) => panel.color_depth() == value,
+    }
+}
+
+fn close_interaction_panel_or_palette(key: KeyEvent, state: &mut TuiState) {
+    if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut()
+        && let Some(field) = panel.field.take()
+    {
+        panel.selected = settings_field_index(field);
+        return;
+    }
+    if state.ui.interaction_panel.take().is_none() {
+        close_on_escape(key, state);
+    }
+}
+
+fn observe_driver_events<C: CoreClient>(state: &mut TuiState, driver: &mut TuiClientDriver<C>) {
+    let events = driver.take_applied_events();
+    for event in &events {
+        if let viden_core::RuntimeEventKind::UiPreferencesUpdated {
+            resolved,
+            diagnostics,
+            ..
+        } = &event.kind
+        {
+            state.ui.preference_diagnostics = diagnostics
+                .iter()
+                .chain(resolved.diagnostics.iter())
+                .map(|diagnostic| diagnostic.code.clone())
+                .collect();
+            state.ui.preference_diagnostics.sort();
+            state.ui.preference_diagnostics.dedup();
+        }
+        if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
+            panel.observe_event(event);
+        }
     }
 }
 
@@ -1030,7 +1172,7 @@ mod tests {
         AgentLaneRecord, ApprovalDecision, ApprovalScope, CapabilityId, FRONTEND_SCHEMA_V1,
         LaneStatus, PermissionLevel, PermissionMode, ProjectConfigPreview, ReplayBatch,
         ReplayRequest, RuntimeOwner, RuntimeSnapshot, ToolCallView, TranscriptPage,
-        TranscriptPageRequest, WorkMode,
+        TranscriptPageRequest, UiPreferencePatch, UiPreferences, WorkMode,
     };
 
     #[derive(Default)]
@@ -1921,6 +2063,137 @@ mod tests {
         assert!(chinese.contains("Core 暂无 lane。"));
         assert!(state.ui.theme_name.contains("zh-CN"));
         assert_eq!(state.ui.lens, Lens::Board);
+    }
+
+    #[test]
+    fn settings_without_extension_are_visible_but_send_no_preference_command() {
+        let base_capabilities = viden_core::CORE_CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| CapabilityId((*capability).to_string()))
+            .collect::<BTreeSet<_>>();
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                capabilities: Some(base_capabilities),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("base-only client");
+        let mut state = state_from_driver(&driver, &TuiOptions::new("startup"));
+        state.ui.input = "/settings".into();
+
+        submit_composer(&mut driver, &mut state).expect("open settings");
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::Settings(_))
+        ));
+        if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
+            panel.selected = 7;
+        }
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("disabled reset");
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn plan_mode_settings_wait_for_matching_preference_update_before_success() {
+        let persisted = UiPreferences {
+            density: viden_core::UiDensity::Comfy,
+            ..UiPreferences::default()
+        };
+        let resolved = viden_core::ResolvedUiPreferences {
+            density: viden_core::UiDensity::Comfy,
+            ..viden_core::ResolvedUiPreferences::default()
+        };
+        let command = RuntimeCommand::SetUiPreferences {
+            patch: UiPreferencePatch {
+                density: Some(viden_core::UiDensity::Comfy),
+                ..UiPreferencePatch::default()
+            },
+        };
+        let events = VecDeque::from([
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner: RuntimeOwner::default(),
+                cursor: EventCursor {
+                    stream_id: "fixture".to_string(),
+                    sequence: 1,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    1,
+                    Some(1),
+                    RuntimeEventKind::CommandAccepted {
+                        command_id: "tui-1".to_string(),
+                        command: command.clone(),
+                    },
+                )),
+            },
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner: RuntimeOwner::default(),
+                cursor: EventCursor {
+                    stream_id: "fixture".to_string(),
+                    sequence: 2,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    2,
+                    Some(2),
+                    RuntimeEventKind::UiPreferencesUpdated {
+                        resolved,
+                        persisted: Some(persisted),
+                        diagnostics: Vec::new(),
+                    },
+                )),
+            },
+        ]);
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events,
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("extension client");
+        let mut state = state_from_driver(&driver, &TuiOptions::new("startup"));
+        state.runtime.snapshot.work_mode = WorkMode::Plan;
+        state.ui.interaction_panel = Some(InteractionPanel::Settings(Box::new(
+            SettingsPanel::new(&state.runtime.snapshot.ui_preferences, ColorDepth::Auto),
+        )));
+        if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
+            panel.select(super::super::preferences::PreferenceValue::Density(
+                viden_core::UiDensity::Comfy,
+            ));
+            panel.selected = 6;
+        }
+
+        apply_interaction_panel_selection(&mut driver, &mut state)
+            .expect("send plan-mode UI patch");
+        assert_eq!(sent.lock().expect("sent commands")[0].command, command);
+
+        driver.pump().expect("accepted event");
+        observe_driver_events(&mut state, &mut driver);
+        let panel = match state.ui.interaction_panel.as_ref() {
+            Some(InteractionPanel::Settings(panel)) => panel,
+            other => panic!("settings panel missing: {other:?}"),
+        };
+        assert!(panel.is_pending());
+        assert!(!panel.has_succeeded());
+
+        driver.pump().expect("preference update");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver);
+        let panel = match state.ui.interaction_panel.as_ref() {
+            Some(InteractionPanel::Settings(panel)) => panel,
+            other => panic!("settings panel missing: {other:?}"),
+        };
+        assert!(!panel.is_pending());
+        assert!(panel.has_succeeded());
+        assert_eq!(
+            state.runtime.snapshot.ui_preferences.density,
+            viden_core::UiDensity::Comfy
+        );
     }
 
     #[test]
@@ -3221,7 +3494,7 @@ mod tests {
         }
         assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 0);
 
-        state.ui.overlay.as_mut().expect("jump").selected = 11;
+        state.ui.overlay.as_mut().expect("jump").selected = 12;
         for code in [KeyCode::Down, KeyCode::Char('j')] {
             handle_ui_event(
                 &mut driver,
@@ -3231,7 +3504,7 @@ mod tests {
             )
             .expect("clamp at last result");
         }
-        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 11);
+        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 12);
 
         let overlay = state.ui.overlay.as_mut().expect("jump");
         overlay.filter = ">no-such-command".to_string();
@@ -3645,8 +3918,17 @@ mod tests {
             .parse::<toml::Value>()
             .expect("release manifest TOML");
 
-        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.0");
-        assert!(manifest.contains("version = \"0.3.0\""));
+        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.1");
+        assert!(manifest.contains("version = \"0.3.1\""));
+        assert!(manifest.contains(
+            "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
+        ));
+        assert!(manifest.contains(
+            "catalog_en = \"e2b01eee9ee74a057a879398d1c459ddc629aee3429f2ef53cffc1c2f18f7e79\""
+        ));
+        assert!(manifest.contains(
+            "catalog_zh_cn = \"84c7732cd7ffe7147f0b8e76977b40b12fc3c0e03b61138eae1199ff8bfb7162\""
+        ));
         assert!(manifest.contains("min_core_version = \"0.3.2\""));
         assert!(
             manifest

@@ -72,9 +72,15 @@ TUI 决策。
   replay 或 `UiPreferencesUpdated` 后无需维护第二份 locale 状态。CLI override、stored user
   preference、system locale 与英文 fallback 的优先级由 Core 解析；TUI 不重复该 resolver，
   也不接受 project data 作为个人 UI 偏好来源。
-- skin/mode 继续使用 Core 校验后的组合与终端色深降级。后续 Settings 界面可以把它们开放为
-  配置选项，但必须发送 typed Core preference command，并渲染 Core 返回的 effective value
-  与 diagnostics。
+- Stable Settings 采用 selector-first，开放 locale、skin、mode、density、motion、终端
+  color depth、Apply 与 Reset。需要持久化的选择只发送
+  `SetUiPreferences { patch: UiPreferencePatch }` 或 `ResetUiPreferences`；
+  `CommandAccepted` 后仍保持 pending，只有匹配的 `UiPreferencesUpdated` 才确认成功。
+  rejection 保留 draft 并渲染 Core reason。缺少 `ui.preference_persistence` 时 surface
+  仍可见但明确 unavailable，command transport 保持零发送。
+- Amber 与 Phosphor 的 light 选项保持可见但禁用，并解释 dark-only 原因。Color depth
+  因 schema 1 不持久化该 terminal-only axis，只作为明确标记的未保存 session preview；
+  TUI 不写私有 config 或 preference store。
 - 生产 TUI 在构建时从 `docs/viden-design/Viden/tokens.css` 生成恰好八套完整语义 palette：
   Aurora、Ice、Mono 各有 dark/light，Amber、Phosphor 仅 dark。登记 token 缺失会让构建失败；
   无效或不完整外观会原子回退到 Aurora dark/regular，不得拼接不同 profile 的轴。

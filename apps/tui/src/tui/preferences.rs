@@ -1,7 +1,10 @@
 pub(super) use viden_core::{
     LocaleId, UiColorMode as ColorMode, UiDensity as Density, UiMotion as Motion, UiSkin as Skin,
 };
-use viden_core::{ResolvedUiPreferences, TuiColorDepth};
+use viden_core::{
+    ResolvedUiPreferences, RuntimeCommand, RuntimeEvent, RuntimeEventKind, TuiColorDepth,
+    UiPreferencePatch, UiPreferences,
+};
 
 use super::{glyphs::GlyphSet, palette::Palette};
 
@@ -11,6 +14,406 @@ pub(super) enum ColorDepth {
     Truecolor,
     Ansi256,
     Ansi16,
+}
+
+pub(super) const UI_PREFERENCE_PERSISTENCE_CAPABILITY: &str = "ui.preference_persistence";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreferenceField {
+    Locale,
+    Skin,
+    Mode,
+    Density,
+    Motion,
+    ColorDepth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreferenceValue {
+    Locale(LocaleId),
+    Skin(Skin),
+    Mode(ColorMode),
+    Density(Density),
+    Motion(Motion),
+    ColorDepth(ColorDepth),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PreferenceChoice {
+    pub(super) value: PreferenceValue,
+    pub(super) label_key: &'static str,
+    pub(super) effect_key: &'static str,
+    pub(super) enabled: bool,
+    pub(super) invalid_reason_key: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingPreferenceCommand {
+    command_id: String,
+    command: RuntimeCommand,
+    accepted: bool,
+}
+
+/// Selector draft for stable Settings. Core-resolved values remain the
+/// baseline; only explicitly selected axes enter the typed patch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SettingsPanel {
+    pub(super) field: Option<PreferenceField>,
+    pub(super) selected: usize,
+    baseline: ResolvedUiPreferences,
+    patch: UiPreferencePatch,
+    color_depth: ColorDepth,
+    pending: Option<PendingPreferenceCommand>,
+    succeeded: bool,
+    rejection_reason: Option<String>,
+    diagnostics: Vec<String>,
+}
+
+impl SettingsPanel {
+    pub(super) fn new(baseline: &ResolvedUiPreferences, color_depth: ColorDepth) -> Self {
+        Self {
+            field: None,
+            selected: 0,
+            baseline: baseline.clone(),
+            patch: UiPreferencePatch::default(),
+            color_depth,
+            pending: None,
+            succeeded: false,
+            rejection_reason: None,
+            diagnostics: baseline
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.clone())
+                .collect(),
+        }
+    }
+
+    pub(super) fn choices(&self, field: PreferenceField) -> Vec<PreferenceChoice> {
+        let selected_skin = self.selected_skin();
+        let selected_mode = self.selected_mode();
+        match field {
+            PreferenceField::Locale => vec![
+                choice(
+                    PreferenceValue::Locale(LocaleId::System),
+                    "settings.value.system",
+                    "settings.effect.locale.system",
+                    true,
+                ),
+                choice(
+                    PreferenceValue::Locale(LocaleId::En),
+                    "settings.value.en",
+                    "settings.effect.locale.en",
+                    true,
+                ),
+                choice(
+                    PreferenceValue::Locale(LocaleId::ZhCn),
+                    "settings.value.zh_cn",
+                    "settings.effect.locale.zh_cn",
+                    true,
+                ),
+            ],
+            PreferenceField::Skin => Skin::ALL
+                .into_iter()
+                .map(|skin| {
+                    let enabled = selected_mode != ColorMode::Light
+                        || !matches!(skin, Skin::Amber | Skin::Phosphor);
+                    choice(
+                        PreferenceValue::Skin(skin),
+                        skin_label_key(skin),
+                        "settings.effect.skin",
+                        enabled,
+                    )
+                })
+                .collect(),
+            PreferenceField::Mode => [ColorMode::System, ColorMode::Dark, ColorMode::Light]
+                .into_iter()
+                .map(|mode| {
+                    let enabled = mode != ColorMode::Light
+                        || !matches!(selected_skin, Skin::Amber | Skin::Phosphor);
+                    choice(
+                        PreferenceValue::Mode(mode),
+                        mode_label_key(mode),
+                        mode_effect_key(mode),
+                        enabled,
+                    )
+                })
+                .collect(),
+            PreferenceField::Density => [Density::Compact, Density::Regular, Density::Comfy]
+                .into_iter()
+                .map(|density| {
+                    choice(
+                        PreferenceValue::Density(density),
+                        density_label_key(density),
+                        density_effect_key(density),
+                        true,
+                    )
+                })
+                .collect(),
+            PreferenceField::Motion => [Motion::System, Motion::Reduced, Motion::Full]
+                .into_iter()
+                .map(|motion| {
+                    choice(
+                        PreferenceValue::Motion(motion),
+                        motion_label_key(motion),
+                        motion_effect_key(motion),
+                        true,
+                    )
+                })
+                .collect(),
+            PreferenceField::ColorDepth => [
+                ColorDepth::Auto,
+                ColorDepth::Truecolor,
+                ColorDepth::Ansi256,
+                ColorDepth::Ansi16,
+            ]
+            .into_iter()
+            .map(|depth| {
+                choice(
+                    PreferenceValue::ColorDepth(depth),
+                    color_depth_label_key(depth),
+                    "settings.effect.color_depth",
+                    true,
+                )
+            })
+            .collect(),
+        }
+    }
+
+    pub(super) fn select(&mut self, value: PreferenceValue) -> bool {
+        let field = field_for_value(value);
+        let enabled = self
+            .choices(field)
+            .iter()
+            .find(|choice| choice.value == value)
+            .is_some_and(|choice| choice.enabled);
+        if !enabled || self.pending.is_some() {
+            return false;
+        }
+        match value {
+            PreferenceValue::Locale(value) => self.patch.locale = Some(value),
+            PreferenceValue::Skin(value) => self.patch.skin = Some(value),
+            PreferenceValue::Mode(value) => self.patch.mode = Some(value),
+            PreferenceValue::Density(value) => self.patch.density = Some(value),
+            PreferenceValue::Motion(value) => self.patch.motion = Some(value),
+            PreferenceValue::ColorDepth(value) => self.color_depth = value,
+        }
+        self.succeeded = false;
+        self.rejection_reason = None;
+        true
+    }
+
+    pub(super) fn apply_command(&self) -> Option<RuntimeCommand> {
+        (!patch_is_empty(&self.patch))
+            .then_some(RuntimeCommand::SetUiPreferences { patch: self.patch })
+    }
+
+    pub(super) fn reset_command(&self) -> RuntimeCommand {
+        RuntimeCommand::ResetUiPreferences
+    }
+
+    pub(super) fn begin_pending(&mut self, command_id: String, command: RuntimeCommand) {
+        self.pending = Some(PendingPreferenceCommand {
+            command_id,
+            command,
+            accepted: false,
+        });
+        self.succeeded = false;
+        self.rejection_reason = None;
+    }
+
+    pub(super) fn observe_event(&mut self, event: &RuntimeEvent) {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            } if command_id == &pending.command_id && command == &pending.command => {
+                pending.accepted = true;
+            }
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &pending.command_id =>
+            {
+                self.pending = None;
+                self.rejection_reason = Some(reason.clone());
+            }
+            RuntimeEventKind::UiPreferencesUpdated {
+                resolved,
+                persisted,
+                diagnostics,
+            } if pending.accepted && update_matches(&pending.command, persisted.as_ref()) => {
+                self.baseline = resolved.clone();
+                self.patch = UiPreferencePatch::default();
+                self.pending = None;
+                self.succeeded = true;
+                self.rejection_reason = None;
+                self.diagnostics = diagnostics
+                    .iter()
+                    .chain(resolved.diagnostics.iter())
+                    .map(|diagnostic| diagnostic.code.clone())
+                    .collect();
+                self.diagnostics.sort();
+                self.diagnostics.dedup();
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn selected_locale(&self) -> LocaleId {
+        self.patch.locale.unwrap_or(self.baseline.locale)
+    }
+
+    pub(super) fn selected_skin(&self) -> Skin {
+        self.patch.skin.unwrap_or(self.baseline.skin)
+    }
+
+    pub(super) fn selected_mode(&self) -> ColorMode {
+        self.patch.mode.unwrap_or(self.baseline.mode)
+    }
+
+    pub(super) fn selected_density(&self) -> Density {
+        self.patch.density.unwrap_or(self.baseline.density)
+    }
+
+    pub(super) fn selected_motion(&self) -> Motion {
+        self.patch.motion.unwrap_or(self.baseline.motion)
+    }
+
+    pub(super) fn color_depth(&self) -> ColorDepth {
+        self.color_depth
+    }
+
+    pub(super) fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub(super) fn has_succeeded(&self) -> bool {
+        self.succeeded
+    }
+
+    pub(super) fn rejection_reason(&self) -> Option<&str> {
+        self.rejection_reason.as_deref()
+    }
+
+    pub(super) fn diagnostics(&self) -> &[String] {
+        &self.diagnostics
+    }
+}
+
+fn choice(
+    value: PreferenceValue,
+    label_key: &'static str,
+    effect_key: &'static str,
+    enabled: bool,
+) -> PreferenceChoice {
+    PreferenceChoice {
+        value,
+        label_key,
+        effect_key,
+        enabled,
+        invalid_reason_key: (!enabled).then_some("settings.invalid.retro_light"),
+    }
+}
+
+fn field_for_value(value: PreferenceValue) -> PreferenceField {
+    match value {
+        PreferenceValue::Locale(_) => PreferenceField::Locale,
+        PreferenceValue::Skin(_) => PreferenceField::Skin,
+        PreferenceValue::Mode(_) => PreferenceField::Mode,
+        PreferenceValue::Density(_) => PreferenceField::Density,
+        PreferenceValue::Motion(_) => PreferenceField::Motion,
+        PreferenceValue::ColorDepth(_) => PreferenceField::ColorDepth,
+    }
+}
+
+fn patch_is_empty(patch: &UiPreferencePatch) -> bool {
+    patch.locale.is_none()
+        && patch.skin.is_none()
+        && patch.mode.is_none()
+        && patch.density.is_none()
+        && patch.motion.is_none()
+}
+
+fn update_matches(command: &RuntimeCommand, persisted: Option<&UiPreferences>) -> bool {
+    match command {
+        RuntimeCommand::SetUiPreferences { patch } => persisted.is_some_and(|persisted| {
+            patch.locale.is_none_or(|value| persisted.locale == value)
+                && patch.skin.is_none_or(|value| persisted.skin == value)
+                && patch.mode.is_none_or(|value| persisted.mode == value)
+                && patch.density.is_none_or(|value| persisted.density == value)
+                && patch.motion.is_none_or(|value| persisted.motion == value)
+        }),
+        RuntimeCommand::ResetUiPreferences => persisted.is_none(),
+        _ => false,
+    }
+}
+
+pub(super) const fn skin_label_key(value: Skin) -> &'static str {
+    match value {
+        Skin::Aurora => "settings.value.aurora",
+        Skin::Ice => "settings.value.ice",
+        Skin::Mono => "settings.value.mono",
+        Skin::Amber => "settings.value.amber",
+        Skin::Phosphor => "settings.value.phosphor",
+    }
+}
+
+pub(super) const fn mode_label_key(value: ColorMode) -> &'static str {
+    match value {
+        ColorMode::System => "settings.value.system",
+        ColorMode::Dark => "settings.value.dark",
+        ColorMode::Light => "settings.value.light",
+    }
+}
+
+pub(super) const fn density_label_key(value: Density) -> &'static str {
+    match value {
+        Density::Compact => "settings.value.compact",
+        Density::Regular => "settings.value.regular",
+        Density::Comfy => "settings.value.comfy",
+    }
+}
+
+pub(super) const fn motion_label_key(value: Motion) -> &'static str {
+    match value {
+        Motion::System => "settings.value.system",
+        Motion::Reduced => "settings.value.reduced",
+        Motion::Full => "settings.value.full",
+    }
+}
+
+pub(super) const fn color_depth_label_key(value: ColorDepth) -> &'static str {
+    match value {
+        ColorDepth::Auto => "settings.value.auto",
+        ColorDepth::Truecolor => "settings.value.truecolor",
+        ColorDepth::Ansi256 => "settings.value.ansi256",
+        ColorDepth::Ansi16 => "settings.value.ansi16",
+    }
+}
+
+fn mode_effect_key(value: ColorMode) -> &'static str {
+    match value {
+        ColorMode::System => "settings.effect.mode.system",
+        ColorMode::Dark => "settings.effect.mode.dark",
+        ColorMode::Light => "settings.effect.mode.light",
+    }
+}
+
+fn density_effect_key(value: Density) -> &'static str {
+    match value {
+        Density::Compact => "settings.effect.density.compact",
+        Density::Regular => "settings.effect.density.regular",
+        Density::Comfy => "settings.effect.density.comfy",
+    }
+}
+
+fn motion_effect_key(value: Motion) -> &'static str {
+    match value {
+        Motion::System => "settings.effect.motion.system",
+        Motion::Reduced => "settings.effect.motion.reduced",
+        Motion::Full => "settings.effect.motion.full",
+    }
 }
 
 impl From<TuiColorDepth> for ColorDepth {
@@ -211,10 +614,13 @@ pub(super) fn resolve_preferences(resolved: &ResolvedUiPreferences) -> TuiPrefer
 #[cfg(test)]
 mod tests {
     use super::{
-        ColorDepth, ColorMode, Density, LocaleId, Motion, Skin, TerminalCapabilities,
-        resolve_appearance, resolve_preferences,
+        ColorDepth, ColorMode, Density, LocaleId, Motion, PreferenceField, PreferenceValue,
+        SettingsPanel, Skin, TerminalCapabilities, resolve_appearance, resolve_preferences,
     };
-    use viden_core::{ResolvedUiPreferences, UiPreferenceDiagnostic};
+    use viden_core::{
+        ResolvedUiPreferences, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
+        UiPreferenceDiagnostic, UiPreferences,
+    };
 
     #[test]
     fn locale_projection_uses_core_resolved_fact_and_safe_legacy_fallback() {
@@ -337,5 +743,133 @@ mod tests {
         assert!(!ansi256.truecolor && ansi256.ansi256 && ansi256.unicode);
         assert!(!dumb.truecolor && !dumb.ansi256 && !dumb.unicode);
         assert!(dumb.reduced_motion);
+    }
+
+    #[test]
+    fn settings_offer_every_contract_choice_and_disable_retro_light() {
+        let resolved = ResolvedUiPreferences {
+            skin: Skin::Amber,
+            mode: ColorMode::Dark,
+            ..ResolvedUiPreferences::default()
+        };
+        let mut panel = SettingsPanel::new(&resolved, ColorDepth::Auto);
+
+        assert_eq!(panel.choices(PreferenceField::Locale).len(), 3);
+        assert_eq!(panel.choices(PreferenceField::Skin).len(), 5);
+        assert_eq!(panel.choices(PreferenceField::Mode).len(), 3);
+        assert_eq!(panel.choices(PreferenceField::Density).len(), 3);
+        assert_eq!(panel.choices(PreferenceField::Motion).len(), 3);
+        assert_eq!(panel.choices(PreferenceField::ColorDepth).len(), 4);
+
+        let light = panel
+            .choices(PreferenceField::Mode)
+            .into_iter()
+            .find(|choice| choice.value == PreferenceValue::Mode(ColorMode::Light))
+            .expect("light choice");
+        assert!(!light.enabled);
+        assert_eq!(
+            light.invalid_reason_key,
+            Some("settings.invalid.retro_light")
+        );
+
+        panel.select(PreferenceValue::Skin(Skin::Phosphor));
+        let light = panel
+            .choices(PreferenceField::Mode)
+            .into_iter()
+            .find(|choice| choice.value == PreferenceValue::Mode(ColorMode::Light))
+            .expect("light choice");
+        assert!(!light.enabled);
+    }
+
+    #[test]
+    fn settings_build_only_typed_dirty_patch_and_keep_color_depth_local() {
+        let mut panel = SettingsPanel::new(&ResolvedUiPreferences::default(), ColorDepth::Auto);
+        panel.select(PreferenceValue::Locale(LocaleId::System));
+        panel.select(PreferenceValue::Density(Density::Comfy));
+        panel.select(PreferenceValue::ColorDepth(ColorDepth::Ansi256));
+
+        assert_eq!(panel.color_depth(), ColorDepth::Ansi256);
+        assert_eq!(
+            panel.apply_command(),
+            Some(RuntimeCommand::SetUiPreferences {
+                patch: viden_core::UiPreferencePatch {
+                    locale: Some(LocaleId::System),
+                    density: Some(Density::Comfy),
+                    ..viden_core::UiPreferencePatch::default()
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn command_acceptance_is_not_preference_success_but_matching_update_is() {
+        let mut panel = SettingsPanel::new(&ResolvedUiPreferences::default(), ColorDepth::Auto);
+        panel.select(PreferenceValue::Locale(LocaleId::ZhCn));
+        let command = panel.apply_command().expect("typed patch");
+        panel.begin_pending("tui-7".to_string(), command.clone());
+
+        panel.observe_event(&RuntimeEvent {
+            sequence: 1,
+            timestamp: Some(1),
+            kind: RuntimeEventKind::CommandAccepted {
+                command_id: "tui-7".to_string(),
+                command,
+            },
+        });
+        assert!(panel.is_pending());
+        assert!(!panel.has_succeeded());
+
+        let persisted = UiPreferences {
+            locale: LocaleId::ZhCn,
+            ..UiPreferences::default()
+        };
+        let resolved = ResolvedUiPreferences {
+            locale: LocaleId::ZhCn,
+            ..ResolvedUiPreferences::default()
+        };
+        panel.observe_event(&RuntimeEvent {
+            sequence: 2,
+            timestamp: Some(2),
+            kind: RuntimeEventKind::UiPreferencesUpdated {
+                resolved,
+                persisted: Some(persisted),
+                diagnostics: vec![UiPreferenceDiagnostic::new(
+                    "ui.cli_override_active",
+                    "cli_override",
+                    "ui.locale",
+                    None,
+                )],
+            },
+        });
+
+        assert!(!panel.is_pending());
+        assert!(panel.has_succeeded());
+        assert!(
+            panel
+                .diagnostics()
+                .contains(&"ui.cli_override_active".to_string())
+        );
+    }
+
+    #[test]
+    fn rejection_keeps_the_draft_and_surfaces_the_core_reason() {
+        let mut panel = SettingsPanel::new(&ResolvedUiPreferences::default(), ColorDepth::Auto);
+        panel.select(PreferenceValue::Skin(Skin::Ice));
+        let command = panel.apply_command().expect("typed patch");
+        panel.begin_pending("tui-9".to_string(), command);
+
+        panel.observe_event(&RuntimeEvent {
+            sequence: 1,
+            timestamp: Some(1),
+            kind: RuntimeEventKind::CommandRejected {
+                command_id: "tui-9".to_string(),
+                reason: "policy denied".to_string(),
+            },
+        });
+
+        assert!(!panel.is_pending());
+        assert_eq!(panel.rejection_reason(), Some("policy denied"));
+        assert_eq!(panel.selected_skin(), Skin::Ice);
+        assert!(panel.apply_command().is_some());
     }
 }

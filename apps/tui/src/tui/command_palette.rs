@@ -51,6 +51,11 @@ const COMMANDS: &[CommandDefinition] = &[
         keywords: "model",
     },
     CommandDefinition {
+        command: "/settings",
+        summary: "Open stable UI preferences",
+        keywords: "settings locale appearance density motion color",
+    },
+    CommandDefinition {
         command: "/mode plan",
         summary: "Request Plan work mode",
         keywords: "plan",
@@ -168,6 +173,7 @@ fn is_exact_command(state: &TuiState) -> bool {
             | "/gallery"
             | "/connect"
             | "/models"
+            | "/settings"
             | "/mode plan"
             | "/mode build"
             | "/permissions ask"
@@ -284,8 +290,21 @@ mod tests {
             .map(|item| item.command)
             .collect::<Vec<_>>();
 
-        for route in ["/setup", "/lanes", "/decisions", "/gallery"] {
+        for route in ["/setup", "/settings", "/lanes", "/decisions", "/gallery"] {
             assert!(commands.iter().any(|command| command == route), "{route}");
         }
+    }
+
+    #[test]
+    fn settings_is_an_exact_selector_first_palette_route() {
+        let mut state = TuiState::default();
+        state.ui.input = "/settings".into();
+
+        assert!(is_exact_command(&state));
+        assert!(!should_complete_on_enter(&state));
+        assert_eq!(
+            selected_command(&state).map(|item| item.command),
+            Some("/settings".into())
+        );
     }
 }

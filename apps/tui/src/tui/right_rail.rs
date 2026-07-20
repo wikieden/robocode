@@ -1,3 +1,4 @@
+use super::preferences::UI_PREFERENCE_PERSISTENCE_CAPABILITY;
 use super::{
     panel::panel,
     projection::{CockpitProjection, ContextPressure, CostVisibility},
@@ -96,8 +97,100 @@ pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<S
     {
         rows.push(super::i18n::text(state, "rail.empty"));
     }
+    let preferences = &state.runtime.snapshot.ui_preferences;
+    rows.push(
+        if state.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
+            super::i18n::text(state, "settings.rail.available")
+        } else {
+            super::i18n::text(state, "settings.rail.unavailable")
+        },
+    );
+    rows.push(super::i18n::translate(
+        state,
+        "settings.rail.profile",
+        &[
+            ("skin", skin_name(preferences.skin)),
+            ("mode", mode_name(preferences.mode)),
+            ("locale", locale_name(preferences.locale)),
+            ("density", density_name(preferences.density)),
+            ("motion", motion_name(preferences.motion)),
+        ],
+    ));
+    rows.push(super::i18n::text(state, "settings.rail.authority"));
+    let mut diagnostic_codes = preferences
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.clone())
+        .chain(state.ui.preference_diagnostics.iter().cloned())
+        .collect::<Vec<_>>();
+    diagnostic_codes.sort();
+    diagnostic_codes.dedup();
+    rows.extend(diagnostic_codes.iter().map(|diagnostic| {
+        super::i18n::translate(
+            state,
+            "settings.rail.diagnostic",
+            &[("diagnostic", diagnostic.as_str())],
+        )
+    }));
+    if let Some(super::state::InteractionPanel::Settings(panel)) =
+        state.ui.interaction_panel.as_ref()
+    {
+        if panel.is_pending() {
+            rows.push(super::i18n::text(state, "settings.pending"));
+        } else if let Some(reason) = panel.rejection_reason() {
+            rows.push(super::i18n::translate(
+                state,
+                "settings.rejected",
+                &[("reason", reason)],
+            ));
+        } else if panel.has_succeeded() {
+            rows.push(super::i18n::text(state, "settings.saved"));
+        }
+    }
     let title = super::i18n::text(state, "rail.title");
     panel(&title, rows, width, height, None)
+}
+
+fn locale_name(value: viden_core::LocaleId) -> &'static str {
+    match value {
+        viden_core::LocaleId::System => "system",
+        viden_core::LocaleId::En => "en",
+        viden_core::LocaleId::ZhCn => "zh-CN",
+    }
+}
+
+fn skin_name(value: viden_core::UiSkin) -> &'static str {
+    match value {
+        viden_core::UiSkin::Aurora => "aurora",
+        viden_core::UiSkin::Ice => "ice",
+        viden_core::UiSkin::Mono => "mono",
+        viden_core::UiSkin::Amber => "amber",
+        viden_core::UiSkin::Phosphor => "phosphor",
+    }
+}
+
+fn mode_name(value: viden_core::UiColorMode) -> &'static str {
+    match value {
+        viden_core::UiColorMode::System => "system",
+        viden_core::UiColorMode::Dark => "dark",
+        viden_core::UiColorMode::Light => "light",
+    }
+}
+
+fn density_name(value: viden_core::UiDensity) -> &'static str {
+    match value {
+        viden_core::UiDensity::Compact => "compact",
+        viden_core::UiDensity::Regular => "regular",
+        viden_core::UiDensity::Comfy => "comfy",
+    }
+}
+
+fn motion_name(value: viden_core::UiMotion) -> &'static str {
+    match value {
+        viden_core::UiMotion::System => "system",
+        viden_core::UiMotion::Reduced => "reduced",
+        viden_core::UiMotion::Full => "full",
+    }
 }
 
 #[cfg(test)]
@@ -228,5 +321,22 @@ mod tests {
                 "missing {expected}:\n{rendered}"
             );
         }
+    }
+
+    #[test]
+    fn right_rail_exposes_preference_authority_and_feature_gate_status() {
+        let mut state = TuiState::default();
+        let unavailable = right_rail(&state, 52, 28).join("\n");
+        assert!(unavailable.contains("SETTINGS unavailable"));
+
+        state.capabilities.insert(viden_types::CapabilityId(
+            "ui.preference_persistence".to_string(),
+        ));
+        state.runtime.snapshot.ui_preferences.skin = viden_core::UiSkin::Ice;
+        state.runtime.snapshot.ui_preferences.mode = viden_core::UiColorMode::Light;
+        let available = right_rail(&state, 52, 28).join("\n");
+        assert!(available.contains("SETTINGS available"));
+        assert!(available.contains("ice/light"));
+        assert!(available.contains("Core resolved"));
     }
 }

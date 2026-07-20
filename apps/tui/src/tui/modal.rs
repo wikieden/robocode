@@ -4,6 +4,10 @@ use super::{
     jump::JumpIndex,
     keymap::OverlayKind,
     panel::panel,
+    preferences::{
+        PreferenceValue, SettingsPanel, UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+        color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
+    },
     projection::CockpitProjection,
     state::{InteractionPanel, TuiState, has_active_work},
     text::truncate,
@@ -111,6 +115,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         );
     } else if state.ui.interaction_panel.is_some() {
         let title_key = match state.ui.interaction_panel.as_ref() {
+            Some(InteractionPanel::Settings(_)) => "interaction.settings",
             Some(InteractionPanel::Setup { .. }) => "interaction.setup",
             Some(InteractionPanel::ConnectProvider { .. }) => "interaction.connect_provider",
             Some(InteractionPanel::ModelPicker { .. }) => "interaction.select_model",
@@ -118,11 +123,19 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             None => unreachable!("panel presence checked above"),
         };
         let title = super::i18n::text(state, title_key);
+        let overlay_height = if matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::Settings(_))
+        ) {
+            16
+        } else {
+            10
+        };
         let block = panel(
             &title,
             interaction_rows(state),
             frame.width.min(72),
-            10,
+            overlay_height,
             None,
         );
         frame.write_block(
@@ -313,6 +326,7 @@ fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
 
 fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Settings(panel)) => settings_rows(state, panel),
         Some(InteractionPanel::Setup { selected, draft }) => {
             if !state.has_capability("runtime.project_onboarding") {
                 return vec![super::i18n::text(state, "interaction.setup.unavailable")];
@@ -384,6 +398,143 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
             })
             .collect(),
         None => Vec::new(),
+    }
+}
+
+fn settings_rows(state: &TuiState, panel: &SettingsPanel) -> Vec<String> {
+    if !state.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
+        return vec![super::i18n::text(state, "settings.unavailable")];
+    }
+    let mut rows = if let Some(field) = panel.field {
+        panel
+            .choices(field)
+            .into_iter()
+            .enumerate()
+            .map(|(index, choice)| {
+                let marker = if index == panel.selected { ">" } else { " " };
+                let current = if preference_value_is_current(panel, choice.value) {
+                    super::i18n::text(state, "settings.current")
+                } else {
+                    String::new()
+                };
+                let effect = super::i18n::text(state, choice.effect_key);
+                let invalid = choice
+                    .invalid_reason_key
+                    .map(|key| format!(" · {}", super::i18n::text(state, key)))
+                    .unwrap_or_default();
+                let disabled = if choice.enabled {
+                    String::new()
+                } else {
+                    format!(" {}", super::i18n::text(state, "settings.label.disabled"))
+                };
+                format!(
+                    "{marker} {} · {current} · {}: {effect}{disabled}{invalid}",
+                    super::i18n::text(state, choice.label_key),
+                    super::i18n::text(state, "settings.label.effect")
+                )
+            })
+            .collect::<Vec<_>>()
+    } else {
+        let categories = [
+            (
+                "settings.field.locale",
+                preference_value_label(state, PreferenceValue::Locale(panel.selected_locale())),
+                "settings.effect.locale",
+            ),
+            (
+                "settings.field.skin",
+                preference_value_label(state, PreferenceValue::Skin(panel.selected_skin())),
+                "settings.effect.skin",
+            ),
+            (
+                "settings.field.mode",
+                preference_value_label(state, PreferenceValue::Mode(panel.selected_mode())),
+                "settings.effect.mode",
+            ),
+            (
+                "settings.field.density",
+                preference_value_label(state, PreferenceValue::Density(panel.selected_density())),
+                "settings.effect.density",
+            ),
+            (
+                "settings.field.motion",
+                preference_value_label(state, PreferenceValue::Motion(panel.selected_motion())),
+                "settings.effect.motion",
+            ),
+            (
+                "settings.field.color_depth",
+                preference_value_label(state, PreferenceValue::ColorDepth(panel.color_depth())),
+                "settings.effect.color_depth",
+            ),
+            (
+                "settings.action.apply",
+                super::i18n::text(state, "settings.value.draft"),
+                "settings.effect.apply",
+            ),
+            (
+                "settings.action.reset",
+                super::i18n::text(state, "settings.value.core_default"),
+                "settings.effect.reset",
+            ),
+        ];
+        categories
+            .into_iter()
+            .enumerate()
+            .map(|(index, (key, current, effect_key))| {
+                let marker = if index == panel.selected { ">" } else { " " };
+                format!(
+                    "{marker} {} · {}: {current} · {}: {}",
+                    super::i18n::text(state, key),
+                    super::i18n::text(state, "settings.label.current"),
+                    super::i18n::text(state, "settings.label.effect"),
+                    super::i18n::text(state, effect_key)
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    if panel.is_pending() {
+        rows.push(super::i18n::text(state, "settings.pending"));
+    } else if let Some(reason) = panel.rejection_reason() {
+        rows.push(super::i18n::translate(
+            state,
+            "settings.rejected",
+            &[("reason", reason)],
+        ));
+    } else if panel.has_succeeded() {
+        rows.push(super::i18n::text(state, "settings.saved"));
+    }
+    if !panel.diagnostics().is_empty() {
+        rows.push(super::i18n::translate(
+            state,
+            "settings.diagnostics",
+            &[("diagnostics", &panel.diagnostics().join(", "))],
+        ));
+    }
+    rows
+}
+
+fn preference_value_label(state: &TuiState, value: PreferenceValue) -> String {
+    let key = match value {
+        PreferenceValue::Locale(viden_core::LocaleId::System) => "settings.value.system",
+        PreferenceValue::Locale(viden_core::LocaleId::En) => "settings.value.en",
+        PreferenceValue::Locale(viden_core::LocaleId::ZhCn) => "settings.value.zh_cn",
+        PreferenceValue::Skin(value) => skin_label_key(value),
+        PreferenceValue::Mode(value) => mode_label_key(value),
+        PreferenceValue::Density(value) => density_label_key(value),
+        PreferenceValue::Motion(value) => motion_label_key(value),
+        PreferenceValue::ColorDepth(value) => color_depth_label_key(value),
+    };
+    super::i18n::text(state, key)
+}
+
+fn preference_value_is_current(panel: &SettingsPanel, value: PreferenceValue) -> bool {
+    match value {
+        PreferenceValue::Locale(value) => panel.selected_locale() == value,
+        PreferenceValue::Skin(value) => panel.selected_skin() == value,
+        PreferenceValue::Mode(value) => panel.selected_mode() == value,
+        PreferenceValue::Density(value) => panel.selected_density() == value,
+        PreferenceValue::Motion(value) => panel.selected_motion() == value,
+        PreferenceValue::ColorDepth(value) => panel.color_depth() == value,
     }
 }
 
@@ -509,6 +660,13 @@ pub(super) fn interaction_panel_index_at(
 
 pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
     match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Settings(panel)) => {
+            if !state.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
+                0
+            } else {
+                panel.field.map_or(8, |field| panel.choices(field).len())
+            }
+        }
         Some(InteractionPanel::Setup { .. }) => {
             if !state.has_capability("runtime.project_onboarding") {
                 return 0;
@@ -535,6 +693,7 @@ fn setup_preview_matches_draft(preview: &viden_core::ProjectConfigPreview, draft
 
 pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
     match state.ui.interaction_panel.as_ref()? {
+        InteractionPanel::Settings(_) => None,
         InteractionPanel::Setup { .. } => None,
         InteractionPanel::ConnectProvider { selected, .. } => state
             .ui
@@ -693,7 +852,7 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        overlay.selected = 10;
+        overlay.selected = 11;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -729,7 +888,7 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        overlay.selected = 12;
+        overlay.selected = 13;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");
@@ -923,5 +1082,64 @@ mod tests {
         assert!(help.contains("Ctrl-C 取消当前工作"));
         assert!(inactive.contains("当前没有正在运行的工作"));
         assert!(inactive.contains("按 Enter 退出"));
+    }
+
+    #[test]
+    fn settings_modal_shows_authoritative_values_effects_and_unavailable_gate() {
+        let mut state = TuiState::default();
+        state.ui.interaction_panel = Some(InteractionPanel::Settings(Box::new(
+            crate::tui::preferences::SettingsPanel::new(
+                &state.runtime.snapshot.ui_preferences,
+                crate::tui::preferences::ColorDepth::Auto,
+            ),
+        )));
+
+        let unavailable = interaction_rows(&state).join("\n");
+        assert!(unavailable.contains("SETTINGS unavailable"));
+        assert!(unavailable.contains("ui.preference_persistence"));
+
+        state.capabilities.insert(viden_types::CapabilityId(
+            "ui.preference_persistence".to_string(),
+        ));
+        let available = interaction_rows(&state).join("\n");
+        for expected in [
+            "Locale",
+            "Skin",
+            "Mode",
+            "Density",
+            "Motion",
+            "Color depth",
+            "Reset",
+        ] {
+            assert!(
+                available.contains(expected),
+                "missing {expected}:\n{available}"
+            );
+        }
+        assert!(available.contains("current"));
+        assert!(available.contains("effect"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
+            assert!(panel.select(PreferenceValue::Skin(viden_core::UiSkin::Amber)));
+            panel.field = Some(crate::tui::preferences::PreferenceField::Mode);
+        }
+        let chinese = interaction_rows(&state).join("\n");
+        assert!(
+            chinese.contains("效果"),
+            "missing translated effect: {chinese}"
+        );
+        assert!(
+            chinese.contains("[不可用]"),
+            "missing disabled label: {chinese}"
+        );
+        assert!(
+            !chinese.contains("effect:"),
+            "English effect leaked: {chinese}"
+        );
+        assert!(
+            !chinese.contains("[disabled]"),
+            "English disabled leaked: {chinese}"
+        );
     }
 }

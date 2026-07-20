@@ -30,7 +30,7 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` 默认启动主 TUI。TUI 0.3.0 会协商 Core 0.3.1 onboarding extensions 并请求
+`viden` 默认启动主 TUI。TUI 0.3.1 会协商 Core 0.3.2 frontend-service extensions 并请求
 project probe，但干净会话仍停留在聚焦的 Welcome composer。`/setup` 打开
 Core-backed Setup selector；`/lanes` 打开 Core lane board。提交普通任务 prompt，
 或选择 Core lane/session 后进入完整 cockpit。
@@ -41,6 +41,7 @@ Core-backed Setup selector；`/lanes` 打开 Core lane board。提交普通任�
 /setup provider
 /connect
 /models
+/settings
 ```
 
 带显式启动参数进入主 cockpit：
@@ -129,8 +130,26 @@ TUI 不自行扫描项目、写入配置或在本地推断成功。
 `/connect`、`/provider` 只展示供应商元数据；`/models`、`/model` 展示已配置的 model choices。
 TUI 0.3.0 没有可信 frontend secret-ingress，因此面板绝不收集 credential bytes，也不会序列化
 `/provider key` 命令。Provider detail 只显示 active Core health 和脱敏 credential-handle 摘要；
-没有安全 handle/ingress 时显示 `TRUSTED INGRESS unavailable` 并保持只读。Core 0.3.1 也没有
+没有安全 handle/ingress 时显示 `TRUSTED INGRESS unavailable` 并保持只读。Core 0.3.2 也没有
 全局 session 枚举；`/lanes` 只选择各 Core lane 公布的 session id。
+
+TUI 0.3.1 将 `/settings` 开放为 selector-first UI preference surface。它提供 locale
+（`system | en | zh-CN`）、五种 skin、system/dark/light mode、
+compact/regular/comfy density、system/reduced/full motion、终端 color depth、Apply
+和 Reset。Amber 与 Phosphor 仅支持 dark；light 选项保持可见但禁用，并显示原因。每个 row
+都会显示当前选择及其效果。
+
+稳定 Apply 只发送 typed `UiPreferencePatch`，Reset 发送 `ResetUiPreferences`。
+`CommandAccepted` 只代表 pending，不代表已保存；只有匹配的 `UiPreferencesUpdated` 返回
+Core 的 resolved value、persisted value 与 diagnostics 后，selector 才显示成功。
+Command rejection 会保留 draft 并展示 Core reason。CLI 与 user-config precedence 只显示
+Core diagnostics，TUI 不重复 resolver。Plan mode 也允许走同一 UI preference command path，
+因为 Core 会把这种 presentation mutation 与 project/file/shell/Git/workflow/memory effect
+分开分类。
+
+Color depth 被明确标记为未保存、仅当前 session 的 terminal preview，因为 schema 1 没有
+可持久化的 color-depth field；它不会写 TUI config 或 local preference store。若缺少
+`ui.preference_persistence`，Settings 仍可见但显示 unavailable，Apply/Reset 保持零发送。
 
 ```text
 /settings
