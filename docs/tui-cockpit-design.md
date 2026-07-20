@@ -49,6 +49,10 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   opens the unified cockpit.
 - Pending approvals stay pinned without owning composer input. `Ctrl-G` opens
   Decisions; choosing a concrete request creates explicit approval focus.
+- The local supervision loop projects tasks/DAGs, active tools, queued input,
+  lane output/conflicts/recovery, merge gates, evidence decisions, context
+  pressure, cost visibility, and audit IDs from typed Core facts. A command
+  receipt is shown only as `pending Core fact`, never as inferred success.
 
 ## Main Screen
 
@@ -65,9 +69,28 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 - Composer: always visible at the bottom, following the canonical T1c sizing
   and internal-scroll behavior, with a native blinking bar cursor, action
   hints, work mode chips, and permission level chips.
-- Bottom status: connection, session, event count, active lanes, context window,
-  theme/help hints. Token, cost, and rate metrics should appear only after real
-  provider telemetry is wired.
+- Bottom status: connection, session, event count, active lanes, context
+  pressure, and presentation/help hints. Cost is explicitly `metered`, `blind`,
+  or `unavailable`; token counts never fabricate money when Core has no actual
+  cost fact. Recovery and pending-command alerts remain pinned rather than
+  entering the ambient ticker.
+
+## Presentation Preferences
+
+- Locale, skin, color mode, density, motion, font scale, and accessibility are
+  shared presentation preferences owned and persisted by Core. TUI consumes
+  the resolved preference projection and does not maintain a private palette
+  or preference store.
+- Built-in locale support starts with `en` and `zh-CN`. User-facing labels must
+  remain translatable; stable command names, IDs, statuses, and audit facts are
+  not inferred from localized copy.
+- Skin and mode continue to use the Core-validated combinations and terminal
+  color-depth fallback. A later Settings surface may expose these as open
+  configuration options, but it must send the typed Core preference command
+  and render the returned effective value and diagnostics.
+- Adding a locale or skin requires paired copy/token coverage and deterministic
+  preview evidence. A frontend-only skin fork is not an accepted extension
+  path.
 
 ## Lane / Session Hierarchy
 
@@ -199,14 +222,17 @@ transcript card or a nested input loop.
   `y`, `n`, `d`, and `Enter` retain their normal edit/submission meaning.
 - `Ctrl-G` opens Decisions. Selecting a concrete pending request opens explicit
   approval focus for that request only.
-- In explicit focus, `y` approves once, `n` denies, and `d` opens the request's
-  diff/evidence. Arrow keys move the selected action and `Enter` activates it.
+- Explicit focus renders four typed choices: `1` allow once, `2` allow for the
+  Core-provided session, `3` add the exact Core-provided repository allowlist,
+  and `4` deny. Unavailable scopes remain visibly unavailable. `y`/`n` retain
+  allow-once/deny compatibility, `d` opens request diff/evidence, arrow keys
+  move the selected action, and `Enter` activates it.
 - `Esc` only closes explicit approval focus; it never denies or otherwise
-  resolves the request. `Ctrl-C` remains the active-work interrupt and is not
-  an approval answer.
-- Session-scoped approval and repository allowlisting are future Core-gated
-  actions. The TUI must not present them as current choices until typed Core
-  contracts expose those scopes.
+  resolves the request. `Ctrl-C` is not an approval answer and sends an
+  active-work interrupt only with the exact Core-provided owner.
+- Session-scoped approval and repository allowlisting appear only when the
+  request's typed `allowed_scopes` contains the exact Core payload. The TUI
+  forwards that scope and the original request owner unchanged.
 - Mouse input is optional; when enabled, it selects the same current actions.
 - Inspecting diff/evidence never resolves the gate. The panel must render the
   request's real command, scope, risk, expiry/default action, and preview or
@@ -214,6 +240,9 @@ transcript card or a nested input loop.
 - After Core reports approval resolution, the pinned request and any matching
   explicit focus must disappear, and the transcript/right rail should redraw
   without style residue.
+- After the deadline, the request remains visible and inert with
+  `default Deny · awaiting Core ApprovalResolved`. TUI does not remove it or
+  synthesize a denial locally.
 
 ## Multi-Screen Direction
 

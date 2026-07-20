@@ -41,7 +41,9 @@ runtime cannot explain.
   marks the badge; it does not yank the user back to the bottom.
 - Input has three explicit modes: Normal for cockpit navigation, Insert for
   composer editing, and Overlay for selectors, panels, and approvals. `Esc`
-  unwinds one layer at a time; `Ctrl-C` interrupts active work.
+  unwinds one layer at a time. `Ctrl-C` sends owner-scoped cancellation only
+  when the exact Core owner is available; lanes that expose only an ID render
+  cancellation as unavailable and request the missing Core contract.
 - `Ctrl-P` opens selector-first Global Jump. It projects only typed Core lanes,
   their active session IDs, merge gates, pending approvals, and a controlled
   navigation/completion command registry. `:`, `@`, `#`, `>`, and `~` scope
@@ -236,14 +238,18 @@ flowchart TD
     D --> E["Ctrl-G opens Decisions"]
     E --> F["Select concrete request"]
     F --> G["Explicit approval focus"]
-    G -->|y| H["resolve_approval(once)"]
-    G -->|n| I["resolve_approval(deny)"]
+    G -->|1 / y| H["forward allow-once scope"]
+    G -->|2| H2["forward exact session scope"]
+    G -->|3| H3["forward exact repository allowlist"]
+    G -->|4 / n| I["forward deny"]
     G -->|d| J["Focus request diff/evidence"]
     G -->|arrows| K["Move selected action"]
     K -->|Enter| L["Activate selected action"]
     G -->|Esc| M["Close focus<br/>request stays pinned"]
     J --> G
     H --> N["Runtime continues"]
+    H2 --> N
+    H3 --> N
     I --> O["Runtime records denial"]
     L --> P["Dispatch selected current action"]
     N --> Q["LIVE WORK updates"]
@@ -251,9 +257,12 @@ flowchart TD
     P --> Q
 ```
 
-Session-scoped approval and repository allowlisting remain future Core-gated
-actions. The TUI must not expose them until typed Core contracts provide those
-scopes.
+Session-scoped approval and repository allowlisting are request-gated Core
+actions. The TUI exposes a choice only when that request's typed
+`allowed_scopes` provides the exact payload, forwards it through the original
+request owner, and waits for Core resolution. Expired requests remain pinned
+and inert until `ApprovalResolved`; the TUI never synthesizes local denial or
+success.
 
 ## Model And Provider Panels
 

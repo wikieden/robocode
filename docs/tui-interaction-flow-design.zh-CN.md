@@ -35,7 +35,9 @@ input loop，也不能编造 core runtime 无法解释的状态。
 - Streaming 时 transcript history 必须仍可浏览。新输出只更新 badge，不把用户强行拉回
   底部。
 - 输入包含三个明确模式：Normal 负责 cockpit 导航，Insert 负责 composer 编辑，Overlay
-  负责 selector、panel 与审批。`Esc` 每次只退出一层，`Ctrl-C` 只打断活动工作。
+  负责 selector、panel 与审批。`Esc` 每次只退出一层。只有拿到精确 Core owner 时，
+  `Ctrl-C` 才发送 owner-scoped cancellation；只有 lane ID 的场景必须显示 cancel
+  unavailable，并提出缺失的 Core contract request。
 - `Ctrl-P` 打开 selector-first 全局跳转。它只投影 Core 的 typed lane、其
   `active_session_ids`、merge gate、pending approval，以及受控的导航/补全命令注册表。
   `:`、`@`、`#`、`>`、`~` 分别限定 lane、会话、闸/问询、命令和文件；方向键或
@@ -223,14 +225,18 @@ flowchart TD
     D --> E["Ctrl-G 打开 Decisions"]
     E --> F["选择具体 request"]
     F --> G["显式 approval focus"]
-    G -->|y| H["resolve_approval(once)"]
-    G -->|n| I["resolve_approval(deny)"]
+    G -->|1 / y| H["转发 allow-once scope"]
+    G -->|2| H2["转发精确 session scope"]
+    G -->|3| H3["转发精确 repository allowlist"]
+    G -->|4 / n| I["转发 deny"]
     G -->|d| J["打开 request diff/evidence"]
     G -->|方向键| K["移动选中 action"]
     K -->|Enter| L["执行选中 action"]
     G -->|Esc| M["关闭 focus<br/>request 继续 pinned"]
     J --> G
     H --> N["Runtime continues"]
+    H2 --> N
+    H3 --> N
     I --> O["Runtime records denial"]
     L --> P["派发选中的当前 action"]
     N --> Q["LIVE WORK updates"]
@@ -238,8 +244,10 @@ flowchart TD
     P --> Q
 ```
 
-Session 级允许和 repository allowlist 仍属于未来 Core-gated action。只有 typed Core
-contract 提供这些 scope 后，TUI 才能暴露它们。
+Session 级允许和 repository allowlist 是按 request 开放的 Core action。只有该 request
+的 typed `allowed_scopes` 提供精确 payload 时，TUI 才暴露对应 choice，并通过原 request
+owner 原样转发后等待 Core resolution。过期 request 继续 pinned 且不可操作，直到
+`ApprovalResolved`；TUI 绝不本地合成拒绝或成功。
 
 ## Model 与 Provider 面板
 

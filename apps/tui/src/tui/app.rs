@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use viden_core::{
-    ApprovalResponse, CoreClient, EventCursor, RuntimeCommand, RuntimeViewState, TuiColorDepth,
-};
+#[cfg(test)]
+use viden_core::ApprovalResponse;
+use viden_core::{CoreClient, EventCursor, RuntimeCommand, RuntimeViewState, TuiColorDepth};
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
@@ -293,6 +293,7 @@ fn handle_ui_key<C: CoreClient>(
     let focus = input_focus(state);
     let facts = RuntimeFacts {
         current_work_owner: current_work_owner(driver, state),
+        has_active_work: runtime_has_active_work(&state.runtime),
     };
     if !(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
         state.ui.idle_ctrl_c_armed = false;
@@ -423,7 +424,7 @@ fn apply_input_intent<C: CoreClient>(
                 .as_ref()
                 .is_some_and(|overlay| overlay.kind == OverlayKind::ExitConfirm)
             {
-                if current_work_owner(driver, state).is_some() {
+                if runtime_has_active_work(&state.runtime) {
                     state.ui.overlay = None;
                     state.ui.idle_ctrl_c_armed = false;
                     return Ok(UiEventOutcome::Redraw);
@@ -461,7 +462,11 @@ fn current_work_owner<C: CoreClient>(
         .pending_approvals
         .first()
         .map(|approval| approval.owner.clone())
-        .or_else(|| runtime_has_active_work(&state.runtime).then(|| driver.owner().clone()))
+        .or_else(|| {
+            let has_active_lane = state.runtime.lanes.iter().any(|lane| lane.is_active());
+            (!has_active_lane && runtime_has_active_work(&state.runtime))
+                .then(|| driver.owner().clone())
+        })
 }
 
 fn apply_pending_approval_intent<C: CoreClient>(
@@ -493,7 +498,7 @@ fn apply_pending_approval_intent<C: CoreClient>(
     }
 
     match apply_approval_key(key, state) {
-        ApprovalKeyEffect::Resolve(allow) => {
+        ApprovalKeyEffect::ResolveScoped(response) => {
             let approval = approval_request_id.as_ref().map_or_else(
                 || driver.view().pending_approvals.get(approval_selected),
                 |request_id| {
@@ -509,11 +514,7 @@ fn apply_pending_approval_intent<C: CoreClient>(
                     approval.owner.clone(),
                     RuntimeCommand::RespondToApproval {
                         request_id: approval.id.clone(),
-                        response: if allow {
-                            ApprovalResponse::allow_once(None)
-                        } else {
-                            ApprovalResponse::deny(None)
-                        },
+                        response,
                     },
                 )?;
             }
@@ -980,9 +981,10 @@ mod tests {
         frontend_capabilities, local_core_handshake,
     };
     use viden_types::{
-        AgentLaneRecord, FRONTEND_SCHEMA_V1, LaneStatus, PermissionLevel, PermissionMode,
-        ProjectConfigPreview, ReplayBatch, ReplayRequest, RuntimeOwner, RuntimeSnapshot,
-        ToolCallView, TranscriptPage, TranscriptPageRequest, WorkMode,
+        AgentLaneRecord, ApprovalDecision, ApprovalScope, FRONTEND_SCHEMA_V1, LaneStatus,
+        PermissionLevel, PermissionMode, ProjectConfigPreview, ReplayBatch, ReplayRequest,
+        RuntimeOwner, RuntimeSnapshot, ToolCallView, TranscriptPage, TranscriptPageRequest,
+        WorkMode,
     };
 
     #[derive(Default)]
@@ -1123,6 +1125,20 @@ mod tests {
         if let RuntimeWireEvent::Known(event) = envelope.event {
             view.apply_event(&event);
         }
+        let approval = view
+            .pending_approvals
+            .first_mut()
+            .expect("pending approval");
+        approval.expires_at = 0;
+        approval.allowed_scopes = vec![
+            ApprovalScope::Once,
+            ApprovalScope::Session {
+                session_id: "session-contract".to_string(),
+            },
+            ApprovalScope::RepoAllowlist {
+                paths: vec!["crates/core".to_string()],
+            },
+        ];
         let client = FakeCoreClient {
             transport: FakeCoreTransport {
                 view: Some(view),
@@ -1298,6 +1314,68 @@ mod tests {
             super::super::modal::focused_approval_action(&state),
             super::super::modal::ApprovalAction::Diff
         );
+    }
+
+    #[test]
+    fn focused_approval_sends_exact_scope_through_the_request_owner() {
+        for (key, expected_scope) in [
+            (
+                '2',
+                ApprovalScope::Session {
+                    session_id: "session-contract".to_string(),
+                },
+            ),
+            (
+                '3',
+                ApprovalScope::RepoAllowlist {
+                    paths: vec!["crates/core".to_string()],
+                },
+            ),
+        ] {
+            let (mut driver, mut state, sent) = pending_approval_driver();
+            let expected_owner = state.runtime.pending_approvals[0].owner.clone();
+            focus_pending_approval(&mut driver, &mut state);
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("focused typed approval scope");
+
+            let sent = sent.lock().expect("sent commands");
+            assert_eq!(sent.len(), 1);
+            assert_eq!(sent[0].owner, expected_owner);
+            assert!(matches!(
+                &sent[0].command,
+                RuntimeCommand::RespondToApproval {
+                    response: ApprovalResponse {
+                        decision: ApprovalDecision::Allow { scope },
+                        ..
+                    },
+                    ..
+                } if scope == &expected_scope
+            ));
+        }
+    }
+
+    #[test]
+    fn expired_focused_approval_sends_nothing_until_core_resolves_it() {
+        let (mut driver, mut state, sent) = pending_approval_driver();
+        state.runtime.pending_approvals[0].expires_at = 1;
+        focus_pending_approval(&mut driver, &mut state);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("expired approval remains inert");
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert_eq!(state.runtime.pending_approvals.len(), 1);
     }
 
     #[test]
@@ -2346,6 +2424,51 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].owner, owner);
         assert!(matches!(sent[0].command, RuntimeCommand::CancelActiveTurn));
+    }
+
+    #[test]
+    fn active_lane_without_a_core_owner_never_dispatches_cancel_or_exits() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+
+        let outcome = handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("active lane blocks plain escape exit");
+        assert_eq!(outcome, UiEventOutcome::Redraw);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("fail-closed lane cancel");
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::ExitConfirm));
+        let rendered = super::super::render::render_frame(&state, 120, 40);
+        assert!(rendered.contains("exit is blocked"));
+        assert!(rendered.contains("cancellable owner"));
+        assert!(!rendered.contains("Press Enter to exit"));
+        let outcome = handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("active lane blocks exit confirmation");
+        assert_eq!(outcome, UiEventOutcome::Redraw);
+        assert!(sent.lock().expect("sent commands").is_empty());
     }
 
     #[test]

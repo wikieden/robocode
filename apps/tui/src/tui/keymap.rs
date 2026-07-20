@@ -44,6 +44,7 @@ pub(super) struct InputFocus {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct RuntimeFacts {
     pub(super) current_work_owner: Option<RuntimeOwner>,
+    pub(super) has_active_work: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +85,7 @@ pub(super) fn reduce_input(
     runtime_facts: RuntimeFacts,
 ) -> InputIntent {
     let has_current_work = runtime_facts.current_work_owner.is_some();
+    let has_active_work = runtime_facts.has_active_work || has_current_work;
     if is_control_char(key, 'c') {
         return match runtime_facts.current_work_owner {
             Some(owner) => InputIntent::CancelCurrentWork { owner },
@@ -110,7 +112,7 @@ pub(super) fn reduce_input(
         }
         return match mode {
             InputMode::Insert => InputIntent::LeaveInsert,
-            InputMode::Normal if has_current_work => InputIntent::None,
+            InputMode::Normal if has_active_work => InputIntent::None,
             InputMode::Normal => InputIntent::Exit,
             InputMode::Overlay => InputIntent::None,
         };
@@ -322,6 +324,7 @@ mod tests {
                 key(KeyCode::Esc),
                 RuntimeFacts {
                     current_work_owner: Some(RuntimeOwner::default()),
+                    has_active_work: true,
                 },
             ),
             InputIntent::None,
@@ -347,6 +350,7 @@ mod tests {
                     control('c'),
                     RuntimeFacts {
                         current_work_owner: Some(owner.clone()),
+                        has_active_work: true,
                     },
                 ),
                 InputIntent::CancelCurrentWork {
@@ -367,6 +371,33 @@ mod tests {
                 InputIntent::OpenOverlay(OverlayKind::ExitConfirm)
             );
         }
+    }
+
+    #[test]
+    fn ownerless_active_work_blocks_escape_without_fabricating_a_cancel_owner() {
+        let facts = RuntimeFacts {
+            current_work_owner: None,
+            has_active_work: true,
+        };
+
+        assert_eq!(
+            reduce_input(
+                InputMode::Normal,
+                InputFocus::default(),
+                key(KeyCode::Esc),
+                facts.clone(),
+            ),
+            InputIntent::None
+        );
+        assert_eq!(
+            reduce_input(
+                InputMode::Normal,
+                InputFocus::default(),
+                control('c'),
+                facts,
+            ),
+            InputIntent::ArmExitConfirmation
+        );
     }
 
     #[test]
