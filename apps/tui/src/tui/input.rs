@@ -3,15 +3,17 @@ use crossterm::event::{KeyCode, KeyEvent};
 use super::command_palette::is_command_palette_visible;
 use super::keymap::{InputFocus, InputMode, OverlayKind};
 use super::modal::{
-    ApprovalAction, focused_approval_action, move_approval_focus, set_approval_focus_for_action,
+    ApprovalAction, approval_is_expired, focused_approval_action, focused_approval_request,
+    move_approval_focus, set_approval_focus_for_action,
 };
 use super::state::{TuiEntry, TuiState};
+use viden_core::{ApprovalDecision, ApprovalResponse, ApprovalScope};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ApprovalKeyEffect {
     None,
     Redraw,
-    Resolve(bool),
+    ResolveScoped(ApprovalResponse),
 }
 
 pub(super) fn effective_input_mode(state: &TuiState) -> InputMode {
@@ -55,9 +57,33 @@ pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool
 }
 
 pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect {
+    if focused_approval_request(state).is_some_and(approval_is_expired)
+        && matches!(
+            key.code,
+            KeyCode::Char('y' | 'Y' | 'n' | 'N' | '1' | '2' | '3' | '4') | KeyCode::Enter
+        )
+    {
+        // Expiry is a Core-owned fact transition. The TUI leaves the request
+        // visible and inert until ApprovalResolved arrives.
+        return ApprovalKeyEffect::None;
+    }
     match key.code {
-        KeyCode::Char('y') | KeyCode::Char('Y') => ApprovalKeyEffect::Resolve(true),
-        KeyCode::Char('n') | KeyCode::Char('N') => ApprovalKeyEffect::Resolve(false),
+        KeyCode::Char('y') | KeyCode::Char('Y') => {
+            resolve_allowed_scope(state, |scope| matches!(scope, ApprovalScope::Once))
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            ApprovalKeyEffect::ResolveScoped(ApprovalResponse::deny(None))
+        }
+        KeyCode::Char('1') => {
+            resolve_allowed_scope(state, |scope| matches!(scope, ApprovalScope::Once))
+        }
+        KeyCode::Char('2') => resolve_allowed_scope(state, |scope| {
+            matches!(scope, ApprovalScope::Session { .. })
+        }),
+        KeyCode::Char('3') => resolve_allowed_scope(state, |scope| {
+            matches!(scope, ApprovalScope::RepoAllowlist { .. })
+        }),
+        KeyCode::Char('4') => ApprovalKeyEffect::ResolveScoped(ApprovalResponse::deny(None)),
         KeyCode::Char(' ') => {
             if focused_approval_action(state) != ApprovalAction::ToggleApplyAll {
                 return ApprovalKeyEffect::None;
@@ -82,6 +108,27 @@ pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> Approva
     }
 }
 
+fn resolve_allowed_scope(
+    state: &TuiState,
+    predicate: impl Fn(&ApprovalScope) -> bool,
+) -> ApprovalKeyEffect {
+    let Some(scope) = focused_approval_request(state)
+        .and_then(|approval| {
+            approval
+                .allowed_scopes
+                .iter()
+                .find(|scope| predicate(scope))
+        })
+        .cloned()
+    else {
+        return ApprovalKeyEffect::None;
+    };
+    ApprovalKeyEffect::ResolveScoped(ApprovalResponse {
+        decision: ApprovalDecision::Allow { scope },
+        feedback: None,
+    })
+}
+
 pub(super) fn apply_approval_action(
     action: ApprovalAction,
     state: &mut TuiState,
@@ -91,8 +138,10 @@ pub(super) fn apply_approval_action(
             state.ui.approval_apply_all = !state.ui.approval_apply_all;
             ApprovalKeyEffect::Redraw
         }
-        ApprovalAction::Deny => ApprovalKeyEffect::Resolve(false),
-        ApprovalAction::Approve => ApprovalKeyEffect::Resolve(true),
+        ApprovalAction::Deny => ApprovalKeyEffect::ResolveScoped(ApprovalResponse::deny(None)),
+        ApprovalAction::Approve => {
+            resolve_allowed_scope(state, |scope| matches!(scope, ApprovalScope::Once))
+        }
         ApprovalAction::Diff => ApprovalKeyEffect::Redraw,
     }
 }
@@ -100,6 +149,9 @@ pub(super) fn apply_approval_action(
 #[cfg(test)]
 mod tests {
     use crossterm::event::KeyModifiers;
+    use viden_core::{
+        ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    };
 
     use super::super::modal::DEFAULT_APPROVAL_FOCUS;
     use super::*;
@@ -117,6 +169,44 @@ mod tests {
         state
     }
 
+    fn state_with_four_choice_approval(expires_at: u64) -> TuiState {
+        let mut state = state_with_focus();
+        state.runtime.pending_approvals.push(ApprovalRequestView {
+            id: "approval-four".to_string(),
+            tool_name: "shell".to_string(),
+            title: "Dangerous command".to_string(),
+            message: "choose scope".to_string(),
+            input_preview: "git push".to_string(),
+            is_mutating: true,
+            reason: None,
+            owner: Default::default(),
+            risk: ApprovalRisk::High,
+            target: ApprovalTarget {
+                kind: "command".to_string(),
+                display: "git push".to_string(),
+                canonical_ref: None,
+            },
+            allowed_scopes: vec![
+                ApprovalScope::Once,
+                ApprovalScope::Session {
+                    session_id: "session-four".to_string(),
+                },
+                ApprovalScope::RepoAllowlist {
+                    paths: vec!["refs/heads/main".to_string()],
+                },
+            ],
+            policy_reason_key: "approval.fixture".to_string(),
+            policy_reason_args: Default::default(),
+            expires_at,
+            default_action: ApprovalDefaultAction::Deny,
+            audit_id: "audit-four".to_string(),
+        });
+        let mut overlay = super::super::state::OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval-four".to_string());
+        state.ui.overlay = Some(overlay);
+        state
+    }
+
     #[test]
     fn escape_closes_focus_before_exit() {
         let mut state = state_with_focus();
@@ -128,6 +218,68 @@ mod tests {
             state.ui.entries[0]
                 .body
                 .contains("Closed lane detail focus")
+        );
+    }
+
+    #[test]
+    fn approval_digits_return_the_exact_typed_core_scope() {
+        let mut state = state_with_four_choice_approval(u64::MAX);
+
+        let once = format!(
+            "{:?}",
+            apply_approval_key(key(KeyCode::Char('1')), &mut state)
+        );
+        let session = format!(
+            "{:?}",
+            apply_approval_key(key(KeyCode::Char('2')), &mut state)
+        );
+        let repo = format!(
+            "{:?}",
+            apply_approval_key(key(KeyCode::Char('3')), &mut state)
+        );
+        let deny = format!(
+            "{:?}",
+            apply_approval_key(key(KeyCode::Char('4')), &mut state)
+        );
+
+        assert!(once.contains("Once"), "{once}");
+        assert!(
+            session.contains("Session") && session.contains("session-four"),
+            "{session}"
+        );
+        assert!(
+            repo.contains("RepoAllowlist") && repo.contains("refs/heads/main"),
+            "{repo}"
+        );
+        assert!(deny.contains("Deny"), "{deny}");
+    }
+
+    #[test]
+    fn expired_approval_stays_pending_until_core_resolves_it() {
+        let mut state = state_with_four_choice_approval(1);
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Char('y')), &mut state),
+            ApprovalKeyEffect::None
+        );
+        assert_eq!(state.runtime.pending_approvals.len(), 1);
+    }
+
+    #[test]
+    fn allow_once_shortcuts_cannot_bypass_the_typed_allowed_scopes() {
+        let mut state = state_with_four_choice_approval(u64::MAX);
+        state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
+        state.runtime.pending_approvals[0]
+            .allowed_scopes
+            .retain(|scope| !matches!(scope, ApprovalScope::Once));
+
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Char('y')), &mut state),
+            ApprovalKeyEffect::None
+        );
+        assert_eq!(
+            apply_approval_key(key(KeyCode::Enter), &mut state),
+            ApprovalKeyEffect::None
         );
     }
 
@@ -161,18 +313,23 @@ mod tests {
 
     #[test]
     fn approval_enter_activates_default_approve_focus() {
-        let mut state = state_with_focus();
+        let mut state = state_with_four_choice_approval(u64::MAX);
         state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
 
-        assert_eq!(
+        assert!(matches!(
             apply_approval_key(key(KeyCode::Enter), &mut state),
-            ApprovalKeyEffect::Resolve(true)
-        );
+            ApprovalKeyEffect::ResolveScoped(ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once
+                },
+                ..
+            })
+        ));
     }
 
     #[test]
     fn approval_keyboard_focus_reaches_deny_diff_and_approve() {
-        let mut state = state_with_focus();
+        let mut state = state_with_four_choice_approval(u64::MAX);
         state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
 
         assert_eq!(
@@ -193,33 +350,49 @@ mod tests {
         );
         assert_eq!(focused_approval_action(&state), ApprovalAction::Deny);
 
-        assert_eq!(
+        assert!(matches!(
             apply_approval_key(key(KeyCode::Enter), &mut state),
-            ApprovalKeyEffect::Resolve(false)
-        );
+            ApprovalKeyEffect::ResolveScoped(ApprovalResponse {
+                decision: ApprovalDecision::Deny,
+                ..
+            })
+        ));
 
         set_approval_focus_for_action(&mut state, ApprovalAction::Approve);
-        assert_eq!(
+        assert!(matches!(
             apply_approval_key(key(KeyCode::Enter), &mut state),
-            ApprovalKeyEffect::Resolve(true)
-        );
+            ApprovalKeyEffect::ResolveScoped(ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once
+                },
+                ..
+            })
+        ));
     }
 
     #[test]
     fn approval_shortcuts_resolve_without_focus_hopping() {
-        let mut state = state_with_focus();
+        let mut state = state_with_four_choice_approval(u64::MAX);
         set_approval_focus_for_action(&mut state, ApprovalAction::Deny);
 
-        assert_eq!(
+        assert!(matches!(
             apply_approval_key(key(KeyCode::Char('y')), &mut state),
-            ApprovalKeyEffect::Resolve(true)
-        );
+            ApprovalKeyEffect::ResolveScoped(ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once
+                },
+                ..
+            })
+        ));
         assert_eq!(focused_approval_action(&state), ApprovalAction::Deny);
 
-        assert_eq!(
+        assert!(matches!(
             apply_approval_key(key(KeyCode::Char('n')), &mut state),
-            ApprovalKeyEffect::Resolve(false)
-        );
+            ApprovalKeyEffect::ResolveScoped(ApprovalResponse {
+                decision: ApprovalDecision::Deny,
+                ..
+            })
+        ));
         assert_eq!(
             apply_approval_key(
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),

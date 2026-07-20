@@ -4,7 +4,8 @@ use super::{
     jump::JumpIndex,
     keymap::OverlayKind,
     panel::panel,
-    state::{InteractionPanel, TuiState},
+    projection::CockpitProjection,
+    state::{InteractionPanel, TuiState, has_active_work},
     text::truncate,
 };
 
@@ -39,11 +40,15 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::InteractionPanel => "SELECT",
             OverlayKind::ComposerCommands => "COMMANDS",
         };
+        let overlay_height = match overlay.kind {
+            OverlayKind::Approval | OverlayKind::Decisions => 14,
+            _ => 10,
+        };
         let block = panel(
             title,
             global_overlay_rows(state, overlay.kind, &overlay.filter),
             frame.width.min(76),
-            10,
+            overlay_height,
             Some(if overlay.kind == OverlayKind::GlobalJump {
                 "Esc restore · arrows/jk move · Enter jump"
             } else {
@@ -134,17 +139,17 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
             .iter()
             .map(|task| format!("{}  {}  {}", task.id, task.role, task.status.as_str()))
             .collect(),
-        OverlayKind::Decisions => state
-            .runtime
-            .pending_approvals
-            .iter()
-            .map(|approval| format!("{}  {}", approval.id, approval.title))
-            .collect(),
+        OverlayKind::Decisions => decision_center_rows(state),
         OverlayKind::ContextHelp => vec![
             "i Insert · Esc back · ? help".to_string(),
             "Ctrl-L lanes · Ctrl-S sessions · Ctrl-T new session".to_string(),
             "Ctrl-K commands · Ctrl-B board · Ctrl-G decisions".to_string(),
             "Ctrl-C cancel current work · double Ctrl-C exit confirm".to_string(),
+        ],
+        OverlayKind::ExitConfirm if has_active_work(state) => vec![
+            "Active work is still running; exit is blocked.".to_string(),
+            "Wait for Core to resolve it or expose a cancellable owner.".to_string(),
+            "Press Esc to stay.".to_string(),
         ],
         OverlayKind::ExitConfirm => vec![
             "No current work is active.".to_string(),
@@ -182,6 +187,52 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
     if rows.is_empty() {
         rows.push("No matching items.".to_string());
     }
+    rows
+}
+
+fn decision_center_rows(state: &TuiState) -> Vec<String> {
+    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let mut rows = projection
+        .approval_actions
+        .iter()
+        .map(|approval| {
+            let title = projection
+                .approvals
+                .iter()
+                .find(|request| request.id == approval.request_id)
+                .map_or("approval", |request| request.title.as_str());
+            format!(
+                "APPROVAL {} · {} · {:?} · AUDIT {}",
+                approval.request_id, title, approval.expiry, approval.audit_id
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.extend(projection.merge_gates.iter().map(|gate| {
+        format!(
+            "GATE {} · {:?} · {:?}",
+            gate.gate_id, gate.status, gate.decision
+        )
+    }));
+    rows.extend(projection.recovery_actions.iter().map(|recovery| {
+        format!(
+            "RECOVERY {} · {} · {}",
+            recovery.lane_id.as_deref().unwrap_or("runtime"),
+            recovery.reason,
+            recovery.action
+        )
+    }));
+    if let Some(command) = projection.pending_command.as_ref() {
+        rows.push(format!(
+            "COMMAND {} · pending Core fact",
+            command.command_id
+        ));
+    }
+    rows.extend(
+        projection
+            .errors
+            .iter()
+            .map(|error| format!("ERROR {}", error.message)),
+    );
     rows
 }
 
@@ -325,15 +376,51 @@ fn setup_action_row(selected: usize, index: usize, label: &str) -> String {
 }
 
 fn focused_approval_rows(state: &TuiState) -> Vec<String> {
-    let Some(overlay) = state
+    focused_approval_request(state).map_or_else(Vec::new, |approval| {
+        let once = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::Once));
+        let session = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::Session { .. }));
+        let repo = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::RepoAllowlist { .. }));
+        let availability = |available: bool| if available { "" } else { " · unavailable" };
+        let expiry = if approval_is_expired(approval) {
+            "EXPIRED · default Deny · awaiting Core ApprovalResolved".to_string()
+        } else if approval.expires_at > 0 {
+            format!("auto-deny @{} · default Deny", approval.expires_at)
+        } else {
+            "default Deny · no local expiry action".to_string()
+        };
+        vec![
+            format!("{} · {:?}", approval.title, approval.risk),
+            truncate(&approval.message, 68),
+            format!("TARGET  {}", truncate(&approval.target.display, 56)),
+            format!("INPUT   {}", truncate(&approval.input_preview, 56)),
+            format!("1 Allow once{}", availability(once)),
+            format!("2 Allow for session{}", availability(session)),
+            format!("3 Add repo allowlist{}", availability(repo)),
+            "4 Deny".to_string(),
+            expiry,
+            format!("AUDIT   {}", approval.audit_id),
+        ]
+    })
+}
+
+pub(super) fn focused_approval_request(
+    state: &TuiState,
+) -> Option<&viden_core::ApprovalRequestView> {
+    let overlay = state
         .ui
         .overlay
         .as_ref()
-        .filter(|overlay| overlay.kind == OverlayKind::Approval)
-    else {
-        return Vec::new();
-    };
-    let approval = overlay.selected_id.as_ref().map_or_else(
+        .filter(|overlay| overlay.kind == OverlayKind::Approval)?;
+    overlay.selected_id.as_ref().map_or_else(
         || state.runtime.pending_approvals.get(overlay.selected),
         |request_id| {
             state
@@ -342,16 +429,17 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 .iter()
                 .find(|approval| &approval.id == request_id)
         },
-    );
-    approval.map_or_else(Vec::new, |approval| {
-        vec![
-            format!("{} · {:?}", approval.title, approval.risk),
-            truncate(&approval.message, 68),
-            format!("TARGET  {}", truncate(&approval.target.display, 56)),
-            format!("INPUT   {}", truncate(&approval.input_preview, 56)),
-            "[Deny (n)]  [Diff (d)]  [Approve (y)]".to_string(),
-        ]
-    })
+    )
+}
+
+pub(super) fn approval_is_expired(approval: &viden_core::ApprovalRequestView) -> bool {
+    if approval.expires_at == 0 {
+        return false;
+    }
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| approval.expires_at <= duration.as_secs())
+        .unwrap_or(false)
 }
 
 pub(super) fn interaction_panel_index_at(
@@ -491,6 +579,13 @@ pub(super) fn focused_approval_action(state: &TuiState) -> ApprovalAction {
 mod tests {
     use super::*;
     use crate::tui::state::OverlayState;
+    use viden_core::{
+        ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    };
+    use viden_types::{
+        LaneRecoveryView, RuntimeCommand, RuntimeCommandReceipt, RuntimeEventEnvelope,
+        RuntimeSnapshot, RuntimeWireEvent,
+    };
 
     #[test]
     fn approvals_are_not_inferred_from_transcript() {
@@ -573,5 +668,163 @@ mod tests {
             rows.iter().any(|row| row.starts_with("> Files unavailabl")),
             "the disabled tail result must not be dropped by a continued header: {rows:?}"
         );
+    }
+
+    #[test]
+    fn approval_overlay_renders_four_core_scopes_and_expiry_without_local_resolution() {
+        let mut state = TuiState::default();
+        state.runtime.pending_approvals.push(ApprovalRequestView {
+            id: "approval-four".to_string(),
+            tool_name: "shell".to_string(),
+            title: "Dangerous command".to_string(),
+            message: "requires operator choice".to_string(),
+            input_preview: "git push --force".to_string(),
+            is_mutating: true,
+            reason: Some("protected branch".to_string()),
+            owner: Default::default(),
+            risk: ApprovalRisk::Critical,
+            target: ApprovalTarget {
+                kind: "command".to_string(),
+                display: "git push --force".to_string(),
+                canonical_ref: Some("command://git-push".to_string()),
+            },
+            allowed_scopes: vec![
+                ApprovalScope::Once,
+                ApprovalScope::Session {
+                    session_id: "session-four".to_string(),
+                },
+                ApprovalScope::RepoAllowlist {
+                    paths: vec!["refs/heads/main".to_string()],
+                },
+            ],
+            policy_reason_key: "approval.protected_branch".to_string(),
+            policy_reason_args: Default::default(),
+            expires_at: 1,
+            default_action: ApprovalDefaultAction::Deny,
+            audit_id: "audit-four".to_string(),
+        });
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval-four".to_string());
+        state.ui.overlay = Some(overlay);
+
+        let rows = focused_approval_rows(&state).join("\n");
+
+        for expected in [
+            "1 Allow once",
+            "2 Allow for session",
+            "3 Add repo allowlist",
+            "4 Deny",
+            "EXPIRED",
+            "awaiting Core ApprovalResolved",
+            "audit-four",
+        ] {
+            assert!(rows.contains(expected), "missing {expected}:\n{rows}");
+        }
+        assert_eq!(state.runtime.pending_approvals.len(), 1);
+    }
+
+    #[test]
+    fn approval_overlay_keeps_all_four_scopes_expiry_and_audit_visible() {
+        let mut state = TuiState::default();
+        state.runtime.pending_approvals.push(ApprovalRequestView {
+            id: "approval-visible".to_string(),
+            tool_name: "shell".to_string(),
+            title: "Visible approval".to_string(),
+            message: "all rows must remain visible".to_string(),
+            input_preview: "cargo test".to_string(),
+            is_mutating: true,
+            reason: None,
+            owner: Default::default(),
+            risk: ApprovalRisk::Medium,
+            target: ApprovalTarget {
+                kind: "command".to_string(),
+                display: "cargo test".to_string(),
+                canonical_ref: None,
+            },
+            allowed_scopes: vec![
+                ApprovalScope::Once,
+                ApprovalScope::Session {
+                    session_id: "session-visible".to_string(),
+                },
+                ApprovalScope::RepoAllowlist {
+                    paths: vec!["Cargo.toml".to_string()],
+                },
+            ],
+            policy_reason_key: "approval.test".to_string(),
+            policy_reason_args: Default::default(),
+            expires_at: 0,
+            default_action: ApprovalDefaultAction::Deny,
+            audit_id: "audit-visible-last-row".to_string(),
+        });
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval-visible".to_string());
+        state.ui.overlay = Some(overlay);
+        let mut frame = Frame::new(100, 30);
+
+        render_overlays(&mut frame, &state, 0);
+
+        let rendered = frame.to_string();
+        assert!(rendered.contains("1 Allow once"));
+        assert!(rendered.contains("4 Deny"));
+        assert!(rendered.contains("default Deny"));
+        assert!(rendered.contains("audit-visible-last-row"));
+    }
+
+    #[test]
+    fn decisions_overlay_projects_typed_gates_recovery_and_pending_core_command() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/merge-gate.json"
+        ))
+        .expect("merge gate fixture");
+        let mut runtime = viden_types::RuntimeViewState::new(fixture.initial_snapshot);
+        for envelope in fixture.events {
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                runtime.apply_event(&event);
+            }
+        }
+        runtime.lane_recoveries.push(LaneRecoveryView {
+            lane_id: "lane-recover".to_string(),
+            reason: "detached".to_string(),
+            next_action: "reattach".to_string(),
+            timestamp: None,
+        });
+        runtime.last_command = Some(RuntimeCommandReceipt {
+            command_id: "cmd-review".to_string(),
+            command: RuntimeCommand::CancelActiveTurn,
+        });
+        let mut state = TuiState::new(runtime);
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Decisions));
+
+        let rows = global_overlay_rows(&state, OverlayKind::Decisions, "").join("\n");
+
+        assert!(rows.contains("GATE gate_merge"));
+        assert!(rows.contains("Accepted"));
+        assert!(rows.contains("RECOVERY lane-recover · detached · reattach"));
+        assert!(rows.contains("COMMAND cmd-review · pending Core fact"));
+    }
+
+    #[test]
+    fn exit_confirmation_blocks_ownerless_active_work_without_offering_enter_to_exit() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+
+        let active = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
+        assert!(active.contains("exit is blocked"));
+        assert!(active.contains("cancellable owner"));
+        assert!(!active.contains("Press Enter to exit"));
+
+        state.runtime.lanes.clear();
+        let inactive = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
+        assert!(inactive.contains("No current work is active"));
+        assert!(inactive.contains("Press Enter to exit"));
     }
 }

@@ -1,6 +1,7 @@
 use super::{
     canvas::Frame,
     panel::panel,
+    projection::CockpitProjection,
     state::{TuiState, agent_lanes, provider_status},
     statusbar::BOTTOM_BAR_HEIGHT,
     text::truncate,
@@ -35,15 +36,27 @@ pub(super) fn render_side_body(frame: &mut Frame, state: &TuiState) {
 }
 
 fn lane_rows(state: &TuiState) -> Vec<String> {
+    let projection = CockpitProjection::from(&state.runtime, &state.ui);
     let mut rows = agent_lanes(state)
         .into_iter()
-        .map(|lane| {
-            format!(
-                "{:<12} {:<10} {}",
+        .flat_map(|lane| {
+            let mut lane_rows = vec![format!(
+                "SWITCH {:<12} {:<10} {}",
                 truncate(&lane.id, 12),
                 lane.status,
-                truncate(&lane.summary, 44)
-            )
+                truncate(&lane.summary, 36)
+            )];
+            if projection
+                .owner_actions
+                .iter()
+                .any(|action| action.target_lane_id == lane.id)
+            {
+                lane_rows.push(format!(
+                    "CANCEL UNAVAILABLE {} · Core owner required",
+                    lane.id
+                ));
+            }
+            lane_rows
         })
         .collect::<Vec<_>>();
     if rows.is_empty() {
@@ -55,7 +68,7 @@ fn lane_rows(state: &TuiState) -> Vec<String> {
 pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
     let lanes = agent_lanes(state);
     let status = provider_status(state);
-    vec![
+    let mut rows = vec![
         format!(
             "PROVIDER  {} / {}",
             state.runtime.snapshot.provider_family, state.runtime.snapshot.model_label
@@ -72,12 +85,20 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
         format!("TELEMETRY {}", status.telemetry),
         format!("CONTEXT   {}", status.context_window),
         format!("THEME     {}", state.ui.theme_name),
-    ]
+    ];
+    rows.extend(state.runtime.lane_recoveries.iter().map(|recovery| {
+        format!(
+            "RECOVERY  {} · {} · {}",
+            recovery.lane_id, recovery.reason, recovery.next_action
+        )
+    }));
+    rows
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use viden_types::LaneRecoveryView;
 
     #[test]
     fn side_rows_use_runtime_snapshot() {
@@ -102,5 +123,35 @@ mod tests {
         assert!(rows.iter().any(|row| row.contains("starting")));
         assert!(rows.iter().any(|row| row.contains("detached")));
         assert!(status.iter().any(|row| row.contains("active 4/4")));
+    }
+
+    #[test]
+    fn side_screen_exposes_lane_switch_owner_cancel_and_recovery_without_inference() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lane fixture");
+        state.runtime.lane_recoveries.push(LaneRecoveryView {
+            lane_id: "L-conflict".to_string(),
+            reason: "worker disconnected".to_string(),
+            next_action: "reconnect and replay".to_string(),
+            timestamp: Some(1),
+        });
+
+        let rows = lane_rows(&state)
+            .into_iter()
+            .chain(side_status_rows(&state))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for expected in [
+            "SWITCH L-conflict",
+            "CANCEL UNAVAILABLE L-conflict · Core owner required",
+            "worker disconnected",
+            "reconnect and replay",
+        ] {
+            assert!(rows.contains(expected), "missing {expected}:\n{rows}");
+        }
     }
 }

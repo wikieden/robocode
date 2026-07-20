@@ -5,6 +5,7 @@ use super::{
     modal::render_overlays,
     ops_screen::render_ops_body,
     panel::panel,
+    projection::CockpitProjection,
     right_rail::right_rail,
     side_screen::render_side_body,
     state::{AgentTask, Lens, TuiState, agent_tasks},
@@ -162,22 +163,45 @@ fn board_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn decision_rows(state: &TuiState) -> Vec<String> {
-    let mut rows = state
-        .runtime
-        .pending_approvals
+    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let mut rows = projection
+        .approvals
         .iter()
-        .map(|approval| format!("APPROVAL {} · {}", approval.id, approval.title))
+        .map(|approval| {
+            let expiry = projection
+                .approval_actions
+                .iter()
+                .find(|action| action.request_id == approval.id)
+                .map(|action| format!(" · {:?}", action.expiry))
+                .unwrap_or_default();
+            format!(
+                "APPROVAL {} · {}{} · AUDIT {}",
+                approval.id, approval.title, expiry, approval.audit_id
+            )
+        })
         .collect::<Vec<_>>();
+    rows.extend(projection.merge_gates.iter().map(|gate| {
+        format!(
+            "GATE {} · {:?} · {:?}",
+            gate.gate_id, gate.status, gate.decision
+        )
+    }));
+    rows.extend(projection.recovery_actions.iter().map(|recovery| {
+        format!(
+            "RECOVERY {} · {} · {}",
+            recovery.lane_id.as_deref().unwrap_or("runtime"),
+            recovery.reason,
+            recovery.action
+        )
+    }));
+    if let Some(command) = projection.pending_command.as_ref() {
+        rows.push(format!(
+            "COMMAND {} · pending Core fact",
+            command.command_id
+        ));
+    }
     rows.extend(
-        state
-            .runtime
-            .merge_gates
-            .iter()
-            .map(|gate| format!("GATE {} · {:?}", gate.gate_id, gate.status)),
-    );
-    rows.extend(
-        state
-            .runtime
+        projection
             .errors
             .iter()
             .map(|error| format!("ERROR {}", error.message)),
@@ -189,15 +213,22 @@ fn decision_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn gallery_rows(state: &TuiState) -> Vec<String> {
-    if state.runtime.latest_evidence.is_empty() {
+    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    if projection.evidence.is_empty() && projection.evidence_decisions.is_empty() {
         return vec!["No Core evidence available.".to_string()];
     }
-    state
-        .runtime
-        .latest_evidence
+    let mut rows = projection
+        .evidence
         .iter()
         .map(|evidence| format!("{} · {} · {}", evidence.id, evidence.kind, evidence.summary))
-        .collect()
+        .collect::<Vec<_>>();
+    rows.extend(projection.evidence_decisions.iter().map(|decision| {
+        format!(
+            "{} · {:?} · GATE {}",
+            decision.evidence_id, decision.decision, decision.gate_id
+        )
+    }));
+    rows
 }
 
 pub(super) fn render_side_frame(state: &TuiState, width: u16, height: u16) -> String {
@@ -297,23 +328,76 @@ fn transcript_status_label(state: &TuiState) -> String {
 
 fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
     let status = live_activity_status(state);
-    if status.is_live {
-        return live_work_strip_rows(&status, width);
-    }
-    let mut rows = vec![truncate(
-        &format!("     ┊  ✦ {} {}", status.summary, thinking_pulse()),
-        width,
-    )];
-    if let Some(detail) = status.details.first() {
-        rows.push(truncate(&format!("     ┊    └ {}", detail), width));
+    let mut rows = if status.is_live {
+        live_work_strip_rows(&status, width)
     } else {
-        rows.push(truncate(&format!("     ┊    └ {}", status.evidence), width));
-    }
-    if !status.evidence.starts_with("AgentTask")
-        && !rows.iter().any(|row| row.contains(&status.evidence))
+        let mut inactive_rows = vec![truncate(
+            &format!("     ┊  ✦ {} {}", status.summary, thinking_pulse()),
+            width,
+        )];
+        if let Some(detail) = status.details.first() {
+            inactive_rows.push(truncate(&format!("     ┊    └ {}", detail), width));
+        } else {
+            inactive_rows.push(truncate(&format!("     ┊    └ {}", status.evidence), width));
+        }
+        if !status.evidence.starts_with("AgentTask")
+            && !inactive_rows
+                .iter()
+                .any(|row| row.contains(&status.evidence))
+        {
+            inactive_rows.push(truncate(
+                &format!("     ┊      signal {}", status.evidence),
+                width,
+            ));
+        }
+        inactive_rows
+    };
+    rows.extend(supervision_rows(state, width));
+    rows
+}
+
+fn supervision_rows(state: &TuiState, width: usize) -> Vec<String> {
+    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    if projection.approval_actions.is_empty()
+        && projection.merge_gates.is_empty()
+        && projection.recovery_actions.is_empty()
+        && projection.pending_command.is_none()
     {
+        return Vec::new();
+    }
+    let mut rows = vec![truncate("     ┊  SUPERVISION · Core facts", width)];
+    rows.extend(projection.approval_actions.iter().map(|approval| {
+        truncate(
+            &format!(
+                "     ┊  APPROVAL {} · {:?} · AUDIT {}",
+                approval.request_id, approval.expiry, approval.audit_id
+            ),
+            width,
+        )
+    }));
+    rows.extend(projection.merge_gates.iter().map(|gate| {
+        truncate(
+            &format!(
+                "     ┊  GATE {} · {:?} · {:?}",
+                gate.gate_id, gate.status, gate.decision
+            ),
+            width,
+        )
+    }));
+    rows.extend(projection.recovery_actions.iter().map(|recovery| {
+        truncate(
+            &format!(
+                "     ┊  RECOVERY {} · {} · {}",
+                recovery.lane_id.as_deref().unwrap_or("runtime"),
+                recovery.reason,
+                recovery.action
+            ),
+            width,
+        )
+    }));
+    if let Some(command) = projection.pending_command.as_ref() {
         rows.push(truncate(
-            &format!("     ┊      signal {}", status.evidence),
+            &format!("     ┊  COMMAND {} · pending Core fact", command.command_id),
             width,
         ));
     }
@@ -972,6 +1056,82 @@ mod structured_runtime_tests {
                 "right rail must default closed at {width}"
             );
         }
+    }
+
+    #[test]
+    fn supervision_loop_is_visible_across_cockpit_decisions_and_gallery() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/merge-gate.json"
+        ))
+        .expect("merge gate fixture");
+        let mut runtime = viden_types::RuntimeViewState::new(fixture.initial_snapshot);
+        for envelope in fixture.events {
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                runtime.apply_event(&event);
+            }
+        }
+        runtime.lane_recoveries.push(viden_types::LaneRecoveryView {
+            lane_id: "lane-render".to_string(),
+            reason: "detached".to_string(),
+            next_action: "reattach".to_string(),
+            timestamp: None,
+        });
+        runtime.last_command = Some(viden_types::RuntimeCommandReceipt {
+            command_id: "cmd-render".to_string(),
+            command: viden_types::RuntimeCommand::CancelActiveTurn,
+        });
+        runtime.merge_gates[0].decision = Some(viden_types::MergeGateDecision {
+            outcome: viden_types::MergeGateDecisionOutcome::Accepted,
+            reason: "typed review accepted".to_string(),
+            owner: Default::default(),
+            evidence_ids: runtime.merge_gates[0].evidence_ids.clone(),
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
+            audit_id: "audit-render".to_string(),
+            decided_at: 1_700_000_060,
+        });
+        let mut state = TuiState::new(runtime);
+        state.ui.lens = Lens::Session;
+        state.ui.input = "composer remains available".into();
+        state.ui.right_rail_open = true;
+
+        let cockpit = render_frame(&state, 160, 48);
+        assert!(cockpit.contains("SUPERVISION"));
+        assert!(cockpit.contains("GATE gate_merge · Accepted"));
+        assert!(cockpit.contains("RECOVERY lane-render · detached · reattach"));
+        assert!(cockpit.contains("COMMAND cmd-render · pending Core fact"));
+        assert!(cockpit.contains("composer remains available"));
+        assert!(cockpit.contains("CHANGES · EVIDENCE · CONTEXT"));
+
+        state.ui.lens = Lens::Decisions;
+        let decisions = render_frame(&state, 120, 40);
+        assert!(decisions.contains("GATE gate_merge · Accepted"));
+        assert!(decisions.contains("RECOVERY lane-render · detached · reattach"));
+        assert!(decisions.contains("COMMAND cmd-render · pending Core fact"));
+
+        state.ui.lens = Lens::Gallery;
+        let gallery = render_frame(&state, 120, 40);
+        assert!(gallery.contains("EvidenceAccepted"));
+        assert!(gallery.contains("gate_merge"));
+    }
+
+    #[test]
+    fn supervision_strip_leaves_lane_cancel_actions_to_the_side_surface() {
+        let mut state = state();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+
+        let rows = supervision_rows(&state, 120).join("\n");
+
+        assert!(rows.is_empty());
     }
 
     #[test]

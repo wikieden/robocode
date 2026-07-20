@@ -37,6 +37,9 @@ TUI 决策。
   `/lanes` 打开 Core lane board，普通输入进入 unified cockpit。
 - Pending approval 保持 pinned，但不接管 composer。`Ctrl-G` 打开 Decisions；选中一条
   具体 request 后才进入显式 approval focus。
+- 本地监督闭环只投影 typed Core facts：task/DAG、active tool、queued input、lane
+  output/conflict/recovery、merge gate、evidence decision、context pressure、cost
+  visibility 和 audit ID。command receipt 只能显示为 `pending Core fact`，绝不能推断成功。
 
 ## 主屏幕
 
@@ -49,8 +52,23 @@ TUI 决策。
   Todo、diagnostics、provider health、recent files、usage 和 keybindings。
 - Composer：始终在底部可见，尺寸和内部滚动行为跟随 canonical T1c，输入光标位于输入行内
   并使用原生 blinking bar cursor，带 action hints、work mode chips 和 permission level chips。
-- 底部状态栏：连接状态、session、event 数量、active lanes、context window、
-  theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。
+- 底部状态栏：连接状态、session、event 数量、active lanes、context pressure 和
+  presentation/help 提示。Cost 必须明确区分 `metered`、`blind`、`unavailable`；Core
+  没有 actual cost fact 时，token 数不能伪造金额。recovery 与 pending-command alert
+  固定在 pinned 区，不能混入 ambient ticker。
+
+## 展示偏好
+
+- locale、skin、color mode、density、motion、font scale 和 accessibility 是 Core
+  统一拥有并持久化的展示偏好。TUI 只消费解析后的 preference projection，不维护私有
+  palette 或 preference store。
+- 内置 locale 首先支持 `en` 和 `zh-CN`。用户可见 label 必须保持可翻译；稳定 command
+  name、ID、status 和 audit fact 不能从本地化文案推断。
+- skin/mode 继续使用 Core 校验后的组合与终端色深降级。后续 Settings 界面可以把它们开放为
+  配置选项，但必须发送 typed Core preference command，并渲染 Core 返回的 effective value
+  与 diagnostics。
+- 新增 locale 或 skin 必须同时补齐双语 copy/token coverage 与确定性 preview evidence；
+  frontend-only 的 skin fork 不是可接受扩展方式。
 
 ## Lane / Session 层级
 
@@ -154,17 +172,21 @@ Workspace -> Project -> Lane / Session -> Subagent
   `Enter` 保持普通编辑/提交语义。
 - `Ctrl-G` 打开 Decisions。选中一条具体 pending request 后，只为该 request 打开显式
   approval focus。
-- 显式 focus 中，`y` 仅本次允许，`n` 拒绝，`d` 打开该 request 的 diff/evidence；
+- 显式 focus 渲染四个 typed choice：`1` 仅本次允许、`2` 对 Core 提供的 session 允许、
+  `3` 添加 Core 提供的精确 repository allowlist、`4` 拒绝。缺失 scope 必须显示为
+  unavailable。`y`/`n` 保留 allow-once/deny 兼容语义，`d` 打开 request diff/evidence，
   方向键移动当前 action，`Enter` 执行选中 action。
-- `Esc` 只关闭显式 approval focus，绝不拒绝或以其他方式处理 request。`Ctrl-C` 仍只负责
-  打断活动工作，不是审批答案。
-- Session 级允许和 repository allowlist 属于未来 Core-gated action。在 typed Core contract
-  暴露这些 scope 前，TUI 不得把它们显示为当前选项。
+- `Esc` 只关闭显式 approval focus，绝不拒绝或以其他方式处理 request。`Ctrl-C` 不是审批
+  答案，且只有拿到 Core 提供的精确 owner 时才发送 active-work interrupt。
+- 只有 request 的 typed `allowed_scopes` 带有精确 Core payload 时，才显示 session 级允许
+  和 repository allowlist。TUI 原样转发该 scope 与原 request owner。
 - 鼠标为可选输入；启用后也只选择当前可用 action。
 - 查看 diff/evidence 不会自动处理审批。面板必须展示真实 command、scope、risk、
   expiry/default action，以及存在时的 preview 或 evidence。
 - Core 报告 approval resolution 后，pinned request 及其匹配的显式 focus 必须消失，
   transcript 和右栏不能留下样式残影。
+- deadline 到期后，request 保持可见但不可操作，并显示
+  `default Deny · awaiting Core ApprovalResolved`；TUI 不得本地移除或合成拒绝。
 
 ## 多屏方向
 
