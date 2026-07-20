@@ -41,6 +41,23 @@ runtime.typed_tasks
 ui.preferences
 ```
 
+Core `0.3.2` 保持 schema `1`，并单独公布以下按字典序排列、独立版本化的 extension
+capability。只具备 base 的 client 仍可连接；每项功能自行检查 extension，缺失时必须明确
+显示 unavailable，且 command transport 零发送。
+
+```text
+core.workspace_host
+runtime.credential_handles
+runtime.credential_staging
+runtime.lane_lifecycle
+runtime.lane_owner_projection
+runtime.project_onboarding
+runtime.recent_work
+runtime.starter_lane_preview
+runtime.trust_loop
+ui.preference_persistence
+```
+
 这里记录的是评审通过的 payload commit SHA。本文位于单独的 evidence commit 中；该
 evidence commit 是 TUI/GUI 的共同精确分支基线，并且它的 parent 必须等于这里记录的
 payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
@@ -55,9 +72,9 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 - pre-release 前端分支通过 `viden_core::LocalCoreHost` 打开项目。它会
   canonicalize 已存在的 workspace 目录，运行共享 runtime bootstrap，启动
   `RuntimeSupervisor`，并返回已绑定的 `CoreClient`。重新绑定到另一 workspace
-  会创建独立 binding 和 stream，不能改变已有 client 的 cursor 或 snapshot。
-  这是 Core `0.3.2` 的内部候选服务；在最终 Task 6 compatibility gate 之前，
-  它不会作为 handshake capability 对外公布，也不改变 `0.3.1` manifest。
+  会创建独立 binding 和 stream，不能改变已有 client 的 cursor 或 snapshot。client
+  以 `core.workspace_host` 门禁该可信边界；credential ingress 另要求
+  `runtime.credential_staging`。
 - 前端通过 `RuntimeCommand` 发送意图；不能直接调用 tools、providers 或
   permission engines。
 - `RuntimeViewState::apply_event` 是 client-visible state 的标准 reducer。TUI、
@@ -73,8 +90,8 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
-| Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | 内部 pre-release service；Task 6 前不是 handshake capability |
-| Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | 内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
+| Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
+| Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
 | Mode and permissions | top bar、approval panel、permission picker | `RuntimeSnapshot.work_mode`、`RuntimeSnapshot.permission_level`、`ApprovalRequestView` | `SetWorkMode`、`SetPermissionLevel`、`RespondToApproval` | 已落地 |
@@ -84,14 +101,14 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Agent workflow visibility | Mission Control board、workflow strip、plan/now/done/acceptance/blocked columns | `AgentDagRecord`、`AgentTaskRecord`、`EvidenceView`、`MergeGateRecord`、`RuntimeErrorView` | 现有 workflow/task/evidence/merge commands | 提案 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
-| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
+| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
-| Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
-| Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | schema `1` 上的内部 Core `0.3.2` 候选；`runtime.lane_owner_projection` 留到 Task 6 发布 |
-| 已审阅 starter Lane | 首启 starter 选择、branch/worktree 审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | 内部 pre-release service；Task 6 前不是 handshake capability |
+| Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
+| Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | Core `0.3.2` extension `runtime.lane_owner_projection` |
+| 已审阅 starter Lane | 首启 starter 选择、branch/worktree 审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | Core `0.3.2` extension `runtime.starter_lane_preview` |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
-| UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
-| Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
+| UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
+| Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 
 ## Event 消费规则
 
@@ -122,6 +139,8 @@ flowchart LR
 - `ProjectProbed`、`ProjectConfigPreviewed`、`ProjectConfigConfirmed` 与
   `CredentialHandleStored` 更新项目接入状态；client 不能只凭 command acceptance
   推断文件已经写入成功。
+- `UiPreferencesUpdated` 是 preference command 唯一持久化确认，并同步更新顶层与
+  snapshot preference facts。
 - `RecentWorkLoaded` 原子替换三组 recent-work view slice；snapshot 与 replay 可恢复最近
   一次已加载的安全结果。
 - `StarterLanePreviewed` upsert 一条 owner-scoped preview；
@@ -204,8 +223,8 @@ worktree 和本次新建 branch，再报告 recovery。
 
 preview 在当前 runtime stream 内属于正常 owner-scoped state，重连后可通过 snapshot 和
 replay 恢复。进程重启会创建新 stream 和 preview cache，因此旧 preview 必须重新生成。
-旧 `CreateLane` command 继续兼容已有调用方；首启 D4 flow 使用已审阅 command pair。
-capability/version/fixture 的发布留给 Task 6。
+旧 `CreateLane` command 继续兼容已有调用方；首启 D4 flow 使用已审阅 command pair，且
+只有 handshake 公布 `runtime.starter_lane_preview` 后才启用。
 
 ### Live Lane Runtime Owner
 
@@ -221,14 +240,12 @@ runtime stream 内，snapshot 与 replay 保留精确 binding。
 mismatch、Lane 缺失或已终止、Plan mode 拒绝、hydration failure，或任何没有创建 live
 worker 的路径都不发布 binding。
 
-Frontend cancel 必须 fail-closed。client 先 discover 后续
+Frontend cancel 必须 fail-closed。client 先 discover
 `runtime.lane_owner_projection` extension capability，再要求所选 active Lane 恰好一条
 合法 binding，并把完整 bound owner 原样放入 `CancelActiveTurn` envelope。capability
 缺失、零条或多条匹配、或任意 `owner.lane_id` mismatch 时，cancel 显示 unavailable，
-command transport 零发送。Task 1 只暴露 schema-1 event 与 projection；Task 6 才负责
-capability 发布和原子 Core `0.3.2` checkpoint。因此 reviewed capability 出现之前，前端
-必须保持 cancel unavailable。未来未知 runtime-owner event 只作为可检查 wire event
-保留，不修改 `RuntimeViewState`。
+command transport 零发送。未来未知 runtime-owner event 只作为可检查 wire event保留，
+不修改 `RuntimeViewState`。
 
 ## Agent DAG 和 Task UI 契约
 

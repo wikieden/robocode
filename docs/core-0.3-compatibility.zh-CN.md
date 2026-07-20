@@ -2,9 +2,9 @@
 
 English version: [core-0.3-compatibility.md](core-0.3-compatibility.md)
 
-本文是 Core 0.3.0 `frontend-contract-v1` payload 的人类可读兼容清单，记录前端
-schema、handshake capabilities、migration 顺序、确定性 fixture corpus、UI 偏好契约
-和设计入口层级。
+本文是冻结的 Core 0.3.0 `frontend-contract-v1` payload 及其向后兼容 Core 0.3.2
+extension candidate 的人类可读兼容清单，记录前端 schema、handshake capabilities、
+migration 顺序、确定性 fixture corpus、UI 偏好契约和设计入口层级。
 
 ## 冻结状态
 
@@ -44,16 +44,36 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-每个 fixture 的 requirement 都必须存在于该集合。要求未知 mandatory capability 的
-fixture 会在兼容性验证中失败；malformed 或 ambiguous legacy input 必须拒绝，不能猜测。
+每份冻结 base fixture 的 requirement 都必须存在于该集合；单独登记的 extension fixture
+只能要求已公布的 extension capabilities。任何 fixture 要求未知 mandatory capability 都会
+在兼容性验证中失败；malformed 或 ambiguous legacy input 必须拒绝，不能猜测。
 
 ## Schema-1 冻结后的扩展候选
 
-上面的 Core 0.3.0 冻结 capability 集合与 fixture digest 保持不变。Core 0.3.1 候选
-通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
-`crates/core/frontend-contract-extensions.toml` 单独公布增量 capability
-`runtime.lane_lifecycle`、`runtime.project_onboarding`、
-`runtime.credential_handles` 与 `runtime.trust_loop`。
+上面的 Core 0.3.0 冻结 capability 集合与原九份 fixture bytes 保持不变。Core 0.3.2
+候选通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
+`crates/core/frontend-contract-extensions.toml` 单独公布以下精确、按字典序排列的增量
+capability：
+
+```text
+core.workspace_host
+runtime.credential_handles
+runtime.credential_staging
+runtime.lane_lifecycle
+runtime.lane_owner_projection
+runtime.project_onboarding
+runtime.recent_work
+runtime.starter_lane_preview
+runtime.trust_loop
+ui.preference_persistence
+```
+
+schema 仍为 `1`。客户端只具备冻结 base 集合也可以连接；extension capability 缺失只
+禁用对应功能，不得阻止无关启动。被禁用功能必须明确显示 unavailable，并且 command
+零发送。具体而言：TUI stable Settings 要求 `ui.preference_persistence`；GUI D11 recent
+work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D4 创建要求
+`runtime.starter_lane_preview`；精确 active-Lane cancel 还要求
+`runtime.lane_owner_projection` 且恰好一条权威 binding。
 
 基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
 `RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
@@ -146,7 +166,19 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `plan-denial` | Plan mode 拒绝 mutation，且没有成功 mutation fact | `fa1fa859af8f056686c06b30b789706539d9ed19e02756519757993d5ee31b2d` |
 | `d1-vertical-slice` | D1 可见 transcript/tool、lane/task、decision、evidence/gate、context/cost、recovery、UI preferences | `7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804` |
 
-每个 JSON envelope 包含：
+上表九行是冻结 base corpus。单独登记的 schema-1 extension fixture 为：
+
+| Fixture id | 扩展场景 | 最终 view SHA-256 | Canonical fixture bytes SHA-256 |
+| --- | --- | --- | --- |
+| `frontend-host-services` | UI 偏好持久化、安全 recent work、reviewed starter-Lane preview/create/invalidation、精确 live Lane owner，以及一个可容忍的未来 optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
+
+扩展 fixture 使用六个正式 known event：`UiPreferencesUpdated`、`RecentWorkLoaded`、
+`StarterLanePreviewed`、`StarterLaneCreated`、`StarterLanePreviewInvalidated`、
+`LaneRuntimeOwnerBound`；禁止用 transient error 或展示 placeholder 代替。正常内存
+journal、snapshot 与 replay 路径必须把这些 facts 归约为相同 `RuntimeViewState`。未来
+optional event 只推进 cursor，不修改该 state。
+
+每个 JSON fixture envelope 包含：
 
 - `fixture_id`；
 - `schema_version: 1`；

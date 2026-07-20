@@ -14,12 +14,14 @@ use viden_types::{
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, CapabilityId, ContextBundleRecord, ContextOmittedSourceRecord,
     ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MergeGateDecision,
-    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
-    MergeGateType, MutationPolicy, PermissionLevel, PermissionMode, QueuedInputView,
-    ResolvedUiPreferences, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeOwner,
-    RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, TokenCostView, TokenUsage,
-    UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding,
+    LaneStatus, MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot,
+    MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, PermissionLevel,
+    PermissionMode, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    ResolvedUiPreferences, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
+    TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -113,14 +115,10 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
             .all(|pair| pair[0] < pair[1])
     );
     let advertised = frontend_capabilities();
-    assert_eq!(
-        CORE_EXTENSION_CAPABILITIES,
-        [
-            "runtime.credential_handles",
-            "runtime.lane_lifecycle",
-            "runtime.project_onboarding",
-            "runtime.trust_loop",
-        ]
+    assert!(
+        CORE_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
     );
     assert_eq!(
         advertised.len(),
@@ -134,11 +132,148 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.1\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.2\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 7"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.1");
-    assert_eq!(local_core_handshake().core_version, "0.3.1");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.2");
+    assert_eq!(local_core_handshake().core_version, "0.3.2");
+}
+
+#[test]
+fn frontend_host_capabilities_are_schema_one_core_0_3_2_and_additive() {
+    let frozen_base = [
+        "runtime.agent_dag",
+        "runtime.approvals",
+        "runtime.commands",
+        "runtime.context",
+        "runtime.cost",
+        "runtime.events",
+        "runtime.evidence",
+        "runtime.merge_gate",
+        "runtime.queued_input",
+        "runtime.replay",
+        "runtime.snapshot",
+        "runtime.transcript_page",
+        "runtime.typed_lanes",
+        "runtime.typed_tasks",
+        "ui.preferences",
+    ];
+    let extensions = [
+        "core.workspace_host",
+        "runtime.credential_handles",
+        "runtime.credential_staging",
+        "runtime.lane_lifecycle",
+        "runtime.lane_owner_projection",
+        "runtime.project_onboarding",
+        "runtime.recent_work",
+        "runtime.starter_lane_preview",
+        "runtime.trust_loop",
+        "ui.preference_persistence",
+    ];
+
+    assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.2");
+    assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
+    assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
+    assert!(
+        CORE_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must be sorted and unique"
+    );
+    let advertised = frontend_capabilities();
+    assert_eq!(advertised.len(), frozen_base.len() + extensions.len());
+    assert_eq!(
+        local_core_handshake().active_schema_version,
+        SchemaVersion(1)
+    );
+
+    let base_only = viden_types::CoreHandshake {
+        core_version: "0.3.0".to_string(),
+        supported_schema_versions: vec![FRONTEND_SCHEMA_V1],
+        active_schema_version: FRONTEND_SCHEMA_V1,
+        capabilities: frozen_base
+            .into_iter()
+            .map(|capability| CapabilityId(capability.to_string()))
+            .collect(),
+    };
+    viden_core::validate_handshake(&base_only)
+        .expect("missing optional extensions must not block a frozen-base client");
+
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.2\""));
+    assert!(extension_manifest.contains("schema_version = 1"));
+    assert!(extension_manifest.contains("runtime.lane_owner_projection"));
+    assert!(extension_manifest.contains(
+        "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
+    ));
+}
+
+#[test]
+fn frontend_host_capabilities_fixture_replays_known_facts_and_tolerates_future_events() {
+    let name = "frontend-host-services.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read extension fixture bytes");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&fixture_bytes)),
+        "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
+    );
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let known_types = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => Some(match &event.kind {
+                RuntimeEventKind::UiPreferencesUpdated { .. } => "ui_preferences_updated",
+                RuntimeEventKind::RecentWorkLoaded { .. } => "recent_work_loaded",
+                RuntimeEventKind::StarterLanePreviewed { .. } => "starter_lane_previewed",
+                RuntimeEventKind::StarterLaneCreated { .. } => "starter_lane_created",
+                RuntimeEventKind::StarterLanePreviewInvalidated { .. } => {
+                    "starter_lane_preview_invalidated"
+                }
+                RuntimeEventKind::LaneRuntimeOwnerBound { .. } => "lane_runtime_owner_bound",
+                other => panic!("extension fixture contains transient placeholder {other:?}"),
+            }),
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        known_types,
+        [
+            "ui_preferences_updated",
+            "recent_work_loaded",
+            "starter_lane_previewed",
+            "starter_lane_created",
+            "starter_lane_preview_invalidated",
+            "lane_runtime_owner_bound",
+        ]
+    );
+    assert!(fixture.events.iter().any(|envelope| matches!(
+        envelope.event,
+        RuntimeWireEvent::Unknown { ref event_type, .. }
+            if event_type == "future_frontend_host_fact"
+    )));
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert_eq!(
+        first_view.ui_preferences.locale,
+        viden_types::LocaleId::ZhCn
+    );
+    assert_eq!(first_view.recent_projects.len(), 1);
+    assert_eq!(first_view.recent_sessions.len(), 1);
+    assert!(first_view.starter_lane_previews.is_empty());
+    assert_eq!(first_view.starter_lane_receipts.len(), 1);
+    assert_eq!(first_view.lane_runtime_owners.len(), 1);
 }
 
 #[test]
@@ -198,6 +333,19 @@ fn refresh_frontend_contract_v1_fixtures() {
         let path = root.join(format!("{}.json", fixture.fixture_id));
         fs::write(path, serde_json::to_string_pretty(&fixture).unwrap() + "\n").unwrap();
     }
+}
+
+#[test]
+#[ignore = "manual extension fixture refresh; normal tests validate committed JSON only"]
+fn refresh_frontend_host_services_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = frontend_host_services_fixture();
+    fs::write(
+        root.join("frontend-host-services.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 fn fixture_root() -> PathBuf {
@@ -738,6 +886,153 @@ fn build_fixtures() -> Vec<FrontendContractFixtureOut> {
             ),
         ),
     ]
+}
+
+fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "frontend-host-services";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-host-fixture".to_string(),
+        project_id: "project-host-fixture".to_string(),
+        lane_id: Some("lane-host-fixture".to_string()),
+        session_id: Some("session-host-fixture".to_string()),
+        task_id: Some("task_host_fixture".to_string()),
+        turn_id: Some("turn-host-fixture".to_string()),
+    };
+    let lane = AgentLaneRecord {
+        id: "lane-host-fixture".to_string(),
+        task_id: Some("task_host_fixture".to_string()),
+        role: AgentRole::Coder,
+        route: AgentRoute::BuiltIn,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some("workspace/.worktrees/lane-host-fixture".to_string()),
+        branch: Some("codex/lane-host-fixture".to_string()),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: LaneStatus::Running,
+        budget: LaneBudget::default(),
+        active_session_ids: vec!["session-host-fixture".to_string()],
+        summary: "reviewed starter Lane".to_string(),
+        evidence: Vec::new(),
+    };
+    let preview = StarterLanePreview {
+        preview_id: "preview-host-fixture".to_string(),
+        content_sha256: "ab".repeat(32),
+        owner: owner.clone(),
+        lane: lane.clone(),
+        branch: "codex/lane-host-fixture".to_string(),
+        worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
+        base_revision: "cd".repeat(20),
+        diagnostics: Vec::new(),
+    };
+    let kinds = vec![
+        RuntimeEventKind::UiPreferencesUpdated {
+            resolved: ResolvedUiPreferences {
+                locale: viden_types::LocaleId::ZhCn,
+                skin: UiSkin::Ice,
+                mode: UiColorMode::Dark,
+                density: UiDensity::Compact,
+                motion: UiMotion::Reduced,
+                diagnostics: Vec::new(),
+            },
+            persisted: Some(UiPreferences {
+                locale: viden_types::LocaleId::ZhCn,
+                skin: UiSkin::Ice,
+                mode: UiColorMode::Dark,
+                density: UiDensity::Compact,
+                motion: UiMotion::Reduced,
+            }),
+            diagnostics: Vec::new(),
+        },
+        RuntimeEventKind::RecentWorkLoaded {
+            projects: vec![RecentProjectSummary {
+                canonical_root: "workspace/project".to_string(),
+                display_name: "project".to_string(),
+                last_updated_at: 1_700_000_020,
+                latest_session_id: Some("session-host-fixture".to_string()),
+            }],
+            sessions: vec![RecentSessionSummary {
+                canonical_root: "workspace/project".to_string(),
+                session_id: "session-host-fixture".to_string(),
+                created_at: 1_700_000_010,
+                last_updated_at: 1_700_000_020,
+                message_count: 2,
+                tool_call_count: 1,
+                command_count: 1,
+            }],
+            diagnostics: Vec::new(),
+        },
+        RuntimeEventKind::StarterLanePreviewed {
+            preview: preview.clone(),
+        },
+        RuntimeEventKind::StarterLaneCreated {
+            receipt: StarterLaneReceipt {
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+                lane,
+                branch: preview.branch.clone(),
+                worktree_path: preview.worktree_path.clone(),
+                base_revision: preview.base_revision.clone(),
+                owner: owner.clone(),
+            },
+        },
+        RuntimeEventKind::StarterLanePreviewInvalidated {
+            owner: owner.clone(),
+            preview_id: preview.preview_id,
+            reason: StarterLanePreviewInvalidationReason::BaseRevisionChanged,
+        },
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: "lane-host-fixture".to_string(),
+                owner: owner.clone(),
+            },
+        },
+    ];
+    let mut events = kinds
+        .into_iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner: owner.clone(),
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(1_700_000_000 + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect::<Vec<_>>();
+    events.push(RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner,
+        cursor: EventCursor {
+            stream_id: format!("fixture:{fixture_id}"),
+            sequence: 7,
+        },
+        event: RuntimeWireEvent::Unknown {
+            event_type: "future_frontend_host_fact".to_string(),
+            payload: serde_json::json!({"optional": true}),
+        },
+    });
+    fixture(
+        fixture_id,
+        &[
+            "core.workspace_host",
+            "runtime.credential_staging",
+            "runtime.lane_owner_projection",
+            "runtime.recent_work",
+            "runtime.starter_lane_preview",
+            "ui.preference_persistence",
+        ],
+        snapshot(WorkMode::Build),
+        events,
+    )
 }
 
 fn fixture(
