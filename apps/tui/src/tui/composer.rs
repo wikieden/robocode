@@ -55,7 +55,7 @@ pub(super) fn render_welcome(frame: &mut Frame, state: &TuiState) {
     );
     frame.write_line(
         after_input + 3,
-        &positioned_line(width, box_left, &welcome_hint_row(box_width)),
+        &positioned_line(width, box_left, &welcome_hint_row(state, box_width)),
     );
 
     let bottom = welcome_status_row(state, width);
@@ -99,15 +99,22 @@ fn composer_rows(state: &TuiState, width: usize) -> Vec<String> {
     } else if super::state::has_active_work(state) {
         let count = state.runtime.queued_inputs.len();
         if count == 0 {
-            vec!["Type next prompt while Viden works...".to_string()]
+            vec![super::i18n::text(state, "composer.active")]
         } else {
-            vec![format!(
-                "{} queued; type another prompt...",
-                queued_prompt_count_label(count)
+            let count =
+                if state.runtime.snapshot.ui_preferences.locale == viden_core::LocaleId::ZhCn {
+                    count.to_string()
+                } else {
+                    queued_prompt_count_label(count)
+                };
+            vec![super::i18n::translate(
+                state,
+                "composer.queued",
+                &[("count", count.as_str())],
             )]
         }
     } else {
-        vec!["Type your instruction...".to_string()]
+        vec![super::i18n::text(state, "composer.prompt")]
     }
 }
 
@@ -217,12 +224,12 @@ fn composer_actions(state: &TuiState, width: usize) -> String {
             .label()
     );
     let right = if super::state::has_active_work(state) {
-        "ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help]"
+        super::i18n::text(state, "composer.actions.active")
     } else {
-        "ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help]"
+        super::i18n::text(state, "composer.actions.idle")
     };
     let left_width = char_width(&left);
-    let right_width = char_width(right);
+    let right_width = char_width(&right);
     if left_width + right_width + 3 <= width {
         return format!(
             "{}{} {right}",
@@ -319,7 +326,7 @@ fn welcome_input_rows(state: &TuiState, box_width: usize) -> Vec<String> {
             "▌  {}",
             pad(
                 &truncate(
-                    "Ask anything... \"Fix broken tests\"",
+                    &super::i18n::text(state, "welcome.ask"),
                     box_width.saturating_sub(3)
                 ),
                 box_width.saturating_sub(3)
@@ -349,11 +356,11 @@ fn welcome_context_row(state: &TuiState, box_width: usize) -> String {
     truncate(&pad(&content, box_width), box_width)
 }
 
-fn welcome_hint_row(box_width: usize) -> String {
-    let hint = "tab agents   ctrl+p commands   /connect";
+fn welcome_hint_row(state: &TuiState, box_width: usize) -> String {
+    let hint = super::i18n::text(state, "welcome.hints");
     format!(
         "{}{}",
-        " ".repeat(box_width.saturating_sub(char_width(hint))),
+        " ".repeat(box_width.saturating_sub(char_width(&hint))),
         hint
     )
 }
@@ -363,7 +370,8 @@ fn welcome_status_row(state: &TuiState, width: usize) -> String {
         &format!("{}:{}", state.runtime.snapshot.cwd.display(), "core"),
         width.saturating_mul(45) / 100,
     );
-    let middle = format!("◎ {} lanes  /status", state.runtime.lanes.len());
+    let lane_count = state.runtime.lanes.len().to_string();
+    let middle = super::i18n::translate(state, "welcome.lanes", &[("count", lane_count.as_str())]);
     let right = format!("v{}", env!("CARGO_PKG_VERSION"));
     let left_width = char_width(&left);
     let middle_width = char_width(&middle);
@@ -499,6 +507,11 @@ mod tests {
         let rendered = frame.to_string();
 
         assert!(rendered.contains("1 prompt queued; type another prompt"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        assert!(frame.to_string().contains("已排队 1 条"));
     }
 
     #[test]
@@ -568,6 +581,20 @@ mod tests {
         assert!(lines[30].contains("▌ 十"));
         assert!(!rendered.contains("▌ 一"));
         assert_eq!(composer_cursor_position(&state, 120, 40, 1), (16, 30));
+    }
+
+    #[test]
+    fn welcome_copy_follows_core_resolved_chinese_locale() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let mut frame = Frame::new(112, 40);
+
+        render_welcome(&mut frame, &state);
+
+        let rendered = frame.to_string();
+        assert!(rendered.contains("可以问任何问题"));
+        assert!(rendered.contains("/connect"));
+        assert!(rendered.contains("条 lane"));
     }
 
     #[test]

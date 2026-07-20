@@ -93,9 +93,10 @@ pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<S
         && projection.provider.is_none()
         && projection.context_pressure == ContextPressure::Unavailable
     {
-        rows.push("No Core detail facts.".to_string());
+        rows.push(super::i18n::text(state, "rail.empty"));
     }
-    panel("RUNTIME", rows, width, height, None)
+    let title = super::i18n::text(state, "rail.title");
+    panel(&title, rows, width, height, None)
 }
 
 #[cfg(test)]
@@ -142,6 +143,17 @@ mod tests {
         assert!(rendered.contains(&state.runtime.lanes[0].id));
         assert!(rendered.contains("MORE"));
         assert!(rendered.contains("ERR core error"));
+    }
+
+    #[test]
+    fn empty_runtime_rail_uses_core_resolved_chinese_locale() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+
+        let rendered = right_rail(&state, 38, 20).join("\n");
+
+        assert!(rendered.contains("RUNTIME · 运行时"));
+        assert!(rendered.contains("Core 暂无详细事实。"));
     }
 
     #[test]

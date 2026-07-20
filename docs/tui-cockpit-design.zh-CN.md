@@ -64,6 +64,14 @@ TUI 决策。
   palette 或 preference store。
 - 内置 locale 首先支持 `en` 和 `zh-CN`。用户可见 label 必须保持可翻译；稳定 command
   name、ID、status 和 audit fact 不能从本地化文案推断。
+- TUI 文案存放在 key 兼容的 `apps/tui/i18n/en.json` 与
+  `apps/tui/i18n/zh-CN.json` catalog 中；两者必须保持完全一致的 key 集合与插值参数集合。
+  `zh-Hans-CN` 系统输入映射到 `zh-CN`，未知系统 locale 回退到英文；missing key 直接显示
+  key，不能静默消失。
+- 每一帧渲染都从当前 Core `ResolvedUiPreferences` projection 派生 catalog，因此 snapshot、
+  replay 或 `UiPreferencesUpdated` 后无需维护第二份 locale 状态。CLI override、stored user
+  preference、system locale 与英文 fallback 的优先级由 Core 解析；TUI 不重复该 resolver，
+  也不接受 project data 作为个人 UI 偏好来源。
 - skin/mode 继续使用 Core 校验后的组合与终端色深降级。后续 Settings 界面可以把它们开放为
   配置选项，但必须发送 typed Core preference command，并渲染 Core 返回的 effective value
   与 diagnostics。

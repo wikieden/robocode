@@ -84,6 +84,17 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 - Built-in locale support starts with `en` and `zh-CN`. User-facing labels must
   remain translatable; stable command names, IDs, statuses, and audit facts are
   not inferred from localized copy.
+- TUI copy lives in the key-compatible `apps/tui/i18n/en.json` and
+  `apps/tui/i18n/zh-CN.json` catalogs. Both catalogs must keep exact key and
+  interpolation-parameter parity. `zh-Hans-CN` system input resolves to
+  `zh-CN`, an unknown system locale resolves to English, and a missing key is
+  rendered visibly as the key instead of disappearing.
+- Runtime rendering derives the catalog from the current Core
+  `ResolvedUiPreferences` projection on every frame, including after snapshot,
+  replay, or `UiPreferencesUpdated`. CLI override, stored user preference,
+  system locale, and English fallback precedence is resolved by Core; the TUI
+  neither repeats that resolver nor accepts project data as a personal UI
+  preference source.
 - Skin and mode continue to use the Core-validated combinations and terminal
   color-depth fallback. A later Settings surface may expose these as open
   configuration options, but it must send the typed Core preference command

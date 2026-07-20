@@ -13,38 +13,72 @@ pub(super) fn render_ops_body(frame: &mut Frame, state: &TuiState) {
     let body_height = frame.height.saturating_sub(body_top + BOTTOM_BAR_HEIGHT);
     let section_height = body_height.saturating_div(4).max(4);
     let sections = [
-        ("TESTS / LSP", runtime_rows(state)),
-        ("MCP / CONTEXT", context_rows(&projection)),
-        ("PROVIDER / APPROVALS", provider_rows(&projection)),
-        ("RECENT EVIDENCE", evidence_rows(&projection)),
+        (
+            super::i18n::text(state, "ops.section.runtime"),
+            runtime_rows(state),
+        ),
+        (
+            super::i18n::text(state, "ops.section.context"),
+            context_rows(state, &projection),
+        ),
+        (
+            super::i18n::text(state, "ops.section.provider"),
+            provider_rows(state, &projection),
+        ),
+        (
+            super::i18n::text(state, "ops.section.evidence"),
+            evidence_rows(state, &projection),
+        ),
     ];
     for (index, (title, rows)) in sections.into_iter().enumerate() {
-        let block = panel(title, rows, frame.width, section_height, None);
+        let block = panel(&title, rows, frame.width, section_height, None);
         frame.write_block(body_top + index * section_height, 0, &block);
     }
 }
 
 fn runtime_rows(state: &TuiState) -> Vec<String> {
+    let root = truncate(&state.runtime.snapshot.cwd.display().to_string(), 60);
+    let task_count = state.runtime.tasks.len().to_string();
+    let lane_count = state.runtime.lanes.len().to_string();
+    let error_count = state.runtime.errors.len().to_string();
     let mut rows = vec![
-        format!(
-            "ROOT     {}",
-            truncate(&state.runtime.snapshot.cwd.display().to_string(), 60)
+        super::i18n::translate(state, "ops.runtime.root", &[("root", root.as_str())]),
+        super::i18n::translate(
+            state,
+            "ops.runtime.tasks",
+            &[("count", task_count.as_str())],
         ),
-        format!("TASKS    {}", state.runtime.tasks.len()),
-        format!("LANES    {}", state.runtime.lanes.len()),
-        format!("ERRORS   {}", state.runtime.errors.len()),
+        super::i18n::translate(
+            state,
+            "ops.runtime.lanes",
+            &[("count", lane_count.as_str())],
+        ),
+        super::i18n::translate(
+            state,
+            "ops.runtime.errors",
+            &[("count", error_count.as_str())],
+        ),
     ];
     rows.extend(state.runtime.agent_dags.iter().flat_map(|dag| {
-        let mut dag_rows = vec![format!("DAG      {} · {:?}", dag.dag_id, dag.status)];
+        let status = format!("{:?}", dag.status);
+        let mut dag_rows = vec![super::i18n::translate(
+            state,
+            "ops.runtime.dag",
+            &[("dag_id", dag.dag_id.as_str()), ("status", status.as_str())],
+        )];
         dag_rows.extend(dag.tasks.iter().map(|task| {
-            format!(
-                "BLOCKER  {} <- {}",
-                task.task_id,
-                if task.dependencies.is_empty() {
-                    "-".to_string()
-                } else {
-                    task.dependencies.join(",")
-                }
+            let dependencies = if task.dependencies.is_empty() {
+                "-".to_string()
+            } else {
+                task.dependencies.join(",")
+            };
+            super::i18n::translate(
+                state,
+                "ops.runtime.blocker",
+                &[
+                    ("task_id", task.task_id.as_str()),
+                    ("dependencies", dependencies.as_str()),
+                ],
             )
         }));
         dag_rows
@@ -55,82 +89,129 @@ fn runtime_rows(state: &TuiState) -> Vec<String> {
             .as_ref()
             .map(|action| format!(" · {}", action.label))
             .unwrap_or_default();
-        format!("TASK     {} · {}{next}", task.id, task.status)
+        super::i18n::translate(
+            state,
+            "ops.runtime.task",
+            &[
+                ("task_id", task.id.as_str()),
+                ("status", task.status.as_str()),
+                ("next", next.as_str()),
+            ],
+        )
     }));
     rows
 }
 
-fn context_rows(projection: &CockpitProjection) -> Vec<String> {
+fn context_rows(state: &TuiState, projection: &CockpitProjection) -> Vec<String> {
     let context = projection.context.as_ref();
+    let bundle = context.map_or("-", |value| value.bundle_id.as_str());
+    let tokens = context
+        .map_or(0, |value| value.estimated_tokens)
+        .to_string();
+    let pressure = context
+        .map_or(0, |value| value.pressure_percent())
+        .to_string();
+    let cost = projection.cost.total_tokens.to_string();
     vec![
-        format!(
-            "BUNDLE   {}",
-            context.map_or("-", |value| value.bundle_id.as_str())
-        ),
-        format!(
-            "TOKENS   {}",
-            context.map_or(0, |value| value.estimated_tokens)
-        ),
-        format!(
-            "PRESSURE {}%",
-            context.map_or(0, |value| value.pressure_percent())
+        super::i18n::translate(state, "ops.context.bundle", &[("bundle", bundle)]),
+        super::i18n::translate(state, "ops.context.tokens", &[("tokens", tokens.as_str())]),
+        super::i18n::translate(
+            state,
+            "ops.context.pressure",
+            &[("percent", pressure.as_str())],
         ),
         match projection.cost_visibility {
-            CostVisibility::BlindUnmetered => format!(
-                "COST     {} tokens · blind / unmetered",
-                projection.cost.total_tokens
+            CostVisibility::BlindUnmetered => super::i18n::translate(
+                state,
+                "ops.context.cost.blind",
+                &[("tokens", cost.as_str())],
             ),
-            CostVisibility::Metered => format!("COST     {} tokens", projection.cost.total_tokens),
-            CostVisibility::Unavailable => "COST     unavailable".to_string(),
+            CostVisibility::Metered => super::i18n::translate(
+                state,
+                "ops.context.cost.metered",
+                &[("tokens", cost.as_str())],
+            ),
+            CostVisibility::Unavailable => super::i18n::text(state, "ops.context.cost.unavailable"),
         },
     ]
 }
 
-fn provider_rows(projection: &CockpitProjection) -> Vec<String> {
+fn provider_rows(state: &TuiState, projection: &CockpitProjection) -> Vec<String> {
     let provider = projection.provider.as_ref();
+    let approval_count = projection.approvals.len().to_string();
     let mut rows = vec![
-        format!(
-            "PROVIDER {}",
-            provider.map_or("-", |value| value.provider_id.as_str())
+        super::i18n::translate(
+            state,
+            "ops.provider.provider",
+            &[(
+                "provider",
+                provider.map_or("-", |value| value.provider_id.as_str()),
+            )],
         ),
-        format!(
-            "MODEL    {}",
-            provider.map_or("-", |value| value.model.as_str())
+        super::i18n::translate(
+            state,
+            "ops.provider.model",
+            &[("model", provider.map_or("-", |value| value.model.as_str()))],
         ),
-        format!(
-            "HEALTH   {}",
-            provider.map_or("unknown", |value| value.status.as_str())
+        super::i18n::translate(
+            state,
+            "ops.provider.health",
+            &[(
+                "health",
+                provider.map_or("unknown", |value| value.status.as_str()),
+            )],
         ),
-        format!("APPROVAL {} pending", projection.approvals.len()),
+        super::i18n::translate(
+            state,
+            "ops.provider.approval",
+            &[("count", approval_count.as_str())],
+        ),
     ];
     rows.extend(projection.merge_gates.iter().map(|gate| {
-        format!(
-            "GATE     {} · {:?} · {:?}",
-            gate.gate_id, gate.status, gate.decision
+        let status = format!("{:?}", gate.status);
+        let decision = format!("{:?}", gate.decision);
+        super::i18n::translate(
+            state,
+            "ops.provider.gate",
+            &[
+                ("gate_id", gate.gate_id.as_str()),
+                ("status", status.as_str()),
+                ("decision", decision.as_str()),
+            ],
         )
     }));
-    rows.extend(
-        projection
-            .recovery_actions
-            .iter()
-            .map(|recovery| format!("RECOVER  {} · {}", recovery.reason, recovery.action)),
-    );
+    rows.extend(projection.recovery_actions.iter().map(|recovery| {
+        super::i18n::translate(
+            state,
+            "ops.provider.recover",
+            &[
+                ("reason", recovery.reason.as_str()),
+                ("action", recovery.action.as_str()),
+            ],
+        )
+    }));
     if let Some(pending) = projection.pending_command.as_ref() {
-        rows.push(format!(
-            "PENDING  {} · {:?}",
-            pending.command_id, pending.state
+        let command_state = format!("{:?}", pending.state);
+        rows.push(super::i18n::translate(
+            state,
+            "ops.provider.pending",
+            &[
+                ("command_id", pending.command_id.as_str()),
+                ("state", command_state.as_str()),
+            ],
         ));
     }
-    rows.extend(
-        projection
-            .audit_ids
-            .iter()
-            .map(|audit_id| format!("AUDIT    {audit_id}")),
-    );
+    rows.extend(projection.audit_ids.iter().map(|audit_id| {
+        super::i18n::translate(
+            state,
+            "ops.provider.audit",
+            &[("audit_id", audit_id.as_str())],
+        )
+    }));
     rows
 }
 
-fn evidence_rows(projection: &CockpitProjection) -> Vec<String> {
+fn evidence_rows(state: &TuiState, projection: &CockpitProjection) -> Vec<String> {
     let mut rows = projection
         .evidence
         .iter()
@@ -145,7 +226,7 @@ fn evidence_rows(projection: &CockpitProjection) -> Vec<String> {
         )
     }));
     if rows.is_empty() {
-        rows.push("no structured evidence yet".to_string());
+        rows.push(super::i18n::text(state, "ops.evidence.empty"));
     }
     rows
 }
@@ -167,7 +248,7 @@ mod tests {
         });
         let projection = CockpitProjection::from(&state.runtime, &state.ui);
         assert!(
-            context_rows(&projection)
+            context_rows(&state, &projection)
                 .iter()
                 .any(|row| row.contains("42 tokens"))
         );
@@ -239,9 +320,9 @@ mod tests {
         let projection = CockpitProjection::from(&state.runtime, &state.ui);
         let rows = [
             runtime_rows(&state),
-            context_rows(&projection),
-            provider_rows(&projection),
-            evidence_rows(&projection),
+            context_rows(&state, &projection),
+            provider_rows(&state, &projection),
+            evidence_rows(&state, &projection),
         ]
         .concat()
         .join("\n");
@@ -259,6 +340,35 @@ mod tests {
             "audit-conflict",
         ] {
             assert!(rows.contains(expected), "missing {expected}:\n{rows}");
+        }
+    }
+
+    #[test]
+    fn ops_screen_follows_core_locale_without_translating_fact_values() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        state.runtime.snapshot.cwd = "/workspace/raw-project".into();
+        state.runtime.errors.push(RuntimeErrorView {
+            message: "error-raw".to_string(),
+            recoverable: true,
+            hint: None,
+        });
+        let mut frame = Frame::new(120, 40);
+
+        render_ops_body(&mut frame, &state);
+        let rendered = frame.to_string();
+
+        for expected in [
+            "TESTS / LSP · 测试",
+            "MCP / CONTEXT · 上下文",
+            "PROVIDER / APPROVALS · 审批",
+            "RECENT EVIDENCE · 最近证据",
+            "/workspace/raw-project",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "missing {expected}:\n{rendered}"
+            );
         }
     }
 }
