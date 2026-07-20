@@ -35,8 +35,8 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` starts the main TUI by default. TUI 0.3.0 negotiates the Core 0.3.1
-onboarding extensions and requests a project probe, but a clean session remains
+`viden` starts the main TUI by default. TUI 0.3.1 negotiates the Core 0.3.2
+frontend-service extensions and requests a project probe, but a clean session remains
 on the focused Welcome composer. `/setup` opens the Core-backed Setup selector;
 `/lanes` opens the Core lane board. The full cockpit appears after a normal task
 prompt or selection of a Core lane/session.
@@ -47,6 +47,7 @@ prompt or selection of a Core lane/session.
 /setup provider
 /connect
 /models
+/settings
 ```
 
 Start the main cockpit with explicit startup overrides:
@@ -141,9 +142,31 @@ configured model choices. TUI 0.3.0 has no trusted frontend secret-ingress
 method, so these panels never collect credential bytes or serialize a
 `/provider key` command. Provider detail displays active Core health and only a
 masked credential-handle summary. If Core has no safe handle or ingress, it
-shows `TRUSTED INGRESS unavailable` and remains read-only. Core 0.3.1 also does
+shows `TRUSTED INGRESS unavailable` and remains read-only. Core 0.3.2 also does
 not expose global session enumeration; `/lanes` selects only session ids
 advertised on each Core lane.
+
+TUI 0.3.1 opens `/settings` as a selector-first UI preference surface. It
+offers locale (`system | en | zh-CN`), five skins, system/dark/light mode,
+compact/regular/comfy density, system/reduced/full motion, terminal color
+depth, Apply, and Reset. Amber and Phosphor are dark-only; their light choices
+remain visible but disabled with an explanation. Every row shows the current
+selection and its effect.
+
+Stable Apply sends only a typed `UiPreferencePatch`; Reset sends
+`ResetUiPreferences`. `CommandAccepted` means pending, not saved. The selector
+reports success only after the matching `UiPreferencesUpdated` returns Core's
+resolved value, persisted value, and diagnostics. A rejection keeps the draft
+and shows Core's reason. CLI and user-config precedence is displayed from Core
+diagnostics and is never re-resolved in the TUI. The same UI preference command
+path remains available in Plan mode because Core classifies this presentation
+mutation separately from project, file, shell, Git, workflow, and memory
+effects.
+
+Color depth is a clearly labeled, unsaved session-only terminal preview because
+schema 1 has no persisted color-depth field. It never writes a TUI config or
+local preference store. If `ui.preference_persistence` is absent, Settings is
+still visible as unavailable, and Apply/Reset send no command.
 
 Typed commands still use compact completion while you are editing, so a large
 selector does not steal the composer before you press Enter. Direct commands

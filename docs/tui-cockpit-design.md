@@ -95,10 +95,17 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   system locale, and English fallback precedence is resolved by Core; the TUI
   neither repeats that resolver nor accepts project data as a personal UI
   preference source.
-- Skin and mode continue to use the Core-validated combinations and terminal
-  color-depth fallback. A later Settings surface may expose these as open
-  configuration options, but it must send the typed Core preference command
-  and render the returned effective value and diagnostics.
+- Stable Settings is selector-first and exposes locale, skin, mode, density,
+  motion, terminal color depth, Apply, and Reset. Persisted choices send only
+  `SetUiPreferences { patch: UiPreferencePatch }` or `ResetUiPreferences` and
+  remain pending through `CommandAccepted`; only the matching
+  `UiPreferencesUpdated` confirms success. Rejection preserves the draft and
+  renders Core's reason. Missing `ui.preference_persistence` keeps the surface
+  visible but unavailable with zero command transport.
+- Amber and Phosphor light choices remain visible but disabled with the
+  dark-only reason. Color depth is an explicitly unsaved session preview
+  because schema 1 does not persist that terminal-only axis. The TUI never
+  writes a private config or preference store.
 - The production TUI generates exactly eight complete semantic palettes from
   `docs/viden-design/Viden/tokens.css` at build time: Aurora, Ice, and Mono in
   dark/light plus dark-only Amber and Phosphor. Missing registered tokens fail

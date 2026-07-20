@@ -1,6 +1,7 @@
 use super::{
     composer_buffer::ComposerBuffer,
     keymap::{InputMode, OverlayKind},
+    preferences::{ColorDepth, SettingsPanel},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +150,7 @@ impl ProviderOption {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InteractionPanel {
+    Settings(Box<SettingsPanel>),
     Setup {
         selected: usize,
         draft: String,
@@ -234,6 +236,8 @@ pub(super) struct TuiUiState {
     pub(super) input_mode: InputMode,
     pub(super) overlay: Option<OverlayState>,
     pub(super) idle_ctrl_c_armed: bool,
+    pub(super) color_depth: ColorDepth,
+    pub(super) preference_diagnostics: Vec<String>,
 }
 
 impl Default for TuiUiState {
@@ -256,6 +260,8 @@ impl Default for TuiUiState {
             input_mode: InputMode::Normal,
             overlay: None,
             idle_ctrl_c_armed: false,
+            color_depth: ColorDepth::Auto,
+            preference_diagnostics: Vec::new(),
         }
     }
 }

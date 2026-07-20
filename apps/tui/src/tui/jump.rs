@@ -279,6 +279,7 @@ mod tests {
                 JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,
+                JumpKind::Command,
                 JumpKind::File,
             ],
         );
