@@ -42,6 +42,24 @@ runtime.typed_tasks
 ui.preferences
 ```
 
+Core `0.3.2` keeps schema `1` and advertises the following separately versioned,
+lexically sorted extension capabilities. Base-only clients still connect; each
+feature checks its own extension and remains visibly unavailable with zero
+command transport when that extension is absent.
+
+```text
+core.workspace_host
+runtime.credential_handles
+runtime.credential_staging
+runtime.lane_lifecycle
+runtime.lane_owner_projection
+runtime.project_onboarding
+runtime.recent_work
+runtime.starter_lane_preview
+runtime.trust_loop
+ui.preference_persistence
+```
+
 The recorded SHA is the reviewed payload commit. This document is stored in a
 separate evidence commit, which is the exact common TUI/GUI branch base; its
 parent must equal the recorded payload SHA. No SHA is guessed or made
@@ -58,10 +76,9 @@ self-referential inside the payload commit.
   canonicalizes an existing workspace directory, runs the shared runtime
   bootstrap, starts a `RuntimeSupervisor`, and returns a bound `CoreClient`.
   Rebinding to another workspace creates an independent binding and stream; it
-  must not mutate an existing client's cursor or snapshot. This is an internal
-  Core `0.3.2` candidate service; it is not advertised as a handshake
-  capability and does not change the `0.3.1` manifest before the final Task 6
-  compatibility gate.
+  must not mutate an existing client's cursor or snapshot. Clients gate this
+  trusted boundary on `core.workspace_host`; credential ingress separately
+  requires `runtime.credential_staging`.
 - Frontends send intent through `RuntimeCommand`; they do not call tools,
   providers, or permission engines directly.
 - `RuntimeViewState::apply_event` is the canonical reducer for client-visible
@@ -78,8 +95,8 @@ self-referential inside the payload commit.
 
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
-| Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | internal pre-release service; not a handshake capability until Task 6 |
-| Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | internal Core `0.3.2` candidate; not a handshake capability until Task 6 |
+| Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
+| Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
@@ -89,14 +106,14 @@ self-referential inside the payload commit.
 | Agent workflow visibility | Mission Control board, workflow strip, plan/now/done/acceptance/blocked columns | `AgentDagRecord`, `AgentTaskRecord`, `EvidenceView`, `MergeGateRecord`, `RuntimeErrorView` | existing workflow/task/evidence/merge commands | proposed |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
 | Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
-| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
+| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
-| Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
-| Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | internal Core `0.3.2` candidate on schema `1`; `runtime.lane_owner_projection` advertisement is deferred to Task 6 |
-| Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | internal pre-release service; not a handshake capability until Task 6 |
+| Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
+| Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | Core `0.3.2` extension `runtime.lane_owner_projection` |
+| Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview` |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
-| UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
-| Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
+| UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
+| Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 
 ## Event Consumption Rules
 
@@ -127,6 +144,8 @@ flowchart LR
 - `ProjectProbed`, `ProjectConfigPreviewed`, `ProjectConfigConfirmed`, and
   `CredentialHandleStored` update onboarding state; clients must not infer a
   successful write from command acceptance alone.
+- `UiPreferencesUpdated` is the only persistence confirmation for a preference
+  command and updates both the top-level and snapshot preference facts.
 - `RecentWorkLoaded` atomically replaces the three recent-work view slices;
   snapshot and replay recover the most recently loaded safe result.
 - `StarterLanePreviewed` upserts one owner-scoped preview;
@@ -224,8 +243,8 @@ Previews are normal owner-scoped state within the current runtime stream and are
 available through snapshot and replay after reconnect. A process restart creates
 a new stream and preview cache, so an old preview must be generated again. The
 legacy `CreateLane` command remains supported for existing callers; first-run D4
-flows use the reviewed command pair. Capability/version/fixture advertisement is
-deferred to Task 6.
+flows use the reviewed command pair. Clients enable that pair only when
+`runtime.starter_lane_preview` is advertised.
 
 ### Live Lane Runtime Owner
 
@@ -244,15 +263,12 @@ spawns a new live worker publishes a fresh binding. Owner mismatch, missing or
 terminal Lane, Plan-mode denial, hydration failure, or any path that does not
 create a live worker publishes no binding.
 
-Frontend cancel is fail-closed. A client must first discover the future
+Frontend cancel is fail-closed. A client must first discover the
 `runtime.lane_owner_projection` extension capability, then require exactly one
 valid binding for the selected active Lane and send `CancelActiveTurn` with the
 entire bound owner unchanged. Missing capability, zero or ambiguous matches,
 or any `owner.lane_id` mismatch means cancel is unavailable and command
-transport sends nothing. Task 1 exposes the schema-1 event and projection, but
-Task 6 owns capability advertisement and the atomic Core `0.3.2` checkpoint;
-frontends must therefore keep cancel unavailable until that reviewed
-capability is present. Unknown future runtime-owner events remain inspectable
+transport sends nothing. Unknown future runtime-owner events remain inspectable
 wire events and do not mutate `RuntimeViewState`.
 
 ## Agent DAG And Task UI Contract

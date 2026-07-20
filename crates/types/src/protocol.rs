@@ -28,10 +28,16 @@ pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
 /// checkpoint. They are advertised separately so the frozen capability
 /// evidence remains byte-for-byte stable.
 pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
+    "core.workspace_host",
     "runtime.credential_handles",
+    "runtime.credential_staging",
     "runtime.lane_lifecycle",
+    "runtime.lane_owner_projection",
     "runtime.project_onboarding",
+    "runtime.recent_work",
+    "runtime.starter_lane_preview",
     "runtime.trust_loop",
+    "ui.preference_persistence",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -279,7 +285,9 @@ struct UnknownRuntimeEventKind<'a> {
 fn is_known_runtime_event_type(event_type: &str) -> bool {
     matches!(
         event_type,
-        "snapshot_updated"
+        "ui_preferences_updated"
+            | "recent_work_loaded"
+            | "snapshot_updated"
             | "assistant_delta"
             | "tool_call_started"
             | "tool_call_finished"

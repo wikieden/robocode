@@ -410,3 +410,31 @@ fn read_all_jsonl(root: &std::path::Path) -> String {
     visit(root, &mut out);
     out
 }
+
+#[test]
+fn fixture_frontend_host_services_is_registered_and_fully_redacted() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("types/tests/fixtures/frontend-contract-v1/frontend-host-services.json");
+    let raw = std::fs::read_to_string(&fixture)
+        .unwrap_or_else(|error| panic!("read {}: {error}", fixture.display()));
+    let value: serde_json::Value = serde_json::from_str(&raw).expect("valid fixture json");
+    assert_eq!(value["schema_version"], FRONTEND_SCHEMA_V1.0);
+    assert_eq!(value["fixture_id"], "frontend-host-services");
+    for forbidden in [
+        "/Users/",
+        "\\Users\\",
+        "sk-",
+        "OPENAI_API_KEY",
+        "password",
+        "credential_request_id",
+        "backend_id",
+        "transcript_path",
+    ] {
+        assert!(
+            !raw.contains(forbidden),
+            "fixture contains forbidden private marker `{forbidden}`"
+        );
+    }
+}

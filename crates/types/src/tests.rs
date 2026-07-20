@@ -2109,6 +2109,110 @@ fn runtime_v1_unknown_event_is_preserved() {
 }
 
 #[test]
+fn frontend_host_capabilities_known_wire_events_roundtrip_without_placeholders() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-host-fixture".to_string(),
+        project_id: "project-host-fixture".to_string(),
+        lane_id: Some("lane-host-fixture".to_string()),
+        session_id: Some("session-host-fixture".to_string()),
+        task_id: Some("task_host_fixture".to_string()),
+        turn_id: Some("turn-host-fixture".to_string()),
+    };
+    let lane = starter_lane_for_contract("lane-host-fixture");
+    let preview = StarterLanePreview {
+        preview_id: "preview-host-fixture".to_string(),
+        content_sha256: "ab".repeat(32),
+        owner: owner.clone(),
+        lane: lane.clone(),
+        branch: "codex/lane-host-fixture".to_string(),
+        worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
+        base_revision: "cd".repeat(20),
+        diagnostics: Vec::new(),
+    };
+    let resolved = ResolvedUiPreferences {
+        locale: LocaleId::ZhCn,
+        skin: UiSkin::Ice,
+        mode: UiColorMode::Dark,
+        density: UiDensity::Compact,
+        motion: UiMotion::Reduced,
+        diagnostics: Vec::new(),
+    };
+    let cases = [
+        RuntimeEventKind::UiPreferencesUpdated {
+            resolved,
+            persisted: None,
+            diagnostics: Vec::new(),
+        },
+        RuntimeEventKind::RecentWorkLoaded {
+            projects: vec![RecentProjectSummary {
+                canonical_root: "workspace/project".to_string(),
+                display_name: "project".to_string(),
+                last_updated_at: 20,
+                latest_session_id: Some("session-host-fixture".to_string()),
+            }],
+            sessions: vec![RecentSessionSummary {
+                canonical_root: "workspace/project".to_string(),
+                session_id: "session-host-fixture".to_string(),
+                created_at: 10,
+                last_updated_at: 20,
+                message_count: 1,
+                tool_call_count: 0,
+                command_count: 1,
+            }],
+            diagnostics: Vec::new(),
+        },
+        RuntimeEventKind::StarterLanePreviewed {
+            preview: preview.clone(),
+        },
+        RuntimeEventKind::StarterLaneCreated {
+            receipt: StarterLaneReceipt {
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+                lane,
+                branch: preview.branch.clone(),
+                worktree_path: preview.worktree_path.clone(),
+                base_revision: preview.base_revision.clone(),
+                owner: owner.clone(),
+            },
+        },
+        RuntimeEventKind::StarterLanePreviewInvalidated {
+            owner: owner.clone(),
+            preview_id: preview.preview_id,
+            reason: StarterLanePreviewInvalidationReason::BaseRevisionChanged,
+        },
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: "lane-host-fixture".to_string(),
+                owner: owner.clone(),
+            },
+        },
+    ];
+
+    for (index, kind) in cases.into_iter().enumerate() {
+        let sequence = index as u64 + 1;
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: owner.clone(),
+            cursor: EventCursor {
+                stream_id: "fixture:frontend-host-services".to_string(),
+                sequence,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                sequence,
+                Some(1_700_000_000 + sequence),
+                kind,
+            )),
+        };
+        let encoded = serde_json::to_value(&envelope).unwrap();
+        let decoded: RuntimeEventEnvelope = serde_json::from_value(encoded).unwrap();
+        assert!(
+            matches!(decoded.event, RuntimeWireEvent::Known(_)),
+            "event {sequence} must use a real known schema-1 wire fact"
+        );
+    }
+}
+
+#[test]
 fn runtime_v1_known_event_with_unknown_nested_command_is_preserved() {
     let raw = r#"{
         "sequence": 9,
