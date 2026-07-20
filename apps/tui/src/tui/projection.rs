@@ -1,11 +1,13 @@
+use std::collections::BTreeSet;
+
 use viden_core::{
     AgentLaneRecord, ApprovalRequestView, ContextBundleRecord, CostLedgerTotals, EvidenceView,
     ProviderHealthView, RuntimeErrorView, RuntimeViewState,
 };
 use viden_types::{
     AgentDagRecord, AgentRoute, AgentTaskRecord, ApprovalDefaultAction, ApprovalScope,
-    LaneConflictView, LaneOutputView, LaneRecoveryView, MergeGateDecisionOutcome, MergeGateStatus,
-    RuntimeCommand, RuntimeOwner, TokenCostView, ToolCallView,
+    CapabilityId, LaneConflictView, LaneOutputView, LaneRecoveryView, MergeGateDecisionOutcome,
+    MergeGateStatus, RuntimeCommand, RuntimeOwner, TokenCostView, ToolCallView,
 };
 
 use super::ui_state::TuiUiState;
@@ -35,12 +37,22 @@ pub(super) struct CockpitProjection {
     pub(super) errors: Vec<RuntimeErrorView>,
     pub(super) recovery_actions: Vec<RecoveryActionProjection>,
     pub(super) owner_actions: Vec<OwnerActionProjection>,
+    cancel_owners: Vec<(String, CancelOwnerProjection)>,
     pub(super) pending_command: Option<PendingCommandProjection>,
     pub(super) audit_ids: Vec<String>,
 }
 
 impl CockpitProjection {
+    #[cfg(test)]
     pub(super) fn from(runtime: &RuntimeViewState, _ui: &TuiUiState) -> Self {
+        Self::from_with_capabilities(runtime, _ui, &BTreeSet::new())
+    }
+
+    pub(super) fn from_with_capabilities(
+        runtime: &RuntimeViewState,
+        _ui: &TuiUiState,
+        capabilities: &BTreeSet<CapabilityId>,
+    ) -> Self {
         let merge_gates = runtime
             .merge_gates
             .iter()
@@ -74,6 +86,17 @@ impl CockpitProjection {
             errors: runtime.errors.clone(),
             recovery_actions: recovery_actions(runtime),
             owner_actions: owner_actions(runtime),
+            cancel_owners: runtime
+                .lanes
+                .iter()
+                .filter(|lane| lane.is_active())
+                .map(|lane| {
+                    (
+                        lane.id.clone(),
+                        cancel_owner_for_lane(runtime, capabilities, &lane.id),
+                    )
+                })
+                .collect(),
             pending_command: runtime.last_command.as_ref().map(|receipt| {
                 PendingCommandProjection {
                     command_id: receipt.command_id.clone(),
@@ -83,6 +106,55 @@ impl CockpitProjection {
             }),
             audit_ids: audit_ids(runtime),
         }
+    }
+
+    pub(super) fn cancel_owner_for_lane(&self, lane_id: &str) -> CancelOwnerProjection {
+        self.cancel_owners
+            .iter()
+            .find(|(candidate, _)| candidate == lane_id)
+            .map(|(_, projection)| projection.clone())
+            .unwrap_or(CancelOwnerProjection::Unavailable(
+                CancelUnavailableReason::LaneNotActive,
+            ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CancelOwnerProjection {
+    Available(RuntimeOwner),
+    Unavailable(CancelUnavailableReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CancelUnavailableReason {
+    MissingCapability,
+    CoreOwnerRequired,
+    OwnerLaneMismatch,
+    AmbiguousOwner,
+    LaneNotActive,
+}
+
+fn cancel_owner_for_lane(
+    runtime: &RuntimeViewState,
+    capabilities: &BTreeSet<CapabilityId>,
+    lane_id: &str,
+) -> CancelOwnerProjection {
+    if !capabilities.contains(&CapabilityId("runtime.lane_owner_projection".to_string())) {
+        return CancelOwnerProjection::Unavailable(CancelUnavailableReason::MissingCapability);
+    }
+    let bindings = runtime
+        .lane_runtime_owners
+        .iter()
+        .filter(|binding| binding.lane_id == lane_id)
+        .collect::<Vec<_>>();
+    if bindings.is_empty() {
+        CancelOwnerProjection::Unavailable(CancelUnavailableReason::CoreOwnerRequired)
+    } else if bindings.len() > 1 {
+        CancelOwnerProjection::Unavailable(CancelUnavailableReason::AmbiguousOwner)
+    } else if bindings[0].owner.lane_id.as_deref() == Some(lane_id) {
+        CancelOwnerProjection::Available(bindings[0].owner.clone())
+    } else {
+        CancelOwnerProjection::Unavailable(CancelUnavailableReason::OwnerLaneMismatch)
     }
 }
 
@@ -405,7 +477,7 @@ fn audit_ids(runtime: &RuntimeViewState) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{collections::BTreeSet, path::PathBuf};
 
     use viden_core::{
         AgentLaneRecord, AgentRole, AgentRoute, ApprovalDefaultAction, ApprovalRisk, ApprovalScope,
@@ -414,13 +486,87 @@ mod tests {
         RuntimeErrorView, RuntimeEventEnvelope, RuntimeSnapshot, RuntimeViewState,
         RuntimeWireEvent, WorkMode,
     };
-    use viden_types::RuntimeCommandReceipt;
+    use viden_types::{CapabilityId, LaneRuntimeOwnerBinding, RuntimeCommandReceipt};
     use viden_types::{
         MergeGateDecision, MergeGateDecisionOutcome, MergeGateStatus, ReviewedEvidenceBinding,
         RuntimeOwner,
     };
 
     use super::*;
+
+    #[test]
+    fn lane_runtime_owner_projection_requires_one_exact_live_binding() {
+        let mut runtime = RuntimeViewState::new(runtime_snapshot());
+        runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        let owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "project".to_string(),
+            lane_id: Some("L-start".to_string()),
+            session_id: Some("session-start".to_string()),
+            task_id: Some("task_start".to_string()),
+            turn_id: Some("turn-start".to_string()),
+        };
+        runtime.lane_runtime_owners = vec![LaneRuntimeOwnerBinding {
+            lane_id: "L-start".to_string(),
+            owner: owner.clone(),
+        }];
+        let capabilities =
+            BTreeSet::from([CapabilityId("runtime.lane_owner_projection".to_string())]);
+
+        let projection = CockpitProjection::from_with_capabilities(
+            &runtime,
+            &TuiUiState::default(),
+            &capabilities,
+        );
+        assert_eq!(
+            projection.cancel_owner_for_lane("L-start"),
+            CancelOwnerProjection::Available(owner.clone())
+        );
+        assert_eq!(
+            projection.cancel_owner_for_lane("L-conflict"),
+            CancelOwnerProjection::Unavailable(CancelUnavailableReason::CoreOwnerRequired)
+        );
+
+        let missing_capability = CockpitProjection::from_with_capabilities(
+            &runtime,
+            &TuiUiState::default(),
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            missing_capability.cancel_owner_for_lane("L-start"),
+            CancelOwnerProjection::Unavailable(CancelUnavailableReason::MissingCapability)
+        );
+
+        let mut mismatched = runtime.clone();
+        mismatched.lane_runtime_owners[0].owner.lane_id = Some("other-lane".to_string());
+        let projection = CockpitProjection::from_with_capabilities(
+            &mismatched,
+            &TuiUiState::default(),
+            &capabilities,
+        );
+        assert_eq!(
+            projection.cancel_owner_for_lane("L-start"),
+            CancelOwnerProjection::Unavailable(CancelUnavailableReason::OwnerLaneMismatch)
+        );
+
+        let mut ambiguous = runtime.clone();
+        ambiguous.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+            lane_id: "L-start".to_string(),
+            owner,
+        });
+        let projection = CockpitProjection::from_with_capabilities(
+            &ambiguous,
+            &TuiUiState::default(),
+            &capabilities,
+        );
+        assert_eq!(
+            projection.cancel_owner_for_lane("L-start"),
+            CancelOwnerProjection::Unavailable(CancelUnavailableReason::AmbiguousOwner)
+        );
+    }
 
     #[test]
     fn structured_runtime_fields_are_the_only_cockpit_fact_source() {

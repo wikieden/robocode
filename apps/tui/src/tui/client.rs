@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use viden_core::{
-    CORE_CLIENT_CAPABILITIES, CORE_EXTENSION_CAPABILITIES, CoreClient, CoreClientError,
-    CoreHandshake, EventCursor, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeEventEnvelope, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
-    validate_handshake, validate_schema_version,
+    CORE_CLIENT_CAPABILITIES, CoreClient, CoreClientError, CoreHandshake, EventCursor,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, validate_handshake,
+    validate_schema_version,
 };
 use viden_types::{CapabilityId, FRONTEND_SCHEMA_V1, RuntimeOwner};
 
@@ -59,8 +59,6 @@ impl<C: CoreClient> TuiClientDriver<C> {
     pub(super) fn connect(mut client: C) -> Result<Self, TuiClientError> {
         let handshake = client.discover()?;
         validate_handshake(&handshake).map_err(CoreClientError::Compatibility)?;
-        validate_task6_capabilities(&handshake.capabilities)
-            .map_err(CoreClientError::Compatibility)?;
         let confirmed = acquire_validated_snapshot(&mut client)?;
         Ok(Self {
             client,
@@ -79,8 +77,21 @@ impl<C: CoreClient> TuiClientDriver<C> {
         &self.confirmed.cursor
     }
 
-    pub(super) fn owner(&self) -> &RuntimeOwner {
-        &self.owner
+    /// Extension features are enabled only when both discovery and the
+    /// authoritative snapshot advertise them. Missing extensions never widen
+    /// authority and never block the frozen base client from starting.
+    pub(super) fn has_capability(&self, capability: &str) -> bool {
+        let capability = CapabilityId(capability.to_string());
+        self.handshake.capabilities.contains(&capability)
+            && self.confirmed.capabilities.contains(&capability)
+    }
+
+    pub(super) fn capabilities(&self) -> std::collections::BTreeSet<CapabilityId> {
+        self.handshake
+            .capabilities
+            .intersection(&self.confirmed.capabilities)
+            .cloned()
+            .collect()
     }
 
     pub(super) fn send(&mut self, command: RuntimeCommand) -> Result<String, TuiClientError> {
@@ -217,10 +228,7 @@ fn acquire_validated_snapshot<C: CoreClient>(
 
 fn validate_snapshot_envelope(snapshot: &RuntimeSnapshotEnvelope) -> Result<(), TuiClientError> {
     validate_schema_version(snapshot.schema_version).map_err(CoreClientError::Compatibility)?;
-    for required in CORE_CLIENT_CAPABILITIES
-        .iter()
-        .chain(CORE_EXTENSION_CAPABILITIES)
-    {
+    for required in CORE_CLIENT_CAPABILITIES {
         if !snapshot
             .capabilities
             .contains(&CapabilityId((*required).to_string()))
@@ -242,17 +250,6 @@ fn validate_snapshot_envelope(snapshot: &RuntimeSnapshotEnvelope) -> Result<(), 
             "runtime snapshot and projected view disagree".to_string(),
         )
         .into());
-    }
-    Ok(())
-}
-
-fn validate_task6_capabilities(
-    capabilities: &std::collections::BTreeSet<CapabilityId>,
-) -> Result<(), String> {
-    for required in CORE_EXTENSION_CAPABILITIES {
-        if !capabilities.contains(&CapabilityId((*required).to_string())) {
-            return Err(format!("missing core capability `{required}`"));
-        }
     }
     Ok(())
 }
@@ -288,7 +285,9 @@ fn apply_event_envelope(
 mod tests {
     use super::*;
     use std::{collections::VecDeque, path::PathBuf, time::Duration};
-    use viden_core::{CoreClientError, frontend_capabilities, local_core_handshake};
+    use viden_core::{
+        CORE_EXTENSION_CAPABILITIES, CoreClientError, frontend_capabilities, local_core_handshake,
+    };
     use viden_types::{
         PermissionLevel, PermissionMode, ReplayBatch, ReplayRequest, RuntimeEvent,
         RuntimeEventEnvelope, RuntimeEventKind, RuntimeSnapshot, RuntimeSnapshotEnvelope,
@@ -422,6 +421,90 @@ mod tests {
     }
 
     #[test]
+    fn lane_runtime_owner_extension_fixture_replays_the_exact_owner() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+            expected_final_cursor: EventCursor,
+        }
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/frontend-host-services.json"
+        ))
+        .expect("extension fixture");
+        let snapshot = fixture.initial_snapshot;
+        let fake = FakeCoreClient {
+            handshake: Some(local_core_handshake()),
+            snapshot: Some(RuntimeSnapshotEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                capabilities: frontend_capabilities(),
+                cursor: EventCursor {
+                    stream_id: fixture.expected_final_cursor.stream_id.clone(),
+                    sequence: 0,
+                },
+                view: RuntimeViewState::new(snapshot.clone()),
+                snapshot,
+            }),
+            events: fixture.events.into(),
+            ..FakeCoreClient::default()
+        };
+        let event_count = fake.events.len();
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
+
+        for _ in 0..event_count {
+            assert!(matches!(driver.pump().unwrap(), PumpOutcome::Applied(_)));
+        }
+
+        assert_eq!(driver.cursor(), &fixture.expected_final_cursor);
+        assert_eq!(driver.view().lane_runtime_owners.len(), 1);
+        let binding = &driver.view().lane_runtime_owners[0];
+        assert_eq!(binding.lane_id, "lane-host-fixture");
+        assert_eq!(binding.owner.lane_id.as_deref(), Some("lane-host-fixture"));
+        assert_eq!(
+            binding.owner.session_id.as_deref(),
+            Some("session-host-fixture")
+        );
+        assert_eq!(binding.owner.task_id.as_deref(), Some("task_host_fixture"));
+        assert_eq!(binding.owner.turn_id.as_deref(), Some("turn-host-fixture"));
+    }
+
+    #[test]
+    fn lane_runtime_owner_restart_snapshot_discards_the_stale_binding() {
+        let mut fake = FakeCoreClient::compatible();
+        let mut initial = fake.snapshot.clone().expect("initial snapshot");
+        initial.view.lane_runtime_owners = vec![viden_types::LaneRuntimeOwnerBinding {
+            lane_id: "lane-old".to_string(),
+            owner: RuntimeOwner {
+                lane_id: Some("lane-old".to_string()),
+                ..RuntimeOwner::default()
+            },
+        }];
+        initial.snapshot = initial.view.snapshot.clone();
+        fake.snapshot = Some(initial.clone());
+        let mut replacement = initial;
+        replacement.cursor.stream_id = "replacement".to_string();
+        replacement.view.lane_runtime_owners.clear();
+        replacement.snapshot = replacement.view.snapshot.clone();
+        fake.recovery_snapshot = Some(replacement);
+        let mut replacement_event = event(
+            1,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "replacement".to_string(),
+                task_id: None,
+                content: "replacement".to_string(),
+            },
+        );
+        replacement_event.cursor.stream_id = "replacement".to_string();
+        fake.events.push_back(replacement_event);
+
+        let mut driver = TuiClientDriver::connect(fake).expect("connect");
+        assert_eq!(driver.view().lane_runtime_owners.len(), 1);
+
+        assert!(matches!(driver.pump().unwrap(), PumpOutcome::Recovered(_)));
+        assert!(driver.view().lane_runtime_owners.is_empty());
+    }
+
+    #[test]
     fn incompatible_schema_fails_before_any_command_is_sent() {
         let mut fake = FakeCoreClient::compatible();
         let mut handshake = local_core_handshake();
@@ -468,39 +551,58 @@ mod tests {
     }
 
     #[test]
-    fn missing_task6_extension_capability_is_rejected_during_handshake() {
-        let mut fake = FakeCoreClient::compatible();
-        fake.handshake
-            .as_mut()
-            .unwrap()
-            .capabilities
-            .remove(&CapabilityId("runtime.project_onboarding".to_string()));
+    fn each_missing_extension_is_feature_gated_without_blocking_startup() {
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 10);
+        for capability in CORE_EXTENSION_CAPABILITIES {
+            let mut fake = FakeCoreClient::compatible();
+            let capability = CapabilityId((*capability).to_string());
+            fake.handshake
+                .as_mut()
+                .unwrap()
+                .capabilities
+                .remove(&capability);
+            fake.snapshot
+                .as_mut()
+                .unwrap()
+                .capabilities
+                .remove(&capability);
 
-        let error = TuiClientDriver::connect(fake)
-            .expect_err("TUI 0.3.0 must require onboarding extensions");
+            let driver = TuiClientDriver::connect(fake)
+                .unwrap_or_else(|error| panic!("missing {capability:?} blocked startup: {error}"));
 
-        assert!(matches!(
-            error,
-            TuiClientError::Core(CoreClientError::Compatibility(_))
-        ));
+            assert!(!driver.has_capability(&capability.0));
+            for other in CORE_EXTENSION_CAPABILITIES
+                .iter()
+                .filter(|other| **other != capability.0)
+            {
+                assert!(driver.has_capability(other));
+            }
+        }
     }
 
     #[test]
-    fn missing_task6_extension_capability_is_rejected_in_snapshot() {
-        let mut fake = FakeCoreClient::compatible();
-        fake.snapshot
-            .as_mut()
-            .unwrap()
-            .capabilities
-            .remove(&CapabilityId("runtime.credential_handles".to_string()));
+    fn handshake_and_snapshot_must_both_advertise_an_extension_feature() {
+        let capability = CapabilityId("runtime.lane_owner_projection".to_string());
+        for remove_from_handshake in [true, false] {
+            let mut fake = FakeCoreClient::compatible();
+            if remove_from_handshake {
+                fake.handshake
+                    .as_mut()
+                    .unwrap()
+                    .capabilities
+                    .remove(&capability);
+            } else {
+                fake.snapshot
+                    .as_mut()
+                    .unwrap()
+                    .capabilities
+                    .remove(&capability);
+            }
 
-        let error = TuiClientDriver::connect(fake)
-            .expect_err("TUI 0.3.0 snapshot must advertise Task 6 extensions");
+            let driver = TuiClientDriver::connect(fake).expect("base contract still connects");
 
-        assert!(matches!(
-            error,
-            TuiClientError::Core(CoreClientError::Compatibility(_))
-        ));
+            assert!(!driver.has_capability(&capability.0));
+        }
     }
 
     #[test]

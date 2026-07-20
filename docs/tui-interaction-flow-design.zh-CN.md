@@ -35,15 +35,30 @@ input loop，也不能编造 core runtime 无法解释的状态。
 - Streaming 时 transcript history 必须仍可浏览。新输出只更新 badge，不把用户强行拉回
   底部。
 - 输入包含三个明确模式：Normal 负责 cockpit 导航，Insert 负责 composer 编辑，Overlay
-  负责 selector、panel 与审批。`Esc` 每次只退出一层。只有拿到精确 Core owner 时，
-  `Ctrl-C` 才发送 owner-scoped cancellation；只有 lane ID 的场景必须显示 cancel
-  unavailable，并提出缺失的 Core contract request。
+  负责 selector、panel 与审批。`Esc` 每次只退出一层。只有 Core 为所选 active lane
+  提供唯一且精确的 owner binding 时，`Ctrl-C`、完成本地 selection unwind 后的
+  Normal-mode `Esc` 与 ExitConfirm 才发送 owner-scoped cancellation。capability 缺失、
+  binding 为零或多个、lane 不匹配、lane 已 inactive/stale，以及 Core restart 后新 event
+  stream 尚未收到新 owner binding 时，都必须显示 cancel unavailable 且不发送 transport
+  command。这些 active-but-ownerless 状态下，重复 `Ctrl-C` 也不得打开退出确认。
 - `Ctrl-P` 打开 selector-first 全局跳转。它只投影 Core 的 typed lane、其
   `active_session_ids`、merge gate、pending approval，以及受控的导航/补全命令注册表。
   `:`、`@`、`#`、`>`、`~` 分别限定 lane、会话、闸/问询、命令和文件；方向键或
   `j`/`k` 移动，Enter 选择，Esc 精确恢复之前的 overlay 所有权与 composer 上下文。
   Core 目前没有 typed 文件清单能力，所以 File 会保留可见但禁用，并显示具体原因；
   TUI 绝不扫描文件系统或 Git。
+
+## Core 0.3.2 兼容契约
+
+TUI 0.3.0 启动时只强制要求冻结的 15 项基础 capability。Core 0.3.2 的 10 项 extension
+capability 独立协商、只 gate 各自负责的 feature；缺少任一 extension 都不能阻止连接。
+只有 handshake 与 confirmed snapshot 同时声明 extension 时，TUI 才能使用它。具体而言，
+取消操作要求 `runtime.lane_owner_projection`，Setup transport 要求
+`runtime.project_onboarding`。
+
+TUI release manifest 固定 Core checkpoint
+`a927e2f31d2cb9bb6015c30bc0ed0976e958c77e`，保留冻结 payload SHA，并记录 Core-owned
+extension fixture SHA-256。TUI 只把该 fixture replay 为 typed state，绝不从显示文本反推 owner。
 
 ## 顶层状态模型
 
@@ -146,13 +161,14 @@ flowchart TD
 
 ## Welcome 与配置流程
 
-Welcome 不是会话。TUI 0.3.0 会先协商 Core 0.3.1 onboarding capability 并请求
-`ProbeProject`，但在操作者打开 Setup/Lanes 或开始真实任务之前仍停留在 Welcome。
-event cursor 不是 session id。
+Welcome 不是会话。TUI 0.3.0 会先协商 Core 0.3.2 基础契约；只有 handshake 与 snapshot
+都确认 `runtime.project_onboarding` 后，才请求 `ProbeProject`。缺少该 extension 时，
+Welcome 与 `/setup` 仍可使用，Setup panel 会说明 Core service unavailable，且 TUI 不发送
+onboarding transport command。event cursor 不是 session id。
 
 ```mermaid
 flowchart TD
-    A["Launch Viden"] --> B["协商 Core capabilities<br/>ProbeProject"]
+    A["Launch Viden"] --> B["协商 Core base + extensions<br/>仅 capability 可用时 ProbeProject"]
     B --> C{"已选择 Core lane/session<br/>或提交真实任务?"}
     C -->|no| D["Welcome surface<br/>logo + composer + context row"]
     C -->|yes| E["Unified cockpit"]

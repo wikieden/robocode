@@ -8,7 +8,8 @@ use super::{
 };
 
 pub(super) fn render_ops_body(frame: &mut Frame, state: &TuiState) {
-    let projection = CockpitProjection::from(&state.runtime, &state.ui);
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
     let body_top = 3;
     let body_height = frame.height.saturating_sub(body_top + BOTTOM_BAR_HEIGHT);
     let section_height = body_height.saturating_div(4).max(4);
@@ -246,7 +247,11 @@ mod tests {
             label: "assistant".to_string(),
             body: "cost zero".to_string(),
         });
-        let projection = CockpitProjection::from(&state.runtime, &state.ui);
+        let projection = CockpitProjection::from_with_capabilities(
+            &state.runtime,
+            &state.ui,
+            &state.capabilities,
+        );
         assert!(
             context_rows(&state, &projection)
                 .iter()
@@ -317,7 +322,11 @@ mod tests {
             hint: Some("reconnect and replay".to_string()),
         });
 
-        let projection = CockpitProjection::from(&state.runtime, &state.ui);
+        let projection = CockpitProjection::from_with_capabilities(
+            &state.runtime,
+            &state.ui,
+            &state.capabilities,
+        );
         let rows = [
             runtime_rows(&state),
             context_rows(&state, &projection),

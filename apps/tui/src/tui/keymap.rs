@@ -89,6 +89,7 @@ pub(super) fn reduce_input(
     if is_control_char(key, 'c') {
         return match runtime_facts.current_work_owner {
             Some(owner) => InputIntent::CancelCurrentWork { owner },
+            None if has_active_work => InputIntent::None,
             None if focus.idle_ctrl_c_armed => InputIntent::OpenOverlay(OverlayKind::ExitConfirm),
             None => InputIntent::ArmExitConfirmation,
         };
@@ -112,7 +113,11 @@ pub(super) fn reduce_input(
         }
         return match mode {
             InputMode::Insert => InputIntent::LeaveInsert,
-            InputMode::Normal if has_active_work => InputIntent::None,
+            InputMode::Normal if has_active_work => runtime_facts
+                .current_work_owner
+                .map_or(InputIntent::None, |owner| InputIntent::CancelCurrentWork {
+                    owner,
+                }),
             InputMode::Normal => InputIntent::Exit,
             InputMode::Overlay => InputIntent::None,
         };
@@ -327,8 +332,10 @@ mod tests {
                     has_active_work: true,
                 },
             ),
-            InputIntent::None,
-            "Normal Esc must not abandon current work"
+            InputIntent::CancelCurrentWork {
+                owner: RuntimeOwner::default(),
+            },
+            "Normal Esc must cancel only through the exact current owner"
         );
     }
 
@@ -396,7 +403,7 @@ mod tests {
                 control('c'),
                 facts,
             ),
-            InputIntent::ArmExitConfirmation
+            InputIntent::None
         );
     }
 

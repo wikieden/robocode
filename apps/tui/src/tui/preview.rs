@@ -258,7 +258,12 @@ pub fn render_ansi_ops_preview_with_theme(
 }
 
 fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
-    let mut state = TuiState::default();
+    // Deterministic previews exercise the complete Core 0.3.2 surface. Runtime
+    // startup still derives this set from the negotiated handshake and snapshot.
+    let mut state = TuiState {
+        capabilities: viden_core::frontend_capabilities(),
+        ..TuiState::default()
+    };
     state.runtime.snapshot.cwd = std::path::PathBuf::from("~/Documents/GitHub/viden");
     state.runtime.snapshot.provider_family = provider.to_string();
     state.runtime.snapshot.model_label = model.to_string();

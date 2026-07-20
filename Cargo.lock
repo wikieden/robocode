@@ -582,6 +582,7 @@ dependencies = [
  "crossterm",
  "serde",
  "serde_json",
+ "toml",
  "unicode-segmentation",
  "unicode-width",
  "viden-config",

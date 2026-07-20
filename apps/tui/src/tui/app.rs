@@ -18,8 +18,11 @@ use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_in
 use super::modal::{
     DEFAULT_APPROVAL_FOCUS, interaction_panel_choice_count, selected_interaction_command,
 };
+use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{InteractionPanel, Lens, OverlayState, TuiEntry, TuiState};
 use super::terminal::TerminalGuard;
+
+const PROJECT_ONBOARDING_CAPABILITY: &str = "runtime.project_onboarding";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiOptions {
@@ -73,7 +76,9 @@ impl From<TuiClientError> for TuiError {
 
 pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiError> {
     let mut driver = TuiClientDriver::connect(client)?;
-    driver.send(RuntimeCommand::ProbeProject)?;
+    if driver.has_capability(PROJECT_ONBOARDING_CAPABILITY) {
+        driver.send(RuntimeCommand::ProbeProject)?;
+    }
     if options.startup_check {
         let _state = state_from_driver(&driver, &options);
         return Ok(());
@@ -88,7 +93,7 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
 
     loop {
         apply_pump_outcome(&mut state, driver.pump()?);
-        project_runtime_view(&mut state, driver.view(), driver.cursor());
+        project_driver_view(&mut state, &driver);
         terminal.draw(&state).map_err(TuiError::Terminal)?;
 
         if !event::poll(std::time::Duration::from_millis(100))
@@ -129,7 +134,7 @@ fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOp
         label: "system".to_string(),
         body: options.startup_summary.clone(),
     });
-    project_runtime_view(&mut state, driver.view(), driver.cursor());
+    project_driver_view(&mut state, driver);
     state
 }
 
@@ -166,6 +171,14 @@ fn ui_profile_label(preferences: &viden_core::ResolvedUiPreferences) -> String {
 
 /// Replaces TUI runtime presentation from the Core-owned projection while
 /// preserving only local input/layout state and the startup/user transcript.
+fn project_driver_view<C: CoreClient>(state: &mut TuiState, driver: &TuiClientDriver<C>) {
+    // Capabilities are snapshot-scoped compatibility facts. Refresh them with
+    // every atomic view projection so restart recovery cannot leave stale UI
+    // affordances enabled after an extension disappears.
+    state.capabilities = driver.capabilities();
+    project_runtime_view(state, driver.view(), driver.cursor());
+}
+
 fn project_runtime_view(state: &mut TuiState, view: &RuntimeViewState, _cursor: &EventCursor) {
     state.ui.theme_name = ui_profile_label(&view.snapshot.ui_preferences);
     state.runtime = view.clone();
@@ -296,7 +309,8 @@ fn handle_ui_key<C: CoreClient>(
         current_work_owner: current_work_owner(driver, state),
         has_active_work: runtime_has_active_work(&state.runtime),
     };
-    if !(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
+    let is_ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+    if !is_ctrl_c || facts.has_active_work {
         state.ui.idle_ctrl_c_armed = false;
     }
     let intent = reduce_input(mode, focus, key, facts);
@@ -345,7 +359,7 @@ fn apply_input_intent<C: CoreClient>(
             driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
             state.ui.entries.push(TuiEntry {
                 label: "command".to_string(),
-                body: "cancel requested".to_string(),
+                body: super::i18n::text(state, "cancel.requested"),
             });
         }
         InputIntent::CycleAgentFocus => cycle_agent_focus(state),
@@ -426,6 +440,13 @@ fn apply_input_intent<C: CoreClient>(
                 .is_some_and(|overlay| overlay.kind == OverlayKind::ExitConfirm)
             {
                 if runtime_has_active_work(&state.runtime) {
+                    if let Some(owner) = current_work_owner(driver, state) {
+                        driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
+                        state.ui.entries.push(TuiEntry {
+                            label: "command".to_string(),
+                            body: super::i18n::text(state, "cancel.requested"),
+                        });
+                    }
                     state.ui.overlay = None;
                     state.ui.idle_ctrl_c_armed = false;
                     return Ok(UiEventOutcome::Redraw);
@@ -458,16 +479,26 @@ fn current_work_owner<C: CoreClient>(
     driver: &TuiClientDriver<C>,
     state: &TuiState,
 ) -> Option<viden_types::RuntimeOwner> {
-    state
-        .runtime
-        .pending_approvals
-        .first()
-        .map(|approval| approval.owner.clone())
-        .or_else(|| {
-            let has_active_lane = state.runtime.lanes.iter().any(|lane| lane.is_active());
-            (!has_active_lane && runtime_has_active_work(&state.runtime))
-                .then(|| driver.owner().clone())
-        })
+    let focused = state.ui.focused_lane.as_deref().and_then(|lane_id| {
+        state
+            .runtime
+            .lanes
+            .iter()
+            .find(|lane| lane.id == lane_id && lane.is_active())
+            .map(|lane| lane.id.as_str())
+    });
+    let lane_id = focused.or_else(|| {
+        let mut active = state.runtime.lanes.iter().filter(|lane| lane.is_active());
+        let only = active.next()?;
+        active.next().is_none().then_some(only.id.as_str())
+    })?;
+    let capabilities = driver.capabilities();
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &capabilities);
+    match projection.cancel_owner_for_lane(lane_id) {
+        CancelOwnerProjection::Available(owner) => Some(owner),
+        CancelOwnerProjection::Unavailable(_) => None,
+    }
 }
 
 fn apply_pending_approval_intent<C: CoreClient>(
@@ -562,7 +593,14 @@ fn open_local_lens_command<C: CoreClient>(
                 selected: 0,
                 draft: default_project_config_draft(&state.runtime),
             });
-            driver.send(RuntimeCommand::ProbeProject)?;
+            if driver.has_capability(PROJECT_ONBOARDING_CAPABILITY) {
+                driver.send(RuntimeCommand::ProbeProject)?;
+            } else {
+                state.ui.entries.push(TuiEntry {
+                    label: "system".to_string(),
+                    body: super::i18n::text(state, "interaction.setup.unavailable"),
+                });
+            }
         }
         "/lanes" | "/board" => {
             state.ui.lens = Lens::Board;
@@ -848,6 +886,9 @@ fn apply_interaction_panel_selection<C: CoreClient>(
     state: &mut TuiState,
 ) -> Result<bool, TuiClientError> {
     if let Some(InteractionPanel::Setup { selected, draft }) = state.ui.interaction_panel.as_ref() {
+        if !driver.has_capability(PROJECT_ONBOARDING_CAPABILITY) {
+            return Ok(false);
+        }
         let selected = *selected;
         let command = match selected {
             0 => Some(RuntimeCommand::ProbeProject),
@@ -970,7 +1011,7 @@ mod tests {
     use super::super::ui_state::Lens;
     use super::*;
     use std::{
-        collections::VecDeque,
+        collections::{BTreeSet, VecDeque},
         path::PathBuf,
         sync::{Arc, Mutex},
         time::Duration,
@@ -982,10 +1023,10 @@ mod tests {
         frontend_capabilities, local_core_handshake,
     };
     use viden_types::{
-        AgentLaneRecord, ApprovalDecision, ApprovalScope, FRONTEND_SCHEMA_V1, LaneStatus,
-        PermissionLevel, PermissionMode, ProjectConfigPreview, ReplayBatch, ReplayRequest,
-        RuntimeOwner, RuntimeSnapshot, ToolCallView, TranscriptPage, TranscriptPageRequest,
-        WorkMode,
+        AgentLaneRecord, ApprovalDecision, ApprovalScope, CapabilityId, FRONTEND_SCHEMA_V1,
+        LaneStatus, PermissionLevel, PermissionMode, ProjectConfigPreview, ReplayBatch,
+        ReplayRequest, RuntimeOwner, RuntimeSnapshot, ToolCallView, TranscriptPage,
+        TranscriptPageRequest, WorkMode,
     };
 
     #[derive(Default)]
@@ -993,11 +1034,16 @@ mod tests {
         sent: Vec<RuntimeCommandEnvelope>,
         events: VecDeque<RuntimeEventEnvelope>,
         view: Option<RuntimeViewState>,
+        capabilities: Option<BTreeSet<CapabilityId>>,
     }
 
     impl CoreTransport for FakeCoreTransport {
         fn discover(&mut self) -> Result<CoreHandshake, CoreClientError> {
-            Ok(local_core_handshake())
+            let mut handshake = local_core_handshake();
+            if let Some(capabilities) = &self.capabilities {
+                handshake.capabilities = capabilities.clone();
+            }
+            Ok(handshake)
         }
 
         fn send(&mut self, command: RuntimeCommandEnvelope) -> Result<(), CoreClientError> {
@@ -1032,7 +1078,10 @@ mod tests {
             let snapshot = view.snapshot.clone();
             Ok(RuntimeSnapshotEnvelope {
                 schema_version: FRONTEND_SCHEMA_V1,
-                capabilities: frontend_capabilities(),
+                capabilities: self
+                    .capabilities
+                    .clone()
+                    .unwrap_or_else(frontend_capabilities),
                 cursor: EventCursor {
                     stream_id: "fixture".to_string(),
                     sequence: 0,
@@ -1152,6 +1201,57 @@ mod tests {
         let mut state = TuiState::new(driver.view().clone());
         state.ui.input_mode = InputMode::Insert;
         (driver, state, sent)
+    }
+
+    fn exact_lane_owner_driver() -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+        RuntimeOwner,
+    ) {
+        let mut view = RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        });
+        view.lanes = serde_json::from_str::<Vec<AgentLaneRecord>>(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes")
+        .into_iter()
+        .filter(|lane| lane.id == "L-start")
+        .collect();
+        let owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "viden".to_string(),
+            lane_id: Some("L-start".to_string()),
+            session_id: Some("session-start".to_string()),
+            task_id: Some("task_start".to_string()),
+            turn_id: Some("turn-start".to_string()),
+        };
+        view.lane_runtime_owners = vec![viden_types::LaneRuntimeOwnerBinding {
+            lane_id: "L-start".to_string(),
+            owner: owner.clone(),
+        }];
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.ui.focused_lane = Some("L-start".to_string());
+        (driver, state, sent, owner)
     }
 
     fn focus_pending_approval(driver: &mut TuiClientDriver<FakeCoreClient>, state: &mut TuiState) {
@@ -1751,6 +1851,50 @@ mod tests {
     }
 
     #[test]
+    fn runtime_replacement_drops_stale_extension_visibility_and_cancel_transport() {
+        let (_initial_driver, mut state, _initial_sent, _) = exact_lane_owner_driver();
+        state.capabilities = frontend_capabilities();
+        state.ui.lens = Lens::Board;
+        assert!(
+            crate::tui::render::render_side_frame(&state, 100, 70)
+                .contains("CANCEL L-start · Ctrl-C")
+        );
+
+        let base_capabilities = viden_core::CORE_CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| CapabilityId((*capability).to_string()))
+            .collect::<BTreeSet<_>>();
+        let replacement_client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(state.runtime.clone()),
+                capabilities: Some(base_capabilities),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&replacement_client.sent);
+        let mut replacement_driver =
+            TuiClientDriver::connect(replacement_client).expect("base-only replacement");
+
+        project_driver_view(&mut state, &replacement_driver);
+
+        assert!(
+            crate::tui::render::render_side_frame(&state, 100, 70)
+                .contains("CANCEL UNAVAILABLE L-start · Core capability unavailable")
+        );
+        handle_ui_event(
+            &mut replacement_driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("extension loss fail-closes cancellation");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(!state.ui.idle_ctrl_c_armed);
+        assert!(state.ui.overlay.is_none());
+    }
+
+    #[test]
     fn runtime_replacement_switches_locale_without_cached_tui_authority() {
         let mut state = TuiState::default();
         state.ui.lens = Lens::Board;
@@ -1817,6 +1961,56 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn missing_project_onboarding_keeps_startup_and_setup_available_without_transport() {
+        let base_capabilities = viden_core::CORE_CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| CapabilityId((*capability).to_string()))
+            .collect::<BTreeSet<_>>();
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                capabilities: Some(base_capabilities.clone()),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+
+        run_tui(client, TuiOptions::new("startup").with_startup_check())
+            .expect("base-only startup");
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                capabilities: Some(base_capabilities),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("base-only client");
+        let mut state = state_from_driver(&driver, &TuiOptions::new("startup"));
+
+        assert!(open_local_lens_command(&mut driver, "/setup", &mut state).unwrap());
+        assert_eq!(state.ui.lens, Lens::Setup);
+        assert!(state.ui.interaction_panel.is_some());
+        assert!(sent.lock().expect("sent commands").is_empty());
+        let english = crate::tui::render::render_frame(&state, 112, 40);
+        assert!(english.contains("PROJECT ONBOARDING unavailable"));
+        assert!(
+            super::super::i18n::text(&state, "interaction.setup.unavailable")
+                .contains("runtime.project_onboarding")
+        );
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese = crate::tui::render::render_frame(&state, 112, 40);
+        assert!(chinese.contains("项目接入不可用"));
+        assert!(
+            super::super::i18n::text(&state, "interaction.setup.unavailable")
+                .contains("runtime.project_onboarding")
+        );
     }
 
     #[test]
@@ -2397,7 +2591,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_cancels_the_current_work_owner_without_denying_approval() {
+    fn owner_scoped_cancel_uses_the_exact_live_lane_owner_without_denying_approval() {
         let mut view = RuntimeViewState::new(RuntimeSnapshot {
             cwd: PathBuf::from("/workspace"),
             provider_family: "fallback".to_string(),
@@ -2419,15 +2613,35 @@ mod tests {
         if let viden_types::RuntimeWireEvent::Known(event) = envelope.event {
             view.apply_event(&event);
         }
+        let approval_owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "viden".to_string(),
+            lane_id: Some("approval-lane".to_string()),
+            session_id: Some("approval-session".to_string()),
+            task_id: Some("approval-task".to_string()),
+            turn_id: Some("approval-turn".to_string()),
+        };
+        view.pending_approvals[0].owner = approval_owner;
+        let lane = serde_json::from_str::<Vec<AgentLaneRecord>>(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes")
+        .into_iter()
+        .find(|lane| lane.id == "L-start")
+        .expect("active lane");
+        view.lanes = vec![lane];
         let owner = RuntimeOwner {
             workspace_id: "workspace".to_string(),
             project_id: "viden".to_string(),
-            lane_id: Some("lane-review".to_string()),
+            lane_id: Some("L-start".to_string()),
             session_id: Some("session-review".to_string()),
             task_id: Some("task-review".to_string()),
             turn_id: Some("turn-review".to_string()),
         };
-        view.pending_approvals[0].owner = owner.clone();
+        view.lane_runtime_owners = vec![viden_types::LaneRuntimeOwnerBinding {
+            lane_id: "L-start".to_string(),
+            owner: owner.clone(),
+        }];
         let client = FakeCoreClient {
             transport: FakeCoreTransport {
                 view: Some(view),
@@ -2438,6 +2652,7 @@ mod tests {
         let sent = Arc::clone(&client.sent);
         let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::new(driver.view().clone());
+        state.ui.focused_lane = Some("L-start".to_string());
         handle_ui_event(
             &mut driver,
             &mut state,
@@ -2446,6 +2661,55 @@ mod tests {
         )
         .expect("cancel current work");
 
+        let sent = sent.lock().expect("sent commands");
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].owner, owner);
+        assert!(matches!(sent[0].command, RuntimeCommand::CancelActiveTurn));
+    }
+
+    #[test]
+    fn owner_scoped_cancel_uses_the_exact_owner_from_normal_escape() {
+        let (mut driver, mut state, sent, owner) = exact_lane_owner_driver();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("escape clears selected lane first");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(state.ui.focused_lane.is_none());
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("second escape cancels the only active lane");
+
+        let sent = sent.lock().expect("sent commands");
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].owner, owner);
+        assert!(matches!(sent[0].command, RuntimeCommand::CancelActiveTurn));
+    }
+
+    #[test]
+    fn owner_scoped_cancel_uses_the_exact_owner_from_exit_confirmation() {
+        let (mut driver, mut state, sent, owner) = exact_lane_owner_driver();
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::ExitConfirm));
+
+        let outcome = handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("exit confirmation cancel");
+
+        assert_eq!(outcome, UiEventOutcome::Redraw);
+        assert!(state.ui.overlay.is_none());
         let sent = sent.lock().expect("sent commands");
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].owner, owner);
@@ -2480,6 +2744,18 @@ mod tests {
         )
         .expect("fail-closed lane cancel");
         assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(!state.ui.idle_ctrl_c_armed);
+        assert!(state.ui.overlay.is_none());
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("repeated fail-closed lane cancel");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(state.ui.overlay.is_none());
 
         state.ui.overlay = Some(OverlayState::new(OverlayKind::ExitConfirm));
         let rendered = super::super::render::render_frame(&state, 120, 40);
@@ -2495,6 +2771,33 @@ mod tests {
         .expect("active lane blocks exit confirmation");
         assert_eq!(outcome, UiEventOutcome::Redraw);
         assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn owner_scoped_cancel_fail_closes_for_another_lane_or_stale_binding() {
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        let (mut driver, mut state, sent, _) = exact_lane_owner_driver();
+        state.runtime.lane_runtime_owners[0].lane_id = "other-lane".to_string();
+        state.runtime.lane_runtime_owners[0].owner.lane_id = Some("other-lane".to_string());
+        handle_ui_event(&mut driver, &mut state, ctrl_c.clone(), (120, 40))
+            .expect("other lane remains unavailable");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(!state.ui.idle_ctrl_c_armed);
+        assert!(state.ui.overlay.is_none());
+
+        let (mut driver, mut state, sent, _) = exact_lane_owner_driver();
+        state.runtime.lanes[0].status = LaneStatus::Done;
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-after-restart".to_string(),
+            name: "shell".to_string(),
+            input_preview: "cargo test".to_string(),
+        });
+        handle_ui_event(&mut driver, &mut state, ctrl_c, (120, 40))
+            .expect("stale binding remains unavailable");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(!state.ui.idle_ctrl_c_armed);
+        assert!(state.ui.overlay.is_none());
     }
 
     #[test]
@@ -2547,7 +2850,10 @@ mod tests {
             !state.ui.idle_ctrl_c_armed,
             "active-work Ctrl-C must invalidate an earlier idle arm"
         );
-        assert_eq!(sent.lock().expect("sent commands").len(), 1);
+        assert!(
+            sent.lock().expect("sent commands").is_empty(),
+            "active work without an exact Lane owner must send nothing"
+        );
 
         state.runtime.active_tool_calls.clear();
         handle_ui_event(&mut driver, &mut state, ctrl_c, (120, 40)).expect("new first idle Ctrl-C");
@@ -3331,21 +3637,45 @@ mod tests {
     #[test]
     fn release_manifest_declares_requested_and_effective_presentation_inputs() {
         let manifest = include_str!("../../release-manifest.toml");
+        let parsed = manifest
+            .parse::<toml::Value>()
+            .expect("release manifest TOML");
 
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.0");
         assert!(manifest.contains("version = \"0.3.0\""));
-        assert!(manifest.contains("min_core_version = \"0.3.1\""));
+        assert!(manifest.contains("min_core_version = \"0.3.2\""));
         assert!(
             manifest
-                .contains("base_core_checkpoint = \"afd6fcc9aaf3039ba79bb4588ed33bf1547209f5\"")
+                .contains("base_core_checkpoint = \"a927e2f31d2cb9bb6015c30bc0ed0976e958c77e\"")
         );
-        for capability in [
-            "runtime.credential_handles",
-            "runtime.lane_lifecycle",
-            "runtime.project_onboarding",
-        ] {
+        assert!(manifest.contains(
+            "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
+        ));
+        for capability in viden_core::CORE_CLIENT_CAPABILITIES {
             assert!(manifest.contains(&format!("\"{capability}\"")));
         }
+        for capability in viden_core::CORE_EXTENSION_CAPABILITIES {
+            assert!(manifest.contains(&format!("\"{capability}\"")));
+        }
+        let required = parsed["compatibility"]["required_capabilities"]
+            .as_array()
+            .expect("required capabilities")
+            .iter()
+            .map(|value| value.as_str().expect("capability string"))
+            .collect::<Vec<_>>();
+        assert_eq!(required, viden_core::CORE_CLIENT_CAPABILITIES);
+        let extensions = parsed["extensions"]["capabilities"]
+            .as_array()
+            .expect("extension capabilities")
+            .iter()
+            .map(|value| value.as_str().expect("capability string"))
+            .collect::<Vec<_>>();
+        assert_eq!(extensions, viden_core::CORE_EXTENSION_CAPABILITIES);
+        assert!(
+            required
+                .iter()
+                .all(|capability| !extensions.contains(capability))
+        );
         assert!(manifest.contains("locales = [\"system\", \"en\", \"zh-CN\"]"));
         assert!(manifest.contains("effective_locales = [\"en\", \"zh-CN\"]"));
         assert!(manifest.contains("modes = [\"system\", \"dark\", \"light\"]"));

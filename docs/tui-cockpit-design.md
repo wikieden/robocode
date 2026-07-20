@@ -133,8 +133,12 @@ Requirements:
   mutate configuration, or persist runtime facts independently.
 - Setup consumes `ProjectProbe`, `ProjectConfigPreview`,
   `confirmed_project_config`, active provider health, and safe credential
-  handles. Raw secret ingress is unavailable through the Core 0.3.1 client and
+  handles. Raw secret ingress is unavailable through the Core 0.3.2 client and
   must not be recreated as a slash command.
+- Startup requires only the frozen Core base contract. Every Core 0.3.2
+  extension is feature-gated independently and requires agreement between the
+  handshake and confirmed snapshot; an absent extension never blocks unrelated
+  cockpit use.
 - Any new cockpit metric must identify its runtime source in code or docs.
 
 ## Command Palette
@@ -154,7 +158,9 @@ They must not degrade into status-only pages unless the command is explicitly a
 diagnostic or details command such as `/config`, `/status`, or `/provider
 doctor`.
 
-`/setup` opens the Core-backed Setup lens and sends `ProbeProject`. The selector
+`/setup` opens the Core-backed Setup lens and sends `ProbeProject` only when
+`runtime.project_onboarding` is available. Otherwise it stays visible and
+read-only with a concrete unavailable reason and sends no setup command. The selector
 holds a secret-free presentation draft shaped as Core D11 `[project]` data with
 required `name` and `pack` fields. Preview sends its exact contents through
 `PreviewProjectConfig`; only a valid Core preview whose exact contents still
@@ -164,7 +170,7 @@ The UI stays pending until
 
 `/lanes` opens the Board lens from `RuntimeViewState.lanes`. Selecting a lane
 uses only its Core-owned `active_session_ids`; multiple ids open a second
-selector before entering the Session/Cockpit lens. Core 0.3.1 has no global
+selector before entering the Session/Cockpit lens. Core 0.3.2 has no global
 session list, so the TUI does not invent one.
 
 `/lane` is the orchestration action selector. It lists lane launch commands and,
@@ -239,8 +245,11 @@ transcript card or a nested input loop.
   allow-once/deny compatibility, `d` opens request diff/evidence, arrow keys
   move the selected action, and `Enter` activates it.
 - `Esc` only closes explicit approval focus; it never denies or otherwise
-  resolves the request. `Ctrl-C` is not an approval answer and sends an
-  active-work interrupt only with the exact Core-provided owner.
+  resolves the request. After overlays and local selection are unwound,
+  Normal-mode `Esc`, `Ctrl-C`, and ExitConfirm send an active-work interrupt
+  only when `runtime.lane_owner_projection` exposes exactly one owner for the
+  selected active lane. Missing, ambiguous, mismatched, inactive, or stale
+  owner state is visibly unavailable and produces zero transport commands.
 - Session-scoped approval and repository allowlisting appear only when the
   request's typed `allowed_scopes` contains the exact Core payload. The TUI
   forwards that scope and the original request owner unchanged.
