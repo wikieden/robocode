@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 
 use viden_tools::lane::{
@@ -341,8 +342,27 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                 path: lane.worktree.expect("resolved lane worktree"),
                 force: true,
             })
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        // A successful Create request with `branch=Some` used `git worktree add -b`,
+        // so the branch did not predate this failed transaction. Remove it only
+        // after the validated worktree target has been compensated successfully.
+        if let Some(branch) = lane.branch {
+            let repo = canonical_repo_root(repo)?;
+            let output = Command::new("git")
+                .args(["branch", "--delete", "--force", "--", &branch])
+                .current_dir(&repo)
+                .output()
+                .map_err(|error| format!("cannot compensate lane branch `{branch}`: {error}"))?;
+            if !output.status.success() {
+                let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                return Err(if detail.is_empty() {
+                    format!("cannot compensate lane branch `{branch}`")
+                } else {
+                    format!("cannot compensate lane branch `{branch}`: {detail}")
+                });
+            }
+        }
+        Ok(())
     }
 }
 

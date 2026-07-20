@@ -92,6 +92,7 @@ self-referential inside the payload commit.
 | Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | additive `runtime.trust_loop` candidate |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | additive Core `0.3.1` candidate |
+| Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | internal pre-release service; not a handshake capability until Task 6 |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
 | UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
 | Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | internal Core `0.3.2` candidate on schema `1`; not a handshake capability until Task 6 |
@@ -127,6 +128,11 @@ flowchart LR
   successful write from command acceptance alone.
 - `RecentWorkLoaded` atomically replaces the three recent-work view slices;
   snapshot and replay recover the most recently loaded safe result.
+- `StarterLanePreviewed` upserts one owner-scoped preview;
+  `StarterLanePreviewInvalidated` removes only its exact owner/id pair; and
+  `StarterLaneCreated` replaces that preview with the authoritative receipt and
+  durable Lane fact. The payload owner must equal the envelope owner. These
+  events participate in normal in-process snapshot and replay recovery.
 - Every command, snapshot, and event envelope uses schema `1`. A known event's
   sequence must equal its cursor sequence.
 - Clients call `discover` before sending commands or consuming state. Missing
@@ -156,6 +162,7 @@ flowchart LR
 | Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
 | Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
+| Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, repository/base/path checks, permission gate, execution-time recheck, compensation, typed receipt |
 
 `PreviewProjectConfig` is read-only. A valid preview includes the exact UTF-8
 contents that its SHA-256 describes; invalid or secret-bearing candidates omit
@@ -180,6 +187,37 @@ retry secret bytes. Until a platform sink is injected, production
 Frontends must not synthesize successful state after sending a command. They
 should wait for `CommandAccepted` plus subsequent state events. If the command
 is rejected, render `CommandRejected.reason`.
+
+### Reviewed Starter Lane
+
+The read-only preview resolves the `coder`, `reviewer`, or `tester` preset into
+an exact owner, Lane record, branch, canonical worktree path, current Git base,
+diagnostics, preview id, and SHA-256. The hash binds the owner and every resolved
+creation field. A create request is one-shot and must match the original request,
+owner, id, hash, current base, branch availability, and worktree availability.
+Core performs the permission check before any Git or workflow effect and repeats
+the base/path/branch checks immediately before execution after a pending approval.
+While that approval is pending, the reviewed preview remains visible, and any
+second reviewed create or other Lane mutation for the same Lane is rejected
+without replacing its receipt association.
+`CancelActiveTurn` is the exception: after the approval is visible it resolves
+that approval as denied, invalidates the preview with `permission_denied`, and
+emits no Lane, recovery, error, Git, or workflow effect.
+
+Matched invalid requests and denied or failed execution emit
+`StarterLanePreviewInvalidated` with a closed reason code. An unknown id or a
+wrong owner does not consume another owner's preview. Only
+`StarterLaneCreated.receipt` authorizes immediate navigation to the created Lane;
+`LaneUpdated` remains the durable Lane fact and is not a substitute for this
+review receipt. If persistence fails after Git worktree creation, Core removes
+both the worktree and the newly created branch before reporting recovery.
+
+Previews are normal owner-scoped state within the current runtime stream and are
+available through snapshot and replay after reconnect. A process restart creates
+a new stream and preview cache, so an old preview must be generated again. The
+legacy `CreateLane` command remains supported for existing callers; first-run D4
+flows use the reviewed command pair. Capability/version/fixture advertisement is
+deferred to Task 6.
 
 ## Agent DAG And Task UI Contract
 
