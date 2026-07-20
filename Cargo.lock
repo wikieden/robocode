@@ -551,6 +551,7 @@ dependencies = [
 name = "viden-session"
 version = "0.1.30"
 dependencies = [
+ "serde_json",
  "viden-types",
 ]
 

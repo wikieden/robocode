@@ -201,6 +201,98 @@ fn ui_preferences_runtime_protocol_is_backward_compatible_schema_one_extension()
 }
 
 #[test]
+fn recent_work_runtime_protocol_round_trips_safe_schema_one_payloads() {
+    let command = RuntimeCommand::QueryRecentWork {
+        query: RecentWorkQuery { limit: 501 },
+    };
+    let encoded_command = serde_json::to_value(&command).unwrap();
+    assert_eq!(encoded_command["type"], "query_recent_work");
+    assert_eq!(encoded_command["query"]["limit"], 501);
+    assert_eq!(
+        serde_json::from_value::<RuntimeCommand>(encoded_command).unwrap(),
+        command
+    );
+
+    let sessions = vec![RecentSessionSummary {
+        canonical_root: "/workspace/a".to_string(),
+        session_id: "session-a".to_string(),
+        created_at: 10,
+        last_updated_at: 20,
+        message_count: 2,
+        tool_call_count: 1,
+        command_count: 1,
+    }];
+    let projects = vec![RecentProjectSummary {
+        canonical_root: "/workspace/a".to_string(),
+        display_name: "a".to_string(),
+        last_updated_at: 20,
+        latest_session_id: Some("session-a".to_string()),
+    }];
+    let event = RuntimeEventKind::RecentWorkLoaded {
+        projects: projects.clone(),
+        sessions: sessions.clone(),
+        diagnostics: vec!["recent.index_stale".to_string()],
+    };
+    let encoded_event = serde_json::to_value(&event).unwrap();
+    assert_eq!(encoded_event["type"], "recent_work_loaded");
+    assert_eq!(
+        serde_json::from_value::<RuntimeEventKind>(encoded_event).unwrap(),
+        event
+    );
+
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::with_timestamp(1, Some(30), event));
+    assert_eq!(view.recent_projects, projects);
+    assert_eq!(view.recent_sessions, sessions);
+    assert_eq!(view.recent_work_diagnostics, vec!["recent.index_stale"]);
+}
+
+#[test]
+fn recent_work_serialized_event_and_view_exclude_private_session_fields() {
+    let event = RuntimeEvent::with_timestamp(
+        1,
+        Some(30),
+        RuntimeEventKind::RecentWorkLoaded {
+            projects: vec![RecentProjectSummary {
+                canonical_root: "/workspace/public".to_string(),
+                display_name: "public".to_string(),
+                last_updated_at: 20,
+                latest_session_id: Some("session-public".to_string()),
+            }],
+            sessions: vec![RecentSessionSummary {
+                canonical_root: "/workspace/public".to_string(),
+                session_id: "session-public".to_string(),
+                created_at: 10,
+                last_updated_at: 20,
+                message_count: 1,
+                tool_call_count: 0,
+                command_count: 0,
+            }],
+            diagnostics: Vec::new(),
+        },
+    );
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&event);
+    let serialized = format!(
+        "{}{}",
+        serde_json::to_string(&event).unwrap(),
+        serde_json::to_string(&view).unwrap()
+    );
+
+    for forbidden in [
+        "transcript_path",
+        "last_preview",
+        "last_activity_preview",
+        "credential_request_id",
+        "backend_id",
+        "sk-secret-message-body",
+        "command output",
+    ] {
+        assert!(!serialized.contains(forbidden), "leaked {forbidden}");
+    }
+}
+
+#[test]
 fn ui_preferences_resolve_system_locale_density_and_reduced_motion() {
     let resolved = resolve_ui_preferences(
         None,

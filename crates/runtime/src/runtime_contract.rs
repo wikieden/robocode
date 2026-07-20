@@ -408,6 +408,10 @@ impl SessionEngine {
                     );
                 }
             },
+            RuntimeCommand::QueryRecentWork { query } => match self.query_recent_work(query) {
+                Ok(recent_events) => append_resequenced(&mut events, recent_events),
+                Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+            },
             RuntimeCommand::SubmitUserInput { content } => {
                 match self.process_runtime_input_with_approval(&content, approver) {
                     Ok(input_events) => append_resequenced(&mut events, input_events),
@@ -5413,6 +5417,9 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             RuntimeCommand::SetUiPreferences { patch: *patch }
         }
         RuntimeCommand::ResetUiPreferences => RuntimeCommand::ResetUiPreferences,
+        RuntimeCommand::QueryRecentWork { query } => {
+            RuntimeCommand::QueryRecentWork { query: *query }
+        }
         RuntimeCommand::SubmitUserInput { content } => RuntimeCommand::SubmitUserInput {
             content: redact_command_text(content),
         },

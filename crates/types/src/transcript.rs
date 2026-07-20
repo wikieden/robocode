@@ -215,8 +215,7 @@ impl TranscriptEntry {
     }
 
     pub fn from_json_line(line: &str) -> Result<Self, String> {
-        let kind =
-            extract_top_level_type_field(line).or_else(|_| extract_string_field(line, "type"))?;
+        let kind = transcript_entry_type(line).or_else(|_| extract_string_field(line, "type"))?;
         match kind.as_str() {
             "message" => Ok(TranscriptEntry::Message {
                 message: Message {
@@ -281,14 +280,84 @@ impl TranscriptEntry {
     }
 }
 
-fn extract_top_level_type_field(line: &str) -> Result<String, String> {
-    let value: serde_json::Value =
-        serde_json::from_str(line).map_err(|_| "Malformed transcript entry")?;
-    value
-        .get("type")
-        .and_then(|kind| kind.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| "Missing field `type`".to_string())
+/// Reads only the top-level transcript discriminator while discarding payload values.
+///
+/// This deliberately avoids materializing message bodies or nested runtime-event payloads.
+pub fn transcript_entry_type(line: &str) -> Result<String, String> {
+    use serde::de::{IgnoredAny, MapAccess, Visitor};
+
+    struct TranscriptTypeVisitor;
+
+    impl<'de> Visitor<'de> for TranscriptTypeVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a transcript entry object with a top-level type field")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut entry_type = None;
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "type" {
+                    entry_type = Some(map.next_value::<String>()?);
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            entry_type.ok_or_else(|| serde::de::Error::missing_field("type"))
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str(line);
+    let entry_type = serde::Deserializer::deserialize_map(&mut deserializer, TranscriptTypeVisitor)
+        .map_err(|_| "Malformed transcript entry".to_string())?;
+    deserializer
+        .end()
+        .map_err(|_| "Malformed transcript entry".to_string())?;
+    Ok(entry_type)
+}
+
+/// Reads the stable timestamp field for a transcript entry without materializing payloads.
+pub fn transcript_entry_timestamp(line: &str) -> Result<Option<u64>, String> {
+    #[derive(serde::Deserialize)]
+    struct TimestampField {
+        timestamp: Option<u64>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RuntimeEventEnvelope {
+        event: TimestampField,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RecordedAtField {
+        recorded_at: Option<u64>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CostUsageEnvelope {
+        cost: RecordedAtField,
+    }
+
+    let entry_type = transcript_entry_type(line)?;
+    match entry_type.as_str() {
+        "message" | "permission" | "command" | "session_meta" => {
+            serde_json::from_str::<TimestampField>(line)
+                .map(|entry| entry.timestamp)
+                .map_err(|_| "Malformed transcript timestamp".to_string())
+        }
+        "runtime_event" => serde_json::from_str::<RuntimeEventEnvelope>(line)
+            .map(|entry| entry.event.timestamp)
+            .map_err(|_| "Malformed runtime event timestamp".to_string()),
+        "cost_usage" => serde_json::from_str::<CostUsageEnvelope>(line)
+            .map(|entry| entry.cost.recorded_at)
+            .map_err(|_| "Malformed cost usage timestamp".to_string()),
+        "tool_call" | "tool_result" => Ok(None),
+        _ => Err("Unknown transcript entry type".to_string()),
+    }
 }
 
 fn cost_usage_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String> {

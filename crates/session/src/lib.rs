@@ -7,9 +7,14 @@ use std::process::Command;
 use std::time::Duration;
 
 use viden_types::{
-    Role, SessionSummary, TranscriptCursor, TranscriptEntry, TranscriptPage, TranscriptPageRequest,
-    TranscriptRow, TranscriptRowKind, fresh_id, now_timestamp, truncate_for_preview,
+    RecentWorkQuery, Role, SessionSummary, TranscriptCursor, TranscriptEntry, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowKind, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
+
+mod recent;
+
+pub use recent::RecentWorkInventory;
 
 #[derive(Debug, Clone)]
 pub struct SessionPaths {
@@ -34,6 +39,14 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// Reads the cross-project inventory rooted at one shared session home.
+    pub fn query_recent_work(
+        home_dir: impl AsRef<Path>,
+        query: RecentWorkQuery,
+    ) -> Result<RecentWorkInventory, String> {
+        recent::query_recent_work(home_dir.as_ref(), query)
+    }
+
     pub fn new(cwd: impl Into<PathBuf>, session_id: Option<String>) -> Result<Self, String> {
         let cwd = cwd.into();
         let local_home = cwd.join(".viden");
@@ -661,6 +674,11 @@ fn run_sql(database: &Path, sql: &str) -> Result<String, String> {
 }
 
 fn default_home_dir() -> Result<PathBuf, String> {
+    default_session_home_dir()
+}
+
+/// Returns the shared, user-scoped home used for cross-project session data.
+pub fn default_session_home_dir() -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("VIDEN_HOME") {
         return Ok(PathBuf::from(path));
     }

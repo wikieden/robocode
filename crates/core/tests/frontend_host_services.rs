@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
@@ -8,9 +9,11 @@ use viden_core::{
 };
 use viden_session::SessionStore;
 use viden_types::{
-    FRONTEND_SCHEMA_V1, Message, PermissionMode, Role, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeOwner, TranscriptEntry,
+    FRONTEND_SCHEMA_V1, Message, PermissionMode, RecentWorkQuery, Role, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeOwner, TranscriptEntry,
 };
+
+static VIDEN_HOME_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn temp_dir(label: &str) -> PathBuf {
     let unique = SystemTime::now()
@@ -52,6 +55,66 @@ fn local_host_opens_two_workspaces_without_state_bleed() {
         b.client().snapshot().unwrap().view.snapshot.cwd,
         project_b.canonicalize().unwrap()
     );
+}
+
+#[test]
+fn production_local_host_default_uses_one_shared_recent_work_home() {
+    let _guard = VIDEN_HOME_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+    let home = temp_dir("default-shared-home");
+    let project_a = temp_dir("default-shared-project-a");
+    let project_b = temp_dir("default-shared-project-b");
+    let previous_home = std::env::var_os("VIDEN_HOME");
+    // SAFETY: this integration-test process serializes every VIDEN_HOME mutation
+    // with the static lock and restores the previous value before returning.
+    unsafe { std::env::set_var("VIDEN_HOME", &home) };
+
+    let result = (|| {
+        let host = LocalCoreHost::new();
+        let a = host.open_workspace(WorkspaceOpenRequest::new(&project_a))?;
+        let mut b = host.open_workspace(WorkspaceOpenRequest::new(&project_b))?;
+        b.client().send(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "recent-work-test".to_string(),
+            command_id: "query-recent-work".to_string(),
+            owner: RuntimeOwner::default(),
+            command: RuntimeCommand::QueryRecentWork {
+                query: RecentWorkQuery { limit: 10 },
+            },
+        })?;
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            let snapshot = b.client().snapshot()?;
+            if snapshot.view.recent_sessions.len() == 2 {
+                let identities = snapshot
+                    .view
+                    .recent_sessions
+                    .iter()
+                    .map(|session| (session.canonical_root.clone(), session.session_id.clone()))
+                    .collect::<Vec<_>>();
+                assert!(
+                    identities
+                        .iter()
+                        .any(|(_, id)| id == &a.binding().session_id)
+                );
+                assert!(
+                    identities
+                        .iter()
+                        .any(|(_, id)| id == &b.binding().session_id)
+                );
+                return Ok::<(), Box<dyn std::error::Error>>(());
+            }
+        }
+        panic!("default production host did not expose both project sessions");
+    })();
+
+    match previous_home {
+        Some(value) => unsafe { std::env::set_var("VIDEN_HOME", value) },
+        None => unsafe { std::env::remove_var("VIDEN_HOME") },
+    }
+    result.unwrap();
 }
 
 #[test]

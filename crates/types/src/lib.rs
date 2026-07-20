@@ -23,7 +23,9 @@ pub use context::{
     CostUsageOutcome, CostUsageRecord, EvidenceCanonicalizationRecord,
     ProviderCacheObservationRecord, TokenUsage,
 };
-pub use frontend_services::UiPreferencePatch;
+pub use frontend_services::{
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, UiPreferencePatch,
+};
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
     CredentialHandle, CredentialRequestId, CredentialStatus, ProjectConfigPreview,
@@ -46,6 +48,7 @@ pub use runtime::{
 pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,
     TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind,
+    transcript_entry_timestamp, transcript_entry_type,
 };
 pub use trust::{
     ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,
