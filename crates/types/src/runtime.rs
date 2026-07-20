@@ -9,9 +9,10 @@ use crate::{
     HandoffAcceptance, HandoffRecord, MergeGateId, MergeGateRecord, MessageId, PermissionLevel,
     ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord, RecentProjectSummary,
     RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences, RevertRecord,
-    ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot, ToolCallId,
-    TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
-    UiPreferences, WorkMode, now_timestamp,
+    ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -43,6 +44,14 @@ pub enum RuntimeCommand {
     ResetUiPreferences,
     QueryRecentWork {
         query: RecentWorkQuery,
+    },
+    PreviewStarterLane {
+        request: StarterLaneRequest,
+    },
+    CreateStarterLane {
+        request: StarterLaneRequest,
+        preview_id: String,
+        content_sha256: String,
     },
     SubmitUserInput {
         content: String,
@@ -529,6 +538,17 @@ pub enum RuntimeEventKind {
         sessions: Vec<RecentSessionSummary>,
         diagnostics: Vec<String>,
     },
+    StarterLanePreviewed {
+        preview: StarterLanePreview,
+    },
+    StarterLaneCreated {
+        receipt: StarterLaneReceipt,
+    },
+    StarterLanePreviewInvalidated {
+        owner: RuntimeOwner,
+        preview_id: String,
+        reason: StarterLanePreviewInvalidationReason,
+    },
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
@@ -693,6 +713,10 @@ pub struct RuntimeViewState {
     pub recent_sessions: Vec<RecentSessionSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_work_diagnostics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starter_lane_previews: Vec<StarterLanePreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starter_lane_receipts: Vec<StarterLaneReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_probe: Option<ProjectProbe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -770,6 +794,8 @@ impl RuntimeViewState {
             recent_projects: Vec::new(),
             recent_sessions: Vec::new(),
             recent_work_diagnostics: Vec::new(),
+            starter_lane_previews: Vec::new(),
+            starter_lane_receipts: Vec::new(),
             project_probe: None,
             project_config_preview: None,
             confirmed_project_config: None,
@@ -843,6 +869,38 @@ impl RuntimeViewState {
                 self.recent_projects = projects.clone();
                 self.recent_sessions = sessions.clone();
                 self.recent_work_diagnostics = diagnostics.clone();
+            }
+            RuntimeEventKind::StarterLanePreviewed { preview } => {
+                upsert_by_id(
+                    &mut self.starter_lane_previews,
+                    preview.clone(),
+                    |existing| {
+                        existing.owner == preview.owner && existing.preview_id == preview.preview_id
+                    },
+                );
+                cap_vec(&mut self.starter_lane_previews);
+            }
+            RuntimeEventKind::StarterLaneCreated { receipt } => {
+                self.starter_lane_previews.retain(|preview| {
+                    preview.preview_id != receipt.preview_id || preview.owner != receipt.owner
+                });
+                upsert_by_id(
+                    &mut self.starter_lane_receipts,
+                    receipt.clone(),
+                    |existing| {
+                        existing.owner == receipt.owner && existing.preview_id == receipt.preview_id
+                    },
+                );
+                cap_vec(&mut self.starter_lane_receipts);
+                upsert_by_id(&mut self.lanes, receipt.lane.clone(), |existing| {
+                    existing.id == receipt.lane.id
+                });
+            }
+            RuntimeEventKind::StarterLanePreviewInvalidated {
+                owner, preview_id, ..
+            } => {
+                self.starter_lane_previews
+                    .retain(|preview| preview.owner != *owner || preview.preview_id != *preview_id);
             }
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();

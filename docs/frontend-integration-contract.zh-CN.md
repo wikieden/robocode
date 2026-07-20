@@ -87,6 +87,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | 增量 `runtime.trust_loop` 候选 |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.1` 增量候选 |
+| 已审阅 starter Lane | 首启 starter 选择、branch/worktree 审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | 内部 pre-release service；Task 6 前不是 handshake capability |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
 | UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
 | Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | schema `1` 上的内部 Core `0.3.2` 候选；Task 6 前不是 handshake capability |
@@ -122,6 +123,10 @@ flowchart LR
   推断文件已经写入成功。
 - `RecentWorkLoaded` 原子替换三组 recent-work view slice；snapshot 与 replay 可恢复最近
   一次已加载的安全结果。
+- `StarterLanePreviewed` upsert 一条 owner-scoped preview；
+  `StarterLanePreviewInvalidated` 只移除精确 owner/id；`StarterLaneCreated` 用权威
+  receipt 和持久 Lane fact 替换该 preview。payload owner 必须等于 envelope owner。
+  这些 event 使用正常的进程内 snapshot 和 replay 恢复语义。
 - 每个 command、snapshot 和 event envelope 都使用 schema `1`。已知 event 的
   sequence 必须等于 cursor sequence。
 - client 必须先调用 `discover`，才能发送 command 或消费状态。缺少 required
@@ -149,6 +154,7 @@ flowchart LR
 | 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
 | 加载 recent work | `QueryRecentWork { query }` | shared-home 发现、canonical metadata 校验、稳定排序、边界、diagnostic 与安全 view projection |
+| 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、repository/base/path 校验、permission gate、执行前复检、补偿和 typed receipt |
 
 `PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
 内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。此类
@@ -169,6 +175,31 @@ request，避免重放 secret bytes。在注入 platform sink 之前，productio
 
 前端发送 command 后不能自行合成成功状态。必须等待 `CommandAccepted` 和后续状态事件。
 如果 command 被拒绝，渲染 `CommandRejected.reason`。
+
+### 已审阅 Starter Lane
+
+只读 preview 把 `coder`、`reviewer` 或 `tester` preset 解析为精确 owner、Lane record、
+branch、canonical worktree path、当前 Git base、diagnostics、preview id 与 SHA-256。hash
+绑定 owner 和全部已解析创建字段。create 是一次性请求，必须匹配原 request、owner、id、
+hash、当前 base、branch 可用性和 worktree 可用性。Core 在任何 Git/workflow effect 前
+执行 permission check；approval pending 结束后、真正执行前再次检查 base/path/branch。
+approval pending 期间，已审阅 preview 继续可见；同一 Lane 的第二个 reviewed create、
+legacy `CreateLane` 以及其他 Lane mutation 会被拒绝，且不能替换首个 preview 的
+receipt 关联。
+`CancelActiveTurn` 是例外：approval 可见后，它会把该 approval 干净地归约为 deny，
+以 `permission_denied` 失效 preview，且不产生 Lane、recovery、error、Git 或 workflow
+effect。
+
+已匹配但无效的请求，以及被拒绝或失败的执行，会携带封闭 reason code 发出
+`StarterLanePreviewInvalidated`。未知 id 或错误 owner 不会消费其他 owner 的 preview。
+只有 `StarterLaneCreated.receipt` 能授权前端立即进入已创建 Lane；`LaneUpdated` 仍是持久
+Lane fact，不能替代本次审阅 receipt。若 Git worktree 创建后持久化失败，Core 会先移除
+worktree 和本次新建 branch，再报告 recovery。
+
+preview 在当前 runtime stream 内属于正常 owner-scoped state，重连后可通过 snapshot 和
+replay 恢复。进程重启会创建新 stream 和 preview cache，因此旧 preview 必须重新生成。
+旧 `CreateLane` command 继续兼容已有调用方；首启 D4 flow 使用已审阅 command pair。
+capability/version/fixture 的发布留给 Task 6。
 
 ## Agent DAG 和 Task UI 契约
 

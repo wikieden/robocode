@@ -2472,6 +2472,15 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
     collect_envelopes_until(&supervisor, |events| {
         events.iter().any(|envelope| matches!(&envelope.event, RuntimeWireEvent::Known(RuntimeEvent { kind: RuntimeEventKind::LaneRecoveryRequired { lane_id, .. }, .. }) if lane_id == "lane-start-fail"))
     });
+    // The recovery event is observable just before the same worker performs shutdown
+    // compensation, so wait for that effect instead of racing the worker thread.
+    wait_until(Duration::from_secs(2), || {
+        effects
+            .calls
+            .lock()
+            .map(|calls| calls.iter().any(|call| call == "stop:lane-start-fail"))
+            .unwrap_or(false)
+    });
     let calls = effects.calls.lock().unwrap();
     assert_eq!(
         calls

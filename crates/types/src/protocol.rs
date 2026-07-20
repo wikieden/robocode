@@ -112,6 +112,28 @@ impl RuntimeEventEnvelope {
             self.cursor.sequence, event.sequence
         ))
     }
+
+    fn validate_known_event_owner(&self) -> Result<(), String> {
+        let RuntimeWireEvent::Known(event) = &self.event else {
+            return Ok(());
+        };
+        let payload_owner = match &event.kind {
+            crate::RuntimeEventKind::StarterLanePreviewed { preview } => Some(&preview.owner),
+            crate::RuntimeEventKind::StarterLaneCreated { receipt } => Some(&receipt.owner),
+            crate::RuntimeEventKind::StarterLanePreviewInvalidated { owner, .. } => Some(owner),
+            _ => None,
+        };
+        if payload_owner.is_none_or(|owner| owner == &self.owner) {
+            return Ok(());
+        }
+
+        Err("starter lane event payload owner does not match envelope owner".to_string())
+    }
+
+    fn validate_known_event(&self) -> Result<(), String> {
+        self.validate_known_event_sequence()?;
+        self.validate_known_event_owner()
+    }
 }
 
 impl Serialize for RuntimeEventEnvelope {
@@ -119,7 +141,7 @@ impl Serialize for RuntimeEventEnvelope {
     where
         S: Serializer,
     {
-        self.validate_known_event_sequence()
+        self.validate_known_event()
             .map_err(serde::ser::Error::custom)?;
         RuntimeEventEnvelopeRef {
             schema_version: &self.schema_version,
@@ -144,7 +166,7 @@ impl<'de> Deserialize<'de> for RuntimeEventEnvelope {
             event: envelope.event,
         };
         envelope
-            .validate_known_event_sequence()
+            .validate_known_event()
             .map_err(serde::de::Error::custom)?;
         Ok(envelope)
     }
@@ -278,6 +300,9 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "project_config_previewed"
             | "project_config_confirmed"
             | "credential_handle_stored"
+            | "starter_lane_previewed"
+            | "starter_lane_created"
+            | "starter_lane_preview_invalidated"
             | "evidence_recorded"
             | "context_updated"
             | "context_bundle_built"

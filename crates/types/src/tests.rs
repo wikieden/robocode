@@ -1573,6 +1573,26 @@ fn runtime_snapshot_for_contract() -> RuntimeSnapshot {
     }
 }
 
+fn starter_lane_for_contract(lane_id: &str) -> AgentLaneRecord {
+    AgentLaneRecord {
+        id: lane_id.to_string(),
+        task_id: None,
+        role: AgentRole::Coder,
+        route: AgentRoute::BuiltIn,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some(format!("/tmp/viden/.worktrees/{lane_id}")),
+        branch: Some(format!("codex/{lane_id}")),
+        target: ExecutionTarget::Local,
+        data_egress: DataEgressPolicy::Deny,
+        status: LaneStatus::Draft,
+        budget: LaneBudget::default(),
+        active_session_ids: Vec::new(),
+        summary: "coder starter lane".to_string(),
+        evidence: Vec::new(),
+    }
+}
+
 #[test]
 fn runtime_v1_envelopes_roundtrip_owner_cursor_and_capabilities() {
     let owner = RuntimeOwner {
@@ -1645,6 +1665,226 @@ fn runtime_v1_envelopes_roundtrip_owner_cursor_and_capabilities() {
 }
 
 #[test]
+fn starter_lane_events_roundtrip_as_known_with_exact_owner_and_cursor() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-starter".to_string(),
+        project_id: "project-starter".to_string(),
+        lane_id: Some("lane-starter".to_string()),
+        session_id: Some("session-starter".to_string()),
+        task_id: None,
+        turn_id: Some("turn-starter".to_string()),
+    };
+    let lane = starter_lane_for_contract("lane-starter");
+    let preview = StarterLanePreview {
+        preview_id: "preview-starter".to_string(),
+        content_sha256: "ab".repeat(32),
+        owner: owner.clone(),
+        lane: lane.clone(),
+        branch: "codex/lane-starter".to_string(),
+        worktree_path: "/tmp/viden/.worktrees/lane-starter".to_string(),
+        base_revision: "cd".repeat(20),
+        diagnostics: Vec::new(),
+    };
+    let cases = [
+        (
+            "starter_lane_previewed",
+            RuntimeEventKind::StarterLanePreviewed {
+                preview: preview.clone(),
+            },
+        ),
+        (
+            "starter_lane_created",
+            RuntimeEventKind::StarterLaneCreated {
+                receipt: StarterLaneReceipt {
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                    lane,
+                    branch: preview.branch.clone(),
+                    worktree_path: preview.worktree_path.clone(),
+                    base_revision: preview.base_revision.clone(),
+                    owner: owner.clone(),
+                },
+            },
+        ),
+        (
+            "starter_lane_preview_invalidated",
+            RuntimeEventKind::StarterLanePreviewInvalidated {
+                owner: owner.clone(),
+                preview_id: preview.preview_id,
+                reason: StarterLanePreviewInvalidationReason::HashMismatch,
+            },
+        ),
+    ];
+
+    for (index, (expected_type, kind)) in cases.into_iter().enumerate() {
+        let sequence = index as u64 + 1;
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: owner.clone(),
+            cursor: EventCursor {
+                stream_id: "stream-starter".to_string(),
+                sequence,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(sequence, Some(17), kind)),
+        };
+        let encoded = serde_json::to_value(&envelope).unwrap();
+        assert_eq!(encoded["event"]["kind"]["type"], expected_type);
+        let decoded: RuntimeEventEnvelope = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, envelope);
+        assert!(
+            matches!(
+                &decoded.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewed { preview },
+                    ..
+                }) if preview.owner == decoded.owner
+            ) || matches!(
+                &decoded.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLaneCreated { receipt },
+                    ..
+                }) if receipt.owner == decoded.owner
+            ) || matches!(
+                &decoded.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewInvalidated { owner, .. },
+                    ..
+                }) if owner == &decoded.owner
+            )
+        );
+        assert_eq!(decoded.owner, owner);
+        assert_eq!(decoded.cursor.stream_id, "stream-starter");
+        assert_eq!(decoded.cursor.sequence, sequence);
+    }
+}
+
+#[test]
+fn starter_lane_view_keys_previews_receipts_and_invalidation_by_owner_and_preview_id() {
+    let owner_a = RuntimeOwner {
+        workspace_id: "workspace-a".to_string(),
+        project_id: "project".to_string(),
+        lane_id: Some("lane-a".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let owner_b = RuntimeOwner {
+        workspace_id: "workspace-b".to_string(),
+        project_id: "project".to_string(),
+        lane_id: Some("lane-b".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let preview = |owner: RuntimeOwner, lane_id: &str| StarterLanePreview {
+        preview_id: "colliding-preview".to_string(),
+        content_sha256: "ab".repeat(32),
+        owner,
+        lane: starter_lane_for_contract(lane_id),
+        branch: format!("codex/{lane_id}"),
+        worktree_path: format!("/tmp/viden/.worktrees/{lane_id}"),
+        base_revision: "cd".repeat(20),
+        diagnostics: Vec::new(),
+    };
+    let preview_a = preview(owner_a.clone(), "lane-a");
+    let preview_b = preview(owner_b.clone(), "lane-b");
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    for preview in [preview_a.clone(), preview_b.clone()] {
+        view.apply_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::StarterLanePreviewed { preview },
+        ));
+    }
+    assert_eq!(view.starter_lane_previews.len(), 2);
+
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::StarterLanePreviewInvalidated {
+            owner: owner_a.clone(),
+            preview_id: preview_a.preview_id.clone(),
+            reason: StarterLanePreviewInvalidationReason::HashMismatch,
+        },
+    ));
+    assert_eq!(view.starter_lane_previews, vec![preview_b.clone()]);
+
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::StarterLanePreviewed {
+            preview: preview_a.clone(),
+        },
+    ));
+    for preview in [preview_a, preview_b] {
+        view.apply_event(&RuntimeEvent::new(
+            4,
+            RuntimeEventKind::StarterLaneCreated {
+                receipt: StarterLaneReceipt {
+                    preview_id: preview.preview_id,
+                    content_sha256: preview.content_sha256,
+                    lane: preview.lane,
+                    branch: preview.branch,
+                    worktree_path: preview.worktree_path,
+                    base_revision: preview.base_revision,
+                    owner: preview.owner,
+                },
+            },
+        ));
+    }
+    assert!(view.starter_lane_previews.is_empty());
+    assert_eq!(view.starter_lane_receipts.len(), 2);
+    assert!(
+        view.starter_lane_receipts
+            .iter()
+            .any(|receipt| receipt.owner == owner_a)
+    );
+    assert!(
+        view.starter_lane_receipts
+            .iter()
+            .any(|receipt| receipt.owner == owner_b)
+    );
+}
+
+#[test]
+fn starter_lane_event_transport_rejects_payload_owner_mismatch() {
+    let envelope_owner = RuntimeOwner {
+        workspace_id: "workspace-envelope".to_string(),
+        project_id: "project".to_string(),
+        ..RuntimeOwner::default()
+    };
+    let payload_owner = RuntimeOwner {
+        workspace_id: "workspace-payload".to_string(),
+        project_id: "project".to_string(),
+        ..RuntimeOwner::default()
+    };
+    let events = [
+        RuntimeEventKind::StarterLaneCreated {
+            receipt: StarterLaneReceipt {
+                preview_id: "preview-mismatch".to_string(),
+                content_sha256: "ab".repeat(32),
+                lane: starter_lane_for_contract("lane-mismatch"),
+                branch: "codex/lane-mismatch".to_string(),
+                worktree_path: "/tmp/viden/.worktrees/lane-mismatch".to_string(),
+                base_revision: "cd".repeat(20),
+                owner: payload_owner.clone(),
+            },
+        },
+        RuntimeEventKind::StarterLanePreviewInvalidated {
+            owner: payload_owner,
+            preview_id: "preview-mismatch".to_string(),
+            reason: StarterLanePreviewInvalidationReason::PermissionDenied,
+        },
+    ];
+
+    for kind in events {
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: envelope_owner.clone(),
+            cursor: EventCursor {
+                stream_id: "stream-mismatch".to_string(),
+                sequence: 1,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::new(1, kind)),
+        };
+        assert!(serde_json::to_value(envelope).is_err());
+    }
+}
+
+#[test]
 fn runtime_v1_unknown_event_is_preserved() {
     let raw = r#"{
         "schema_version": 1,
@@ -1672,6 +1912,14 @@ fn runtime_v1_unknown_event_is_preserved() {
         RuntimeWireEvent::Unknown { ref event_type, ref payload }
             if event_type == "future_event" && payload == &serde_json::json!({"x": 1})
     ));
+    assert_eq!(
+        EventCursor {
+            stream_id: "stream-a".to_string(),
+            sequence: 8,
+        }
+        .classify_incoming(&decoded.cursor),
+        EventCursorOrder::Next
+    );
 
     let encoded = serde_json::to_string(&decoded).unwrap();
     let replayed: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
