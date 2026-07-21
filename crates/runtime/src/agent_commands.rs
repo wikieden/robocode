@@ -870,7 +870,7 @@ pub(crate) fn typed_agent_session_request_from_compat_input(
         .split_whitespace()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    if args.get(0).map(String::as_str) != Some("/agent")
+    if args.first().map(String::as_str) != Some("/agent")
         || args.get(1).map(String::as_str) != Some("run")
         || args.get(2).map(String::as_str) != Some("acp")
     {
@@ -2364,6 +2364,9 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
     ))
 }
 
+// Keep the liveness check and termination result as separate branches: the
+// cancellation monitor races this path and depends on the original ordering.
+#[allow(clippy::collapsible_if)]
 fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
     let id = id.ok_or_else(|| "Usage: /agent cancel <id>".to_string())?;
     let mut job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown agent job `{id}`"))?;
