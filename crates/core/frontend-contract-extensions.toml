@@ -1,11 +1,28 @@
 schema_version = 1
 base_component_version = "0.3.0"
-candidate_component_version = "0.3.2"
+candidate_component_version = "0.3.3"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_permission_bridge", "runtime.agent_sessions", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
+interaction_fixture = "interaction-closed-loop.json"
+interaction_fixture_sha256 = "596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff"
+interaction_view_sha256 = "31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51"
+
+[runtime_agent_adapters]
+commands = ["query_agent_adapters", "probe_agent_adapter"]
+events = ["agent_adapters_loaded", "agent_adapter_probed"]
+boundary = "safe views omit process arguments, environment references, and agent-native authentication data"
+
+[runtime_agent_permission_bridge]
+events = ["approval_requested", "approval_resolved"]
+boundary = "foreground and asynchronous ACP work share the owner-scoped supervisor approval queue"
+
+[runtime_agent_sessions]
+commands = ["start_agent_session", "cancel_agent_session"]
+events = ["agent_session_started", "agent_session_updated", "agent_session_completed", "agent_session_failed"]
+recovery = "interrupted external sessions are terminated before Core publishes a recoverable failed fact"
 
 [core_workspace_host]
 commands = ["open_workspace"]
