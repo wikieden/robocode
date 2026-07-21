@@ -9,13 +9,13 @@ use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
     AgentDagTaskSpec, AgentRole, AgentRoute, AgentTaskKind, AgentTaskStatus, ApprovalDecision,
-    ApprovalResponse, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
-    ContextItemRecord, ContextReductionRecord, ContextScope, CostScope, EvidenceProducer,
-    EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
-    LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior,
-    PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
-    RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput, TranscriptEntry,
-    TranscriptPageRequest, WorkMode,
+    ApprovalResponse, CanonicalEvidenceReference, CapabilityId, ContextContentKind,
+    ContextHandleRecord, ContextItemRecord, ContextReductionRecord, ContextScope, CostScope,
+    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
+    EvidenceView, LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage,
+    PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
+    TranscriptEntry, TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::lanes::LaneEvent;
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
@@ -935,6 +935,96 @@ fn runtime_command_bus_queues_follow_up_input() {
     let view = engine.runtime_view_state();
     assert_eq!(view.queued_inputs.len(), 1);
     assert_eq!(view.queued_inputs[0].content_preview, "continue with tests");
+}
+
+#[test]
+fn typed_agent_adapter_query_projects_builtin_acp_descriptors_without_commands() {
+    let cwd = temp_dir("runtime_agent_adapter_query_cwd");
+    let home = temp_dir("runtime_agent_adapter_query_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_agent_adapters",
+            RuntimeCommand::QueryAgentAdapters,
+            &mut approver,
+        )
+        .unwrap();
+
+    let adapters = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentAdaptersLoaded { adapters } => Some(adapters),
+            _ => None,
+        })
+        .expect("typed adapter event");
+    assert_eq!(
+        adapters
+            .iter()
+            .map(|adapter| adapter.agent_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["claude-acp", "codex-acp", "kiro-cli"]
+    );
+    assert!(
+        adapters
+            .iter()
+            .all(|adapter| adapter.route == AgentRoute::Acp)
+    );
+    assert!(
+        adapters.iter().all(|adapter| adapter
+            .capabilities
+            .iter()
+            .all(|capability| capability.0.starts_with("agent.")
+                && !capability.0.contains(['/', '_'])))
+    );
+    assert!(adapters.iter().all(|adapter| {
+        adapter
+            .capabilities
+            .contains(&CapabilityId("agent.session.prompt".to_string()))
+    }));
+    let mut view = engine.runtime_view_state();
+    for event in &events {
+        view.apply_event(event);
+    }
+    assert_eq!(view.agent_adapters, *adapters);
+    assert!(!cwd.join(".viden/agents").exists());
+}
+
+#[test]
+fn typed_agent_adapter_probe_rejects_unknown_identity_without_projection() {
+    let cwd = temp_dir("runtime_agent_adapter_unknown_cwd");
+    let home = temp_dir("runtime_agent_adapter_unknown_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_agent_probe_unknown",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "unknown-acp".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_agent_probe_unknown"
+                && reason.contains("unknown-acp")
+                && reason.contains("claude-acp")
+                && reason.contains("codex-acp")
+                && reason.contains("kiro-cli")
+    )));
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::AgentAdapterProbed { .. }))
+    );
+    assert!(engine.runtime_view_state().agent_adapters.is_empty());
 }
 
 #[test]

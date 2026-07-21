@@ -11,17 +11,22 @@ use std::time::Duration;
 
 use viden_provider::ModelRequestControl;
 use viden_types::{
-    ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
-    ApprovalScope, ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
-    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionLevel,
-    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
-    TranscriptPageRequest, WorkMode, fresh_id, now_timestamp,
+    AgentSessionRequest, AgentSessionStatus, AgentSessionView, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES,
+    FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionLevel, PermissionPrompt,
+    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, WorkMode, fresh_id,
+    now_timestamp,
 };
 
 use crate::{
     SessionEngine,
+    agent_commands::{
+        cancel_typed_agent_session, mark_typed_agent_session_status, start_typed_agent_session,
+        typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
+    },
     event_journal::RuntimeEventJournal,
     lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
     lane_supervisor::{LanePersistence, LaneSupervisor, WorkflowLanePersistence},
@@ -651,6 +656,22 @@ impl RuntimeSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
+        let command = if let RuntimeCommand::SubmitUserInput { content } = &command {
+            match typed_agent_session_request_from_compat_input(content, owner.lane_id.as_deref()) {
+                Some(Ok(request)) => RuntimeCommand::StartAgentSession { request },
+                Some(Err(reason)) => {
+                    emit_event(
+                        &self.event_bus,
+                        owner,
+                        RuntimeEventKind::CommandRejected { command_id, reason },
+                    );
+                    return Ok(());
+                }
+                None => command,
+            }
+        } else {
+            command
+        };
         let submitted_permission_epoch = if matches!(
             command,
             RuntimeCommand::SetWorkMode { .. } | RuntimeCommand::SetPermissionLevel { .. }
@@ -665,6 +686,85 @@ impl RuntimeSupervisor {
             None
         };
         let result = match command {
+            RuntimeCommand::StartAgentSession { ref request }
+                if owner.lane_id.as_deref() != Some(request.lane_id.as_str()) =>
+            {
+                emit_event(
+                    &self.event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: "agent session request lane does not match command owner"
+                            .to_string(),
+                    },
+                );
+                return Ok(());
+            }
+            RuntimeCommand::CancelAgentSession { ref session_id } => {
+                let session = self
+                    .event_bus
+                    .state
+                    .lock()
+                    .map_err(|_| "runtime event state poisoned".to_string())?
+                    .live_view
+                    .agent_sessions
+                    .iter()
+                    .find(|session| &session.session_id == session_id)
+                    .cloned();
+                let Some(session) = session else {
+                    emit_event(
+                        &self.event_bus,
+                        owner,
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: format!("agent session `{session_id}` is not known"),
+                        },
+                    );
+                    return Ok(());
+                };
+                if session.owner != owner {
+                    emit_event(
+                        &self.event_bus,
+                        owner,
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: format!("agent session `{session_id}` owner mismatch"),
+                        },
+                    );
+                    return Ok(());
+                }
+                self.commands
+                    .send(SupervisorMessage::Command {
+                        owner,
+                        command_id,
+                        command,
+                        submitted_permission_epoch,
+                    })
+                    .map_err(|err| format!("runtime supervisor stopped: {err}"))
+            }
+            RuntimeCommand::StartAgentSession { .. } => {
+                if let Some(owner_id) = active_agent_lane_owner_id(&self.active_control, &owner) {
+                    emit_event(
+                        &self.event_bus,
+                        owner,
+                        RuntimeEventKind::CommandRejected {
+                            command_id,
+                            reason: format!(
+                                "active agent session `{owner_id}` is already running for this lane"
+                            ),
+                        },
+                    );
+                    return Ok(());
+                }
+                self.commands
+                    .send(SupervisorMessage::Command {
+                        owner,
+                        command_id,
+                        command,
+                        submitted_permission_epoch,
+                    })
+                    .map_err(|err| format!("runtime supervisor stopped: {err}"))
+            }
             RuntimeCommand::CancelActiveTurn => {
                 if self.lane_supervisor.cancel(&owner, command_id.clone())? {
                     return Ok(());
@@ -1228,6 +1328,31 @@ fn run_supervisor_worker(
                             &approval_timers,
                             &permission_control,
                             approval_ttl_secs,
+                        );
+                    }
+                    RuntimeCommand::StartAgentSession { request } => {
+                        run_supervised_agent_session(
+                            &engine,
+                            owner,
+                            command_id,
+                            request,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            &approval_timers,
+                            &permission_control,
+                            approval_ttl_secs,
+                        );
+                    }
+                    RuntimeCommand::CancelAgentSession { session_id } => {
+                        run_supervised_agent_session_cancel(
+                            &engine,
+                            owner,
+                            command_id,
+                            session_id,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
                         );
                     }
                     RuntimeCommand::RetrieveContext { handle_id, reason } => {
@@ -1802,6 +1927,43 @@ fn acquire_active_job(
     Ok(())
 }
 
+fn acquire_active_agent_session(
+    active_control: &ActiveControlRegistry,
+    owner_id: String,
+    owner: RuntimeOwner,
+    control: ModelRequestControl,
+) -> Result<(), String> {
+    let mut controls = active_control
+        .lock()
+        .map_err(|_| "active turn lock poisoned".to_string())?;
+    if let Some(active) = controls
+        .values()
+        .find(|active| runtime_owners_share_lane(&active.owner, &owner))
+    {
+        return Err(format!(
+            "active agent session `{}` is already running for this lane",
+            active.owner_id
+        ));
+    }
+    controls.insert(
+        RuntimeOwnerKey::from(&owner),
+        ActiveRuntimeControl {
+            owner_id,
+            owner,
+            control,
+            state: ActiveJobState::Running,
+        },
+    );
+    Ok(())
+}
+
+fn runtime_owners_share_lane(left: &RuntimeOwner, right: &RuntimeOwner) -> bool {
+    left.workspace_id == right.workspace_id
+        && left.project_id == right.project_id
+        && left.lane_id.is_some()
+        && left.lane_id == right.lane_id
+}
+
 fn active_control_for_owner(
     active_control: &ActiveControlRegistry,
     owner_id: &str,
@@ -1811,6 +1973,18 @@ fn active_control_for_owner(
             .values()
             .find(|active| active.owner_id == owner_id)
             .map(|active| active.control.clone())
+    })
+}
+
+fn active_agent_lane_owner_id(
+    active_control: &ActiveControlRegistry,
+    owner: &RuntimeOwner,
+) -> Option<String> {
+    active_control.lock().ok().and_then(|controls| {
+        controls
+            .values()
+            .find(|active| runtime_owners_share_lane(&active.owner, owner))
+            .map(|active| active.owner_id.clone())
     })
 }
 
@@ -2048,6 +2222,318 @@ fn active_owner_id(active_control: &ActiveControlRegistry, owner: &RuntimeOwner)
 fn clear_active_control(active_control: &ActiveControlRegistry, owner_id: &str) {
     if let Ok(mut controls) = active_control.lock() {
         controls.retain(|_, active| active.owner_id != owner_id);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_supervised_agent_session(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    request: AgentSessionRequest,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
+    approval_ttl_secs: u64,
+) {
+    if permission_control
+        .lock()
+        .map(|control| control.applied.blocks_mutation())
+        .unwrap_or(true)
+    {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason:
+                    "agent session execution requires Build mode with Ask or Autonomous permission"
+                        .to_string(),
+            },
+        );
+        return;
+    }
+    if let Err(reason) = validate_typed_agent_session_request(&request) {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected { command_id, reason },
+        );
+        return;
+    }
+    let session_id = fresh_id("agent-session");
+    let session_owner = RuntimeOwner {
+        lane_id: Some(request.lane_id.clone()),
+        session_id: Some(session_id.clone()),
+        ..owner
+    };
+    let control = ModelRequestControl::new();
+    if let Err(error) = acquire_active_agent_session(
+        active_control,
+        session_id.clone(),
+        session_owner.clone(),
+        control,
+    ) {
+        emit_event(
+            event_bus,
+            session_owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: error,
+            },
+        );
+        return;
+    }
+    emit_event(
+        event_bus,
+        session_owner.clone(),
+        RuntimeEventKind::CommandAccepted {
+            command_id: command_id.clone(),
+            command: redacted_runtime_command_for_event(&RuntimeCommand::StartAgentSession {
+                request: request.clone(),
+            }),
+        },
+    );
+
+    let session_template = AgentSessionView {
+        session_id: session_id.clone(),
+        lane_id: request.lane_id.clone(),
+        agent_id: request.agent_id.clone(),
+        model: request.model.clone(),
+        status: AgentSessionStatus::Starting,
+        owner: session_owner.clone(),
+        task: request.task.clone(),
+        diagnostic: None,
+    };
+    let approval_bus = event_bus.clone();
+    let approval_owner = session_owner.clone();
+    let approval_session = session_template.clone();
+    let approval_session_id = session_id.clone();
+    let approval_cwd = engine.cwd().to_path_buf();
+    let approval_active = Arc::clone(active_control);
+    let approval_pending = Arc::clone(pending_approvals);
+    let approval_timers = Arc::clone(approval_timers);
+    let approval_permission = Arc::clone(permission_control);
+    let approver = Box::new(move |prompt: PermissionPrompt| {
+        let permission_epoch = approval_permission
+            .lock()
+            .map(|control| control.epoch())
+            .unwrap_or(u64::MAX);
+        let request_id = fresh_id("approval");
+        let (approval_sender, approval_receiver) = mpsc::channel();
+        let approval = approval_request_view(
+            &request_id,
+            &prompt,
+            approval_owner.clone(),
+            approval_ttl_secs,
+        );
+        let _ = mark_active_pending(&approval_active, &approval_session_id, request_id.clone());
+        let _ = mark_typed_agent_session_status(
+            &approval_cwd,
+            &approval_session_id,
+            "waiting_approval",
+        );
+        insert_pending_approval(
+            &approval_pending,
+            request_id.clone(),
+            PendingApproval {
+                owner: approval.owner.clone(),
+                audit_id: approval.audit_id.clone(),
+                expires_at: approval.expires_at,
+                permission_epoch,
+                allowed_scopes: approval.allowed_scopes.clone(),
+                target: PendingApprovalTarget::Channel {
+                    owner_id: approval_session_id.clone(),
+                    sender: approval_sender,
+                },
+            },
+        );
+        emit_event(
+            &approval_bus,
+            approval_owner.clone(),
+            RuntimeEventKind::ApprovalRequested {
+                approval: approval.clone(),
+            },
+        );
+        let mut waiting = approval_session.clone();
+        waiting.status = AgentSessionStatus::WaitingApproval;
+        emit_event(
+            &approval_bus,
+            approval_owner.clone(),
+            RuntimeEventKind::AgentSessionUpdated { session: waiting },
+        );
+        schedule_approval_expiry(
+            request_id,
+            approval.expires_at,
+            &approval_bus,
+            &approval_active,
+            &approval_pending,
+            &approval_timers,
+        );
+        let response = approval_receiver.recv().unwrap_or_else(|_| {
+            ApprovalResponse::deny(Some("approval response channel closed".to_string()))
+        });
+        let _ = mark_typed_agent_session_status(&approval_cwd, &approval_session_id, "running");
+        let mut running = approval_session.clone();
+        running.status = AgentSessionStatus::Running;
+        emit_event(
+            &approval_bus,
+            approval_owner.clone(),
+            RuntimeEventKind::AgentSessionUpdated { session: running },
+        );
+        response
+    });
+
+    let sink_bus = event_bus.clone();
+    let sink_owner = session_owner.clone();
+    let sink_active = Arc::clone(active_control);
+    let sink_session_id = session_id.clone();
+    let runtime_event_sink = Arc::new(move |events: Vec<RuntimeEvent>| {
+        let terminal = events.iter().any(|event| {
+            matches!(
+                event.kind,
+                RuntimeEventKind::AgentSessionCompleted { .. }
+                    | RuntimeEventKind::AgentSessionFailed { .. }
+            ) || matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Cancelled
+            )
+        });
+        emit_events(&sink_bus, sink_owner.clone(), events);
+        if terminal {
+            clear_active_control(&sink_active, &sink_session_id);
+        }
+    });
+
+    if let Err(error) = start_typed_agent_session(
+        engine.cwd(),
+        session_id.clone(),
+        request,
+        session_owner.clone(),
+        runtime_event_sink,
+        approver,
+    ) {
+        clear_active_control(active_control, &session_id);
+        let mut failed = session_template;
+        failed.status = AgentSessionStatus::Failed;
+        failed.diagnostic = Some(error.clone());
+        emit_event(
+            event_bus,
+            session_owner.clone(),
+            RuntimeEventKind::AgentSessionFailed { session: failed },
+        );
+        emit_error(event_bus, session_owner, error);
+    }
+}
+
+fn run_supervised_agent_session_cancel(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    session_id: String,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+) {
+    let session = event_bus.state.lock().ok().and_then(|state| {
+        state
+            .live_view
+            .agent_sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .cloned()
+    });
+    let Some(mut session) = session else {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` is not known"),
+            },
+        );
+        return;
+    };
+    if session.owner != owner {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` owner mismatch"),
+            },
+        );
+        return;
+    }
+    if matches!(
+        session.status,
+        AgentSessionStatus::Completed | AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
+    ) {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: redacted_runtime_command_for_event(&RuntimeCommand::CancelAgentSession {
+                    session_id,
+                }),
+            },
+        );
+        return;
+    }
+    let active = active_control.lock().ok().and_then(|controls| {
+        controls
+            .values()
+            .find(|active| active.owner_id == session_id)
+            .cloned()
+    });
+    if let Some(active) = active {
+        active.control.cancel();
+        if let ActiveJobState::PendingApproval { request_id } = active.state {
+            resolve_pending_approval_by_id(
+                &request_id,
+                ApprovalDecision::Deny,
+                event_bus,
+                active_control,
+                pending_approvals,
+                Some("agent session cancelled by owner".to_string()),
+            );
+        }
+    }
+    match cancel_typed_agent_session(engine.cwd(), &session_id) {
+        Ok(()) => {
+            emit_event(
+                event_bus,
+                owner.clone(),
+                RuntimeEventKind::CommandAccepted {
+                    command_id,
+                    command: redacted_runtime_command_for_event(
+                        &RuntimeCommand::CancelAgentSession {
+                            session_id: session_id.clone(),
+                        },
+                    ),
+                },
+            );
+            session.status = AgentSessionStatus::Cancelled;
+            session.diagnostic = Some("cancelled by owner".to_string());
+            emit_event(
+                event_bus,
+                owner,
+                RuntimeEventKind::AgentSessionUpdated { session },
+            );
+            clear_active_control(active_control, &session_id);
+        }
+        Err(error) => emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: error,
+            },
+        ),
     }
 }
 

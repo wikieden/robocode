@@ -160,6 +160,9 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_2_and_additive() {
     ];
     let extensions = [
         "core.workspace_host",
+        "runtime.agent_adapters",
+        "runtime.agent_permission_bridge",
+        "runtime.agent_sessions",
         "runtime.credential_handles",
         "runtime.credential_staging",
         "runtime.lane_lifecycle",

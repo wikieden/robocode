@@ -29,6 +29,9 @@ pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
 /// evidence remains byte-for-byte stable.
 pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "core.workspace_host",
+    "runtime.agent_adapters",
+    "runtime.agent_permission_bridge",
+    "runtime.agent_sessions",
     "runtime.credential_handles",
     "runtime.credential_staging",
     "runtime.lane_lifecycle",
@@ -123,11 +126,26 @@ impl RuntimeEventEnvelope {
         let RuntimeWireEvent::Known(event) = &self.event else {
             return Ok(());
         };
+        if let crate::RuntimeEventKind::AgentSessionStarted { session }
+        | crate::RuntimeEventKind::AgentSessionUpdated { session }
+        | crate::RuntimeEventKind::AgentSessionCompleted { session }
+        | crate::RuntimeEventKind::AgentSessionFailed { session } = &event.kind
+            && (session.owner.lane_id.as_deref() != Some(session.lane_id.as_str())
+                || session.owner.session_id.as_deref() != Some(session.session_id.as_str()))
+        {
+            return Err(
+                "agent session payload identity does not match its embedded owner".to_string(),
+            );
+        }
         let payload_owner = match &event.kind {
             crate::RuntimeEventKind::StarterLanePreviewed { preview } => Some(&preview.owner),
             crate::RuntimeEventKind::StarterLaneCreated { receipt } => Some(&receipt.owner),
             crate::RuntimeEventKind::StarterLanePreviewInvalidated { owner, .. } => Some(owner),
             crate::RuntimeEventKind::LaneRuntimeOwnerBound { binding } => Some(&binding.owner),
+            crate::RuntimeEventKind::AgentSessionStarted { session }
+            | crate::RuntimeEventKind::AgentSessionUpdated { session }
+            | crate::RuntimeEventKind::AgentSessionCompleted { session }
+            | crate::RuntimeEventKind::AgentSessionFailed { session } => Some(&session.owner),
             _ => None,
         };
         if payload_owner.is_none_or(|owner| owner == &self.owner) {
@@ -285,7 +303,13 @@ struct UnknownRuntimeEventKind<'a> {
 fn is_known_runtime_event_type(event_type: &str) -> bool {
     matches!(
         event_type,
-        "ui_preferences_updated"
+        "agent_adapter_probed"
+            | "agent_adapters_loaded"
+            | "agent_session_completed"
+            | "agent_session_failed"
+            | "agent_session_started"
+            | "agent_session_updated"
+            | "ui_preferences_updated"
             | "recent_work_loaded"
             | "snapshot_updated"
             | "assistant_delta"

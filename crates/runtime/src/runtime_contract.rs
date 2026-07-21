@@ -18,7 +18,10 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::agent_commands::{tracked_agent_job_runtime_events, tracked_agent_job_tasks};
+use crate::agent_commands::{
+    probe_typed_agent_adapter, tracked_agent_job_runtime_events, tracked_agent_job_sessions,
+    tracked_agent_job_tasks, typed_agent_adapter_views,
+};
 use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{CostAttribution, EngineEvent, ProviderTelemetry, SessionEngine};
@@ -345,6 +348,31 @@ impl SessionEngine {
 
         let mut events = vec![accepted];
         match command {
+            RuntimeCommand::QueryAgentAdapters => {
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::AgentAdaptersLoaded {
+                        adapters: typed_agent_adapter_views(),
+                    },
+                ));
+            }
+            RuntimeCommand::ProbeAgentAdapter { agent_id } => {
+                match probe_typed_agent_adapter(&self.cwd, &agent_id) {
+                    Ok(adapter) => events.push(RuntimeEvent::new(
+                        next_sequence(&events),
+                        RuntimeEventKind::AgentAdapterProbed { adapter },
+                    )),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            RuntimeCommand::StartAgentSession { .. }
+            | RuntimeCommand::CancelAgentSession { .. } => {
+                return Ok(vec![command_rejected(
+                    command_id,
+                    "typed agent session execution must be handled by the runtime supervisor"
+                        .to_string(),
+                )]);
+            }
             RuntimeCommand::ProbeProject => {
                 append_resequenced(&mut events, self.project_probe_events());
             }
@@ -1496,6 +1524,18 @@ impl SessionEngine {
                     },
                 },
             )),
+        }
+        for session in tracked_agent_job_sessions(&self.runtime_snapshot.cwd) {
+            let kind = match session.status {
+                viden_types::AgentSessionStatus::Completed => {
+                    RuntimeEventKind::AgentSessionCompleted { session }
+                }
+                viden_types::AgentSessionStatus::Failed => {
+                    RuntimeEventKind::AgentSessionFailed { session }
+                }
+                _ => RuntimeEventKind::AgentSessionStarted { session },
+            };
+            events.push(RuntimeEvent::new(next_sequence(&events), kind));
         }
         for task in tracked_agent_job_tasks(&self.runtime_snapshot.cwd) {
             events.push(RuntimeEvent::new(
@@ -5398,6 +5438,25 @@ fn redact_identifier_for_event(input: &str) -> String {
 
 pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> RuntimeCommand {
     match command {
+        RuntimeCommand::QueryAgentAdapters => RuntimeCommand::QueryAgentAdapters,
+        RuntimeCommand::ProbeAgentAdapter { agent_id } => RuntimeCommand::ProbeAgentAdapter {
+            agent_id: redact_identifier_for_event(agent_id),
+        },
+        RuntimeCommand::StartAgentSession { request } => RuntimeCommand::StartAgentSession {
+            request: viden_types::AgentSessionRequest {
+                lane_id: redact_identifier_for_event(&request.lane_id),
+                agent_id: redact_identifier_for_event(&request.agent_id),
+                model: request.model.as_deref().map(redact_identifier_for_event),
+                load_session_id: request
+                    .load_session_id
+                    .as_deref()
+                    .map(redact_identifier_for_event),
+                task: "[REDACTED]".to_string(),
+            },
+        },
+        RuntimeCommand::CancelAgentSession { session_id } => RuntimeCommand::CancelAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
         RuntimeCommand::ProbeProject => RuntimeCommand::ProbeProject,
         RuntimeCommand::PreviewProjectConfig { .. } => RuntimeCommand::PreviewProjectConfig {
             contents: "[REDACTED]".to_string(),

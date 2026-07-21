@@ -1,0 +1,27 @@
+{
+  "agent_id": "codex-acp",
+  "permission_request": {
+    "jsonrpc": "2.0",
+    "id": 42,
+    "method": "session/request_permission",
+    "params": {
+      "sessionId": "codex-session",
+      "toolCall": {
+        "id": "codex-shell",
+        "name": "Run cargo test",
+        "kind": "terminal"
+      },
+      "options": [
+        { "optionId": "approve", "kind": "allow_once", "name": "Approve" },
+        { "optionId": "reject", "kind": "reject_once", "name": "Reject" }
+      ]
+    }
+  },
+  "tool_update": {
+    "type": "tool_call_update",
+    "id": "codex-shell",
+    "name": "Run cargo test",
+    "status": "completed",
+    "content": "tests passed"
+  }
+}

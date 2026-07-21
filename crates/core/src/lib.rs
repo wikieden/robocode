@@ -20,14 +20,15 @@ pub use host::{
 };
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
-    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute,
-    AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
-    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
-    CapabilityId, CommandAction, ContextBundleRecord, ContextOmittedSourceRecord,
-    ContextSourceRecord, CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle,
-    CredentialRequestId, CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget,
-    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentDagRecord,
+    AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionRequest,
+    AgentSessionStatus, AgentSessionView, AgentTaskKind, AgentTaskRecord, AgentTaskStatus,
+    ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk,
+    ApprovalScope, ApprovalTarget, CapabilityId, CommandAction, ContextBundleRecord,
+    ContextOmittedSourceRecord, ContextSourceRecord, CoreHandshake, CostLedgerTotals,
+    CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus, DataEgressPolicy,
+    EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength,
+    LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
     MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
     ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
     RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RuntimeCommand,
@@ -84,6 +85,20 @@ mod tests {
         assert!(std::any::type_name::<RecentWorkQuery>().contains("RecentWorkQuery"));
         assert!(std::any::type_name::<RecentProjectSummary>().contains("RecentProjectSummary"));
         assert!(std::any::type_name::<RecentSessionSummary>().contains("RecentSessionSummary"));
+        assert!(std::any::type_name::<AgentAdapterView>().contains("AgentAdapterView"));
+        assert!(std::any::type_name::<AgentSessionRequest>().contains("AgentSessionRequest"));
+        assert!(std::any::type_name::<AgentSessionView>().contains("AgentSessionView"));
+        let capabilities = frontend_capabilities();
+        for capability in [
+            "runtime.agent_adapters",
+            "runtime.agent_permission_bridge",
+            "runtime.agent_sessions",
+        ] {
+            assert!(
+                capabilities.contains(&CapabilityId(capability.to_string())),
+                "missing negotiated capability {capability}"
+            );
+        }
     }
 
     #[test]

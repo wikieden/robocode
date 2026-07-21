@@ -16,6 +16,10 @@ mod trust;
 mod ui_preferences;
 mod workflow;
 
+pub use agent::{
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentSessionRequest,
+    AgentSessionStatus, AgentSessionView,
+};
 pub use context::{
     ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,
     ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,

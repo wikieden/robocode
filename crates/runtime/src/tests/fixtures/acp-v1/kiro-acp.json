@@ -1,0 +1,28 @@
+{
+  "agent_id": "kiro-cli",
+  "permission_request": {
+    "jsonrpc": "2.0",
+    "id": 43,
+    "method": "session/request_permission",
+    "params": {
+      "sessionId": "kiro-session",
+      "toolCall": {
+        "toolCallId": "kiro-read",
+        "title": "Read project configuration",
+        "kind": "read",
+        "path": "viden.toml"
+      },
+      "options": [
+        { "optionId": "allow-read", "kind": "allow_once", "name": "Allow once" },
+        { "optionId": "reject-read", "kind": "reject_once", "name": "Reject" }
+      ]
+    }
+  },
+  "tool_update": {
+    "type": "ToolCallUpdate",
+    "toolCallId": "kiro-read",
+    "title": "Read project configuration",
+    "status": "completed",
+    "content": "read viden.toml"
+  }
+}

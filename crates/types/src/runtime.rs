@@ -1,18 +1,18 @@
 use crate::{
-    AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
-    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
-    ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
-    ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
-    ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
-    DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
-    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
-    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, WorkMode, now_timestamp,
+    AgentAdapterView, AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord,
+    AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    ConflictBounce, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
+    ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextReductionRecord,
+    ContextRetrievalRecord, ContextScope, ContextViewRecord, ContractDecision, ContractRecord,
+    CostLedgerTotals, CostUsageRecord, CredentialHandle, DependencyRecord, DependencyState,
+    EvidenceCanonicalizationRecord, EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus,
+    MergeGateId, MergeGateRecord, MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe,
+    ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
+    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding,
+    RuntimeOwner, RuntimeSnapshot, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
+    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,6 +25,16 @@ const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeCommand {
+    QueryAgentAdapters,
+    ProbeAgentAdapter {
+        agent_id: String,
+    },
+    StartAgentSession {
+        request: AgentSessionRequest,
+    },
+    CancelAgentSession {
+        session_id: String,
+    },
     ProbeProject,
     PreviewProjectConfig {
         contents: String,
@@ -525,6 +535,24 @@ impl RuntimeEvent {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEventKind {
+    AgentAdaptersLoaded {
+        adapters: Vec<AgentAdapterView>,
+    },
+    AgentAdapterProbed {
+        adapter: AgentAdapterView,
+    },
+    AgentSessionStarted {
+        session: AgentSessionView,
+    },
+    AgentSessionUpdated {
+        session: AgentSessionView,
+    },
+    AgentSessionCompleted {
+        session: AgentSessionView,
+    },
+    AgentSessionFailed {
+        session: AgentSessionView,
+    },
     ProjectProbed {
         probe: ProjectProbe,
     },
@@ -720,6 +748,10 @@ pub struct RuntimeViewState {
     #[serde(skip)]
     pub ui_preferences: ResolvedUiPreferences,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_adapters: Vec<AgentAdapterView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_sessions: Vec<AgentSessionView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_projects: Vec<RecentProjectSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_sessions: Vec<RecentSessionSummary>,
@@ -805,6 +837,8 @@ impl RuntimeViewState {
         Self {
             snapshot,
             ui_preferences,
+            agent_adapters: Vec::new(),
+            agent_sessions: Vec::new(),
             recent_projects: Vec::new(),
             recent_sessions: Vec::new(),
             recent_work_diagnostics: Vec::new(),
@@ -856,6 +890,34 @@ impl RuntimeViewState {
 
     pub fn apply_event(&mut self, event: &RuntimeEvent) {
         match &event.kind {
+            RuntimeEventKind::AgentAdaptersLoaded { adapters } => {
+                self.agent_adapters = adapters.clone();
+                cap_vec(&mut self.agent_adapters);
+            }
+            RuntimeEventKind::AgentAdapterProbed { adapter } => {
+                upsert_by_id(&mut self.agent_adapters, adapter.clone(), |existing| {
+                    existing.agent_id == adapter.agent_id
+                });
+                cap_vec(&mut self.agent_adapters);
+            }
+            RuntimeEventKind::AgentSessionStarted { session }
+            | RuntimeEventKind::AgentSessionUpdated { session }
+            | RuntimeEventKind::AgentSessionCompleted { session }
+            | RuntimeEventKind::AgentSessionFailed { session } => {
+                // Session identity is stable across local status transitions;
+                // owner changes are protocol violations and never replace it.
+                if self
+                    .agent_sessions
+                    .iter()
+                    .find(|existing| existing.session_id == session.session_id)
+                    .is_none_or(|existing| existing.owner == session.owner)
+                {
+                    upsert_by_id(&mut self.agent_sessions, session.clone(), |existing| {
+                        existing.session_id == session.session_id
+                    });
+                    cap_vec(&mut self.agent_sessions);
+                }
+            }
             RuntimeEventKind::ProjectProbed { probe } => {
                 self.project_probe = Some(probe.clone());
             }
