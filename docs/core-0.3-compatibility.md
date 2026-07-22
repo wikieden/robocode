@@ -3,7 +3,7 @@
 Chinese version: [core-0.3-compatibility.zh-CN.md](core-0.3-compatibility.zh-CN.md)
 
 This document is the human-readable compatibility manifest for the frozen Core
-0.3.0 `frontend-contract-v1` payload and its backward-compatible Core 0.3.2
+0.3.0 `frontend-contract-v1` payload and its backward-compatible Core 0.3.3
 extension candidate. It records the frontend schema, handshake capabilities,
 migration order, deterministic fixture corpus, UI preference contract, and
 design-entry hierarchy.
@@ -56,12 +56,15 @@ validation; malformed or ambiguous legacy input is rejected rather than guessed.
 ## Schema-1 Post-Freeze Extension Candidate
 
 The Core 0.3.0 frozen capability set and its original nine fixture bytes remain
-unchanged. The Core 0.3.2 candidate advertises this exact lexically sorted
+unchanged. The Core 0.3.3 candidate advertises this exact lexically sorted
 additive set through `FRONTEND_V1_EXTENSION_CAPABILITIES` and
 `crates/core/frontend-contract-extensions.toml`:
 
 ```text
 core.workspace_host
+runtime.agent_adapters
+runtime.agent_permission_bridge
+runtime.agent_sessions
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -81,6 +84,15 @@ sends no command. In particular, the TUI gates stable Settings on
 `core.workspace_host` plus `runtime.recent_work`; TUI and GUI gate reviewed D4
 creation on `runtime.starter_lane_preview`; and exact active-Lane cancellation
 requires `runtime.lane_owner_projection` plus one authoritative binding.
+
+Agent selection requires `runtime.agent_adapters`; starting and cancelling a
+typed external session requires `runtime.agent_sessions`; and ACP permission
+requests are interactive only when `runtime.agent_permission_bridge` is
+negotiated. Adapter views contain safe availability/auth facts, never raw
+commands, environment references, or agent-native credentials. Foreground and
+asynchronous ACP sessions share the Core-owned approval queue. On restart, Core
+terminates an interrupted external process before publishing a recoverable
+failed session, so replay never invents a live process.
 
 Clients written against Core 0.3.0 continue to require only the frozen set and
 must preserve unsupported schema-1 events as `RuntimeWireEvent::Unknown`. A
@@ -204,6 +216,7 @@ registered schema-1 extension fixture is:
 | Fixture id | Extension scenario | Expected final view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI preference persistence, safe recent work, reviewed starter-Lane preview/create/invalidation, exact live Lane owner, and one tolerated future optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
+| `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
 
 The extension fixture uses the six real known events
 `UiPreferencesUpdated`, `RecentWorkLoaded`, `StarterLanePreviewed`,
@@ -212,6 +225,13 @@ The extension fixture uses the six real known events
 placeholder. The normal in-memory journal, snapshot, and replay path must
 reduce these facts to the same `RuntimeViewState`. The optional future event
 advances the cursor without mutating that state.
+
+The interaction fixture has 18 ordered events and locale-neutral fact keys.
+Its reconnect test deliberately observes a cursor gap, replays the missing
+contiguous batch, and proves that the normalized final `RuntimeViewState`,
+cursor, and digest equal uninterrupted replay. The manifest at
+`crates/core/release-manifest.toml` records both fixture payloads and the Core
+0.3.3 contract implementation checkpoint; it does not authorize a tag.
 
 Each JSON fixture envelope contains:
 

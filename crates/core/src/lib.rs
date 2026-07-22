@@ -20,10 +20,12 @@ pub use host::{
 };
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
-    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute,
-    AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
-    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
-    CapabilityId, CommandAction, ContextBundleRecord, ContextOmittedSourceRecord,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentDagRecord,
+    AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionInput,
+    AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
+    AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, CapabilityId, CommandAction, ContextBundleRecord, ContextOmittedSourceRecord,
     ContextSourceRecord, CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle,
     CredentialRequestId, CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView,
     ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget,
@@ -37,7 +39,7 @@ pub use viden_types::{
     StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
     TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
     UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
-    UiSkin, WorkMode,
+    UiSkin, WorkMode, WorkspaceEligibility,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -84,6 +86,26 @@ mod tests {
         assert!(std::any::type_name::<RecentWorkQuery>().contains("RecentWorkQuery"));
         assert!(std::any::type_name::<RecentProjectSummary>().contains("RecentProjectSummary"));
         assert!(std::any::type_name::<RecentSessionSummary>().contains("RecentSessionSummary"));
+        assert!(std::any::type_name::<AgentAdapterView>().contains("AgentAdapterView"));
+        assert!(std::any::type_name::<AgentSessionRequest>().contains("AgentSessionRequest"));
+        assert!(std::any::type_name::<AgentSessionInput>().contains("AgentSessionInput"));
+        assert!(std::any::type_name::<AgentSessionInputView>().contains("AgentSessionInputView"));
+        assert!(std::any::type_name::<AgentSessionView>().contains("AgentSessionView"));
+        assert!(std::any::type_name::<AgentStartability>().contains("AgentStartability"));
+        assert!(std::any::type_name::<WorkspaceEligibility>().contains("WorkspaceEligibility"));
+        let capabilities = frontend_capabilities();
+        for capability in [
+            "runtime.agent_adapters",
+            "runtime.agent_permission_bridge",
+            "runtime.agent_session_input",
+            "runtime.agent_sessions",
+            "runtime.workspace_eligibility",
+        ] {
+            assert!(
+                capabilities.contains(&CapabilityId(capability.to_string())),
+                "missing negotiated capability {capability}"
+            );
+        }
     }
 
     #[test]

@@ -1,7 +1,8 @@
 use crate::{
-    AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
-    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
+    AgentAdapterView, AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord,
+    AgentSessionInput, AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId,
+    AgentTaskRecord, ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk,
+    ApprovalScope, ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
     ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
     ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
     ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
@@ -10,9 +11,10 @@ use crate::{
     PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
     RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
     RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, WorkMode, now_timestamp,
+    SessionId, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
+    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceEligibility,
+    now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,6 +27,22 @@ const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeCommand {
+    QueryAgentAdapters,
+    ProbeAgentAdapter {
+        agent_id: String,
+    },
+    StartAgentSession {
+        request: AgentSessionRequest,
+    },
+    SendAgentSessionInput {
+        input: AgentSessionInput,
+    },
+    RetryAgentSession {
+        session_id: SessionId,
+    },
+    CancelAgentSession {
+        session_id: String,
+    },
     ProbeProject,
     PreviewProjectConfig {
         contents: String,
@@ -47,6 +65,9 @@ pub enum RuntimeCommand {
     },
     PreviewStarterLane {
         request: StarterLaneRequest,
+    },
+    PreviewDefaultStarterLane {
+        preset: StarterLanePreset,
     },
     CreateStarterLane {
         request: StarterLaneRequest,
@@ -525,6 +546,31 @@ impl RuntimeEvent {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEventKind {
+    AgentAdaptersLoaded {
+        adapters: Vec<AgentAdapterView>,
+    },
+    AgentAdapterProbed {
+        adapter: AgentAdapterView,
+    },
+    AgentSessionStarted {
+        session: AgentSessionView,
+    },
+    AgentSessionUpdated {
+        session: AgentSessionView,
+    },
+    AgentSessionCompleted {
+        session: AgentSessionView,
+    },
+    AgentSessionFailed {
+        session: AgentSessionView,
+    },
+    AgentSessionInputAccepted {
+        session_id: SessionId,
+        input_id: String,
+    },
+    WorkspaceEligibilityUpdated {
+        eligibility: WorkspaceEligibility,
+    },
     ProjectProbed {
         probe: ProjectProbe,
     },
@@ -720,6 +766,12 @@ pub struct RuntimeViewState {
     #[serde(skip)]
     pub ui_preferences: ResolvedUiPreferences,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_adapters: Vec<AgentAdapterView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_sessions: Vec<AgentSessionView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_session_inputs: Vec<AgentSessionInputView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_projects: Vec<RecentProjectSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_sessions: Vec<RecentSessionSummary>,
@@ -731,6 +783,8 @@ pub struct RuntimeViewState {
     pub starter_lane_receipts: Vec<StarterLaneReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_probe: Option<ProjectProbe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_eligibility: Option<WorkspaceEligibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_config_preview: Option<ProjectConfigPreview>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -805,12 +859,16 @@ impl RuntimeViewState {
         Self {
             snapshot,
             ui_preferences,
+            agent_adapters: Vec::new(),
+            agent_sessions: Vec::new(),
+            agent_session_inputs: Vec::new(),
             recent_projects: Vec::new(),
             recent_sessions: Vec::new(),
             recent_work_diagnostics: Vec::new(),
             starter_lane_previews: Vec::new(),
             starter_lane_receipts: Vec::new(),
             project_probe: None,
+            workspace_eligibility: None,
             project_config_preview: None,
             confirmed_project_config: None,
             credential_handles: Vec::new(),
@@ -856,6 +914,51 @@ impl RuntimeViewState {
 
     pub fn apply_event(&mut self, event: &RuntimeEvent) {
         match &event.kind {
+            RuntimeEventKind::AgentAdaptersLoaded { adapters } => {
+                self.agent_adapters = adapters.clone();
+                cap_vec(&mut self.agent_adapters);
+            }
+            RuntimeEventKind::AgentAdapterProbed { adapter } => {
+                upsert_by_id(&mut self.agent_adapters, adapter.clone(), |existing| {
+                    existing.agent_id == adapter.agent_id
+                });
+                cap_vec(&mut self.agent_adapters);
+            }
+            RuntimeEventKind::AgentSessionStarted { session }
+            | RuntimeEventKind::AgentSessionUpdated { session }
+            | RuntimeEventKind::AgentSessionCompleted { session }
+            | RuntimeEventKind::AgentSessionFailed { session } => {
+                // Session identity is stable across local status transitions;
+                // owner changes are protocol violations and never replace it.
+                if self
+                    .agent_sessions
+                    .iter()
+                    .find(|existing| existing.session_id == session.session_id)
+                    .is_none_or(|existing| existing.owner == session.owner)
+                {
+                    upsert_by_id(&mut self.agent_sessions, session.clone(), |existing| {
+                        existing.session_id == session.session_id
+                    });
+                    cap_vec(&mut self.agent_sessions);
+                }
+            }
+            RuntimeEventKind::AgentSessionInputAccepted {
+                session_id,
+                input_id,
+            } => {
+                upsert_by_id(
+                    &mut self.agent_session_inputs,
+                    AgentSessionInputView {
+                        session_id: session_id.clone(),
+                        input_id: input_id.clone(),
+                    },
+                    |existing| existing.input_id == *input_id,
+                );
+                cap_vec(&mut self.agent_session_inputs);
+            }
+            RuntimeEventKind::WorkspaceEligibilityUpdated { eligibility } => {
+                self.workspace_eligibility = Some(eligibility.clone());
+            }
             RuntimeEventKind::ProjectProbed { probe } => {
                 self.project_probe = Some(probe.clone());
             }

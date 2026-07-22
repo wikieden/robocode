@@ -1,0 +1,27 @@
+schema_version = 1
+component = "viden-core"
+component_version = "0.3.4"
+status = "immutable_checkpoint"
+frontend_schema_version = 1
+base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
+contract_implementation_checkpoint = "e989fa7cd3ccd9664196309586e5d135e3115693"
+compatibility = "additive_capability_gated"
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "ui.preference_persistence"]
+
+[fixtures.frontend_host_services]
+path = "../types/tests/fixtures/frontend-contract-v1/frontend-host-services.json"
+payload_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
+view_sha256 = "b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e"
+
+[fixtures.interaction_closed_loop]
+path = "../types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+payload_sha256 = "ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826"
+view_sha256 = "6d0b71dd744732cbbe322fca18302a0002c81f5f7a7fc0233411198d9af3fde0"
+final_cursor = 22
+
+[verification]
+core_gates = "passed"
+workspace_gate = "deferred_to_tui_0.3.2_migration"
+workspace_baseline = "a927e2f31d2cb9bb6015c30bc0ed0976e958c77e"
+workspace_baseline_issue = "viden-tui has 104 pre-existing frontend-contract migration errors"
+tag_authorized = false

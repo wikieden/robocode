@@ -2,7 +2,7 @@
 
 English version: [core-0.3-compatibility.md](core-0.3-compatibility.md)
 
-本文是冻结的 Core 0.3.0 `frontend-contract-v1` payload 及其向后兼容 Core 0.3.2
+本文是冻结的 Core 0.3.0 `frontend-contract-v1` payload 及其向后兼容 Core 0.3.3
 extension candidate 的人类可读兼容清单，记录前端 schema、handshake capabilities、
 migration 顺序、确定性 fixture corpus、UI 偏好契约和设计入口层级。
 
@@ -50,13 +50,16 @@ ui.preferences
 
 ## Schema-1 冻结后的扩展候选
 
-上面的 Core 0.3.0 冻结 capability 集合与原九份 fixture bytes 保持不变。Core 0.3.2
+上面的 Core 0.3.0 冻结 capability 集合与原九份 fixture bytes 保持不变。Core 0.3.3
 候选通过 `FRONTEND_V1_EXTENSION_CAPABILITIES` 和
 `crates/core/frontend-contract-extensions.toml` 单独公布以下精确、按字典序排列的增量
 capability：
 
 ```text
 core.workspace_host
+runtime.agent_adapters
+runtime.agent_permission_bridge
+runtime.agent_sessions
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -74,6 +77,13 @@ schema 仍为 `1`。客户端只具备冻结 base 集合也可以连接；extens
 work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D4 创建要求
 `runtime.starter_lane_preview`；精确 active-Lane cancel 还要求
 `runtime.lane_owner_projection` 且恰好一条权威 binding。
+
+Agent 选择要求 `runtime.agent_adapters`；启动和取消 typed external session 要求
+`runtime.agent_sessions`；ACP permission request 只有在协商到
+`runtime.agent_permission_bridge` 后才可交互。Adapter view 只包含安全的
+availability/auth facts，不包含 raw command、环境引用或 agent-native credential。
+前台与异步 ACP session 共用 Core-owned approval queue。重启后，Core 必须先终止被中断
+的 external process，再发布可恢复 failed session，因此 replay 不会虚构仍存活的进程。
 
 基于 Core 0.3.0 编写的客户端仍然只要求冻结集合，并把不支持的 schema-1 事件保留为
 `RuntimeWireEvent::Unknown`。新客户端只有在协商到 `runtime.lane_lifecycle` 后，才启用
@@ -171,12 +181,19 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | Fixture id | 扩展场景 | 最终 view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI 偏好持久化、安全 recent work、reviewed starter-Lane preview/create/invalidation、精确 live Lane owner，以及一个可容忍的未来 optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
+| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
 
 扩展 fixture 使用六个正式 known event：`UiPreferencesUpdated`、`RecentWorkLoaded`、
 `StarterLanePreviewed`、`StarterLaneCreated`、`StarterLanePreviewInvalidated`、
 `LaneRuntimeOwnerBound`；禁止用 transient error 或展示 placeholder 代替。正常内存
 journal、snapshot 与 replay 路径必须把这些 facts 归约为相同 `RuntimeViewState`。未来
 optional event 只推进 cursor，不修改该 state。
+
+交互闭环 fixture 包含 18 个有序 event，并只使用 locale-neutral fact key。重连测试会
+刻意观察一次 cursor gap，重放缺失的连续 batch，并证明 normalized final
+`RuntimeViewState`、cursor 与 digest 和不中断 replay 完全一致。
+`crates/core/release-manifest.toml` 记录两份 fixture payload 与 Core 0.3.3 contract
+implementation checkpoint，但不授权创建 tag。
 
 每个 JSON fixture envelope 包含：
 

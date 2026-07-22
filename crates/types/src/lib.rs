@@ -16,6 +16,11 @@ mod trust;
 mod ui_preferences;
 mod workflow;
 
+pub use agent::{
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentSessionInput,
+    AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
+    AgentStartability,
+};
 pub use context::{
     ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,
     ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
@@ -31,7 +36,7 @@ pub use frontend_services::{
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
     CredentialHandle, CredentialRequestId, CredentialStatus, ProjectConfigPreview,
-    ProjectConfigState, ProjectProbe,
+    ProjectConfigState, ProjectProbe, WorkspaceEligibility,
 };
 pub use protocol::{
     CapabilityId, CoreHandshake, EventCursor, EventCursorOrder, FRONTEND_SCHEMA_V1,

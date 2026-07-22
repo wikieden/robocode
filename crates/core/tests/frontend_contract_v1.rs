@@ -9,19 +9,22 @@ use viden_core::{
     frontend_capabilities, local_core_handshake,
 };
 use viden_types::{
-    AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole,
-    AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CapabilityId, ContextBundleRecord, ContextOmittedSourceRecord,
-    ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding,
-    LaneStatus, MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot,
-    MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, PermissionLevel,
-    PermissionMode, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentDagRecord,
+    AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole, AgentRoute,
+    AgentSessionStatus, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
+    AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView,
+    ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, CapabilityId,
+    ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord, CostScope,
+    CostUsageOutcome, CostUsageRecord, EventCursor, EvidenceView, ExecutionTarget,
+    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
+    MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
+    MergeGateStatus, MergeGateType, MutationPolicy, PermissionLevel, PermissionMode,
+    ProjectConfigState, ProjectProbe, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
     ResolvedUiPreferences, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
     RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
     TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
+    WorkspaceEligibility,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -132,15 +135,15 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.2\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.4\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 7"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.2");
-    assert_eq!(local_core_handshake().core_version, "0.3.2");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.4");
+    assert_eq!(local_core_handshake().core_version, "0.3.4");
 }
 
 #[test]
-fn frontend_host_capabilities_are_schema_one_core_0_3_2_and_additive() {
+fn frontend_host_capabilities_are_schema_one_core_0_3_4_and_additive() {
     let frozen_base = [
         "runtime.agent_dag",
         "runtime.approvals",
@@ -160,6 +163,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_2_and_additive() {
     ];
     let extensions = [
         "core.workspace_host",
+        "runtime.agent_adapters",
+        "runtime.agent_permission_bridge",
+        "runtime.agent_session_input",
+        "runtime.agent_sessions",
         "runtime.credential_handles",
         "runtime.credential_staging",
         "runtime.lane_lifecycle",
@@ -168,11 +175,12 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_2_and_additive() {
         "runtime.recent_work",
         "runtime.starter_lane_preview",
         "runtime.trust_loop",
+        "runtime.workspace_eligibility",
         "ui.preference_persistence",
     ];
 
     assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.2");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.4");
     assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
     assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
     assert!(
@@ -201,11 +209,14 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_2_and_additive() {
         .expect("missing optional extensions must not block a frozen-base client");
 
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.2\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.4\""));
     assert!(extension_manifest.contains("schema_version = 1"));
     assert!(extension_manifest.contains("runtime.lane_owner_projection"));
     assert!(extension_manifest.contains(
         "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
+    ));
+    assert!(extension_manifest.contains(
+        "interaction_fixture_sha256 = \"ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826\""
     ));
 }
 
@@ -277,6 +288,144 @@ fn frontend_host_capabilities_fixture_replays_known_facts_and_tolerates_future_e
 }
 
 #[test]
+fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
+    let name = "interaction-closed-loop.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read interaction fixture bytes");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&fixture_bytes)),
+        "ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826"
+    );
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+    let event_types = fixture
+        .events
+        .iter()
+        .map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => match &event.kind {
+                RuntimeEventKind::ProjectProbed { .. } => "project_open_no_lane",
+                RuntimeEventKind::WorkspaceEligibilityUpdated { .. } => "workspace_eligible",
+                RuntimeEventKind::StarterLanePreviewed { .. } => "starter_lane_previewed",
+                RuntimeEventKind::StarterLaneCreated { .. } => "starter_lane_created",
+                RuntimeEventKind::AgentAdaptersLoaded { .. } => "agent_adapters_loaded",
+                RuntimeEventKind::AgentSessionStarted { .. } => "agent_session_started",
+                RuntimeEventKind::AgentSessionCompleted { .. } => "agent_session_completed",
+                RuntimeEventKind::AgentSessionInputAccepted { .. } => {
+                    "agent_session_input_accepted"
+                }
+                RuntimeEventKind::ToolCallStarted { .. } => "tool_call_started",
+                RuntimeEventKind::ToolCallFinished { .. } => "tool_call_finished",
+                RuntimeEventKind::ApprovalRequested { .. } => "approval_requested",
+                RuntimeEventKind::AgentSessionUpdated { .. } => "agent_session_updated",
+                RuntimeEventKind::ApprovalResolved { .. } => "approval_resolved",
+                RuntimeEventKind::EvidenceRecorded { .. } => "evidence_recorded",
+                RuntimeEventKind::MergeGateUpdated { .. } => "merge_gate_updated",
+                RuntimeEventKind::LaneConflictDetected { .. } => "apply_conflict",
+                RuntimeEventKind::LaneRecoveryRequired { .. } => "recovery_required",
+                ref other => panic!("unexpected interaction event {other:?}"),
+            },
+            RuntimeWireEvent::Unknown { event_type, .. } => event_type,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        event_types,
+        [
+            "project_open_no_lane",
+            "workspace_eligible",
+            "starter_lane_previewed",
+            "starter_lane_created",
+            "agent_adapters_loaded",
+            "agent_session_started",
+            "agent_session_completed",
+            "agent_session_started",
+            "tool_call_started",
+            "tool_call_finished",
+            "approval_requested",
+            "agent_session_updated",
+            "approval_resolved",
+            "agent_session_updated",
+            "evidence_recorded",
+            "merge_gate_updated",
+            "apply_conflict",
+            "recovery_required",
+            "agent_session_completed",
+            "agent_session_input_accepted",
+            "agent_session_started",
+            "agent_session_completed",
+        ]
+    );
+
+    let (full_view, full_cursor, full_digest) = replay_fixture(&fixture);
+    let (reconnected_view, reconnected_cursor, reconnected_digest) =
+        replay_fixture_after_gap(&fixture, 16);
+    assert_eq!(full_view, reconnected_view);
+    assert_eq!(full_cursor, reconnected_cursor);
+    assert_eq!(full_digest, reconnected_digest);
+    assert_eq!(full_digest, fixture.expected_view_sha256);
+
+    assert_eq!(
+        full_view.project_probe.as_ref().unwrap().config_state,
+        ProjectConfigState::Missing
+    );
+    assert_eq!(full_view.starter_lane_receipts.len(), 1);
+    assert!(full_view.starter_lane_previews.is_empty());
+    assert!(
+        full_view
+            .workspace_eligibility
+            .as_ref()
+            .is_some_and(|eligibility| eligibility.can_create_lane)
+    );
+    assert_eq!(full_view.agent_adapters.len(), 4);
+    assert!(full_view.agent_adapters.iter().any(|adapter| {
+        adapter.route == AgentRoute::BuiltIn && adapter.availability == AgentAvailability::Available
+    }));
+    assert!(
+        full_view
+            .agent_adapters
+            .iter()
+            .any(|adapter| { adapter.route == AgentRoute::Acp && adapter.agent_id == "codex-acp" })
+    );
+    assert_eq!(full_view.agent_sessions.len(), 2);
+    assert_eq!(full_view.agent_session_inputs.len(), 1);
+    assert_eq!(
+        full_view.agent_session_inputs[0].input_id,
+        "agent-input-loop-follow-up"
+    );
+    assert!(
+        full_view
+            .agent_sessions
+            .iter()
+            .all(|session| session.status == AgentSessionStatus::Completed)
+    );
+    assert!(full_view.pending_approvals.is_empty());
+    assert!(
+        full_view
+            .latest_evidence
+            .iter()
+            .any(|item| item.id == "evidence-loop-test")
+    );
+    assert!(full_view.merge_gates.iter().any(|gate| {
+        gate.gate_id == "gate-loop-apply" && gate.status == MergeGateStatus::Accepted
+    }));
+    assert_eq!(full_view.lane_conflicts.len(), 1);
+    assert_eq!(full_view.lane_recoveries.len(), 1);
+
+    let release_manifest = include_str!("../release-manifest.toml");
+    assert!(release_manifest.contains("component_version = \"0.3.4\""));
+    assert!(release_manifest.contains(
+        "contract_implementation_checkpoint = \"e989fa7cd3ccd9664196309586e5d135e3115693\""
+    ));
+    assert!(release_manifest.contains(
+        "payload_sha256 = \"ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826\""
+    ));
+    assert!(release_manifest.contains(
+        "view_sha256 = \"6d0b71dd744732cbbe322fca18302a0002c81f5f7a7fc0233411198d9af3fde0\""
+    ));
+}
+
+#[test]
 fn frontend_contract_v1_migrations_are_idempotent_before_fixture_replay() {
     let legacy_lanes = parse_legacy_lanes_tsv(include_str!(
         "../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"
@@ -343,6 +492,19 @@ fn refresh_frontend_host_services_extension_fixture() {
     let fixture = frontend_host_services_fixture();
     fs::write(
         root.join("frontend-host-services.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "manual interaction fixture refresh; normal tests validate committed JSON only"]
+fn refresh_interaction_closed_loop_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = interaction_closed_loop_fixture();
+    fs::write(
+        root.join("interaction-closed-loop.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -447,6 +609,38 @@ fn replay_fixture(fixture: &FrontendContractFixture) -> (RuntimeViewState, Event
         sequence: 0,
     };
     for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            view.apply_event(event);
+        }
+        cursor = envelope.cursor.clone();
+    }
+    let digest = canonical_view_sha256(&view);
+    (view, cursor, digest)
+}
+
+fn replay_fixture_after_gap(
+    fixture: &FrontendContractFixture,
+    delivered_before_gap: usize,
+) -> (RuntimeViewState, EventCursor, String) {
+    assert!(delivered_before_gap < fixture.events.len());
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    let mut cursor = EventCursor {
+        stream_id: format!("fixture:{}", fixture.fixture_id),
+        sequence: 0,
+    };
+    for envelope in fixture.events.iter().take(delivered_before_gap) {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            view.apply_event(event);
+        }
+        cursor = envelope.cursor.clone();
+    }
+    let gap = &fixture.events[delivered_before_gap + 1];
+    assert!(gap.cursor.sequence > cursor.sequence + 1);
+
+    // Reconnect asks Core for the missing contiguous batch and reduces those
+    // ordered facts before accepting the already observed post-gap event.
+    for envelope in fixture.events.iter().skip(delivered_before_gap) {
+        assert_eq!(envelope.cursor.sequence, cursor.sequence + 1);
         if let RuntimeWireEvent::Known(event) = &envelope.event {
             view.apply_event(event);
         }
@@ -1029,6 +1223,400 @@ fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
             "runtime.recent_work",
             "runtime.starter_lane_preview",
             "ui.preference_persistence",
+        ],
+        snapshot(WorkMode::Build),
+        events,
+    )
+}
+
+fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "interaction-closed-loop";
+    let acp_owner = RuntimeOwner {
+        workspace_id: "workspace-loop".to_string(),
+        project_id: "project-loop".to_string(),
+        lane_id: Some("lane-loop-coder".to_string()),
+        session_id: Some("session-loop-acp".to_string()),
+        task_id: Some("task_loop".to_string()),
+        turn_id: Some("turn-loop-acp".to_string()),
+    };
+    let built_in_owner = RuntimeOwner {
+        session_id: Some("session-loop-built-in".to_string()),
+        turn_id: Some("turn-loop-built-in".to_string()),
+        ..acp_owner.clone()
+    };
+    let lane = AgentLaneRecord {
+        id: "lane-loop-coder".to_string(),
+        task_id: Some("task_loop".to_string()),
+        role: AgentRole::Coder,
+        route: AgentRoute::Acp,
+        gate_strength: GateStrength::Cooperative,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some("workspace/.worktrees/lane-loop-coder".to_string()),
+        branch: Some("codex/lane-loop-coder".to_string()),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: LaneStatus::Running,
+        budget: LaneBudget {
+            token_limit: Some(24_000),
+            cost_limit_micro_usd: Some(750_000),
+            wall_time_limit_secs: Some(2_400),
+        },
+        active_session_ids: vec![
+            "session-loop-built-in".to_string(),
+            "session-loop-acp".to_string(),
+        ],
+        summary: "lane.loop.running".to_string(),
+        evidence: Vec::new(),
+    };
+    let preview = StarterLanePreview {
+        preview_id: "preview-loop-coder".to_string(),
+        content_sha256: "12".repeat(32),
+        owner: acp_owner.clone(),
+        lane: lane.clone(),
+        branch: "codex/lane-loop-coder".to_string(),
+        worktree_path: "workspace/.worktrees/lane-loop-coder".to_string(),
+        base_revision: "34".repeat(20),
+        diagnostics: Vec::new(),
+    };
+    let adapters = vec![
+        AgentAdapterView {
+            agent_id: "viden-built-in".to_string(),
+            display_name: "Viden Built-in".to_string(),
+            route: AgentRoute::BuiltIn,
+            source: AgentAdapterSource::BuiltIn,
+            availability: AgentAvailability::Available,
+            auth_state: AgentAuthState::Ready,
+            startability: AgentStartability::Ready,
+            capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
+            models: vec!["workspace-default".to_string()],
+            diagnostics: Vec::new(),
+        },
+        AgentAdapterView {
+            agent_id: "claude-acp".to_string(),
+            display_name: "Claude ACP".to_string(),
+            route: AgentRoute::Acp,
+            source: AgentAdapterSource::Registry,
+            availability: AgentAvailability::Available,
+            auth_state: AgentAuthState::Ready,
+            startability: AgentStartability::Ready,
+            capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
+            models: Vec::new(),
+            diagnostics: Vec::new(),
+        },
+        AgentAdapterView {
+            agent_id: "codex-acp".to_string(),
+            display_name: "Codex ACP".to_string(),
+            route: AgentRoute::Acp,
+            source: AgentAdapterSource::Registry,
+            availability: AgentAvailability::Available,
+            auth_state: AgentAuthState::Ready,
+            startability: AgentStartability::Ready,
+            capabilities: vec![
+                CapabilityId("agent.permission.request".to_string()),
+                CapabilityId("agent.session.cancel".to_string()),
+                CapabilityId("agent.session.prompt".to_string()),
+            ],
+            models: vec!["gpt-5".to_string()],
+            diagnostics: Vec::new(),
+        },
+        AgentAdapterView {
+            agent_id: "kiro-cli".to_string(),
+            display_name: "Kiro CLI".to_string(),
+            route: AgentRoute::Acp,
+            source: AgentAdapterSource::LocalCommand,
+            availability: AgentAvailability::NeedsAuth,
+            auth_state: AgentAuthState::LoggedOut,
+            startability: AgentStartability::AuthenticationRequired,
+            capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
+            models: Vec::new(),
+            diagnostics: vec!["agent.auth.required".to_string()],
+        },
+    ];
+    let built_in_session = AgentSessionView {
+        session_id: "session-loop-built-in".to_string(),
+        lane_id: lane.id.clone(),
+        agent_id: "viden-built-in".to_string(),
+        model: Some("workspace-default".to_string()),
+        status: AgentSessionStatus::Starting,
+        owner: built_in_owner.clone(),
+        task: "task.loop.preflight".to_string(),
+        diagnostic: None,
+    };
+    let acp_session = AgentSessionView {
+        session_id: "session-loop-acp".to_string(),
+        lane_id: lane.id.clone(),
+        agent_id: "codex-acp".to_string(),
+        model: Some("gpt-5".to_string()),
+        status: AgentSessionStatus::Starting,
+        owner: acp_owner.clone(),
+        task: "task.loop.implement".to_string(),
+        diagnostic: None,
+    };
+    let mut approval = approval("approval-loop-tool", "approval.tool.execute", true);
+    approval.owner = acp_owner.clone();
+    approval.policy_reason_key = "approval.agent_tool.mutation".to_string();
+    approval.policy_reason_args = BTreeMap::from([
+        ("agent_id".to_string(), "codex-acp".to_string()),
+        ("lane_id".to_string(), lane.id.clone()),
+    ]);
+    let loop_evidence = evidence("evidence-loop-test", "test_result", "evidence.test.passed");
+    let gate = MergeGateRecord {
+        gate_id: "gate-loop-apply".to_string(),
+        task_id: "task_loop".to_string(),
+        status: MergeGateStatus::Accepted,
+        required_evidence: vec!["test_result".to_string()],
+        evidence_ids: vec![loop_evidence.id.clone()],
+        gate_type: MergeGateType::Artifact,
+        owner: acp_owner.clone(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot {
+            required_evidence: vec!["test_result".to_string()],
+            permission_snapshot_id: Some("permission-loop-1".to_string()),
+            requires_independent_validator: false,
+            captured_at: Some(1_700_100_014),
+        },
+        decision: Some(MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::Accepted,
+            reason: "gate.evidence.satisfied".to_string(),
+            owner: acp_owner.clone(),
+            evidence_ids: vec![loop_evidence.id.clone()],
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
+            audit_id: "audit-loop-gate".to_string(),
+            decided_at: 1_700_100_014,
+        }),
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: vec!["audit-loop-gate".to_string()],
+        updated_at: Some(1_700_100_014),
+    };
+    let events_with_owners = vec![
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::ProjectProbed {
+                probe: ProjectProbe {
+                    root: "workspace/project".to_string(),
+                    is_git_repository: true,
+                    git_root: Some("workspace/project".to_string()),
+                    config_path: "workspace/project/viden.toml".to_string(),
+                    config_state: ProjectConfigState::Missing,
+                    project_name: Some("project".to_string()),
+                    pack: None,
+                    diagnostics: Vec::new(),
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::WorkspaceEligibilityUpdated {
+                eligibility: WorkspaceEligibility {
+                    is_git_repository: true,
+                    has_head: true,
+                    can_create_lane: true,
+                    diagnostic: None,
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::StarterLanePreviewed {
+                preview: preview.clone(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::StarterLaneCreated {
+                receipt: StarterLaneReceipt {
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                    lane,
+                    branch: preview.branch.clone(),
+                    worktree_path: preview.worktree_path.clone(),
+                    base_revision: preview.base_revision.clone(),
+                    owner: acp_owner.clone(),
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentAdaptersLoaded { adapters },
+        ),
+        (
+            built_in_owner.clone(),
+            RuntimeEventKind::AgentSessionStarted {
+                session: built_in_session.clone(),
+            },
+        ),
+        (
+            built_in_owner,
+            RuntimeEventKind::AgentSessionCompleted {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Completed,
+                    ..built_in_session
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionStarted {
+                session: acp_session.clone(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::ToolCallStarted {
+                tool_call_id: "tool-loop-test".to_string(),
+                name: "shell".to_string(),
+                input_preview: "command.test.core".to_string(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::ToolCallFinished {
+                tool_call_id: "tool-loop-test".to_string(),
+                name: "shell".to_string(),
+                success: true,
+                exit_code: Some(0),
+                evidence: None,
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::ApprovalRequested { approval },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionUpdated {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::WaitingApproval,
+                    ..acp_session.clone()
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::ApprovalResolved {
+                request_id: "approval-loop-tool".to_string(),
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once,
+                },
+                owner: acp_owner.clone(),
+                audit_id: "audit-approval-loop-tool".to_string(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionUpdated {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Running,
+                    ..acp_session.clone()
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::EvidenceRecorded {
+                evidence: loop_evidence,
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::MergeGateUpdated { gate },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::LaneConflictDetected {
+                lane_id: "lane-loop-coder".to_string(),
+                summary: "conflict.apply.non_fast_forward".to_string(),
+                paths: vec!["src/lib.rs".to_string()],
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::LaneRecoveryRequired {
+                lane_id: "lane-loop-coder".to_string(),
+                reason: "recovery.apply_conflict".to_string(),
+                next_action: "action.revalidate_merge_conflict".to_string(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionCompleted {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Completed,
+                    ..acp_session.clone()
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionInputAccepted {
+                session_id: acp_session.session_id.clone(),
+                input_id: "agent-input-loop-follow-up".to_string(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionStarted {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Starting,
+                    task: "task.loop.follow_up".to_string(),
+                    ..acp_session.clone()
+                },
+            },
+        ),
+        (
+            acp_owner,
+            RuntimeEventKind::AgentSessionCompleted {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Completed,
+                    task: "task.loop.follow_up".to_string(),
+                    ..acp_session
+                },
+            },
+        ),
+    ];
+    let events = events_with_owners
+        .into_iter()
+        .enumerate()
+        .map(|(index, (owner, kind))| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner,
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(1_700_100_000 + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect();
+
+    fixture(
+        fixture_id,
+        &[
+            "core.workspace_host",
+            "runtime.agent_adapters",
+            "runtime.agent_permission_bridge",
+            "runtime.agent_session_input",
+            "runtime.agent_sessions",
+            "runtime.approvals",
+            "runtime.events",
+            "runtime.evidence",
+            "runtime.lane_lifecycle",
+            "runtime.merge_gate",
+            "runtime.project_onboarding",
+            "runtime.replay",
+            "runtime.snapshot",
+            "runtime.starter_lane_preview",
+            "runtime.typed_lanes",
+            "runtime.workspace_eligibility",
         ],
         snapshot(WorkMode::Build),
         events,

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{AgentLaneId, AgentNextAction, AgentTaskId, AgentTaskStatus, EvidenceId, SessionId};
+use crate::{
+    AgentLaneId, AgentNextAction, AgentTaskId, AgentTaskStatus, CapabilityId, EvidenceId,
+    RuntimeOwner, SessionId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,6 +57,118 @@ pub enum AgentRoute {
     Acp,
     Terminal,
     Tmux,
+}
+
+/// Where an adapter definition comes from. This public view deliberately does
+/// not expose plugin-host command lines or environment references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentAdapterSource {
+    BuiltIn,
+    Registry,
+    LocalCommand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentAvailability {
+    Available,
+    NeedsInstall,
+    NeedsAuth,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentAuthState {
+    Unknown,
+    Ready,
+    LoggedOut,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStartability {
+    Ready,
+    ProbeRequired,
+    InstallRequired,
+    AuthenticationRequired,
+    Unavailable,
+}
+
+impl Default for AgentStartability {
+    fn default() -> Self {
+        Self::ProbeRequired
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSessionStatus {
+    Starting,
+    Running,
+    WaitingApproval,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAdapterView {
+    pub agent_id: String,
+    pub display_name: String,
+    pub route: AgentRoute,
+    pub source: AgentAdapterSource,
+    pub availability: AgentAvailability,
+    pub auth_state: AgentAuthState,
+    /// Core-owned readiness classification. Legacy adapter records default to
+    /// probe-required so a frontend can never infer permission to start.
+    #[serde(default, skip_serializing_if = "is_probe_required")]
+    pub startability: AgentStartability,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<CapabilityId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
+fn is_probe_required(value: &AgentStartability) -> bool {
+    *value == AgentStartability::ProbeRequired
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionRequest {
+    pub lane_id: AgentLaneId,
+    pub agent_id: String,
+    pub model: Option<String>,
+    pub load_session_id: Option<String>,
+    pub task: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionInput {
+    pub session_id: SessionId,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionInputView {
+    pub session_id: SessionId,
+    pub input_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionView {
+    pub session_id: SessionId,
+    pub lane_id: AgentLaneId,
+    pub agent_id: String,
+    pub model: Option<String>,
+    pub status: AgentSessionStatus,
+    pub owner: RuntimeOwner,
+    pub task: String,
+    pub diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

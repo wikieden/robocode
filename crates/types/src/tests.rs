@@ -2213,6 +2213,287 @@ fn frontend_host_capabilities_known_wire_events_roundtrip_without_placeholders()
 }
 
 #[test]
+fn agent_adapter_and_session_commands_roundtrip_as_typed_schema_v1_intents() {
+    let request = AgentSessionRequest {
+        lane_id: "lane-agent".to_string(),
+        agent_id: "claude-acp".to_string(),
+        model: Some("sonnet".to_string()),
+        load_session_id: Some("remote-session".to_string()),
+        task: "review the runtime contract".to_string(),
+    };
+    let commands = [
+        RuntimeCommand::QueryAgentAdapters,
+        RuntimeCommand::ProbeAgentAdapter {
+            agent_id: "claude-acp".to_string(),
+        },
+        RuntimeCommand::StartAgentSession {
+            request: request.clone(),
+        },
+        RuntimeCommand::CancelAgentSession {
+            session_id: "agent-session-1".to_string(),
+        },
+    ];
+
+    for command in commands {
+        let encoded = serde_json::to_string(&command).unwrap();
+        let decoded: RuntimeCommand = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, command);
+    }
+}
+
+#[test]
+fn additive_agent_session_input_roundtrips_and_reduces() {
+    let input = AgentSessionInput {
+        session_id: "agent-session-1".to_string(),
+        content: "continue with the failing test".to_string(),
+    };
+    let command = RuntimeCommand::SendAgentSessionInput {
+        input: input.clone(),
+    };
+    let encoded = serde_json::to_value(&command).unwrap();
+    let decoded: RuntimeCommand = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, command);
+
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentSessionInputAccepted {
+            session_id: input.session_id.clone(),
+            input_id: "agent-input-1".to_string(),
+        },
+    ));
+
+    assert_eq!(
+        view.agent_session_inputs,
+        vec![AgentSessionInputView {
+            session_id: input.session_id,
+            input_id: "agent-input-1".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-agent".to_string(),
+        project_id: "project-agent".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: Some("agent-session-1".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let adapter = AgentAdapterView {
+        agent_id: "claude-acp".to_string(),
+        display_name: "Claude Agent".to_string(),
+        route: AgentRoute::Acp,
+        source: AgentAdapterSource::Registry,
+        availability: AgentAvailability::Available,
+        auth_state: AgentAuthState::Ready,
+        startability: AgentStartability::Ready,
+        capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
+        models: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let session = AgentSessionView {
+        session_id: "agent-session-1".to_string(),
+        lane_id: "lane-agent".to_string(),
+        agent_id: adapter.agent_id.clone(),
+        model: None,
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "review the runtime contract".to_string(),
+        diagnostic: None,
+    };
+    let cases = [
+        RuntimeEventKind::AgentAdaptersLoaded {
+            adapters: vec![adapter.clone()],
+        },
+        RuntimeEventKind::AgentAdapterProbed { adapter },
+        RuntimeEventKind::AgentSessionStarted {
+            session: session.clone(),
+        },
+        RuntimeEventKind::AgentSessionUpdated {
+            session: session.clone(),
+        },
+        RuntimeEventKind::AgentSessionCompleted {
+            session: session.clone(),
+        },
+        RuntimeEventKind::AgentSessionFailed { session },
+    ];
+
+    for (index, kind) in cases.into_iter().enumerate() {
+        let sequence = index as u64 + 1;
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: owner.clone(),
+            cursor: EventCursor {
+                stream_id: "stream-agent".to_string(),
+                sequence,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::new(sequence, kind)),
+        };
+        let encoded = serde_json::to_string(&envelope).unwrap();
+        let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+        assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
+    }
+
+    let mismatched = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner {
+            lane_id: Some("other-lane".to_string()),
+            ..owner
+        },
+        cursor: EventCursor {
+            stream_id: "stream-agent".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::AgentSessionStarted {
+                session: AgentSessionView {
+                    session_id: "agent-session-2".to_string(),
+                    lane_id: "lane-agent".to_string(),
+                    agent_id: "claude-acp".to_string(),
+                    model: None,
+                    status: AgentSessionStatus::Starting,
+                    owner: RuntimeOwner {
+                        workspace_id: "workspace-agent".to_string(),
+                        project_id: "project-agent".to_string(),
+                        lane_id: Some("lane-agent".to_string()),
+                        session_id: Some("agent-session-2".to_string()),
+                        ..RuntimeOwner::default()
+                    },
+                    task: "review".to_string(),
+                    diagnostic: None,
+                },
+            },
+        )),
+    };
+    assert!(serde_json::to_string(&mismatched).is_err());
+
+    let embedded_owner = RuntimeOwner {
+        workspace_id: "workspace-agent".to_string(),
+        project_id: "project-agent".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: Some("agent-session-3".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let inconsistent_identity = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: embedded_owner.clone(),
+        cursor: EventCursor {
+            stream_id: "stream-agent".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::AgentSessionStarted {
+                session: AgentSessionView {
+                    session_id: "different-session".to_string(),
+                    lane_id: "different-lane".to_string(),
+                    agent_id: "claude-acp".to_string(),
+                    model: None,
+                    status: AgentSessionStatus::Starting,
+                    owner: embedded_owner,
+                    task: "review".to_string(),
+                    diagnostic: None,
+                },
+            },
+        )),
+    };
+    assert!(serde_json::to_string(&inconsistent_identity).is_err());
+}
+
+#[test]
+fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-agent".to_string(),
+        project_id: "project-agent".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: Some("agent-session-1".to_string()),
+        task_id: None,
+        turn_id: Some("turn-agent".to_string()),
+    };
+    let adapter = AgentAdapterView {
+        agent_id: "claude-acp".to_string(),
+        display_name: "Claude Agent".to_string(),
+        route: AgentRoute::Acp,
+        source: AgentAdapterSource::Registry,
+        availability: AgentAvailability::NeedsAuth,
+        auth_state: AgentAuthState::LoggedOut,
+        startability: AgentStartability::AuthenticationRequired,
+        capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
+        models: vec!["sonnet".to_string()],
+        diagnostics: vec!["run claude auth login".to_string()],
+    };
+    let running = AgentSessionView {
+        session_id: "agent-session-1".to_string(),
+        lane_id: "lane-agent".to_string(),
+        agent_id: adapter.agent_id.clone(),
+        model: Some("sonnet".to_string()),
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "review the runtime contract".to_string(),
+        diagnostic: None,
+    };
+    let completed = AgentSessionView {
+        status: AgentSessionStatus::Completed,
+        diagnostic: Some("evidence recorded".to_string()),
+        ..running.clone()
+    };
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentAdaptersLoaded {
+            adapters: vec![adapter.clone()],
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::AgentAdapterProbed {
+            adapter: AgentAdapterView {
+                availability: AgentAvailability::Available,
+                auth_state: AgentAuthState::Ready,
+                diagnostics: Vec::new(),
+                ..adapter
+            },
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::AgentSessionStarted {
+            session: running.clone(),
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        4,
+        RuntimeEventKind::AgentSessionCompleted {
+            session: completed.clone(),
+        },
+    ));
+
+    assert_eq!(view.agent_adapters.len(), 1);
+    assert_eq!(
+        view.agent_adapters[0].availability,
+        AgentAvailability::Available
+    );
+    assert_eq!(view.agent_sessions, vec![completed]);
+}
+
+#[test]
+fn legacy_runtime_view_without_agent_extensions_defaults_to_empty_collections() {
+    let view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    let mut encoded = serde_json::to_value(view).unwrap();
+    encoded.as_object_mut().unwrap().remove("agent_adapters");
+    encoded.as_object_mut().unwrap().remove("agent_sessions");
+
+    let decoded: RuntimeViewState = serde_json::from_value(encoded).unwrap();
+
+    assert!(decoded.agent_adapters.is_empty());
+    assert!(decoded.agent_sessions.is_empty());
+}
+
+#[test]
 fn runtime_v1_known_event_with_unknown_nested_command_is_preserved() {
     let raw = r#"{
         "sequence": 9,

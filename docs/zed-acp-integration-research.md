@@ -149,8 +149,8 @@ response filtering, and multi-agent coordination as reusable extensions.
 
 | Agent | Current best path | Notes |
 | --- | --- | --- |
-| Claude | ACP Registry package `@agentclientprotocol/claude-agent-acp@0.56.0` from current registry data. | Agent owns auth/billing/model behavior. Viden should not assume Viden's Anthropic provider key config applies. |
-| Codex | ACP Registry package `@agentclientprotocol/codex-acp@1.1.0` from current registry data. | Agent owns Codex/OpenAI auth and native config. Viden should still pass safe proxy/env and route permissions through runtime. |
+| Claude | ACP Registry package `@agentclientprotocol/claude-agent-acp@0.60.0`, verified against the official registry snapshot on 2026-07-21. | Agent owns auth/billing/model behavior. Viden should not assume Viden's Anthropic provider key config applies. |
+| Codex | ACP Registry package `@agentclientprotocol/codex-acp@1.1.4`, verified against the official registry snapshot on 2026-07-21. | Agent owns Codex/OpenAI auth and native config. Viden should still pass safe proxy/env and route permissions through runtime. |
 | Kiro CLI | Official local ACP command `kiro-cli acp`; also support `kiro-cli acp --agent <name>` for selected agent configuration. | Kiro officially supports ACP over stdio JSON-RPC and documents Zed custom-agent setup. Current ACP Registry data did not include a Kiro entry, so Viden should ship it as a local-command agent source first, while keeping the registry source pluggable if metadata appears later. |
 
 ## Kiro-Specific Adapter Requirements
@@ -283,20 +283,30 @@ TUI command glue:
   The same path can apply `--mode <mode-id>` through `session/set_mode` and
   `--model <model-id>` through the ACP `session/set_config_option` model config,
   with legacy `session/set_model` available as a compatibility request builder.
-- `runtime` can start a background descriptor-backed ACP session with
-  `/agent run acp --async <agent-id> <task>`, record it as a tracked agent job,
-  write JSONL/result artifacts, persist projected runtime events, and stop it
-  through `/agent cancel <id>`.
+- typed clients use `QueryAgentAdapters`, `ProbeAgentAdapter`,
+  `StartAgentSession`, and `CancelAgentSession`; their safe adapter/session views
+  contain no raw process arguments, environment references, or agent-native
+  authentication data.
+- `/agent run acp --async <agent-id> <task>` remains a compatibility surface,
+  but `RuntimeSupervisor` normalizes it into `StartAgentSession`. Direct engine
+  execution rejects asynchronous ACP work because it cannot own approval,
+  cancellation, and replay identity.
 - ACP background cancellation now requests protocol-level `session/cancel`
   first when the live ACP session is available, records that request in the wire
   log, and then uses bounded process termination as a fallback if the external
   agent does not stop promptly.
-- `runtime` converts ACP `session/request_permission` into Viden
-  `PermissionPrompt` approvals and responds with the selected allow/reject ACP
-  option.
-- `runtime` projects tracked ACP session jobs into `RuntimeViewState` as
-  `AgentTask` records, so TUI and GUI clients can consume them through the same
-  state stream as first-party runtime tasks.
+- `RuntimeSupervisor` converts foreground and asynchronous ACP
+  `session/request_permission` messages into the same owner-scoped
+  `ApprovalRequested` queue used by built-in work. Approval, denial, expiry,
+  and cancellation resolve one stable request ID and resume only that session.
+- `runtime` projects tracked ACP jobs into `RuntimeViewState` as typed
+  `AgentSessionView` facts and legacy-compatible `AgentTask` records. Job
+  metadata preserves the owner and terminal status so a restarted Core can
+  rebuild the session view without parsing display text. Because the old stdio
+  and approval channels cannot be reattached safely, an interrupted running or
+  waiting-approval job is cancelled with bounded process termination before it
+  is restored as a recoverable failed session instead of a misleading live
+  `Running` row.
 - `runtime` projects ACP `session/update` / `session/notification` payloads into
   reusable `RuntimeEvent` records for assistant deltas, tool call start/finish,
   and turn-end evidence.

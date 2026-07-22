@@ -8,12 +8,12 @@ use std::{fs, path::Path};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
-    ApprovalScope, ContextBundleRecord, EventCursor, FRONTEND_SCHEMA_V1, MergeGateStatus,
-    ModelEvent, ModelRequest, PermissionBehavior, PermissionLevel, PermissionMode, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, ReplayRequest, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeWireEvent,
-    ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
+    AgentDagTaskSpec, AgentRole, AgentSessionRequest, AgentSessionStatus, AgentTaskStatus,
+    ApprovalDecision, ApprovalResponse, ApprovalScope, ContextBundleRecord, EventCursor,
+    FRONTEND_SCHEMA_V1, MergeGateStatus, ModelEvent, ModelRequest, PermissionBehavior,
+    PermissionLevel, PermissionMode, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind,
+    RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -1681,7 +1681,8 @@ fn runtime_supervisor_streams_async_acp_runtime_events_live() {
     let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
     supervisor
-        .send_command(
+        .send_command_from_owner(
+            owner_for_lane("lane-compat-acp"),
             "cmd_acp_async",
             RuntimeCommand::SubmitUserInput {
                 content: "/agent run acp --async custom-acp stream live".to_string(),
@@ -1716,6 +1717,1088 @@ fn runtime_supervisor_streams_async_acp_runtime_events_live() {
                 if content == "supervisor live delta"
         )
     }));
+}
+
+#[test]
+fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_home");
+    let script = cwd.join("mock-typed-acp.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-typed-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-typed-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"typed session output\"}}}'",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write typed ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-typed-acp");
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_typed_acp_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-typed-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "run the typed ACP lifecycle".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session }
+                    if session.status == AgentSessionStatus::Completed
+            )
+        })
+    });
+    let session = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionCompleted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("completed typed ACP session");
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-other-owner"),
+            "cmd_typed_acp_follow_up_wrong_owner",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "must not run".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let owner_rejection = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_follow_up_wrong_owner"
+                        && reason == "agent_session_owner_mismatch"
+            )
+        })
+    });
+    assert!(owner_rejection.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                if session_id == &session.session_id
+        )
+    }));
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_follow_up",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "continue the same ACP session".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let follow_up = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        let accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == &session.session_id
+            )
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        accepted && completed
+    });
+    assert!(follow_up.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_typed_acp_follow_up"
+        )
+    }));
+    let follow_up_log = fs::read_dir(cwd.join(".viden/agents"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .find(|contents| contents.contains("session/load"))
+        .expect("follow-up ACP log uses session/load");
+    assert!(follow_up_log.contains("remote-typed-session"));
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_retry",
+            RuntimeCommand::RetryAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let retry = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        let accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_typed_acp_retry"
+            )
+        });
+        let input_accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == &session.session_id
+            )
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        accepted && input_accepted && completed
+    });
+    assert!(
+        retry
+            .iter()
+            .all(|event| { !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }) })
+    );
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    let accepted = events.iter().position(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_typed_acp_start"
+        )
+    });
+    let started = events
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }));
+    let completed = events
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }));
+    assert!(accepted < started && started < completed);
+
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(snapshot.view.agent_sessions.len(), 1);
+    assert_eq!(snapshot.view.agent_session_inputs.len(), 2);
+    assert_eq!(
+        snapshot.view.agent_sessions[0].status,
+        AgentSessionStatus::Completed
+    );
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: EventCursor {
+                stream_id: snapshot.cursor.stream_id.clone(),
+                sequence: 0,
+            },
+            limit: 128,
+        })
+        .unwrap();
+    assert!(replay.events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::AgentSessionCompleted { .. },
+                ..
+            })
+        )
+    }));
+    drop(supervisor);
+    let restarted = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let restarted_view = restarted.runtime_view_state();
+    assert!(restarted_view.agent_sessions.iter().any(|session| {
+        session.agent_id == "custom-acp"
+            && session.status == AgentSessionStatus::Completed
+            && session.owner.lane_id.as_deref() == Some("lane-typed-acp")
+    }));
+    assert_eq!(restarted_view.agent_session_inputs.len(), 2);
+}
+
+#[test]
+fn runtime_supervisor_rejects_typed_agent_session_lane_mismatch_before_spawn() {
+    let cwd = temp_dir("runtime_supervisor_typed_acp_owner_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_owner_home");
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-owner"),
+            "cmd_typed_acp_wrong_lane",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-other".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "must not spawn".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_wrong_lane"
+                        && reason.contains("lane")
+                        && reason.contains("owner")
+            )
+        })
+    });
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+    );
+    assert!(!cwd.join(".viden/agents").exists());
+
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-owner"),
+            "cmd_typed_acp_unknown",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-owner".to_string(),
+                    agent_id: "unknown-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "must not spawn".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let unknown = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_unknown"
+                        && reason.contains("Unknown ACP agent")
+            )
+        })
+    });
+    assert!(unknown.iter().all(|event| !matches!(
+        event.kind,
+        RuntimeEventKind::CommandAccepted { .. } | RuntimeEventKind::AgentSessionStarted { .. }
+    )));
+    assert!(!cwd.join(".viden/agents").exists());
+}
+
+#[test]
+fn runtime_supervisor_rejects_typed_agent_spawn_in_plan_or_read_only_mode() {
+    for (scenario, control) in [
+        (
+            "plan",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+        (
+            "read_only",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_home"));
+        let engine = SessionEngine::new_with_home(
+            &cwd,
+            Box::new(SequenceProvider::new(Vec::new())),
+            Some(home),
+        )
+        .unwrap();
+        let supervisor = RuntimeSupervisor::start(engine);
+        supervisor
+            .send_command(format!("cmd_{scenario}_control"), control)
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::SnapshotUpdated { snapshot }
+                        if snapshot.work_mode == WorkMode::Plan
+                            || snapshot.permission_level == PermissionLevel::ReadOnly
+                )
+            })
+        });
+        supervisor
+            .send_command_from_owner(
+                owner_for_lane("lane-blocked-acp"),
+                format!("cmd_{scenario}_agent_start"),
+                RuntimeCommand::StartAgentSession {
+                    request: AgentSessionRequest {
+                        lane_id: "lane-blocked-acp".to_string(),
+                        agent_id: "claude-acp".to_string(),
+                        model: None,
+                        load_session_id: None,
+                        task: "must not create artifacts or spawn".to_string(),
+                    },
+                },
+            )
+            .unwrap();
+        let rejected = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == &format!("cmd_{scenario}_agent_start")
+                            && reason.contains("requires Build mode")
+                )
+            })
+        });
+        assert!(rejected.iter().all(|event| !matches!(
+            event.kind,
+            RuntimeEventKind::CommandAccepted { .. } | RuntimeEventKind::AgentSessionStarted { .. }
+        )));
+        assert!(!cwd.join(".viden/agents").exists());
+    }
+}
+
+#[test]
+fn runtime_supervisor_scopes_typed_agent_session_cancel_and_keeps_it_idempotent() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_cancel_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_cancel_home");
+    let script = cwd.join("mock-typed-acp-cancel.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-cancel-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-cancel-session\",\"toolCall\":{\"toolCallId\":\"tool_cancel\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+            "read approval",
+            "case \"$approval\" in *'\"optionId\":\"reject\"'*) ;; *) exit 5 ;; esac",
+            "sleep 5",
+        ]
+        .join("\n"),
+    )
+    .expect("write cancellable ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-cancel-acp"),
+            "cmd_typed_acp_cancel_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-cancel-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait until cancelled".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+            && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+
+    supervisor
+        .send_command_from_owner(
+            RuntimeOwner {
+                lane_id: Some("lane-other".to_string()),
+                ..session.owner.clone()
+            },
+            "cmd_typed_acp_cancel_wrong_owner",
+            RuntimeCommand::CancelAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let wrong_owner = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_cancel_wrong_owner"
+                        && reason.contains("owner mismatch")
+            )
+        })
+    });
+    assert!(wrong_owner.iter().all(|event| !matches!(
+        &event.kind,
+        RuntimeEventKind::AgentSessionUpdated { session }
+            if session.status == AgentSessionStatus::Cancelled
+    )));
+
+    let mut cancel_events = Vec::new();
+    for command_id in ["cmd_typed_acp_cancel", "cmd_typed_acp_cancel_again"] {
+        supervisor
+            .send_command_from_owner(
+                session.owner.clone(),
+                command_id,
+                RuntimeCommand::CancelAgentSession {
+                    session_id: session.session_id.clone(),
+                },
+            )
+            .unwrap();
+        let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandAccepted { command_id: accepted, .. }
+                        if accepted == command_id
+                )
+            })
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id: accepted, .. }
+                    if accepted == command_id
+            )
+        }));
+        cancel_events.extend(events);
+    }
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert_eq!(
+        supervisor.snapshot_envelope().unwrap().view.agent_sessions[0].status,
+        AgentSessionStatus::Cancelled
+    );
+    assert_eq!(
+        cancel_events
+            .iter()
+            .filter(|event| matches!(
+                event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    decision: ApprovalDecision::Deny,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn runtime_supervisor_bridges_typed_acp_permission_to_owner_approval() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_approval_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_approval_home");
+    let script = cwd.join("mock-typed-acp-approval.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-approval-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-approval-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-approval-session\",\"toolCall\":{\"toolCallId\":\"tool_approval\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"deny\",\"kind\":\"reject_once\",\"name\":\"Deny\"},{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}]}}'",
+            "read approval",
+            "case \"$approval\" in *'\"id\":9'*'\"optionId\":\"allow\"'*) ;; *) exit 5 ;; esac",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-approval-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write approval ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-approval-acp"),
+            "cmd_typed_acp_approval_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-approval-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "request an edit".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let pending = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+            && events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionUpdated { session }
+                        if session.status == AgentSessionStatus::WaitingApproval
+                )
+            })
+    });
+    let approval = pending
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+            _ => None,
+        })
+        .expect("owner-scoped ACP approval");
+    assert_eq!(approval.owner.lane_id.as_deref(), Some("lane-approval-acp"));
+    supervisor
+        .send_command_from_owner(
+            approval.owner.clone(),
+            "cmd_typed_acp_approval_allow",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: ApprovalResponse::allow_once(Some("approved in client".to_string())),
+            },
+        )
+        .unwrap();
+    let resumed = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved { request_id, .. }
+                    if request_id == &approval.id
+            )
+        }) && events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert!(
+        resumed
+            .iter()
+            .any(|event| { matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }) })
+    );
+    let log = fs::read_to_string(
+        cwd.join(".viden/agents")
+            .read_dir()
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with("agent-session_")
+                            && name.ends_with(".jsonl")
+                            && !name.contains("runtime-events")
+                    })
+            })
+            .expect("typed ACP log"),
+    )
+    .unwrap();
+    assert!(log.contains(r#"optionId\":\"allow"#));
+    assert!(!log.contains("background ACP jobs reject permission requests"));
+}
+
+#[test]
+fn restart_stops_orphaned_waiting_acp_before_publishing_recovery_state() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_restart_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_restart_home");
+    let script = cwd.join("mock-typed-acp-restart.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "trap '' TERM",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-restart-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-restart-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-restart-session\",\"toolCall\":{\"toolCallId\":\"tool_restart\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+            "read _approval",
+            "sleep 5",
+        ]
+        .join("\n"),
+    )
+    .expect("write restart ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let original = RuntimeSupervisor::start(engine);
+    original
+        .send_command_from_owner(
+            owner_for_lane("lane-restart-acp"),
+            "cmd_restart_acp_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-restart-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait across restart".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let pending = collect_events_until(&original, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = pending
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started restart session");
+    let job_log = fs::read_to_string(cwd.join(".viden/agents/codex-jobs.jsonl")).unwrap();
+    let pid = job_log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|record| record["id"] == session.session_id)
+        .filter_map(|record| record["pid"].as_u64())
+        .next_back()
+        .expect("tracked ACP pid") as u32;
+
+    let replacement_engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let recovered = replacement_engine.runtime_view_state();
+    assert!(recovered.agent_sessions.iter().any(|restored| {
+        restored.session_id == session.session_id
+            && restored.status == AgentSessionStatus::Failed
+            && restored
+                .diagnostic
+                .as_deref()
+                .is_some_and(|diagnostic| diagnostic.contains("approval was pending"))
+    }));
+    assert!(
+        cwd.join(format!(".viden/agents/{}.cancel", session.session_id))
+            .exists()
+    );
+    // The original in-process supervisor owns the pending approval receiver;
+    // dropping it models the old Core process exiting and lets its monitor reap
+    // the already-terminated child.
+    drop(original);
+    wait_until(|| {
+        !std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    });
+
+    let replacement = RuntimeSupervisor::start(replacement_engine);
+    replacement
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_restart_acp_cancel_recovered",
+            RuntimeCommand::CancelAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let cancel = collect_events_until(&replacement, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_restart_acp_cancel_recovered"
+            )
+        })
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert!(
+        cancel
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }))
+    );
+}
+
+#[test]
+fn typed_acp_approval_pauses_only_its_owner_while_another_lane_streams() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_parallel_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_parallel_home");
+    let script = cwd.join("mock-typed-acp-parallel.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-parallel-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-parallel-session\"}}'",
+            "read prompt",
+            "case \"$prompt\" in",
+            "  *'need approval'*)",
+            "    printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-parallel-session\",\"toolCall\":{\"toolCallId\":\"tool_parallel\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"deny\",\"kind\":\"reject_once\",\"name\":\"Deny\"},{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}]}}'",
+            "    read approval",
+            "    case \"$approval\" in *'\"optionId\":\"allow\"'*) ;; *) exit 5 ;; esac",
+            "    ;;",
+            "  *)",
+            "    printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-parallel-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"other lane still streams\"}}}'",
+            "    ;;",
+            "esac",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-parallel-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write parallel ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let start = |lane: &str, command_id: &str, task: &str| {
+        supervisor
+            .send_command_from_owner(
+                owner_for_lane(lane),
+                command_id,
+                RuntimeCommand::StartAgentSession {
+                    request: AgentSessionRequest {
+                        lane_id: lane.to_string(),
+                        agent_id: "custom-acp".to_string(),
+                        model: None,
+                        load_session_id: None,
+                        task: task.to_string(),
+                    },
+                },
+            )
+            .unwrap();
+    };
+    start("lane-waiting-acp", "cmd_parallel_waiting", "need approval");
+    let waiting = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let approval = waiting
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    start(
+        "lane-waiting-acp",
+        "cmd_parallel_same_lane",
+        "must be rejected",
+    );
+    let same_lane = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_parallel_same_lane"
+                        && reason.contains("already running for this lane")
+            )
+        })
+    });
+    assert!(same_lane.iter().all(|event| !matches!(
+        &event.kind,
+        RuntimeEventKind::AgentSessionStarted { session }
+            if session.task == "must be rejected"
+    )));
+
+    start(
+        "lane-streaming-acp",
+        "cmd_parallel_streaming",
+        "stream without approval",
+    );
+    let streaming = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AssistantDelta { content, .. }
+                    if content == "other lane still streams"
+            )
+        })
+    });
+    assert!(streaming.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::AssistantDelta { content, .. }
+                if content == "other lane still streams"
+        )
+    }));
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .agent_sessions
+            .iter()
+            .any(|session| {
+                session.owner == approval.owner
+                    && session.status == AgentSessionStatus::WaitingApproval
+            })
+    );
+
+    supervisor
+        .send_command_from_owner(
+            approval.owner.clone(),
+            "cmd_parallel_approval",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let completed = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session }
+                    if session.owner == approval.owner
+            )
+        })
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert_eq!(
+        completed
+            .iter()
+            .filter(|event| matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved { request_id, .. }
+                    if request_id == &approval.id
+            ))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn typed_acp_denial_and_expiry_each_resolve_one_stable_request() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let fixture_root = temp_dir("runtime_supervisor_typed_acp_negative_fixture");
+    let script = fixture_root.join("mock-typed-acp-negative-approval.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-negative-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-negative-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-negative-session\",\"toolCall\":{\"toolCallId\":\"tool_negative\",\"title\":\"Run command\",\"kind\":\"terminal\"},\"options\":[{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+            "read approval",
+            "case \"$approval\" in *'\"optionId\":\"reject\"'*) ;; *) exit 5 ;; esac",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-negative-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write negative approval ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    for (scenario, respond) in [("deny", true), ("expire", false)] {
+        let cwd = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_home"));
+        let engine = SessionEngine::new_with_home(
+            &cwd,
+            Box::new(SequenceProvider::new(Vec::new())),
+            Some(home),
+        )
+        .unwrap();
+        let supervisor = RuntimeSupervisor::start_with_approval_ttl_for_test(engine, 1);
+        let lane = format!("lane-{scenario}-acp");
+        supervisor
+            .send_command_from_owner(
+                owner_for_lane(&lane),
+                format!("cmd_{scenario}_start"),
+                RuntimeCommand::StartAgentSession {
+                    request: AgentSessionRequest {
+                        lane_id: lane,
+                        agent_id: "custom-acp".to_string(),
+                        model: None,
+                        load_session_id: None,
+                        task: format!("{scenario} the request"),
+                    },
+                },
+            )
+            .unwrap();
+        let pending = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+        let approval = pending
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+                _ => None,
+            })
+            .unwrap();
+        if respond {
+            supervisor
+                .send_command_from_owner(
+                    approval.owner.clone(),
+                    format!("cmd_{scenario}_respond"),
+                    RuntimeCommand::RespondToApproval {
+                        request_id: approval.id.clone(),
+                        response: ApprovalResponse::deny(Some("operator denied".to_string())),
+                    },
+                )
+                .unwrap();
+        }
+        let resolved = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id,
+                        decision: ApprovalDecision::Deny,
+                        ..
+                    } if request_id == &approval.id
+                )
+            }) && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+        });
+        assert_eq!(
+            resolved
+                .iter()
+                .filter(|event| matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id, .. }
+                        if request_id == &approval.id
+                ))
+                .count(),
+            1,
+            "{scenario} must resolve exactly one stable approval"
+        );
+    }
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
 }
 
 #[test]
