@@ -15,7 +15,7 @@ use viden_types::{
     GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MutationPolicy, RuntimeCommand,
     RuntimeEventKind, RuntimeOwner, StarterLanePreset, StarterLanePreview,
     StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, WorkMode,
-    fresh_id, now_timestamp,
+    WorkspaceEligibility, fresh_id, now_timestamp,
 };
 use viden_workflows::{
     lanes::{LaneEvent, LaneEventKind},
@@ -280,7 +280,8 @@ impl LaneSupervisor {
     pub(crate) fn handles(command: &RuntimeCommand) -> bool {
         matches!(
             command,
-            RuntimeCommand::PreviewStarterLane { .. }
+            RuntimeCommand::PreviewDefaultStarterLane { .. }
+                | RuntimeCommand::PreviewStarterLane { .. }
                 | RuntimeCommand::CreateStarterLane { .. }
                 | RuntimeCommand::CreateLane { .. }
                 | RuntimeCommand::StartLane { .. }
@@ -359,6 +360,35 @@ impl LaneSupervisor {
         command_id: String,
         command: RuntimeCommand,
     ) -> Result<(), String> {
+        if let RuntimeCommand::PreviewDefaultStarterLane { preset } = command {
+            let eligibility = workspace_eligibility(&self.repo);
+            self.emit(
+                owner.clone(),
+                RuntimeEventKind::WorkspaceEligibilityUpdated {
+                    eligibility: eligibility.clone(),
+                },
+            );
+            if !eligibility.can_create_lane {
+                self.reject(
+                    owner,
+                    command_id,
+                    eligibility
+                        .diagnostic
+                        .unwrap_or_else(|| "workspace_ineligible".to_string()),
+                );
+                return Ok(());
+            }
+            let lane_id = fresh_id("lane");
+            let request = StarterLaneRequest {
+                lane_id: lane_id.clone(),
+                preset,
+                branch: Some(format!("viden/{lane_id}")),
+                worktree_path: None,
+            };
+            let mut generated_owner = owner;
+            generated_owner.lane_id = Some(lane_id);
+            return self.preview_starter_lane(generated_owner, command_id, request);
+        }
         let lane_id = command_lane_id(&command).to_string();
         if owner.lane_id.as_deref() != Some(lane_id.as_str()) {
             self.reject(
@@ -1106,6 +1136,34 @@ impl LaneSupervisor {
             lanes.remove(&lane_id);
         }
         Ok(())
+    }
+}
+
+pub(crate) fn workspace_eligibility(repo: &Path) -> WorkspaceEligibility {
+    let is_git_repository = Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(repo)
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !is_git_repository {
+        return WorkspaceEligibility {
+            is_git_repository: false,
+            has_head: false,
+            can_create_lane: false,
+            diagnostic: Some("workspace_not_git_repository".to_string()),
+        };
+    }
+
+    let has_head = Command::new("git")
+        .args(["rev-parse", "--verify", "HEAD^{commit}"])
+        .current_dir(repo)
+        .output()
+        .is_ok_and(|output| output.status.success());
+    WorkspaceEligibility {
+        is_git_repository: true,
+        has_head,
+        can_create_lane: has_head,
+        diagnostic: (!has_head).then(|| "workspace_missing_head".to_string()),
     }
 }
 

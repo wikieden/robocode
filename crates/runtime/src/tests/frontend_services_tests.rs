@@ -232,6 +232,101 @@ fn starter_lane_preview_resolves_presets_without_git_workflow_or_effect_mutation
 }
 
 #[test]
+fn default_starter_lane_preview_generates_unique_core_owned_identity() {
+    let repo = starter_lane_repo("default_starter_lane_preview_repo");
+    let home = temp_dir("default_starter_lane_preview_home");
+    let effects = Arc::new(StarterLaneEffects::default());
+    let supervisor = starter_supervisor(&repo, home, effects);
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-starter".to_string(),
+        project_id: "project-starter".to_string(),
+        ..RuntimeOwner::default()
+    };
+
+    let mut lane_ids = Vec::new();
+    for command_id in ["default-preview-1", "default-preview-2"] {
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                command_id,
+                RuntimeCommand::PreviewDefaultStarterLane {
+                    preset: StarterLanePreset::Coder,
+                },
+            )
+            .unwrap();
+        let events = collect_starter_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::StarterLanePreviewed { .. },
+                        ..
+                    })
+                )
+            })
+        });
+        let preview = events
+            .iter()
+            .find_map(|envelope| match &envelope.event {
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewed { preview },
+                    ..
+                }) => Some(preview),
+                _ => None,
+            })
+            .unwrap();
+        assert!(preview.lane.id.starts_with("lane_"));
+        assert_eq!(preview.owner.lane_id.as_ref(), Some(&preview.lane.id));
+        assert_eq!(preview.branch, format!("viden/{}", preview.lane.id));
+        lane_ids.push(preview.lane.id.clone());
+    }
+    assert_ne!(lane_ids[0], lane_ids[1]);
+}
+
+#[test]
+fn default_starter_lane_preview_rejects_non_git_before_preview() {
+    let repo = temp_dir("default_starter_lane_non_git_repo");
+    let home = temp_dir("default_starter_lane_non_git_home");
+    let effects = Arc::new(StarterLaneEffects::default());
+    let supervisor = starter_supervisor(&repo, home, effects);
+
+    supervisor
+        .send_command_from_owner(
+            RuntimeOwner {
+                workspace_id: "workspace-starter".to_string(),
+                project_id: "project-starter".to_string(),
+                ..RuntimeOwner::default()
+            },
+            "default-preview-non-git",
+            RuntimeCommand::PreviewDefaultStarterLane {
+                preset: StarterLanePreset::Coder,
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { reason, .. },
+                    ..
+                }) if reason == "workspace_not_git_repository"
+            )
+        })
+    });
+
+    assert!(!events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLanePreviewed { .. },
+                ..
+            })
+        )
+    }));
+}
+
+#[test]
 fn starter_lane_create_waits_for_permission_and_emits_exact_owner_receipt() {
     let repo = starter_lane_repo("starter_lane_create_repo");
     let home = temp_dir("starter_lane_create_home");

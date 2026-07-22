@@ -13,7 +13,7 @@ use viden_types::{
     RuntimeEventKind, ToolInput, ToolSpec, fresh_id,
 };
 
-use crate::{FileRollback, SessionEngine};
+use crate::{FileRollback, SessionEngine, lane_supervisor::workspace_eligibility};
 
 pub trait CredentialBackend: Send + Sync {
     /// Resolves a one-use opaque request already staged by the trusted backend.
@@ -138,6 +138,12 @@ impl SessionEngine {
             RuntimeEvent::new(1, RuntimeEventKind::ProjectProbed { probe }),
             RuntimeEvent::new(
                 2,
+                RuntimeEventKind::WorkspaceEligibilityUpdated {
+                    eligibility: workspace_eligibility(&self.cwd),
+                },
+            ),
+            RuntimeEvent::new(
+                3,
                 RuntimeEventKind::ProviderHealthUpdated {
                     provider: self.project_provider_health(),
                 },
