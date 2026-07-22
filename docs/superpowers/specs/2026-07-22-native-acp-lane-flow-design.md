@@ -84,6 +84,83 @@ Viden-native primary agent. Core must publish a truthful startability result;
 tests may not manufacture an `auth_state=ready` value that production probing
 cannot produce.
 
+## Complete Agent Interaction Contract
+
+This milestone covers the complete operator interaction, not only Lane and
+session creation.
+
+### Viden-native primary agent
+
+The native interaction must support:
+
+- provider/model health and configuration for DeepSeek and OpenAI;
+- first task submission, streamed assistant output, tool progress, token/cost
+  updates, and durable transcript rows;
+- editable follow-up input while idle and queued follow-up input while busy;
+- scoped tool approval and denial through the shared permission contract;
+- exact-owner cancellation of the active turn without deleting the Lane;
+- terminal completed, cancelled, provider-failed, tool-failed, and
+  context-exhausted states with a typed next action;
+- retry after a recoverable failure without duplicating the previous accepted
+  command;
+- restart/reconnect recovery through snapshot, replay, and transcript paging;
+- continued conversation in the same Lane after completion or cancellation.
+
+The frontend state machine is a projection of Core facts:
+
+`idle -> submitting -> running -> waiting_approval -> running -> completed`.
+
+`running` may also move to `cancelling -> cancelled`, or to `failed`. A
+recoverable `failed` state may return to `submitting` only after a new typed
+retry/submit command. A frontend must never infer these transitions from text.
+
+### ACP delegated agent
+
+The ACP interaction must support:
+
+- discovery of Codex, Claude, Kiro, and configured custom ACP descriptors;
+- install, initialize, authentication, capability, and model availability;
+- starting a new owner-scoped session with an explicit delegated task;
+- streaming ACP messages, plan/progress updates, tool calls, and terminal
+  results into the owning Lane timeline;
+- routing ACP tool permission requests through Core's shared approval surface;
+- sending a follow-up to, or resuming, the exact ACP session when the adapter
+  advertises that capability;
+- cancelling the exact running ACP session without cancelling the native agent
+  or sibling ACP sessions;
+- preserving completed, failed, and cancelled session records with result and
+  evidence links;
+- retrying a failed start as a new attempt while retaining the failed attempt;
+- restoring known sessions after frontend restart from Core state.
+
+The ACP state machine is:
+
+`discovered -> probing -> ready -> starting -> running -> completed`.
+
+Alternative typed states are `install_required`, `authentication_required`,
+`waiting_approval`, `cancelling`, `cancelled`, `failed`, and `disconnected`.
+Only `ready` may start a session. A successful initialize probe must publish an
+honest startability result; `unknown` is not silently treated as `ready`.
+
+The current contract has typed start and cancel commands, but the implementation
+plan must also close the conversational follow-up/resume path. That path must be
+an additive Core command/event contract bound to the exact ACP session id; TUI
+or GUI may not emulate it by launching an untracked CLI process or parsing
+display output.
+
+### Shared interaction and evidence
+
+- Native and ACP activity appears in one Lane timeline with explicit source and
+  owner identity.
+- Users can switch between the native conversation and each ACP child session
+  without changing the owning workspace or Lane.
+- Every tool request shows agent source, Lane, session, target, risk, and allowed
+  scopes before approval.
+- A final result links the originating task, transcript range, tool results,
+  changed files, tests, usage, and evidence available from Core.
+- “Completed” means Core published the matching terminal fact. An assistant
+  sentence claiming completion is not sufficient.
+
 ## GUI Interaction
 
 The D4 four-step wizard is removed from the normal creation path. The `+`
@@ -111,6 +188,11 @@ Behavior:
 - Delegation entries are disabled until a Lane is selected.
 - Selecting an ACP entry opens only the delegated-task composer. Installation,
   authentication, or start errors remain attached to that child session.
+- The selected Lane shows one native conversation and an ACP child-session
+  switcher. Each ACP item shows starting/running/waiting/completed/failed status,
+  unread activity, cancel when allowed, and its result/evidence entry.
+- The same composer sends native follow-ups when the native conversation is
+  selected and exact-session ACP follow-ups when an ACP child is selected.
 - Advanced branch, worktree, budget, and policy controls move to Lane settings
   and do not block the default path.
 
@@ -133,6 +215,12 @@ TUI keeps conventional terminal interaction instead of copying the GUI menu.
   adapters.
 - After adapter selection, TUI asks for the delegated task and starts the child
   session through the shared Core command.
+- The `/acp` list shows readiness and active/recent child-session status without
+  reading process tables. Selecting an existing session focuses its transcript;
+  selecting an adapter starts a new delegated-task flow.
+- While an ACP session is focused, normal composer input is routed to the exact
+  resumable session; the status/side surface retains the native agent and sibling
+  sessions.
 - `/acp` is visibly disabled with a reason when no Lane is active.
 - Arrow keys move selection, Enter confirms, Escape cancels, and all states
   remain usable in narrow terminals.
@@ -160,6 +248,12 @@ The delegation path is:
   guidance.
 - ACP probe or session failure: retain the child session record and allow retry
   or cancellation.
+- ACP follow-up unsupported: keep the completed result visible and require a new
+  delegated session; never pretend a new process is the same session.
+- Native or ACP tool approval timeout/deny: preserve the conversation and show
+  the exact denied/expired action and permitted next step.
+- Native context exhaustion: keep the Lane and transcript, expose Core-owned
+  compact/switch-model/retry actions, and do not resend automatically.
 - Event gap or reconnect: recover through snapshot/replay before enabling more
   mutations.
 
@@ -195,7 +289,13 @@ The shared fixture corpus must cover:
 7. ACP success, authentication-required, install-required, failure, and cancel;
 8. simultaneous ACP children under one Lane;
 9. event gap and snapshot/replay recovery;
-10. parity of Core facts consumed by TUI and GUI.
+10. native busy follow-up queue, scoped approval, exact-owner cancel, retry, and
+    continued conversation;
+11. ACP streamed progress, scoped approval, follow-up/resume, exact-session
+    cancel, retry, and result/evidence recovery;
+12. switching between native and multiple ACP conversations without owner
+    leakage;
+13. parity of Core facts consumed by TUI and GUI.
 
 Tests must include real LocalCoreHost/runtime integration. Fixture-only tests
 that inject impossible production readiness states are insufficient. Release
@@ -217,3 +317,15 @@ The milestone is complete when a user can perform the native and ACP paths in
 both TUI and GUI against the same Core build, and every visible success is backed
 by an ordered Core receipt or lifecycle fact. Lane creation must remain visibly
 successful when a subsequent native or ACP start fails.
+
+Completion requires all rows below; entry-point-only demonstrations do not pass:
+
+| Surface | Native agent | ACP agent |
+| --- | --- | --- |
+| Configure | DeepSeek/OpenAI health and model are visible | install/auth/capabilities are visible |
+| Start | first Lane task starts through Core | delegated task starts under the exact Lane |
+| Converse | stream, queue, follow-up, and continue | stream and supported follow-up/resume |
+| Control | approve/deny, cancel turn, retry | approve/deny, cancel exact session, retry attempt |
+| Observe | transcript, tools, usage, status | source-tagged transcript, progress, status |
+| Finish | terminal fact and evidence | terminal fact, result, and evidence |
+| Recover | snapshot/replay/transcript restore | session list and result restore |
