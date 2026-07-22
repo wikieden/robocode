@@ -139,6 +139,19 @@ pub(super) fn side_status_rows(state: &TuiState) -> Vec<String> {
             ],
         )
     }));
+    rows.extend(state.runtime.agent_sessions.iter().map(|session| {
+        let task = truncate(&session.task, 24);
+        let status = format!("{:?}", session.status).to_ascii_lowercase();
+        super::i18n::translate(
+            state,
+            "side.status.agent_session",
+            &[
+                ("agent", session.agent_id.as_str()),
+                ("status", status.as_str()),
+                ("task", task.as_str()),
+            ],
+        )
+    }));
     rows
 }
 

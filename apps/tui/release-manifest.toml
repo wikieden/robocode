@@ -1,9 +1,9 @@
 [release]
 component = "tui"
-version = "0.3.1"
-min_core_version = "0.3.2"
-base_core_checkpoint = "a927e2f31d2cb9bb6015c30bc0ed0976e958c77e"
-contract_payload_sha = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
+version = "0.3.3"
+min_core_version = "0.3.4"
+base_core_checkpoint = "54965464e87860f9c39a1fb656c2f528e354da94"
+contract_payload_sha = "e989fa7cd3ccd9664196309586e5d135e3115693"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 supported_schema_versions = [1]
 design_entry = "docs/viden-design/Viden/index.html"
@@ -34,6 +34,10 @@ required_capabilities = [
 # never blocks the frozen schema-1 base client from starting.
 capabilities = [
   "core.workspace_host",
+  "runtime.agent_adapters",
+  "runtime.agent_permission_bridge",
+  "runtime.agent_session_input",
+  "runtime.agent_sessions",
   "runtime.credential_handles",
   "runtime.credential_staging",
   "runtime.lane_lifecycle",
@@ -42,6 +46,7 @@ capabilities = [
   "runtime.recent_work",
   "runtime.starter_lane_preview",
   "runtime.trust_loop",
+  "runtime.workspace_eligibility",
   "ui.preference_persistence",
 ]
 
@@ -71,8 +76,8 @@ mouse_capture = false
 [source_revisions]
 algorithm = "sha256"
 tokens_css = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
-catalog_en = "e2b01eee9ee74a057a879398d1c459ddc629aee3429f2ef53cffc1c2f18f7e79"
-catalog_zh_cn = "84c7732cd7ffe7147f0b8e76977b40b12fc3c0e03b61138eae1199ff8bfb7162"
+catalog_en = "c695d62825df9a53ce193944a9f524b7859b4d2f3c2e19a855bcd429f02f4267"
+catalog_zh_cn = "a87d033031db8c01f625492146b66b4ce516c194c6a7b2a488db4535bba713af"
 
 [fixture_revisions]
 algorithm = "sha256"

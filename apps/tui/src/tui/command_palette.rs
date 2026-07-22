@@ -31,6 +31,11 @@ const COMMANDS: &[CommandDefinition] = &[
         keywords: "lane board",
     },
     CommandDefinition {
+        command: "/acp",
+        summary: "Choose an ACP agent or session",
+        keywords: "agent codex claude kiro session",
+    },
+    CommandDefinition {
         command: "/decisions",
         summary: "Open approvals and gates",
         keywords: "approval gate ask",
@@ -179,6 +184,7 @@ fn is_exact_command(state: &TuiState) -> bool {
             | "/permissions ask"
             | "/permissions read-only"
             | "/status"
+            | "/acp"
     ) || state
         .runtime
         .lanes
@@ -293,6 +299,21 @@ mod tests {
         for route in ["/setup", "/settings", "/lanes", "/decisions", "/gallery"] {
             assert!(commands.iter().any(|command| command == route), "{route}");
         }
+    }
+
+    #[test]
+    fn palette_exposes_acp_as_an_exact_system_command() {
+        let mut state = TuiState::default();
+        state.ui.input = "/".into();
+
+        assert!(
+            suggestions(&state)
+                .iter()
+                .any(|item| item.command == "/acp")
+        );
+        state.ui.input = "/acp".into();
+        assert!(is_exact_command(&state));
+        assert!(!should_complete_on_enter(&state));
     }
 
     #[test]

@@ -1,7 +1,10 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 #[cfg(test)]
 use viden_core::ApprovalResponse;
-use viden_core::{CoreClient, EventCursor, RuntimeCommand, RuntimeViewState, TuiColorDepth};
+use viden_core::{
+    AgentSessionRequest, AgentStartability, CoreClient, EventCursor, RuntimeCommand, RuntimeOwner,
+    RuntimeViewState, StarterLanePreset, TuiColorDepth,
+};
 
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
@@ -16,17 +19,24 @@ use super::input::{
 use super::jump::{JumpIndex, JumpItem, JumpKind};
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{
-    DEFAULT_APPROVAL_FOCUS, interaction_panel_choice_count, selected_interaction_command,
+    AcpPickerRowKind, DEFAULT_APPROVAL_FOCUS, acp_picker_rows, interaction_panel_choice_count,
+    selected_interaction_command,
 };
 use super::preferences::{
     ColorDepth, PreferenceField, SettingsPanel, TerminalCapabilities,
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
 };
 use super::projection::{CancelOwnerProjection, CockpitProjection};
-use super::state::{InteractionPanel, Lens, OverlayState, TuiEntry, TuiState};
+use super::state::{
+    AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
+    PendingNativeLane, TuiEntry, TuiState,
+};
 use super::terminal::TerminalGuard;
 
 const PROJECT_ONBOARDING_CAPABILITY: &str = "runtime.project_onboarding";
+const AGENT_ADAPTERS_CAPABILITY: &str = "runtime.agent_adapters";
+const AGENT_SESSIONS_CAPABILITY: &str = "runtime.agent_sessions";
+const WORKSPACE_ELIGIBILITY_CAPABILITY: &str = "runtime.workspace_eligibility";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TuiOptions {
@@ -101,7 +111,7 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
     loop {
         apply_pump_outcome(&mut state, driver.pump()?);
         project_driver_view(&mut state, &driver);
-        observe_driver_events(&mut state, &mut driver);
+        observe_driver_events(&mut state, &mut driver)?;
         terminal.refresh_appearance(
             &driver.view().snapshot.ui_preferences,
             state.ui.color_depth,
@@ -204,18 +214,28 @@ fn reconcile_ui_state_with_runtime(state: &mut TuiState) {
         .focused_lane
         .as_ref()
         .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id));
+    let focused_acp_valid = match state.ui.focused_conversation.as_ref() {
+        Some(FocusedConversation::AcpSession(session_id)) => state
+            .runtime
+            .agent_sessions
+            .iter()
+            .any(|session| session.session_id == *session_id),
+        _ => false,
+    };
 
     match focused_lane {
         None if had_core_selection => {
             state.ui.focused_lane = None;
             state.ui.session_id.clear();
+            state.ui.focused_conversation = None;
             if state.ui.lens == Lens::Session {
                 state.ui.lens = Lens::Board;
             }
         }
         Some(lane)
-            if state.ui.session_id.is_empty()
-                || !lane.active_session_ids.contains(&state.ui.session_id) =>
+            if !focused_acp_valid
+                && (state.ui.session_id.is_empty()
+                    || !lane.active_session_ids.contains(&state.ui.session_id)) =>
         {
             state.ui.session_id.clear();
             if state.ui.lens == Lens::Session {
@@ -312,6 +332,19 @@ fn handle_ui_key<C: CoreClient>(
     key: KeyEvent,
     terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
+    if key.code == KeyCode::Char('r')
+        && key.modifiers.is_empty()
+        && matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::AcpPicker {
+                phase: AcpPickerPhase::Browse,
+                ..
+            })
+        )
+    {
+        retry_selected_acp_session(driver, state)?;
+        return Ok(UiEventOutcome::Redraw);
+    }
     let mode = effective_input_mode(state);
     let focus = input_focus(state);
     let facts = RuntimeFacts {
@@ -324,6 +357,37 @@ fn handle_ui_key<C: CoreClient>(
     }
     let intent = reduce_input(mode, focus, key, facts);
     apply_input_intent(driver, state, key, intent, terminal_size)
+}
+
+fn retry_selected_acp_session<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &TuiState,
+) -> Result<(), TuiClientError> {
+    let Some(InteractionPanel::AcpPicker { selected, .. }) = state.ui.interaction_panel.as_ref()
+    else {
+        return Ok(());
+    };
+    let rows = acp_picker_rows(state);
+    let Some(AcpPickerRowKind::Session { session_id }) = rows.get(*selected).map(|row| &row.kind)
+    else {
+        return Ok(());
+    };
+    let Some(session) = state.runtime.agent_sessions.iter().find(|session| {
+        &session.session_id == session_id
+            && matches!(
+                session.status,
+                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
+            )
+    }) else {
+        return Ok(());
+    };
+    driver.send_for_owner(
+        session.owner.clone(),
+        RuntimeCommand::RetryAgentSession {
+            session_id: session.session_id.clone(),
+        },
+    )?;
+    Ok(())
 }
 
 fn apply_input_intent<C: CoreClient>(
@@ -362,13 +426,30 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::ArmExitConfirmation => state.ui.idle_ctrl_c_armed = true,
         InputIntent::CancelCurrentWork { owner } => {
             state.ui.idle_ctrl_c_armed = false;
-            driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
+            if let Some(FocusedConversation::AcpSession(session_id)) =
+                state.ui.focused_conversation.as_ref()
+            {
+                driver.send_for_owner(
+                    owner,
+                    RuntimeCommand::CancelAgentSession {
+                        session_id: session_id.clone(),
+                    },
+                )?;
+            } else {
+                driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
+            }
             state.ui.entries.push(TuiEntry {
                 label: "command".to_string(),
                 body: super::i18n::text(state, "cancel.requested"),
             });
         }
         InputIntent::CycleAgentFocus => cycle_agent_focus(state),
+        InputIntent::OpenNativeLane => {
+            state.ui.overlay = None;
+            state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+                task: String::new(),
+            });
+        }
         InputIntent::Exit => return Ok(UiEventOutcome::Exit),
         InputIntent::InsertChar(value) => {
             if let Some(overlay) = state.ui.overlay.as_mut() {
@@ -485,6 +566,20 @@ fn current_work_owner<C: CoreClient>(
     driver: &TuiClientDriver<C>,
     state: &TuiState,
 ) -> Option<viden_types::RuntimeOwner> {
+    if let Some(FocusedConversation::AcpSession(session_id)) =
+        state.ui.focused_conversation.as_ref()
+        && let Some(session) = state.runtime.agent_sessions.iter().find(|session| {
+            &session.session_id == session_id
+                && matches!(
+                    session.status,
+                    viden_core::AgentSessionStatus::Starting
+                        | viden_core::AgentSessionStatus::Running
+                        | viden_core::AgentSessionStatus::WaitingApproval
+                )
+        })
+    {
+        return Some(session.owner.clone());
+    }
     let focused = state.ui.focused_lane.as_deref().and_then(|lane_id| {
         state
             .runtime
@@ -570,16 +665,36 @@ fn submit_composer<C: CoreClient>(
     let content = state.ui.input.as_str().trim().to_string();
     if content.is_empty()
         || open_local_lens_command(driver, &content, state)?
-        || open_local_picker_command(&content, state)
+        || open_local_picker_command(driver, &content, state)?
     {
         return Ok(());
     }
-    let command = command_for_composer(state, &content);
     state.ui.entries.push(TuiEntry {
         label: "user".to_string(),
-        body: content,
+        body: content.clone(),
     });
-    dispatch_intent(driver, command)?;
+    if let Some(FocusedConversation::AcpSession(session_id)) =
+        state.ui.focused_conversation.as_ref()
+        && driver.has_capability("runtime.agent_session_input")
+        && let Some(session) = state
+            .runtime
+            .agent_sessions
+            .iter()
+            .find(|session| &session.session_id == session_id)
+    {
+        driver.send_for_owner(
+            session.owner.clone(),
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_core::AgentSessionInput {
+                    session_id: session_id.clone(),
+                    content,
+                },
+            },
+        )?;
+    } else {
+        let command = command_for_composer(state, &content);
+        dispatch_intent(driver, command)?;
+    }
     state.ui.lens = Lens::Session;
     state.ui.input.clear();
     reset_for_input_change(state);
@@ -791,7 +906,11 @@ fn select_jump_lane(state: &mut TuiState, item: &JumpItem) {
     }
 }
 
-fn open_local_picker_command(input: &str, state: &mut TuiState) -> bool {
+fn open_local_picker_command<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    input: &str,
+    state: &mut TuiState,
+) -> Result<bool, TuiClientError> {
     state.ui.interaction_panel = match input.trim() {
         "/connect" | "/provider" | "/settings provider" | "/setup provider" => {
             Some(InteractionPanel::ConnectProvider {
@@ -806,11 +925,20 @@ fn open_local_picker_command(input: &str, state: &mut TuiState) -> bool {
                 selected: 0,
             })
         }
-        _ => return false,
+        "/acp" => {
+            if state.ui.focused_lane.is_some() && driver.has_capability(AGENT_ADAPTERS_CAPABILITY) {
+                driver.send(RuntimeCommand::QueryAgentAdapters)?;
+            }
+            Some(InteractionPanel::AcpPicker {
+                selected: 0,
+                phase: AcpPickerPhase::Browse,
+            })
+        }
+        _ => return Ok(false),
     };
     state.ui.input.clear();
     reset_for_input_change(state);
-    true
+    Ok(true)
 }
 
 fn move_interaction_selection(state: &mut TuiState, delta: i8) {
@@ -834,7 +962,9 @@ fn interaction_selected(state: &TuiState) -> usize {
         Some(InteractionPanel::Setup { selected, .. })
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
-        | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected,
+        | Some(InteractionPanel::ModelPicker { selected, .. })
+        | Some(InteractionPanel::AcpPicker { selected, .. }) => *selected,
+        Some(InteractionPanel::NewLaneTask { .. }) => 0,
         _ => 0,
     }
 }
@@ -866,7 +996,9 @@ fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
         Some(InteractionPanel::Setup { selected, .. })
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
-        | Some(InteractionPanel::ModelPicker { selected, .. }) => *selected = index,
+        | Some(InteractionPanel::ModelPicker { selected, .. })
+        | Some(InteractionPanel::AcpPicker { selected, .. }) => *selected = index,
+        Some(InteractionPanel::NewLaneTask { .. }) => {}
         _ => {}
     }
 }
@@ -890,6 +1022,22 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
             Some(value) => draft.push(value),
             None => {
                 draft.pop();
+            }
+        },
+        Some(InteractionPanel::AcpPicker { phase, .. }) => {
+            if let AcpPickerPhase::TaskEntry { draft, .. } = phase {
+                match value {
+                    Some(value) => draft.push(value),
+                    None => {
+                        draft.pop();
+                    }
+                }
+            }
+        }
+        Some(InteractionPanel::NewLaneTask { task }) => match value {
+            Some(value) => task.push(value),
+            None => {
+                task.pop();
             }
         },
         Some(InteractionPanel::ProviderConfig { .. }) | None => {}
@@ -934,6 +1082,112 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         if let Some(command) = command {
             driver.send(command)?;
         }
+        return Ok(false);
+    }
+    if let Some(InteractionPanel::AcpPicker { selected, phase }) =
+        state.ui.interaction_panel.clone()
+    {
+        match phase {
+            AcpPickerPhase::Browse => {
+                let Some(row) = acp_picker_rows(state).get(selected).cloned() else {
+                    return Ok(false);
+                };
+                match row.kind {
+                    AcpPickerRowKind::Session { session_id } => {
+                        state.ui.focused_lane = state
+                            .runtime
+                            .agent_sessions
+                            .iter()
+                            .find(|session| session.session_id == session_id)
+                            .map(|session| session.lane_id.clone());
+                        state.ui.session_id = session_id.clone();
+                        state.ui.focused_conversation =
+                            Some(FocusedConversation::AcpSession(session_id));
+                        state.ui.lens = Lens::Session;
+                        state.ui.interaction_panel = None;
+                    }
+                    AcpPickerRowKind::Adapter {
+                        agent_id,
+                        startability: AgentStartability::Ready,
+                    } => {
+                        state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
+                            selected: 0,
+                            phase: AcpPickerPhase::TaskEntry {
+                                agent_id,
+                                draft: String::new(),
+                            },
+                        });
+                    }
+                    AcpPickerRowKind::Adapter {
+                        agent_id,
+                        startability: AgentStartability::ProbeRequired,
+                    } => {
+                        driver.send(RuntimeCommand::ProbeAgentAdapter { agent_id })?;
+                    }
+                    AcpPickerRowKind::Adapter { agent_id, .. } => {
+                        state.ui.entries.push(TuiEntry {
+                            label: "system".to_string(),
+                            body: super::i18n::translate(
+                                state,
+                                "acp.not_startable",
+                                &[("agent", &agent_id)],
+                            ),
+                        });
+                    }
+                    AcpPickerRowKind::Disabled => {}
+                }
+            }
+            AcpPickerPhase::TaskEntry { agent_id, draft } => {
+                let task = draft.trim();
+                let Some(lane_id) = state.ui.focused_lane.clone() else {
+                    return Ok(false);
+                };
+                if task.is_empty() || !driver.has_capability(AGENT_SESSIONS_CAPABILITY) {
+                    return Ok(false);
+                }
+                driver.send_for_owner(
+                    RuntimeOwner {
+                        lane_id: Some(lane_id.clone()),
+                        ..RuntimeOwner::default()
+                    },
+                    RuntimeCommand::StartAgentSession {
+                        request: AgentSessionRequest {
+                            lane_id: lane_id.clone(),
+                            agent_id: agent_id.clone(),
+                            model: None,
+                            load_session_id: None,
+                            task: task.to_string(),
+                        },
+                    },
+                )?;
+                state.ui.pending_acp_start = Some(PendingAcpStart {
+                    lane_id: lane_id.clone(),
+                    agent_id: agent_id.clone(),
+                });
+                state.ui.interaction_panel = None;
+                state.ui.lens = Lens::Session;
+            }
+        }
+        return Ok(false);
+    }
+    if let Some(InteractionPanel::NewLaneTask { task }) = state.ui.interaction_panel.clone() {
+        if task.trim().is_empty()
+            || !driver.has_capability(WORKSPACE_ELIGIBILITY_CAPABILITY)
+            || !state
+                .runtime
+                .workspace_eligibility
+                .as_ref()
+                .is_some_and(|eligibility| eligibility.can_create_lane)
+        {
+            return Ok(false);
+        }
+        driver.send(RuntimeCommand::PreviewDefaultStarterLane {
+            preset: StarterLanePreset::Coder,
+        })?;
+        state.ui.pending_native_lane = Some(PendingNativeLane::AwaitingPreview {
+            task: task.trim().to_string(),
+        });
+        state.ui.interaction_panel = None;
         return Ok(false);
     }
     let command = selected_interaction_command(state);
@@ -1045,12 +1299,23 @@ fn close_interaction_panel_or_palette(key: KeyEvent, state: &mut TuiState) {
         panel.selected = settings_field_index(field);
         return;
     }
+    if let Some(InteractionPanel::AcpPicker { selected, phase }) =
+        state.ui.interaction_panel.as_mut()
+        && matches!(phase, AcpPickerPhase::TaskEntry { .. })
+    {
+        *selected = 0;
+        *phase = AcpPickerPhase::Browse;
+        return;
+    }
     if state.ui.interaction_panel.take().is_none() {
         close_on_escape(key, state);
     }
 }
 
-fn observe_driver_events<C: CoreClient>(state: &mut TuiState, driver: &mut TuiClientDriver<C>) {
+fn observe_driver_events<C: CoreClient>(
+    state: &mut TuiState,
+    driver: &mut TuiClientDriver<C>,
+) -> Result<(), TuiClientError> {
     let events = driver.take_applied_events();
     for event in &events {
         if let viden_core::RuntimeEventKind::UiPreferencesUpdated {
@@ -1070,7 +1335,70 @@ fn observe_driver_events<C: CoreClient>(state: &mut TuiState, driver: &mut TuiCl
         if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
             panel.observe_event(event);
         }
+        if let viden_core::RuntimeEventKind::AgentSessionStarted { session } = &event.kind
+            && state.ui.pending_acp_start.as_ref().is_some_and(|pending| {
+                pending.lane_id == session.lane_id && pending.agent_id == session.agent_id
+            })
+        {
+            state.ui.focused_lane = Some(session.lane_id.clone());
+            state.ui.session_id = session.session_id.clone();
+            state.ui.focused_conversation =
+                Some(FocusedConversation::AcpSession(session.session_id.clone()));
+            state.ui.pending_acp_start = None;
+            state.ui.lens = Lens::Session;
+        }
+        match (&event.kind, state.ui.pending_native_lane.clone()) {
+            (
+                viden_core::RuntimeEventKind::StarterLanePreviewed { preview },
+                Some(PendingNativeLane::AwaitingPreview { task }),
+            ) => {
+                driver.send_for_owner(
+                    preview.owner.clone(),
+                    RuntimeCommand::CreateStarterLane {
+                        request: viden_core::StarterLaneRequest {
+                            lane_id: preview.lane.id.clone(),
+                            preset: StarterLanePreset::Coder,
+                            branch: Some(preview.branch.clone()),
+                            worktree_path: None,
+                        },
+                        preview_id: preview.preview_id.clone(),
+                        content_sha256: preview.content_sha256.clone(),
+                    },
+                )?;
+                state.ui.pending_native_lane = Some(PendingNativeLane::AwaitingReceipt {
+                    task,
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                });
+            }
+            (
+                viden_core::RuntimeEventKind::StarterLaneCreated { receipt },
+                Some(PendingNativeLane::AwaitingReceipt {
+                    task,
+                    preview_id,
+                    content_sha256,
+                }),
+            ) if receipt.preview_id == preview_id && receipt.content_sha256 == content_sha256 => {
+                driver.send_for_owner(
+                    receipt.owner.clone(),
+                    RuntimeCommand::SubmitUserInput {
+                        content: task.clone(),
+                    },
+                )?;
+                state.ui.focused_lane = Some(receipt.lane.id.clone());
+                state.ui.focused_conversation =
+                    Some(FocusedConversation::NativeLane(receipt.lane.id.clone()));
+                state.ui.lens = Lens::Session;
+                state.ui.pending_native_lane = None;
+                state.ui.entries.push(TuiEntry {
+                    label: "user".to_string(),
+                    body: task,
+                });
+            }
+            _ => {}
+        }
     }
+    Ok(())
 }
 
 fn scroll_transcript(state: &mut TuiState, delta: isize) {
@@ -1130,6 +1458,14 @@ fn runtime_has_active_work(view: &RuntimeViewState) -> bool {
         || !view.assistant_stream.is_empty()
         || view.tasks.iter().any(|task| task.is_active())
         || view.lanes.iter().any(|lane| lane.is_active())
+        || view.agent_sessions.iter().any(|session| {
+            matches!(
+                session.status,
+                viden_core::AgentSessionStatus::Starting
+                    | viden_core::AgentSessionStatus::Running
+                    | viden_core::AgentSessionStatus::WaitingApproval
+            )
+        })
         || !view.queued_inputs.is_empty()
 }
 
@@ -1661,6 +1997,262 @@ mod tests {
     }
 
     #[test]
+    fn acp_command_queries_core_and_opens_picker_for_selected_lane() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.focused_lane = Some("lane-1".to_string());
+        state.ui.input = "/acp".into();
+
+        submit_composer(&mut driver, &mut state).expect("open ACP picker");
+
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::AcpPicker {
+                phase: AcpPickerPhase::Browse,
+                ..
+            })
+        ));
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::QueryAgentAdapters,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn focused_acp_composer_and_ctrl_c_target_the_exact_session() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let owner = RuntimeOwner {
+            workspace_id: "workspace-1".to_string(),
+            project_id: "project-1".to_string(),
+            lane_id: Some("lane-1".to_string()),
+            session_id: Some("acp-1".to_string()),
+            ..RuntimeOwner::default()
+        };
+        state
+            .runtime
+            .agent_sessions
+            .push(viden_core::AgentSessionView {
+                session_id: "acp-1".to_string(),
+                lane_id: "lane-1".to_string(),
+                agent_id: "codex-acp".to_string(),
+                model: None,
+                status: viden_core::AgentSessionStatus::Running,
+                owner: owner.clone(),
+                task: "implement".to_string(),
+                diagnostic: None,
+            });
+        state.ui.focused_lane = Some("lane-1".to_string());
+        state.ui.session_id = "acp-1".to_string();
+        state.ui.focused_conversation = Some(FocusedConversation::AcpSession("acp-1".to_string()));
+        state.ui.input = "continue".into();
+
+        submit_composer(&mut driver, &mut state).expect("send ACP follow-up");
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("cancel ACP session");
+
+        let commands = sent.lock().expect("sent commands");
+        assert!(matches!(
+            &commands[0],
+            RuntimeCommandEnvelope {
+                owner: command_owner,
+                command: RuntimeCommand::SendAgentSessionInput { input },
+                ..
+            } if command_owner == &owner
+                && input.session_id == "acp-1"
+                && input.content == "continue"
+        ));
+        assert!(matches!(
+            &commands[1],
+            RuntimeCommandEnvelope {
+                owner: command_owner,
+                command: RuntimeCommand::CancelAgentSession { session_id },
+                ..
+            } if command_owner == &owner && session_id == "acp-1"
+        ));
+    }
+
+    #[test]
+    fn matching_agent_start_event_focuses_the_new_acp_session() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+        ))
+        .expect("interaction fixture");
+        let mut event =
+            serde_json::from_value::<RuntimeEventEnvelope>(fixture["events"][5].clone())
+                .expect("agent session started event");
+        event.cursor.stream_id = "fixture".to_string();
+        event.cursor.sequence = 1;
+        if let RuntimeWireEvent::Known(event) = &mut event.event {
+            event.sequence = 1;
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([event]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.focused_lane = Some("lane-loop-coder".to_string());
+        state.ui.pending_acp_start = Some(PendingAcpStart {
+            lane_id: "lane-loop-coder".to_string(),
+            agent_id: "viden-built-in".to_string(),
+        });
+
+        driver.pump().expect("agent start event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("focus new ACP session");
+
+        assert_eq!(state.ui.session_id, "session-loop-built-in");
+        assert_eq!(
+            state.ui.focused_conversation,
+            Some(FocusedConversation::AcpSession(
+                "session-loop-built-in".to_string()
+            ))
+        );
+        assert!(state.ui.pending_acp_start.is_none());
+        assert_eq!(state.ui.lens, Lens::Session);
+    }
+
+    #[test]
+    fn native_lane_task_waits_for_preview_and_receipt_before_submitting() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+        ))
+        .expect("interaction fixture");
+        let mut events = fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .take(4)
+            .map(|value| {
+                serde_json::from_value::<RuntimeEventEnvelope>(value.clone())
+                    .expect("runtime event")
+            })
+            .collect::<VecDeque<_>>();
+        for event in &mut events {
+            event.cursor.stream_id = "fixture".to_string();
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events,
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+
+        for _ in 0..2 {
+            driver.pump().expect("eligibility event");
+        }
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+            task: "fix the parser".to_string(),
+        });
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
+        assert!(matches!(
+            sent.lock().expect("sent commands")[0].command,
+            RuntimeCommand::PreviewDefaultStarterLane {
+                preset: StarterLanePreset::Coder
+            }
+        ));
+        assert!(
+            !sent
+                .lock()
+                .expect("sent commands")
+                .iter()
+                .any(|envelope| matches!(envelope.command, RuntimeCommand::SubmitUserInput { .. }))
+        );
+
+        driver.pump().expect("preview event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("create from preview");
+        assert!(matches!(
+            sent.lock().expect("sent commands")[1].command,
+            RuntimeCommand::CreateStarterLane { .. }
+        ));
+
+        driver.pump().expect("receipt event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("submit after receipt");
+        let commands = sent.lock().expect("sent commands");
+        assert!(matches!(
+            &commands[2].command,
+            RuntimeCommand::SubmitUserInput { content } if content == "fix the parser"
+        ));
+        assert!(state.ui.pending_native_lane.is_none());
+        assert!(matches!(
+            state.ui.focused_conversation,
+            Some(FocusedConversation::NativeLane(_))
+        ));
+    }
+
+    #[test]
+    fn r_retries_only_the_selected_failed_acp_session() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        let owner = RuntimeOwner {
+            lane_id: Some("lane-1".to_string()),
+            session_id: Some("acp-failed".to_string()),
+            ..RuntimeOwner::default()
+        };
+        state.ui.focused_lane = Some("lane-1".to_string());
+        state
+            .runtime
+            .agent_sessions
+            .push(viden_core::AgentSessionView {
+                session_id: "acp-failed".to_string(),
+                lane_id: "lane-1".to_string(),
+                agent_id: "codex-acp".to_string(),
+                model: None,
+                status: viden_core::AgentSessionStatus::Failed,
+                owner: owner.clone(),
+                task: "failed task".to_string(),
+                diagnostic: Some("recoverable".to_string()),
+            });
+        state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
+            selected: 0,
+            phase: AcpPickerPhase::Browse,
+        });
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("retry failed ACP session");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                owner: command_owner,
+                command: RuntimeCommand::RetryAgentSession { session_id },
+                ..
+            }] if command_owner == &owner && session_id == "acp-failed"
+        ));
+    }
+
+    #[test]
     fn exact_setup_enter_opens_setup_while_nonexact_prefix_only_completes() {
         let client = FakeCoreClient::default();
         let sent = Arc::clone(&client.sent);
@@ -2173,7 +2765,7 @@ mod tests {
         assert_eq!(sent.lock().expect("sent commands")[0].command, command);
 
         driver.pump().expect("accepted event");
-        observe_driver_events(&mut state, &mut driver);
+        observe_driver_events(&mut state, &mut driver).expect("observe preference event");
         let panel = match state.ui.interaction_panel.as_ref() {
             Some(InteractionPanel::Settings(panel)) => panel,
             other => panic!("settings panel missing: {other:?}"),
@@ -2183,7 +2775,7 @@ mod tests {
 
         driver.pump().expect("preference update");
         project_driver_view(&mut state, &driver);
-        observe_driver_events(&mut state, &mut driver);
+        observe_driver_events(&mut state, &mut driver).expect("observe preference event");
         let panel = match state.ui.interaction_panel.as_ref() {
             Some(InteractionPanel::Settings(panel)) => panel,
             other => panic!("settings panel missing: {other:?}"),
@@ -3494,7 +4086,7 @@ mod tests {
         }
         assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 0);
 
-        state.ui.overlay.as_mut().expect("jump").selected = 12;
+        state.ui.overlay.as_mut().expect("jump").selected = 13;
         for code in [KeyCode::Down, KeyCode::Char('j')] {
             handle_ui_event(
                 &mut driver,
@@ -3504,7 +4096,7 @@ mod tests {
             )
             .expect("clamp at last result");
         }
-        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 12);
+        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 13);
 
         let overlay = state.ui.overlay.as_mut().expect("jump");
         overlay.filter = ">no-such-command".to_string();
@@ -3918,21 +4510,21 @@ mod tests {
             .parse::<toml::Value>()
             .expect("release manifest TOML");
 
-        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.1");
-        assert!(manifest.contains("version = \"0.3.1\""));
+        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.3");
+        assert!(manifest.contains("version = \"0.3.3\""));
         assert!(manifest.contains(
             "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
         ));
         assert!(manifest.contains(
-            "catalog_en = \"e2b01eee9ee74a057a879398d1c459ddc629aee3429f2ef53cffc1c2f18f7e79\""
+            "catalog_en = \"c695d62825df9a53ce193944a9f524b7859b4d2f3c2e19a855bcd429f02f4267\""
         ));
         assert!(manifest.contains(
-            "catalog_zh_cn = \"84c7732cd7ffe7147f0b8e76977b40b12fc3c0e03b61138eae1199ff8bfb7162\""
+            "catalog_zh_cn = \"a87d033031db8c01f625492146b66b4ce516c194c6a7b2a488db4535bba713af\""
         ));
-        assert!(manifest.contains("min_core_version = \"0.3.2\""));
+        assert!(manifest.contains("min_core_version = \"0.3.4\""));
         assert!(
             manifest
-                .contains("base_core_checkpoint = \"a927e2f31d2cb9bb6015c30bc0ed0976e958c77e\"")
+                .contains("base_core_checkpoint = \"54965464e87860f9c39a1fb656c2f528e354da94\"")
         );
         assert!(manifest.contains(
             "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""

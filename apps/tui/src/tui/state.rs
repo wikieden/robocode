@@ -10,7 +10,8 @@ use viden_core::{
 use viden_types::{AgentNextAction, CapabilityId};
 
 pub(super) use super::ui_state::{
-    InteractionPanel, Lens, OverlayState, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
+    AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
+    PendingNativeLane, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

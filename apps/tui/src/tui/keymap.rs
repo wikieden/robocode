@@ -58,6 +58,7 @@ pub(super) enum InputIntent {
     ArmExitConfirmation,
     CancelCurrentWork { owner: RuntimeOwner },
     CycleAgentFocus,
+    OpenNativeLane,
     Exit,
     InsertChar(char),
     InsertNewline,
@@ -152,6 +153,7 @@ pub(super) fn reduce_input(
 
     match (mode, key.code) {
         (InputMode::Normal, KeyCode::Char('i')) => InputIntent::EnterInsert,
+        (InputMode::Normal, KeyCode::Char('n')) => InputIntent::OpenNativeLane,
         (InputMode::Insert, KeyCode::Enter) | (InputMode::Insert, KeyCode::Char('j'))
             if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Enter =>
         {
@@ -246,6 +248,18 @@ mod tests {
         assert_eq!(
             reduce(InputMode::Insert, key(KeyCode::Char('x'))),
             InputIntent::InsertChar('x')
+        );
+    }
+
+    #[test]
+    fn n_opens_native_lane_task_only_from_normal_mode() {
+        assert_eq!(
+            reduce(InputMode::Normal, key(KeyCode::Char('n'))),
+            InputIntent::OpenNativeLane
+        );
+        assert_eq!(
+            reduce(InputMode::Insert, key(KeyCode::Char('n'))),
+            InputIntent::InsertChar('n')
         );
     }
 

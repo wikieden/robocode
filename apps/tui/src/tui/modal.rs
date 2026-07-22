@@ -9,7 +9,7 @@ use super::{
         color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
     },
     projection::CockpitProjection,
-    state::{InteractionPanel, TuiState, has_active_work},
+    state::{AcpPickerPhase, InteractionPanel, TuiState, has_active_work},
     text::truncate,
 };
 
@@ -26,6 +26,25 @@ pub(super) enum ApprovalAction {
     Deny,
     Diff,
     Approve,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum AcpPickerRowKind {
+    Session {
+        session_id: String,
+    },
+    Adapter {
+        agent_id: String,
+        startability: viden_core::AgentStartability,
+    },
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AcpPickerRow {
+    pub(super) id: String,
+    pub(super) label: String,
+    pub(super) kind: AcpPickerRowKind,
 }
 
 pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_width: usize) {
@@ -120,6 +139,11 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             Some(InteractionPanel::ConnectProvider { .. }) => "interaction.connect_provider",
             Some(InteractionPanel::ModelPicker { .. }) => "interaction.select_model",
             Some(InteractionPanel::ProviderConfig { .. }) => "interaction.select",
+            Some(InteractionPanel::AcpPicker { phase, .. }) => match phase {
+                AcpPickerPhase::Browse => "interaction.acp",
+                AcpPickerPhase::TaskEntry { .. } => "interaction.acp.task",
+            },
+            Some(InteractionPanel::NewLaneTask { .. }) => "interaction.native_lane.task",
             None => unreachable!("panel presence checked above"),
         };
         let title = super::i18n::text(state, title_key);
@@ -397,8 +421,118 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
                     })
             })
             .collect(),
+        Some(InteractionPanel::AcpPicker { selected, phase }) => match phase {
+            AcpPickerPhase::Browse => acp_picker_rows(state)
+                .into_iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    format!(
+                        "{} {}",
+                        if index == *selected { ">" } else { " " },
+                        row.label
+                    )
+                })
+                .collect(),
+            AcpPickerPhase::TaskEntry { agent_id, draft } => vec![
+                super::i18n::translate(state, "acp.task.agent", &[("agent", agent_id)]),
+                super::i18n::text(state, "acp.task.prompt"),
+                format!("> {draft}"),
+            ],
+        },
+        Some(InteractionPanel::NewLaneTask { task }) => {
+            let eligibility = state.runtime.workspace_eligibility.as_ref();
+            let status = match eligibility {
+                Some(value) if value.can_create_lane => {
+                    super::i18n::text(state, "native_lane.eligible")
+                }
+                Some(value) => value
+                    .diagnostic
+                    .clone()
+                    .unwrap_or_else(|| super::i18n::text(state, "native_lane.ineligible")),
+                None => super::i18n::text(state, "native_lane.unknown"),
+            };
+            vec![
+                status,
+                super::i18n::text(state, "native_lane.task.prompt"),
+                format!("> {task}"),
+            ]
+        }
         None => Vec::new(),
     }
+}
+
+pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
+    let Some(lane_id) = state.ui.focused_lane.as_deref() else {
+        return vec![AcpPickerRow {
+            id: "disabled:no-lane".to_string(),
+            label: super::i18n::text(state, "acp.no_lane"),
+            kind: AcpPickerRowKind::Disabled,
+        }];
+    };
+    let mut rows = state
+        .runtime
+        .agent_sessions
+        .iter()
+        .filter(|session| session.lane_id == lane_id)
+        .map(|session| {
+            let retry = matches!(
+                session.status,
+                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
+            )
+            .then(|| format!(" · {}", super::i18n::text(state, "acp.retry_hint")))
+            .unwrap_or_default();
+            AcpPickerRow {
+                id: format!("session:{}", session.session_id),
+                label: format!(
+                    "{} · {} · {:?}{retry}",
+                    session.agent_id, session.task, session.status
+                ),
+                kind: AcpPickerRowKind::Session {
+                    session_id: session.session_id.clone(),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    rows.extend(
+        state
+            .runtime
+            .agent_adapters
+            .iter()
+            .filter(|adapter| adapter.route == viden_core::AgentRoute::Acp)
+            .map(|adapter| {
+                let status_key = match adapter.startability {
+                    viden_core::AgentStartability::Ready => "acp.status.ready",
+                    viden_core::AgentStartability::ProbeRequired => "acp.status.probe_required",
+                    viden_core::AgentStartability::InstallRequired => {
+                        "acp.status.installation_required"
+                    }
+                    viden_core::AgentStartability::AuthenticationRequired => {
+                        "acp.status.authentication_required"
+                    }
+                    viden_core::AgentStartability::Unavailable => "acp.status.unavailable",
+                };
+                AcpPickerRow {
+                    id: format!("adapter:{}", adapter.agent_id),
+                    label: format!(
+                        "{} · {}",
+                        adapter.display_name,
+                        super::i18n::text(state, status_key)
+                    ),
+                    kind: AcpPickerRowKind::Adapter {
+                        agent_id: adapter.agent_id.clone(),
+                        startability: adapter.startability,
+                    },
+                }
+            }),
+    );
+    if rows.is_empty() {
+        rows.push(AcpPickerRow {
+            id: "disabled:no-adapters".to_string(),
+            label: super::i18n::text(state, "acp.no_adapters"),
+            kind: AcpPickerRowKind::Disabled,
+        });
+    }
+    rows
 }
 
 fn settings_rows(state: &TuiState, panel: &SettingsPanel) -> Vec<String> {
@@ -683,6 +817,11 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
                     .is_some_and(|preview| setup_preview_matches_draft(preview, draft)),
             )
         }
+        Some(InteractionPanel::AcpPicker { phase, .. }) => match phase {
+            AcpPickerPhase::Browse => acp_picker_rows(state).len(),
+            AcpPickerPhase::TaskEntry { .. } => 1,
+        },
+        Some(InteractionPanel::NewLaneTask { .. }) => 1,
         _ => interaction_rows(state).len(),
     }
 }
@@ -711,6 +850,7 @@ pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
                     .map(|parts| format!("/model use {} {}", parts[0], parts[1]))
             })
         }
+        InteractionPanel::AcpPicker { .. } | InteractionPanel::NewLaneTask { .. } => None,
     }
 }
 
@@ -812,6 +952,50 @@ mod tests {
     }
 
     #[test]
+    fn acp_picker_lists_lane_sessions_before_truthful_adapter_rows() {
+        let mut state = TuiState::default();
+        state.ui.focused_lane = Some("lane-1".to_string());
+        state
+            .runtime
+            .agent_sessions
+            .push(viden_core::AgentSessionView {
+                session_id: "acp-1".to_string(),
+                lane_id: "lane-1".to_string(),
+                agent_id: "codex-acp".to_string(),
+                model: None,
+                status: viden_core::AgentSessionStatus::Running,
+                owner: viden_core::RuntimeOwner {
+                    lane_id: Some("lane-1".to_string()),
+                    session_id: Some("acp-1".to_string()),
+                    ..Default::default()
+                },
+                task: "continue implementation".to_string(),
+                diagnostic: None,
+            });
+        state
+            .runtime
+            .agent_adapters
+            .push(viden_core::AgentAdapterView {
+                agent_id: "claude-acp".to_string(),
+                display_name: "Claude ACP".to_string(),
+                route: viden_core::AgentRoute::Acp,
+                source: viden_core::AgentAdapterSource::Registry,
+                availability: viden_core::AgentAvailability::NeedsAuth,
+                auth_state: viden_core::AgentAuthState::LoggedOut,
+                startability: viden_core::AgentStartability::AuthenticationRequired,
+                capabilities: Vec::new(),
+                models: Vec::new(),
+                diagnostics: vec!["agent.auth.required".to_string()],
+            });
+
+        let rows = acp_picker_rows(&state);
+
+        assert_eq!(rows[0].id, "session:acp-1");
+        assert_eq!(rows[1].id, "adapter:claude-acp");
+        assert!(rows[1].label.contains("Authentication required"));
+    }
+
+    #[test]
     fn setup_selector_title_follows_core_resolved_locale() {
         let mut state = TuiState::default();
         state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
@@ -852,7 +1036,7 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        overlay.selected = 11;
+        overlay.selected = 12;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -888,7 +1072,7 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        overlay.selected = 13;
+        overlay.selected = 14;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");

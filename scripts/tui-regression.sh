@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${1:-"$ROOT/target/tui-regression/0.3.1"}"
+OUT_DIR="${1:-"$ROOT/target/tui-regression/0.3.3"}"
 SCREENSHOT_DIR="$OUT_DIR/screenshots"
 VERSION="${VIDEN_TUI_SCREENSHOT_VERSION:-}"
 if [[ -z "$VERSION" ]]; then
@@ -92,7 +92,7 @@ run_certification_test local_color_depth \
 run_certification_test source_boundary \
   tui::state::tests::tui_source_has_no_authoritative_runtime_effects
 
-CHECKPOINT="a927e2f31d2cb9bb6015c30bc0ed0976e958c77e"
+CHECKPOINT="54965464e87860f9c39a1fb656c2f528e354da94"
 git cat-file -e "$CHECKPOINT^{commit}"
 SOURCE_HEAD="$(git rev-parse HEAD)"
 SOURCE_BRANCH="$(git branch --show-current)"
@@ -144,14 +144,14 @@ extension_capabilities = manifest["extensions"]["capabilities"]
 presentation = manifest["presentation"]
 fixture_revisions = manifest["fixture_revisions"]
 
-if version != release["version"] or version != "0.3.1":
+if version != release["version"]:
     raise SystemExit(f"TUI certification version mismatch: {version} vs {release['version']}")
-if release["base_core_checkpoint"] != "a927e2f31d2cb9bb6015c30bc0ed0976e958c77e":
-    raise SystemExit("TUI certification Core checkpoint is not a927")
+if release["base_core_checkpoint"] != "54965464e87860f9c39a1fb656c2f528e354da94":
+    raise SystemExit("TUI certification Core checkpoint is not Core 0.3.4")
 if release["supported_schema_versions"] != [1]:
     raise SystemExit("TUI certification schema set is not [1]")
-if len(base_capabilities) != 15 or len(extension_capabilities) != 10:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 10")
+if len(base_capabilities) != 15 or len(extension_capabilities) != 15:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 15")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 
@@ -363,7 +363,7 @@ certification = {
     ],
     "tests": test_results,
 }
-(out_dir / "tui-0.3.1-certification.json").write_text(
+(out_dir / f"tui-{version}-certification.json").write_text(
     json.dumps(certification, indent=2, ensure_ascii=False) + "\n",
     encoding="utf-8",
 )
@@ -419,7 +419,7 @@ required = {
     "side_1": out_dir / "side-1.txt",
     "side_2": out_dir / "side-2.txt",
     "multiscreen": out_dir / "multiscreen.txt",
-    "certification": out_dir / "tui-0.3.1-certification.json",
+    "certification": out_dir / f"tui-{version}-certification.json",
 }
 
 def fail(message: str) -> None:
@@ -431,15 +431,15 @@ for name, path in required.items():
 
 certification = json.loads(required["certification"].read_text(encoding="utf-8"))
 if certification.get("status") != "passed":
-    fail("TUI 0.3.1 certification status is not passed")
-if certification.get("core", {}).get("checkpoint") != "a927e2f31d2cb9bb6015c30bc0ed0976e958c77e":
-    fail("Core checkpoint does not match the reviewed a927 checkpoint")
+    fail(f"TUI {version} certification status is not passed")
+if certification.get("core", {}).get("checkpoint") != "54965464e87860f9c39a1fb656c2f528e354da94":
+    fail("Core checkpoint does not match the reviewed Core 0.3.4 checkpoint")
 if certification.get("core", {}).get("schema") != 1:
     fail("frontend schema is not 1")
 if certification.get("core", {}).get("base_capability_count") != 15:
     fail("frozen base capability count is not 15")
-if certification.get("core", {}).get("extension_capability_count") != 10:
-    fail("feature extension capability count is not 10")
+if certification.get("core", {}).get("extension_capability_count") != 15:
+    fail("feature extension capability count is not 15")
 if len(certification.get("appearance", {}).get("palette_depth_matrix", [])) != 24:
     fail("appearance evidence does not cover eight palettes across three depths")
 for field, expected in {
@@ -522,7 +522,7 @@ if len(artifacts) < 6:
             "preview_dir": str(out_dir),
             "screenshots": artifacts,
             "checks": [
-                "TUI 0.3.1 CoreClient boundary certification",
+                f"TUI {version} CoreClient boundary certification",
                 "Core checkpoint and capability manifest",
                 "shared frontend fixture replay parity",
                 "appearance and interaction matrix exact tests",
@@ -572,7 +572,7 @@ Each SVG is a deterministic visual artifact for product review:
 
 Structured evidence: \`../tui-regression-evidence.json\`
 
-Client-boundary certification: \`../tui-0.3.1-certification.json\`
+Client-boundary certification: \`../tui-${VERSION}-certification.json\`
 
 Fixture and boundary evidence: \`../shared-fixture-digests.sha256\` and
 \`../tui-boundary-report.txt\`

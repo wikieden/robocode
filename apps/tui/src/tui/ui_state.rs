@@ -149,6 +149,36 @@ impl ProviderOption {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum AcpPickerPhase {
+    Browse,
+    TaskEntry { agent_id: String, draft: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum FocusedConversation {
+    NativeLane(String),
+    AcpSession(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum PendingNativeLane {
+    AwaitingPreview {
+        task: String,
+    },
+    AwaitingReceipt {
+        task: String,
+        preview_id: String,
+        content_sha256: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PendingAcpStart {
+    pub(super) lane_id: String,
+    pub(super) agent_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InteractionPanel {
     Settings(Box<SettingsPanel>),
     Setup {
@@ -168,6 +198,13 @@ pub(super) enum InteractionPanel {
         provider_id: Option<String>,
         search: String,
         selected: usize,
+    },
+    AcpPicker {
+        selected: usize,
+        phase: AcpPickerPhase,
+    },
+    NewLaneTask {
+        task: String,
     },
 }
 
@@ -232,6 +269,9 @@ pub(super) struct TuiUiState {
     pub(super) transcript_scroll: usize,
     pub(super) entries: Vec<TuiEntry>,
     pub(super) focused_lane: Option<String>,
+    pub(super) focused_conversation: Option<FocusedConversation>,
+    pub(super) pending_native_lane: Option<PendingNativeLane>,
+    pub(super) pending_acp_start: Option<PendingAcpStart>,
     pub(super) interaction_panel: Option<InteractionPanel>,
     pub(super) input_mode: InputMode,
     pub(super) overlay: Option<OverlayState>,
@@ -256,6 +296,9 @@ impl Default for TuiUiState {
             transcript_scroll: 0,
             entries: Vec::new(),
             focused_lane: None,
+            focused_conversation: None,
+            pending_native_lane: None,
+            pending_acp_start: None,
             interaction_panel: None,
             input_mode: InputMode::Normal,
             overlay: None,
