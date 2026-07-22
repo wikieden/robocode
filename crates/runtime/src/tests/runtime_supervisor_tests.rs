@@ -1955,15 +1955,13 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
         Some(home.clone()),
     )
     .unwrap();
-    assert!(
-        restarted
-            .runtime_view_state()
-            .agent_sessions
-            .iter()
-            .any(|session| session.agent_id == "custom-acp"
-                && session.status == AgentSessionStatus::Completed
-                && session.owner.lane_id.as_deref() == Some("lane-typed-acp"))
-    );
+    let restarted_view = restarted.runtime_view_state();
+    assert!(restarted_view.agent_sessions.iter().any(|session| {
+        session.agent_id == "custom-acp"
+            && session.status == AgentSessionStatus::Completed
+            && session.owner.lane_id.as_deref() == Some("lane-typed-acp")
+    }));
+    assert_eq!(restarted_view.agent_session_inputs.len(), 2);
 }
 
 #[test]

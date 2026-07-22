@@ -2154,13 +2154,17 @@ fn start_typed_agent_session_attempt(
     };
     let mut start_events = Vec::new();
     if let Some(input_id) = accepted_input_id {
-        start_events.push(RuntimeEvent::new(
+        let input_event = RuntimeEvent::new(
             0,
             RuntimeEventKind::AgentSessionInputAccepted {
                 session_id: session_id.clone(),
                 input_id,
             },
-        ));
+        );
+        // Accepted follow-up identity is a durable session fact. Append it
+        // before process spawn so a crash cannot acknowledge input only in UI.
+        append_acp_runtime_events(&runtime_event_path, std::slice::from_ref(&input_event))?;
+        start_events.push(input_event);
     }
     start_events.push(RuntimeEvent::new(
         0,
@@ -2220,8 +2224,10 @@ fn start_typed_agent_session_attempt(
         let mut terminal = monitor_view;
         let kind = match result {
             Ok(evidence) => {
-                let _ =
-                    write_acp_runtime_events(&monitor_runtime_event_path, &evidence.runtime_events);
+                let _ = append_acp_runtime_events(
+                    &monitor_runtime_event_path,
+                    &evidence.runtime_events,
+                );
                 let _ = write_acp_session_result(&result_path, &evidence);
                 monitor_record.status = acp_session_job_status(&evidence);
                 if was_cancelled {
@@ -2675,11 +2681,23 @@ fn acp_job_runtime_events_path(cwd: &Path, id: &str) -> PathBuf {
 }
 
 pub(crate) fn tracked_agent_job_runtime_events(cwd: &Path) -> Vec<RuntimeEvent> {
-    latest_codex_jobs(cwd)
-        .unwrap_or_default()
+    let agents = cwd.join(".viden").join("agents");
+    let Ok(entries) = fs::read_dir(agents) else {
+        return Vec::new();
+    };
+    let mut paths = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".runtime-events.jsonl"))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
         .into_iter()
-        .filter(|job| job.kind == "acp-session")
-        .flat_map(|job| read_acp_runtime_events(&acp_job_runtime_events_path(cwd, &job.id)))
+        .flat_map(|path| read_acp_runtime_events(&path))
         .collect()
 }
 
@@ -2694,6 +2712,7 @@ fn read_acp_runtime_events(path: &Path) -> Vec<RuntimeEvent> {
         .collect()
 }
 
+#[cfg(test)]
 fn write_acp_runtime_events(path: &Path, events: &[RuntimeEvent]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;

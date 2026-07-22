@@ -92,6 +92,36 @@
         "sequence": 2,
         "timestamp": 1700100002,
         "kind": {
+          "type": "workspace_eligibility_updated",
+          "payload": {
+            "eligibility": {
+              "is_git_repository": true,
+              "has_head": true,
+              "can_create_lane": true,
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700100003,
+        "kind": {
           "type": "starter_lane_previewed",
           "payload": {
             "preview": {
@@ -150,11 +180,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 3
+        "sequence": 4
       },
       "event": {
-        "sequence": 3,
-        "timestamp": 1700100003,
+        "sequence": 4,
+        "timestamp": 1700100004,
         "kind": {
           "type": "starter_lane_created",
           "payload": {
@@ -213,11 +243,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 4
+        "sequence": 5
       },
       "event": {
-        "sequence": 4,
-        "timestamp": 1700100004,
+        "sequence": 5,
+        "timestamp": 1700100005,
         "kind": {
           "type": "agent_adapters_loaded",
           "payload": {
@@ -229,6 +259,7 @@
                 "source": "built_in",
                 "availability": "available",
                 "auth_state": "ready",
+                "startability": "ready",
                 "capabilities": [
                   "agent.session.prompt"
                 ],
@@ -243,6 +274,7 @@
                 "source": "registry",
                 "availability": "available",
                 "auth_state": "ready",
+                "startability": "ready",
                 "capabilities": [
                   "agent.session.prompt"
                 ]
@@ -254,6 +286,7 @@
                 "source": "registry",
                 "availability": "available",
                 "auth_state": "ready",
+                "startability": "ready",
                 "capabilities": [
                   "agent.permission.request",
                   "agent.session.cancel",
@@ -270,6 +303,7 @@
                 "source": "local_command",
                 "availability": "needs_auth",
                 "auth_state": "logged_out",
+                "startability": "authentication_required",
                 "capabilities": [
                   "agent.session.prompt"
                 ],
@@ -294,11 +328,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 5
+        "sequence": 6
       },
       "event": {
-        "sequence": 5,
-        "timestamp": 1700100005,
+        "sequence": 6,
+        "timestamp": 1700100006,
         "kind": {
           "type": "agent_session_started",
           "payload": {
@@ -335,11 +369,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 6
+        "sequence": 7
       },
       "event": {
-        "sequence": 6,
-        "timestamp": 1700100006,
+        "sequence": 7,
+        "timestamp": 1700100007,
         "kind": {
           "type": "agent_session_completed",
           "payload": {
@@ -376,11 +410,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 7
+        "sequence": 8
       },
       "event": {
-        "sequence": 7,
-        "timestamp": 1700100007,
+        "sequence": 8,
+        "timestamp": 1700100008,
         "kind": {
           "type": "agent_session_started",
           "payload": {
@@ -417,11 +451,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 8
+        "sequence": 9
       },
       "event": {
-        "sequence": 8,
-        "timestamp": 1700100008,
+        "sequence": 9,
+        "timestamp": 1700100009,
         "kind": {
           "type": "tool_call_started",
           "payload": {
@@ -444,11 +478,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 9
+        "sequence": 10
       },
       "event": {
-        "sequence": 9,
-        "timestamp": 1700100009,
+        "sequence": 10,
+        "timestamp": 1700100010,
         "kind": {
           "type": "tool_call_finished",
           "payload": {
@@ -473,11 +507,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 10
+        "sequence": 11
       },
       "event": {
-        "sequence": 10,
-        "timestamp": 1700100010,
+        "sequence": 11,
+        "timestamp": 1700100011,
         "kind": {
           "type": "approval_requested",
           "payload": {
@@ -531,11 +565,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 11
+        "sequence": 12
       },
       "event": {
-        "sequence": 11,
-        "timestamp": 1700100011,
+        "sequence": 12,
+        "timestamp": 1700100012,
         "kind": {
           "type": "agent_session_updated",
           "payload": {
@@ -572,11 +606,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 12
+        "sequence": 13
       },
       "event": {
-        "sequence": 12,
-        "timestamp": 1700100012,
+        "sequence": 13,
+        "timestamp": 1700100013,
         "kind": {
           "type": "approval_resolved",
           "payload": {
@@ -611,11 +645,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 13
+        "sequence": 14
       },
       "event": {
-        "sequence": 13,
-        "timestamp": 1700100013,
+        "sequence": 14,
+        "timestamp": 1700100014,
         "kind": {
           "type": "agent_session_updated",
           "payload": {
@@ -652,11 +686,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 14
+        "sequence": 15
       },
       "event": {
-        "sequence": 14,
-        "timestamp": 1700100014,
+        "sequence": 15,
+        "timestamp": 1700100015,
         "kind": {
           "type": "evidence_recorded",
           "payload": {
@@ -684,11 +718,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 15
+        "sequence": 16
       },
       "event": {
-        "sequence": 15,
-        "timestamp": 1700100015,
+        "sequence": 16,
+        "timestamp": 1700100016,
         "kind": {
           "type": "merge_gate_updated",
           "payload": {
@@ -756,11 +790,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 16
+        "sequence": 17
       },
       "event": {
-        "sequence": 16,
-        "timestamp": 1700100016,
+        "sequence": 17,
+        "timestamp": 1700100017,
         "kind": {
           "type": "lane_conflict_detected",
           "payload": {
@@ -785,11 +819,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 17
+        "sequence": 18
       },
       "event": {
-        "sequence": 17,
-        "timestamp": 1700100017,
+        "sequence": 18,
+        "timestamp": 1700100018,
         "kind": {
           "type": "lane_recovery_required",
           "payload": {
@@ -812,11 +846,11 @@
       },
       "cursor": {
         "stream_id": "fixture:interaction-closed-loop",
-        "sequence": 18
+        "sequence": 19
       },
       "event": {
-        "sequence": 18,
-        "timestamp": 1700100018,
+        "sequence": 19,
+        "timestamp": 1700100019,
         "kind": {
           "type": "agent_session_completed",
           "payload": {
@@ -840,11 +874,119 @@
           }
         }
       }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700100020,
+        "kind": {
+          "type": "agent_session_input_accepted",
+          "payload": {
+            "session_id": "session-loop-acp",
+            "input_id": "agent-input-loop-follow-up"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 21
+      },
+      "event": {
+        "sequence": 21,
+        "timestamp": 1700100021,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.follow_up",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 22
+      },
+      "event": {
+        "sequence": 22,
+        "timestamp": 1700100022,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.follow_up",
+              "diagnostic": null
+            }
+          }
+        }
+      }
     }
   ],
   "expected_final_cursor": {
     "stream_id": "fixture:interaction-closed-loop",
-    "sequence": 18
+    "sequence": 22
   },
-  "expected_view_sha256": "31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51"
+  "expected_view_sha256": "6d0b71dd744732cbbe322fca18302a0002c81f5f7a7fc0233411198d9af3fde0"
 }

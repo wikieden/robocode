@@ -24,6 +24,7 @@ use viden_types::{
     RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
     TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
+    WorkspaceEligibility,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -291,7 +292,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     let fixture_bytes = fs::read(root.join(name)).expect("read interaction fixture bytes");
     assert_eq!(
         format!("{:x}", Sha256::digest(&fixture_bytes)),
-        "596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff"
+        "ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826"
     );
     let fixture = read_fixture(&root, name);
     assert_fixture_identity(name, &fixture);
@@ -303,11 +304,15 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
         .map(|envelope| match &envelope.event {
             RuntimeWireEvent::Known(event) => match &event.kind {
                 RuntimeEventKind::ProjectProbed { .. } => "project_open_no_lane",
+                RuntimeEventKind::WorkspaceEligibilityUpdated { .. } => "workspace_eligible",
                 RuntimeEventKind::StarterLanePreviewed { .. } => "starter_lane_previewed",
                 RuntimeEventKind::StarterLaneCreated { .. } => "starter_lane_created",
                 RuntimeEventKind::AgentAdaptersLoaded { .. } => "agent_adapters_loaded",
                 RuntimeEventKind::AgentSessionStarted { .. } => "agent_session_started",
                 RuntimeEventKind::AgentSessionCompleted { .. } => "agent_session_completed",
+                RuntimeEventKind::AgentSessionInputAccepted { .. } => {
+                    "agent_session_input_accepted"
+                }
                 RuntimeEventKind::ToolCallStarted { .. } => "tool_call_started",
                 RuntimeEventKind::ToolCallFinished { .. } => "tool_call_finished",
                 RuntimeEventKind::ApprovalRequested { .. } => "approval_requested",
@@ -326,6 +331,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
         event_types,
         [
             "project_open_no_lane",
+            "workspace_eligible",
             "starter_lane_previewed",
             "starter_lane_created",
             "agent_adapters_loaded",
@@ -342,6 +348,9 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
             "merge_gate_updated",
             "apply_conflict",
             "recovery_required",
+            "agent_session_completed",
+            "agent_session_input_accepted",
+            "agent_session_started",
             "agent_session_completed",
         ]
     );
@@ -360,6 +369,12 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     );
     assert_eq!(full_view.starter_lane_receipts.len(), 1);
     assert!(full_view.starter_lane_previews.is_empty());
+    assert!(
+        full_view
+            .workspace_eligibility
+            .as_ref()
+            .is_some_and(|eligibility| eligibility.can_create_lane)
+    );
     assert_eq!(full_view.agent_adapters.len(), 4);
     assert!(full_view.agent_adapters.iter().any(|adapter| {
         adapter.route == AgentRoute::BuiltIn && adapter.availability == AgentAvailability::Available
@@ -371,6 +386,11 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
             .any(|adapter| { adapter.route == AgentRoute::Acp && adapter.agent_id == "codex-acp" })
     );
     assert_eq!(full_view.agent_sessions.len(), 2);
+    assert_eq!(full_view.agent_session_inputs.len(), 1);
+    assert_eq!(
+        full_view.agent_session_inputs[0].input_id,
+        "agent-input-loop-follow-up"
+    );
     assert!(
         full_view
             .agent_sessions
@@ -1387,6 +1407,17 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         ),
         (
             acp_owner.clone(),
+            RuntimeEventKind::WorkspaceEligibilityUpdated {
+                eligibility: WorkspaceEligibility {
+                    is_git_repository: true,
+                    has_head: true,
+                    can_create_lane: true,
+                    diagnostic: None,
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
             RuntimeEventKind::StarterLanePreviewed {
                 preview: preview.clone(),
             },
@@ -1508,10 +1539,37 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
             },
         ),
         (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionCompleted {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Completed,
+                    ..acp_session.clone()
+                },
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionInputAccepted {
+                session_id: acp_session.session_id.clone(),
+                input_id: "agent-input-loop-follow-up".to_string(),
+            },
+        ),
+        (
+            acp_owner.clone(),
+            RuntimeEventKind::AgentSessionStarted {
+                session: AgentSessionView {
+                    status: AgentSessionStatus::Starting,
+                    task: "task.loop.follow_up".to_string(),
+                    ..acp_session.clone()
+                },
+            },
+        ),
+        (
             acp_owner,
             RuntimeEventKind::AgentSessionCompleted {
                 session: AgentSessionView {
                     status: AgentSessionStatus::Completed,
+                    task: "task.loop.follow_up".to_string(),
                     ..acp_session
                 },
             },
