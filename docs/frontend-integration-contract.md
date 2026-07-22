@@ -42,13 +42,17 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-Core `0.3.2` keeps schema `1` and advertises the following separately versioned,
+Core `0.3.4` keeps schema `1` and advertises the following separately versioned,
 lexically sorted extension capabilities. Base-only clients still connect; each
 feature checks its own extension and remains visibly unavailable with zero
 command transport when that extension is absent.
 
 ```text
 core.workspace_host
+runtime.agent_adapters
+runtime.agent_permission_bridge
+runtime.agent_session_input
+runtime.agent_sessions
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -57,6 +61,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.trust_loop
+runtime.workspace_eligibility
 ui.preference_persistence
 ```
 
@@ -96,6 +101,7 @@ self-referential inside the payload commit.
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
 | Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
+| Workspace Lane eligibility | new Lane entry-point availability and classified diagnostics | `RuntimeViewState.workspace_eligibility`, `WorkspaceEligibilityUpdated` | `PreviewDefaultStarterLane` | Core `0.3.4` extension `runtime.workspace_eligibility`; Core alone validates Git/HEAD and generates Lane identity |
 | Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
@@ -109,11 +115,19 @@ self-referential inside the payload commit.
 | Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
+| Native and ACP agent sessions | built-in DeepSeek/OpenAI work and Codex/Claude/Kiro ACP sessions | `AgentAdapterView.startability`, `AgentSessionView`, `RuntimeViewState.agent_session_inputs` | `StartAgentSession`, `SendAgentSessionInput`, `RetryAgentSession`, `CancelAgentSession` | Core `0.3.4` extensions `runtime.agent_adapters`, `runtime.agent_sessions`, `runtime.agent_session_input` |
 | Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | Core `0.3.2` extension `runtime.lane_owner_projection` |
 | Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview` |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
 | UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
 | Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
+
+For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
+`RuntimeOwner`. ACP continuation reloads the agent-native session id; cancellation
+must use that exact owner. `AgentSessionInputAccepted` is appended before process
+spawn, and snapshot/replay restores both the session and accepted inputs after a
+restart. A retry is a new attempt of the same logical session, not a new frontend
+session inferred from display text.
 
 ## Event Consumption Rules
 

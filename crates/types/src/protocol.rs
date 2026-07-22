@@ -31,6 +31,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "core.workspace_host",
     "runtime.agent_adapters",
     "runtime.agent_permission_bridge",
+    "runtime.agent_session_input",
     "runtime.agent_sessions",
     "runtime.credential_handles",
     "runtime.credential_staging",
@@ -40,6 +41,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.recent_work",
     "runtime.starter_lane_preview",
     "runtime.trust_loop",
+    "runtime.workspace_eligibility",
     "ui.preference_persistence",
 ];
 

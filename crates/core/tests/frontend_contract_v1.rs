@@ -135,15 +135,15 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.3\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.4\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 7"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.3");
-    assert_eq!(local_core_handshake().core_version, "0.3.3");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.4");
+    assert_eq!(local_core_handshake().core_version, "0.3.4");
 }
 
 #[test]
-fn frontend_host_capabilities_are_schema_one_core_0_3_3_and_additive() {
+fn frontend_host_capabilities_are_schema_one_core_0_3_4_and_additive() {
     let frozen_base = [
         "runtime.agent_dag",
         "runtime.approvals",
@@ -165,6 +165,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_3_and_additive() {
         "core.workspace_host",
         "runtime.agent_adapters",
         "runtime.agent_permission_bridge",
+        "runtime.agent_session_input",
         "runtime.agent_sessions",
         "runtime.credential_handles",
         "runtime.credential_staging",
@@ -174,11 +175,12 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_3_and_additive() {
         "runtime.recent_work",
         "runtime.starter_lane_preview",
         "runtime.trust_loop",
+        "runtime.workspace_eligibility",
         "ui.preference_persistence",
     ];
 
     assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.3");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.4");
     assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
     assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
     assert!(
@@ -207,14 +209,14 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_3_and_additive() {
         .expect("missing optional extensions must not block a frozen-base client");
 
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.3\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.4\""));
     assert!(extension_manifest.contains("schema_version = 1"));
     assert!(extension_manifest.contains("runtime.lane_owner_projection"));
     assert!(extension_manifest.contains(
         "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
     ));
     assert!(extension_manifest.contains(
-        "interaction_fixture_sha256 = \"596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff\""
+        "interaction_fixture_sha256 = \"ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826\""
     ));
 }
 
@@ -411,15 +413,15 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert_eq!(full_view.lane_recoveries.len(), 1);
 
     let release_manifest = include_str!("../release-manifest.toml");
-    assert!(release_manifest.contains("component_version = \"0.3.3\""));
+    assert!(release_manifest.contains("component_version = \"0.3.4\""));
     assert!(release_manifest.contains(
-        "contract_implementation_checkpoint = \"8bfb28098cc982d4e80edb6229e82d3749c0ead4\""
+        "contract_implementation_checkpoint = \"e989fa7cd3ccd9664196309586e5d135e3115693\""
     ));
     assert!(release_manifest.contains(
-        "payload_sha256 = \"596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff\""
+        "payload_sha256 = \"ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826\""
     ));
     assert!(release_manifest.contains(
-        "view_sha256 = \"31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51\""
+        "view_sha256 = \"6d0b71dd744732cbbe322fca18302a0002c81f5f7a7fc0233411198d9af3fde0\""
     ));
 }
 
@@ -1602,6 +1604,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
             "core.workspace_host",
             "runtime.agent_adapters",
             "runtime.agent_permission_bridge",
+            "runtime.agent_session_input",
             "runtime.agent_sessions",
             "runtime.approvals",
             "runtime.events",
@@ -1613,6 +1616,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
             "runtime.snapshot",
             "runtime.starter_lane_preview",
             "runtime.typed_lanes",
+            "runtime.workspace_eligibility",
         ],
         snapshot(WorkMode::Build),
         events,

@@ -41,12 +41,16 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-Core `0.3.2` 保持 schema `1`，并单独公布以下按字典序排列、独立版本化的 extension
+Core `0.3.4` 保持 schema `1`，并单独公布以下按字典序排列、独立版本化的 extension
 capability。只具备 base 的 client 仍可连接；每项功能自行检查 extension，缺失时必须明确
 显示 unavailable，且 command transport 零发送。
 
 ```text
 core.workspace_host
+runtime.agent_adapters
+runtime.agent_permission_bridge
+runtime.agent_session_input
+runtime.agent_sessions
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -55,6 +59,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.trust_loop
+runtime.workspace_eligibility
 ui.preference_persistence
 ```
 
@@ -91,6 +96,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
 | Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
+| Workspace Lane eligibility | 新建 Lane 入口可用性与分类诊断 | `RuntimeViewState.workspace_eligibility`、`WorkspaceEligibilityUpdated` | `PreviewDefaultStarterLane` | Core `0.3.4` extension `runtime.workspace_eligibility`；只有 Core 校验 Git/HEAD 并生成 Lane identity |
 | Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
@@ -104,11 +110,18 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
+| 原生与 ACP agent session | 内置 DeepSeek/OpenAI 工作，以及 Codex/Claude/Kiro ACP session | `AgentAdapterView.startability`、`AgentSessionView`、`RuntimeViewState.agent_session_inputs` | `StartAgentSession`、`SendAgentSessionInput`、`RetryAgentSession`、`CancelAgentSession` | Core `0.3.4` extensions `runtime.agent_adapters`、`runtime.agent_sessions`、`runtime.agent_session_input` |
 | Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | Core `0.3.2` extension `runtime.lane_owner_projection` |
 | 已审阅 starter Lane | 首启 starter 选择、branch/worktree 审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | Core `0.3.2` extension `runtime.starter_lane_preview` |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
 | UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
 | Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
+
+Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
+ACP continuation 会重新加载 agent-native session id；取消必须使用该精确 owner。
+`AgentSessionInputAccepted` 在进程启动前追加，重启后的 snapshot/replay 会恢复 session
+及已接受输入。Retry 是同一逻辑 session 的新 attempt，前端不能从显示文本推断出一个
+新 session。
 
 ## Event 消费规则
 

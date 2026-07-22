@@ -1,14 +1,24 @@
 schema_version = 1
 base_component_version = "0.3.0"
-candidate_component_version = "0.3.3"
+candidate_component_version = "0.3.4"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_permission_bridge", "runtime.agent_sessions", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
-interaction_fixture_sha256 = "596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff"
-interaction_view_sha256 = "31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51"
+interaction_fixture_sha256 = "ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826"
+interaction_view_sha256 = "6d0b71dd744732cbbe322fca18302a0002c81f5f7a7fc0233411198d9af3fde0"
+
+[runtime_agent_session_input]
+commands = ["send_agent_session_input", "retry_agent_session"]
+events = ["agent_session_input_accepted", "agent_session_started", "agent_session_completed", "agent_session_failed"]
+recovery = "logical session identity and owner remain stable across follow-up, retry, snapshot, and replay"
+
+[runtime_workspace_eligibility]
+commands = ["preview_default_starter_lane"]
+events = ["workspace_eligibility_updated", "starter_lane_previewed"]
+boundary = "Core alone validates Git and HEAD eligibility and generates Lane, branch, and worktree identity"
 
 [runtime_agent_adapters]
 commands = ["query_agent_adapters", "probe_agent_adapter"]
