@@ -447,11 +447,21 @@ pub(crate) fn probe_typed_agent_adapter(
             "Unknown ACP agent `{agent_id}`. Known ACP agents: {known}"
         ));
     };
+    Ok(probe_typed_agent_adapter_descriptor(cwd, agent))
+}
+
+fn probe_typed_agent_adapter_descriptor(
+    cwd: &Path,
+    agent: &AgentPluginDescriptor,
+) -> AgentAdapterView {
     let mut view = typed_agent_adapter_view(agent);
     match run_acp_initialize_probe_for_agent(cwd, agent) {
         Ok(evidence) => {
             view.availability = AgentAvailability::Available;
-            view.auth_state = AgentAuthState::Unknown;
+            // A completed ACP initialize exchange proves this process is
+            // usable now. Advertised auth methods are future choices, not a
+            // reason to keep a successfully initialized adapter ambiguous.
+            view.auth_state = AgentAuthState::Ready;
             view.diagnostics = if evidence.auth_methods.is_empty() {
                 Vec::new()
             } else {
@@ -492,7 +502,7 @@ pub(crate) fn probe_typed_agent_adapter(
         }
     }
     view.startability = classify_agent_startability(view.availability, view.auth_state);
-    Ok(view)
+    view
 }
 
 fn classify_agent_startability(
@@ -7322,6 +7332,11 @@ mod tests {
         assert_eq!(evidence.agent_label, "mock-descriptor-acp 0.2.0");
         let log = fs::read_to_string(&evidence.log_path).expect("read jsonl log");
         assert!(log.contains("mock-descriptor-acp"));
+
+        let view = probe_typed_agent_adapter_descriptor(&root, &descriptor);
+        assert_eq!(view.availability, AgentAvailability::Available);
+        assert_eq!(view.auth_state, AgentAuthState::Ready);
+        assert_eq!(view.startability, AgentStartability::Ready);
     }
 
     #[test]
