@@ -366,6 +366,8 @@ impl SessionEngine {
                 }
             }
             RuntimeCommand::StartAgentSession { .. }
+            | RuntimeCommand::SendAgentSessionInput { .. }
+            | RuntimeCommand::RetryAgentSession { .. }
             | RuntimeCommand::CancelAgentSession { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
@@ -872,6 +874,7 @@ impl SessionEngine {
                 }
             }
             RuntimeCommand::PreviewStarterLane { .. }
+            | RuntimeCommand::PreviewDefaultStarterLane { .. }
             | RuntimeCommand::CreateStarterLane { .. }
             | RuntimeCommand::CreateLane { .. }
             | RuntimeCommand::StartLane { .. }
@@ -5454,6 +5457,15 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
                 task: "[REDACTED]".to_string(),
             },
         },
+        RuntimeCommand::SendAgentSessionInput { input } => RuntimeCommand::SendAgentSessionInput {
+            input: viden_types::AgentSessionInput {
+                session_id: redact_identifier_for_event(&input.session_id),
+                content: "[REDACTED]".to_string(),
+            },
+        },
+        RuntimeCommand::RetryAgentSession { session_id } => RuntimeCommand::RetryAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
         RuntimeCommand::CancelAgentSession { session_id } => RuntimeCommand::CancelAgentSession {
             session_id: redact_identifier_for_event(session_id),
         },
@@ -5487,6 +5499,9 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::PreviewStarterLane { request } => RuntimeCommand::PreviewStarterLane {
             request: redacted_starter_lane_request(request),
         },
+        RuntimeCommand::PreviewDefaultStarterLane { preset } => {
+            RuntimeCommand::PreviewDefaultStarterLane { preset: *preset }
+        }
         RuntimeCommand::CreateStarterLane {
             request,
             preview_id,

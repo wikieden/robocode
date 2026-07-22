@@ -20,6 +20,14 @@ pub struct ProjectProbe {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceEligibility {
+    pub is_git_repository: bool,
+    pub has_head: bool,
+    pub can_create_lane: bool,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectConfigPreview {
     pub preview_id: String,
     pub relative_path: String,

@@ -2242,6 +2242,37 @@ fn agent_adapter_and_session_commands_roundtrip_as_typed_schema_v1_intents() {
 }
 
 #[test]
+fn additive_agent_session_input_roundtrips_and_reduces() {
+    let input = AgentSessionInput {
+        session_id: "agent-session-1".to_string(),
+        content: "continue with the failing test".to_string(),
+    };
+    let command = RuntimeCommand::SendAgentSessionInput {
+        input: input.clone(),
+    };
+    let encoded = serde_json::to_value(&command).unwrap();
+    let decoded: RuntimeCommand = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, command);
+
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentSessionInputAccepted {
+            session_id: input.session_id.clone(),
+            input_id: "agent-input-1".to_string(),
+        },
+    ));
+
+    assert_eq!(
+        view.agent_session_inputs,
+        vec![AgentSessionInputView {
+            session_id: input.session_id,
+            input_id: "agent-input-1".to_string(),
+        }]
+    );
+}
+
+#[test]
 fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
     let owner = RuntimeOwner {
         workspace_id: "workspace-agent".to_string(),
@@ -2257,6 +2288,7 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
         source: AgentAdapterSource::Registry,
         availability: AgentAvailability::Available,
         auth_state: AgentAuthState::Ready,
+        startability: AgentStartability::Ready,
         capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
         models: Vec::new(),
         diagnostics: Vec::new(),
@@ -2388,6 +2420,7 @@ fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
         source: AgentAdapterSource::Registry,
         availability: AgentAvailability::NeedsAuth,
         auth_state: AgentAuthState::LoggedOut,
+        startability: AgentStartability::AuthenticationRequired,
         capabilities: vec![CapabilityId("agent.session.prompt".to_string())],
         models: vec!["sonnet".to_string()],
         diagnostics: vec!["run claude auth login".to_string()],

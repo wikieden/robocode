@@ -89,6 +89,22 @@ pub enum AgentAuthState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum AgentStartability {
+    Ready,
+    ProbeRequired,
+    InstallRequired,
+    AuthenticationRequired,
+    Unavailable,
+}
+
+impl Default for AgentStartability {
+    fn default() -> Self {
+        Self::ProbeRequired
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentSessionStatus {
     Starting,
     Running,
@@ -106,12 +122,20 @@ pub struct AgentAdapterView {
     pub source: AgentAdapterSource,
     pub availability: AgentAvailability,
     pub auth_state: AgentAuthState,
+    /// Core-owned readiness classification. Legacy adapter records default to
+    /// probe-required so a frontend can never infer permission to start.
+    #[serde(default, skip_serializing_if = "is_probe_required")]
+    pub startability: AgentStartability,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<CapabilityId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+}
+
+fn is_probe_required(value: &AgentStartability) -> bool {
+    *value == AgentStartability::ProbeRequired
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +145,18 @@ pub struct AgentSessionRequest {
     pub model: Option<String>,
     pub load_session_id: Option<String>,
     pub task: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionInput {
+    pub session_id: SessionId,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionInputView {
+    pub session_id: SessionId,
+    pub input_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

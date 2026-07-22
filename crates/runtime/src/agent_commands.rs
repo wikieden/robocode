@@ -19,11 +19,11 @@ use viden_plugin_host::builtin_agent_descriptors;
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentCapabilityRecord,
     AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest, AgentSessionStatus,
-    AgentSessionView, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalResponse,
-    CapabilityId, EvidenceView, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
-    MergeGateStatus, MergeGateType, PermissionDecision, PermissionLogEntry, RuntimeEvent,
-    RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec, TranscriptEntry, fresh_id, now_timestamp,
-    truncate_for_preview,
+    AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus,
+    ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecisionOutcome,
+    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionDecision,
+    PermissionLogEntry, RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec,
+    TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
 };
 
 const SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
@@ -491,7 +491,23 @@ pub(crate) fn probe_typed_agent_adapter(
             }];
         }
     }
+    view.startability = classify_agent_startability(view.availability, view.auth_state);
     Ok(view)
+}
+
+fn classify_agent_startability(
+    availability: AgentAvailability,
+    auth_state: AgentAuthState,
+) -> AgentStartability {
+    match (availability, auth_state) {
+        (AgentAvailability::Available, AgentAuthState::Ready) => AgentStartability::Ready,
+        (AgentAvailability::Available, AgentAuthState::Unknown) => AgentStartability::ProbeRequired,
+        (AgentAvailability::NeedsInstall, _) => AgentStartability::InstallRequired,
+        (AgentAvailability::NeedsAuth, _) | (_, AgentAuthState::LoggedOut) => {
+            AgentStartability::AuthenticationRequired
+        }
+        _ => AgentStartability::Unavailable,
+    }
 }
 
 fn typed_agent_adapter_view(agent: &AgentPluginDescriptor) -> AgentAdapterView {
@@ -523,6 +539,7 @@ fn typed_agent_adapter_view(agent: &AgentPluginDescriptor) -> AgentAdapterView {
         },
         availability,
         auth_state: AgentAuthState::Unknown,
+        startability: classify_agent_startability(availability, AgentAuthState::Unknown),
         capabilities: agent
             .capabilities
             .iter()
