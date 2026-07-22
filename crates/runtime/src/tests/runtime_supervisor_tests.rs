@@ -1782,6 +1782,128 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
             )
         })
     });
+    let session = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionCompleted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("completed typed ACP session");
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-other-owner"),
+            "cmd_typed_acp_follow_up_wrong_owner",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "must not run".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let owner_rejection = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_follow_up_wrong_owner"
+                        && reason == "agent_session_owner_mismatch"
+            )
+        })
+    });
+    assert!(owner_rejection.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                if session_id == &session.session_id
+        )
+    }));
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_follow_up",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "continue the same ACP session".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let follow_up = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        let accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == &session.session_id
+            )
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        accepted && completed
+    });
+    assert!(follow_up.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_typed_acp_follow_up"
+        )
+    }));
+    let follow_up_log = fs::read_dir(cwd.join(".viden/agents"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .find(|contents| contents.contains("session/load"))
+        .expect("follow-up ACP log uses session/load");
+    assert!(follow_up_log.contains("remote-typed-session"));
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_retry",
+            RuntimeCommand::RetryAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let retry = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        let accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_typed_acp_retry"
+            )
+        });
+        let input_accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == &session.session_id
+            )
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        accepted && input_accepted && completed
+    });
+    assert!(
+        retry
+            .iter()
+            .all(|event| { !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }) })
+    );
     unsafe {
         std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
     }
@@ -1803,6 +1925,7 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
 
     let snapshot = supervisor.snapshot_envelope().unwrap();
     assert_eq!(snapshot.view.agent_sessions.len(), 1);
+    assert_eq!(snapshot.view.agent_session_inputs.len(), 2);
     assert_eq!(
         snapshot.view.agent_sessions[0].status,
         AgentSessionStatus::Completed

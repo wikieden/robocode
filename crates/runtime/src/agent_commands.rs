@@ -1992,7 +1992,101 @@ pub(crate) fn start_typed_agent_session(
     request: AgentSessionRequest,
     owner: RuntimeOwner,
     runtime_event_sink: RuntimeEventSink,
+    approver: AgentSessionApprover,
+) -> Result<AgentSessionView, String> {
+    start_typed_agent_session_attempt(
+        cwd,
+        session_id.clone(),
+        session_id,
+        request,
+        owner,
+        runtime_event_sink,
+        approver,
+        None,
+    )
+}
+
+pub(crate) fn resume_typed_agent_session(
+    cwd: &Path,
+    session_id: &str,
+    content: String,
+    owner: RuntimeOwner,
+    runtime_event_sink: RuntimeEventSink,
+    approver: AgentSessionApprover,
+) -> Result<String, String> {
+    let job = find_codex_job(cwd, session_id)?
+        .ok_or_else(|| format!("Unknown agent session `{session_id}`"))?;
+    let metadata = job
+        .agent
+        .clone()
+        .ok_or_else(|| format!("Agent session `{session_id}` has no typed metadata"))?;
+    if metadata.owner != owner
+        || owner.session_id.as_deref() != Some(session_id)
+        || metadata.owner.lane_id != owner.lane_id
+    {
+        return Err("agent_session_owner_mismatch".to_string());
+    }
+    if matches!(job.status.as_str(), "running" | "waiting_approval") {
+        return Err(format!("agent session `{session_id}` is still active"));
+    }
+    let result = fs::read_to_string(&job.result_path)
+        .map_err(|_| format!("agent session `{session_id}` has no resumable result"))?;
+    let remote_session_id = extract_codex_session_id(&result)
+        .ok_or_else(|| format!("agent session `{session_id}` has no ACP resume handle"))?;
+    let lane_id = owner
+        .lane_id
+        .clone()
+        .ok_or_else(|| "agent_session_owner_mismatch".to_string())?;
+    let input_id = fresh_id("agent-input");
+    let request = AgentSessionRequest {
+        lane_id,
+        agent_id: metadata.agent_id,
+        model: metadata.model,
+        load_session_id: Some(remote_session_id),
+        task: content,
+    };
+    start_typed_agent_session_attempt(
+        cwd,
+        session_id.to_string(),
+        input_id.clone(),
+        request,
+        owner,
+        runtime_event_sink,
+        approver,
+        Some(input_id.clone()),
+    )?;
+    Ok(input_id)
+}
+
+pub(crate) fn retry_typed_agent_session(
+    cwd: &Path,
+    session_id: &str,
+    owner: RuntimeOwner,
+    runtime_event_sink: RuntimeEventSink,
+    approver: AgentSessionApprover,
+) -> Result<String, String> {
+    let job = find_codex_job(cwd, session_id)?
+        .ok_or_else(|| format!("Unknown agent session `{session_id}`"))?;
+    resume_typed_agent_session(
+        cwd,
+        session_id,
+        job.task,
+        owner,
+        runtime_event_sink,
+        approver,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_typed_agent_session_attempt(
+    cwd: &Path,
+    session_id: String,
+    artifact_id: String,
+    request: AgentSessionRequest,
+    owner: RuntimeOwner,
+    runtime_event_sink: RuntimeEventSink,
     mut approver: AgentSessionApprover,
+    accepted_input_id: Option<String>,
 ) -> Result<AgentSessionView, String> {
     validate_typed_agent_session_request(&request)?;
     let agents = acp_agent_descriptors();
@@ -2016,11 +2110,15 @@ pub(crate) fn start_typed_agent_session(
         return Err("agent session owner must match the requested lane and session".to_string());
     }
 
-    let log_path = codex_job_artifact_path(cwd, &session_id, "jsonl");
-    let result_path = codex_job_artifact_path(cwd, &session_id, "result.md");
-    let runtime_event_path = acp_job_runtime_events_path(cwd, &session_id);
-    let baseline_path = codex_job_artifact_path(cwd, &session_id, "baseline.status");
+    let log_path = codex_job_artifact_path(cwd, &artifact_id, "jsonl");
+    let result_path = codex_job_artifact_path(cwd, &artifact_id, "result.md");
+    let runtime_event_path = acp_job_runtime_events_path(cwd, &artifact_id);
+    let baseline_path = codex_job_artifact_path(cwd, &artifact_id, "baseline.status");
     let cancel_path = acp_job_cancel_path(cwd, &session_id);
+    if cancel_path.exists() {
+        fs::remove_file(&cancel_path)
+            .map_err(|error| format!("failed to reset ACP cancellation marker: {error}"))?;
+    }
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
@@ -2054,12 +2152,23 @@ pub(crate) fn start_typed_agent_session(
         task: request.task,
         diagnostic: None,
     };
-    runtime_event_sink(vec![RuntimeEvent::new(
+    let mut start_events = Vec::new();
+    if let Some(input_id) = accepted_input_id {
+        start_events.push(RuntimeEvent::new(
+            0,
+            RuntimeEventKind::AgentSessionInputAccepted {
+                session_id: session_id.clone(),
+                input_id,
+            },
+        ));
+    }
+    start_events.push(RuntimeEvent::new(
         0,
         RuntimeEventKind::AgentSessionStarted {
             session: session.clone(),
         },
-    )]);
+    ));
+    runtime_event_sink(start_events);
 
     let monitor_cwd = cwd.to_path_buf();
     let monitor_cancel_path = cancel_path.clone();

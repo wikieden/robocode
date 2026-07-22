@@ -22,9 +22,10 @@ use viden_types::{
 };
 
 use crate::{
-    SessionEngine,
+    RuntimeEventSink, SessionEngine,
     agent_commands::{
-        cancel_typed_agent_session, mark_typed_agent_session_status, start_typed_agent_session,
+        AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
+        resume_typed_agent_session, retry_typed_agent_session, start_typed_agent_session,
         typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
     },
     event_journal::RuntimeEventJournal,
@@ -685,6 +686,54 @@ impl RuntimeSupervisor {
         } else {
             None
         };
+        let continuation_session_id = match &command {
+            RuntimeCommand::SendAgentSessionInput { input } => Some(input.session_id.as_str()),
+            RuntimeCommand::RetryAgentSession { session_id } => Some(session_id.as_str()),
+            _ => None,
+        };
+        if let Some(session_id) = continuation_session_id {
+            let session = self
+                .event_bus
+                .state
+                .lock()
+                .map_err(|_| "runtime event state poisoned".to_string())?
+                .live_view
+                .agent_sessions
+                .iter()
+                .find(|session| session.session_id == session_id)
+                .cloned();
+            let Some(session) = session else {
+                emit_event(
+                    &self.event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: format!("agent session `{session_id}` is not known"),
+                    },
+                );
+                return Ok(());
+            };
+            if session.owner != owner {
+                emit_event(
+                    &self.event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: "agent_session_owner_mismatch".to_string(),
+                    },
+                );
+                return Ok(());
+            }
+            return self
+                .commands
+                .send(SupervisorMessage::Command {
+                    owner,
+                    command_id,
+                    command,
+                    submitted_permission_epoch,
+                })
+                .map_err(|err| format!("runtime supervisor stopped: {err}"));
+        }
         let result = match command {
             RuntimeCommand::StartAgentSession { ref request }
                 if owner.lane_id.as_deref() != Some(request.lane_id.as_str()) =>
@@ -1336,6 +1385,36 @@ fn run_supervisor_worker(
                             owner,
                             command_id,
                             request,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            &approval_timers,
+                            &permission_control,
+                            approval_ttl_secs,
+                        );
+                    }
+                    RuntimeCommand::SendAgentSessionInput { input } => {
+                        run_supervised_agent_session_continuation(
+                            &engine,
+                            owner,
+                            command_id,
+                            input.session_id,
+                            Some(input.content),
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            &approval_timers,
+                            &permission_control,
+                            approval_ttl_secs,
+                        );
+                    }
+                    RuntimeCommand::RetryAgentSession { session_id } => {
+                        run_supervised_agent_session_continuation(
+                            &engine,
+                            owner,
+                            command_id,
+                            session_id,
+                            None,
                             &event_bus,
                             &active_control,
                             &pending_approvals,
@@ -2307,106 +2386,24 @@ fn run_supervised_agent_session(
         task: request.task.clone(),
         diagnostic: None,
     };
-    let approval_bus = event_bus.clone();
-    let approval_owner = session_owner.clone();
-    let approval_session = session_template.clone();
-    let approval_session_id = session_id.clone();
-    let approval_cwd = engine.cwd().to_path_buf();
-    let approval_active = Arc::clone(active_control);
-    let approval_pending = Arc::clone(pending_approvals);
-    let approval_timers = Arc::clone(approval_timers);
-    let approval_permission = Arc::clone(permission_control);
-    let approver = Box::new(move |prompt: PermissionPrompt| {
-        let permission_epoch = approval_permission
-            .lock()
-            .map(|control| control.epoch())
-            .unwrap_or(u64::MAX);
-        let request_id = fresh_id("approval");
-        let (approval_sender, approval_receiver) = mpsc::channel();
-        let approval = approval_request_view(
-            &request_id,
-            &prompt,
-            approval_owner.clone(),
-            approval_ttl_secs,
-        );
-        let _ = mark_active_pending(&approval_active, &approval_session_id, request_id.clone());
-        let _ = mark_typed_agent_session_status(
-            &approval_cwd,
-            &approval_session_id,
-            "waiting_approval",
-        );
-        insert_pending_approval(
-            &approval_pending,
-            request_id.clone(),
-            PendingApproval {
-                owner: approval.owner.clone(),
-                audit_id: approval.audit_id.clone(),
-                expires_at: approval.expires_at,
-                permission_epoch,
-                allowed_scopes: approval.allowed_scopes.clone(),
-                target: PendingApprovalTarget::Channel {
-                    owner_id: approval_session_id.clone(),
-                    sender: approval_sender,
-                },
-            },
-        );
-        emit_event(
-            &approval_bus,
-            approval_owner.clone(),
-            RuntimeEventKind::ApprovalRequested {
-                approval: approval.clone(),
-            },
-        );
-        let mut waiting = approval_session.clone();
-        waiting.status = AgentSessionStatus::WaitingApproval;
-        emit_event(
-            &approval_bus,
-            approval_owner.clone(),
-            RuntimeEventKind::AgentSessionUpdated { session: waiting },
-        );
-        schedule_approval_expiry(
-            request_id,
-            approval.expires_at,
-            &approval_bus,
-            &approval_active,
-            &approval_pending,
-            &approval_timers,
-        );
-        let response = approval_receiver.recv().unwrap_or_else(|_| {
-            ApprovalResponse::deny(Some("approval response channel closed".to_string()))
-        });
-        let _ = mark_typed_agent_session_status(&approval_cwd, &approval_session_id, "running");
-        let mut running = approval_session.clone();
-        running.status = AgentSessionStatus::Running;
-        emit_event(
-            &approval_bus,
-            approval_owner.clone(),
-            RuntimeEventKind::AgentSessionUpdated { session: running },
-        );
-        response
-    });
-
-    let sink_bus = event_bus.clone();
-    let sink_owner = session_owner.clone();
-    let sink_active = Arc::clone(active_control);
-    let sink_session_id = session_id.clone();
-    let runtime_event_sink = Arc::new(move |events: Vec<RuntimeEvent>| {
-        let terminal = events.iter().any(|event| {
-            matches!(
-                event.kind,
-                RuntimeEventKind::AgentSessionCompleted { .. }
-                    | RuntimeEventKind::AgentSessionFailed { .. }
-            ) || matches!(
-                &event.kind,
-                RuntimeEventKind::AgentSessionUpdated { session }
-                    if session.status == AgentSessionStatus::Cancelled
-            )
-        });
-        emit_events(&sink_bus, sink_owner.clone(), events);
-        if terminal {
-            clear_active_control(&sink_active, &sink_session_id);
-        }
-    });
+    let approver = supervised_agent_session_approver(
+        engine,
+        session_template.clone(),
+        session_owner.clone(),
+        session_id.clone(),
+        event_bus,
+        active_control,
+        pending_approvals,
+        approval_timers,
+        permission_control,
+        approval_ttl_secs,
+    );
+    let runtime_event_sink = supervised_agent_session_sink(
+        event_bus,
+        session_owner.clone(),
+        session_id.clone(),
+        active_control,
+    );
 
     if let Err(error) = start_typed_agent_session(
         engine.cwd(),
@@ -2426,6 +2423,274 @@ fn run_supervised_agent_session(
             RuntimeEventKind::AgentSessionFailed { session: failed },
         );
         emit_error(event_bus, session_owner, error);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn supervised_agent_session_approver(
+    engine: &SessionEngine,
+    session: AgentSessionView,
+    owner: RuntimeOwner,
+    session_id: String,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
+    approval_ttl_secs: u64,
+) -> AgentSessionApprover {
+    let approval_bus = event_bus.clone();
+    let approval_cwd = engine.cwd().to_path_buf();
+    let approval_active = Arc::clone(active_control);
+    let approval_pending = Arc::clone(pending_approvals);
+    let approval_timers = Arc::clone(approval_timers);
+    let approval_permission = Arc::clone(permission_control);
+    Box::new(move |prompt: PermissionPrompt| {
+        let permission_epoch = approval_permission
+            .lock()
+            .map(|control| control.epoch())
+            .unwrap_or(u64::MAX);
+        let request_id = fresh_id("approval");
+        let (approval_sender, approval_receiver) = mpsc::channel();
+        let approval =
+            approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+        let _ = mark_active_pending(&approval_active, &session_id, request_id.clone());
+        let _ = mark_typed_agent_session_status(&approval_cwd, &session_id, "waiting_approval");
+        insert_pending_approval(
+            &approval_pending,
+            request_id.clone(),
+            PendingApproval {
+                owner: approval.owner.clone(),
+                audit_id: approval.audit_id.clone(),
+                expires_at: approval.expires_at,
+                permission_epoch,
+                allowed_scopes: approval.allowed_scopes.clone(),
+                target: PendingApprovalTarget::Channel {
+                    owner_id: session_id.clone(),
+                    sender: approval_sender,
+                },
+            },
+        );
+        emit_event(
+            &approval_bus,
+            owner.clone(),
+            RuntimeEventKind::ApprovalRequested {
+                approval: approval.clone(),
+            },
+        );
+        let mut waiting = session.clone();
+        waiting.status = AgentSessionStatus::WaitingApproval;
+        emit_event(
+            &approval_bus,
+            owner.clone(),
+            RuntimeEventKind::AgentSessionUpdated { session: waiting },
+        );
+        schedule_approval_expiry(
+            request_id,
+            approval.expires_at,
+            &approval_bus,
+            &approval_active,
+            &approval_pending,
+            &approval_timers,
+        );
+        let response = approval_receiver.recv().unwrap_or_else(|_| {
+            ApprovalResponse::deny(Some("approval response channel closed".to_string()))
+        });
+        let _ = mark_typed_agent_session_status(&approval_cwd, &session_id, "running");
+        let mut running = session.clone();
+        running.status = AgentSessionStatus::Running;
+        emit_event(
+            &approval_bus,
+            owner.clone(),
+            RuntimeEventKind::AgentSessionUpdated { session: running },
+        );
+        response
+    })
+}
+
+fn supervised_agent_session_sink(
+    event_bus: &RuntimeEventBus,
+    owner: RuntimeOwner,
+    session_id: String,
+    active_control: &ActiveControlRegistry,
+) -> RuntimeEventSink {
+    let sink_bus = event_bus.clone();
+    let sink_active = Arc::clone(active_control);
+    Arc::new(move |events: Vec<RuntimeEvent>| {
+        let terminal = events.iter().any(|event| {
+            matches!(
+                event.kind,
+                RuntimeEventKind::AgentSessionCompleted { .. }
+                    | RuntimeEventKind::AgentSessionFailed { .. }
+            ) || matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Cancelled
+            )
+        });
+        emit_events(&sink_bus, owner.clone(), events);
+        if terminal {
+            clear_active_control(&sink_active, &session_id);
+        }
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_supervised_agent_session_continuation(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    session_id: String,
+    content: Option<String>,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
+    approval_ttl_secs: u64,
+) {
+    if permission_control
+        .lock()
+        .map(|control| control.applied.blocks_mutation())
+        .unwrap_or(true)
+    {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason:
+                    "agent session execution requires Build mode with Ask or Autonomous permission"
+                        .to_string(),
+            },
+        );
+        return;
+    }
+    let session = event_bus.state.lock().ok().and_then(|state| {
+        state
+            .live_view
+            .agent_sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .cloned()
+    });
+    let Some(mut session) = session else {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` is not known"),
+            },
+        );
+        return;
+    };
+    if session.owner != owner {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: "agent_session_owner_mismatch".to_string(),
+            },
+        );
+        return;
+    }
+    if !matches!(
+        session.status,
+        AgentSessionStatus::Completed | AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
+    ) {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` is still active"),
+            },
+        );
+        return;
+    }
+    if let Some(content) = content.as_ref() {
+        session.task = content.clone();
+    }
+    session.status = AgentSessionStatus::Starting;
+    session.diagnostic = None;
+    let control = ModelRequestControl::new();
+    if let Err(error) =
+        acquire_active_agent_session(active_control, session_id.clone(), owner.clone(), control)
+    {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: error,
+            },
+        );
+        return;
+    }
+    let accepted_command = if let Some(content) = content.clone() {
+        RuntimeCommand::SendAgentSessionInput {
+            input: viden_types::AgentSessionInput {
+                session_id: session_id.clone(),
+                content,
+            },
+        }
+    } else {
+        RuntimeCommand::RetryAgentSession {
+            session_id: session_id.clone(),
+        }
+    };
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::CommandAccepted {
+            command_id,
+            command: redacted_runtime_command_for_event(&accepted_command),
+        },
+    );
+    let approver = supervised_agent_session_approver(
+        engine,
+        session.clone(),
+        owner.clone(),
+        session_id.clone(),
+        event_bus,
+        active_control,
+        pending_approvals,
+        approval_timers,
+        permission_control,
+        approval_ttl_secs,
+    );
+    let runtime_event_sink =
+        supervised_agent_session_sink(event_bus, owner.clone(), session_id.clone(), active_control);
+    let result = if let Some(content) = content {
+        resume_typed_agent_session(
+            engine.cwd(),
+            &session_id,
+            content,
+            owner.clone(),
+            runtime_event_sink,
+            approver,
+        )
+    } else {
+        retry_typed_agent_session(
+            engine.cwd(),
+            &session_id,
+            owner.clone(),
+            runtime_event_sink,
+            approver,
+        )
+    };
+    if let Err(error) = result {
+        clear_active_control(active_control, &session_id);
+        session.status = AgentSessionStatus::Failed;
+        session.diagnostic = Some(error.clone());
+        emit_event(
+            event_bus,
+            owner.clone(),
+            RuntimeEventKind::AgentSessionFailed { session },
+        );
+        emit_error(event_bus, owner, error);
     }
 }
 
