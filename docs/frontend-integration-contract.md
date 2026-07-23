@@ -478,7 +478,10 @@ decision. Synchronous command results preserve the same per-tool ordering
 instead of collecting approval pairs at the first tool completion. If that
 permission decision cannot be persisted, Core terminalizes the authoritative
 provider and tool tasks before it emits `Error`, without opening an active tool
-call.
+call. The same turn-scoped finalization applies to every later provider/tool
+failure: Core marks only still-active tasks registered by that turn as failed,
+preserves tasks that are already terminal, leaves unrelated active tasks
+unchanged, and publishes the terminal task facts before `Error`.
 
 ## UI Preference And Design Entry Contract
 

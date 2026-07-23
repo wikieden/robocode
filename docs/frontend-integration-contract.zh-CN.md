@@ -425,7 +425,10 @@ turn 中，前一个 tool 的 `ToolCallStarted`、`ToolCallFinished` 和 structu
 `ApprovalResolved` 和 permission decision 持久化之后。同步 command result
 同样保留逐 tool 顺序，不会把全部 approval pair 集中到第一个 tool completion。
 如果 permission decision 无法持久化，Core 会先终结 authoritative provider 和
-tool task，再发出 `Error`，且不能留下 active tool call。
+tool task，再发出 `Error`，且不能留下 active tool call。之后任何 provider/tool
+failure 都遵守同一 turn-scoped finalization：Core 只把该 turn 登记且仍 active 的
+task 标记为 failed，保留已经 terminal 的 task，不改变无关 active task，并在
+`Error` 之前发布 terminal task facts。
 
 ## UI 偏好与设计入口契约
 

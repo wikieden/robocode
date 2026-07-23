@@ -13,12 +13,13 @@ use std::time::{Duration, Instant};
 use viden_config::CliOverrides;
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentTaskKind, ApprovalResponse, EventCursor, LocaleId, Message,
-    RecentWorkQuery, ReplayRequest, Role, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState,
-    RuntimeWireEvent, SessionMetaEntry, StarterLanePreset, StarterLanePreviewInvalidationReason,
-    StarterLaneRequest, ToolCall, ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
+    AgentDagTaskSpec, AgentRole, AgentTaskKind, AgentTaskStatus, ApprovalResponse, EventCursor,
+    LocaleId, Message, RecentWorkQuery, ReplayRequest, Role, RuntimeCommand, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeViewState, RuntimeWireEvent, SessionMetaEntry, StarterLanePreset,
+    StarterLanePreviewInvalidationReason, StarterLaneRequest, ToolCall, ToolResult,
+    TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin,
+    WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::lane_runtime::{
@@ -1122,6 +1123,40 @@ fn frontend_status_unknown_second_tool_keeps_completed_first_tool_prefix() {
         fs::read_to_string(cwd.join("unknown-second-tool.txt")).unwrap(),
         "completed before later failure\n"
     );
+    assert_failed_turn_is_terminal(&events, &owner, 2);
+    let view = reduce_owner_events(&events, &owner);
+    let completed_tool_id = "tool-write-unknown-second-tool.txt";
+    assert_eq!(
+        view.tasks
+            .iter()
+            .find(|task| task.id == completed_tool_id)
+            .map(|task| task.status),
+        Some(AgentTaskStatus::Done),
+        "the completed tool must retain its terminal outcome"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|envelope| {
+                envelope.owner == owner
+                    && matches!(
+                        &envelope.event,
+                        RuntimeWireEvent::Known(RuntimeEvent {
+                            kind: RuntimeEventKind::TaskUpdated { task },
+                            ..
+                        }) if task.id == completed_tool_id
+                            && matches!(
+                                task.status,
+                                AgentTaskStatus::Done
+                                    | AgentTaskStatus::Failed
+                                    | AgentTaskStatus::Cancelled
+                            )
+                    )
+            })
+            .count(),
+        1,
+        "the failure finalizer must not emit a duplicate terminal update"
+    );
 }
 
 #[test]
@@ -1220,7 +1255,7 @@ fn frontend_status_tool_result_persistence_failure_keeps_completed_prefix() {
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine
-        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .set_permission_mode(viden_types::PermissionMode::BypassPermissions)
         .unwrap();
     // User message, provider cost, tool call, assistant tool message, and
     // permission decision persist before the completed ToolResult append.
@@ -1228,15 +1263,12 @@ fn frontend_status_tool_result_persistence_failure_keeps_completed_prefix() {
     let supervisor = RuntimeSupervisor::start(engine);
     let owner = cockpit_test_owner("tool-persistence-failure");
 
-    supervisor
-        .send_command_from_owner(
-            owner.clone(),
-            "cmd-tool-persistence-failure",
-            RuntimeCommand::SubmitUserInput {
-                content: "write before transcript persistence fails".to_string(),
-            },
-        )
-        .unwrap();
+    start_approval_command(
+        &supervisor,
+        &owner,
+        ApprovalCommandPath::StartAgentTask,
+        "tool-persistence-failure",
+    );
     let events = collect_starter_envelopes_until(&supervisor, |events| {
         events.iter().any(|envelope| {
             matches!(
@@ -1256,6 +1288,157 @@ fn frontend_status_tool_result_persistence_failure_keeps_completed_prefix() {
     assert_eq!(
         fs::read_to_string(cwd.join("persist-prefix.txt")).unwrap(),
         "tool completed before persistence failed\n"
+    );
+    assert_failed_turn_is_terminal(&events, &owner, 2);
+}
+
+#[test]
+fn frontend_status_assistant_tool_transcript_failure_terminalizes_turn_tasks() {
+    let cwd = temp_dir("frontend_status_assistant_tool_transcript_failure");
+    let home = temp_dir("frontend_status_assistant_tool_transcript_failure_home");
+    let mut input = viden_types::ToolInput::new();
+    input.insert("path".to_string(), "must-not-exist.txt".to_string());
+    input.insert("content".to_string(), "not persisted\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        viden_types::ModelEvent::ToolCall(ToolCall {
+            id: "tool-assistant-transcript-failure".to_string(),
+            name: "write_file".to_string(),
+            input,
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    // User message, provider cost, and ToolCall persist before the assistant
+    // tool-call message append fails with the tool task in RunningTool.
+    engine.fail_after_transcript_appends_for_test(3);
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("assistant-tool-transcript-failure");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-assistant-tool-transcript-failure",
+            RuntimeCommand::SubmitUserInput {
+                content: "fail while recording the assistant tool call".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_injected_transcript_failure(&supervisor);
+
+    assert_eq!(completed_tool_prefix_order(&events, &owner), vec!["error"]);
+    assert_failed_turn_is_terminal(&events, &owner, 2);
+    assert!(!cwd.join("must-not-exist.txt").exists());
+}
+
+#[test]
+fn frontend_status_cost_persistence_failure_terminalizes_thinking_provider() {
+    let cwd = temp_dir("frontend_status_cost_persistence_failure");
+    let home = temp_dir("frontend_status_cost_persistence_failure_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        viden_types::ModelEvent::AssistantText {
+            content: "must not be published".to_string(),
+        },
+        viden_types::ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    // The user message persists, then provider cost persistence fails while
+    // the provider task is Thinking.
+    engine.fail_after_transcript_appends_for_test(1);
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("cost-persistence-failure");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-cost-persistence-failure",
+            RuntimeCommand::SubmitUserInput {
+                content: "fail while recording provider cost".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_injected_transcript_failure(&supervisor);
+
+    assert_failed_turn_is_terminal(&events, &owner, 1);
+}
+
+#[test]
+fn frontend_status_text_persistence_failure_terminalizes_streaming_provider() {
+    let cwd = temp_dir("frontend_status_text_persistence_failure");
+    let home = temp_dir("frontend_status_text_persistence_failure_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        viden_types::ModelEvent::AssistantText {
+            content: "must not be published".to_string(),
+        },
+        viden_types::ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    // User message and provider cost persist before assistant text persistence
+    // fails with the provider task in Streaming.
+    engine.fail_after_transcript_appends_for_test(2);
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("text-persistence-failure");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-text-persistence-failure",
+            RuntimeCommand::SubmitUserInput {
+                content: "fail while recording assistant text".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_injected_transcript_failure(&supervisor);
+
+    assert_failed_turn_is_terminal(&events, &owner, 1);
+}
+
+#[test]
+fn frontend_status_turn_failure_does_not_terminalize_unrelated_active_task() {
+    let cwd = temp_dir("frontend_status_turn_failure_task_scope");
+    let home = temp_dir("frontend_status_turn_failure_task_scope_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        viden_types::ModelEvent::Done,
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut unrelated = engine.provider_task(
+        "unrelated concurrent work",
+        AgentTaskStatus::Running,
+        "running independently",
+        50,
+    );
+    unrelated.id = "unrelated-active-provider".to_string();
+    engine.upsert_agent_task(unrelated);
+    engine.fail_after_transcript_appends_for_test(1);
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("turn-failure-task-scope");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-turn-failure-task-scope",
+            RuntimeCommand::SubmitUserInput {
+                content: "fail without sweeping unrelated work".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_injected_transcript_failure(&supervisor);
+    let reduced = reduce_owner_events(&events, &owner);
+
+    assert!(
+        reduced
+            .tasks
+            .iter()
+            .any(|task| task.id == "unrelated-active-provider" && task.is_active())
+    );
+    assert!(
+        reduced.tasks.iter().any(|task| {
+            task.id != "unrelated-active-provider"
+                && task.kind == AgentTaskKind::Provider
+                && task.status == AgentTaskStatus::Failed
+        }),
+        "the failed turn's provider task must still be terminalized"
     );
 }
 
@@ -1328,56 +1511,7 @@ fn frontend_status_permission_persistence_failure_has_no_orphan_tool_call() {
         vec!["requested", "resolved", "error"]
     );
     assert_eq!(approval_event_counts(&events, &owner), (1, 1));
-    let error_index = events
-        .iter()
-        .position(|envelope| {
-            matches!(
-                &envelope.event,
-                RuntimeWireEvent::Known(RuntimeEvent {
-                    kind: RuntimeEventKind::Error { .. },
-                    ..
-                })
-            )
-        })
-        .unwrap();
-    let terminal_task_indices = events
-        .iter()
-        .enumerate()
-        .filter_map(|(index, envelope)| match &envelope.event {
-            RuntimeWireEvent::Known(RuntimeEvent {
-                kind: RuntimeEventKind::TaskUpdated { task },
-                ..
-            }) if matches!(
-                task.kind,
-                AgentTaskKind::Provider | AgentTaskKind::Tool | AgentTaskKind::Shell
-            ) && !task.is_active() =>
-            {
-                Some(index)
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        terminal_task_indices.len() >= 2
-            && terminal_task_indices
-                .iter()
-                .all(|index| *index < error_index),
-        "provider and tool task terminal facts must precede the error"
-    );
-    let view = supervisor.snapshot_envelope().unwrap().view;
-    assert!(
-        view.active_tool_calls.is_empty(),
-        "a failed permission transcript append must not leave an active tool call"
-    );
-    assert!(
-        view.tasks.iter().all(|task| {
-            !matches!(
-                task.kind,
-                AgentTaskKind::Provider | AgentTaskKind::Tool | AgentTaskKind::Shell
-            ) || !task.is_active()
-        }),
-        "a failed permission transcript append must terminalize provider and tool tasks"
-    );
+    assert_failed_turn_is_terminal(&events, &owner, 2);
     assert!(!cwd.join("permission-persistence-1.txt").exists());
 }
 
@@ -1529,6 +1663,103 @@ fn start_approval_command(
                 .unwrap();
         }
     }
+}
+
+fn collect_injected_transcript_failure(
+    supervisor: &RuntimeSupervisor,
+) -> Vec<RuntimeEventEnvelope> {
+    collect_starter_envelopes_until(supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("injected transcript append failure")
+            )
+        })
+    })
+}
+
+fn assert_failed_turn_is_terminal(
+    events: &[RuntimeEventEnvelope],
+    owner: &RuntimeOwner,
+    expected_terminal_task_count: usize,
+) {
+    let error_index = events
+        .iter()
+        .position(|envelope| {
+            &envelope.owner == owner
+                && matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::Error { .. },
+                        ..
+                    })
+                )
+        })
+        .expect("turn failure emits Error");
+    let terminal_task_indices = events
+        .iter()
+        .enumerate()
+        .filter_map(|(index, envelope)| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::TaskUpdated { task },
+                ..
+            }) if &envelope.owner == owner
+                && matches!(
+                    task.kind,
+                    AgentTaskKind::Provider | AgentTaskKind::Tool | AgentTaskKind::Shell
+                )
+                && !task.is_active() =>
+            {
+                Some(index)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        terminal_task_indices.len() >= expected_terminal_task_count
+            && terminal_task_indices
+                .iter()
+                .all(|index| *index < error_index),
+        "all turn-owned provider/tool terminal facts must precede Error"
+    );
+
+    let reduced = reduce_owner_events(events, owner);
+    assert!(
+        reduced.active_tool_calls.is_empty(),
+        "failed turn must not leave an active tool call"
+    );
+    assert!(
+        reduced.tasks.iter().all(|task| {
+            !matches!(
+                task.kind,
+                AgentTaskKind::Provider | AgentTaskKind::Tool | AgentTaskKind::Shell
+            ) || !task.is_active()
+        }),
+        "failed turn must not leave an active provider/tool task"
+    );
+}
+
+fn reduce_owner_events(events: &[RuntimeEventEnvelope], owner: &RuntimeOwner) -> RuntimeViewState {
+    let snapshot = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::SnapshotUpdated { snapshot },
+                ..
+            }) if &envelope.owner == owner => Some(snapshot.clone()),
+            _ => None,
+        })
+        .expect("failed turn emits a runtime snapshot");
+    let mut reduced = RuntimeViewState::new(snapshot);
+    for envelope in events.iter().filter(|envelope| &envelope.owner == owner) {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            reduced.apply_event(event);
+        }
+    }
+    reduced
 }
 
 fn approval_request_id(events: &[RuntimeEventEnvelope]) -> Option<String> {

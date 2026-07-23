@@ -12,8 +12,8 @@ use viden_permissions::PermissionEngine;
 use viden_provider::ModelRequestControl;
 use viden_tools::ToolExecutionContext;
 use viden_types::{
-    AgentTaskRecord, AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount,
-    CostEstimate, CostUsageOutcome, CostUsageRecord, Message, ModelEvent, ModelRequest, ModelUsage,
+    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount, CostEstimate,
+    CostUsageOutcome, CostUsageRecord, Message, ModelEvent, ModelRequest, ModelUsage,
     PermissionDecision, PermissionLogEntry, Role, TokenUsage, ToolCall, ToolResult,
     TranscriptEntry, fresh_id, now_timestamp,
 };
@@ -25,6 +25,19 @@ struct EngineTurnProgress {
     engine_events: Vec<EngineEvent>,
     ordered_runtime_facts: Vec<crate::OrderedRuntimeFact>,
     ordered_approval_boundaries: Vec<crate::OrderedApprovalBoundary>,
+}
+
+#[derive(Debug, Default)]
+struct TurnTaskTracker {
+    task_ids: Vec<String>,
+}
+
+impl TurnTaskTracker {
+    fn track(&mut self, task_id: &str) {
+        if !self.task_ids.iter().any(|existing| existing == task_id) {
+            self.task_ids.push(task_id.to_string());
+        }
+    }
 }
 
 impl EngineTurnProgress {
@@ -110,20 +123,6 @@ fn record_started_tool(progress: &mut EngineTurnProgress, call: &ToolCall, encod
         "{} {}",
         call.name, encoded_input
     )));
-}
-
-fn terminalize_tool_task_after_audit_failure(
-    engine: &mut SessionEngine,
-    task: &mut AgentTaskRecord,
-    tool_name: &str,
-    message: &str,
-) {
-    task.status = AgentTaskStatus::Failed;
-    task.activity = format!("permission audit persistence failed for `{tool_name}`");
-    task.progress = 100;
-    task.result = Some(message.to_string());
-    task.updated_at = Some(now_millis());
-    engine.upsert_agent_task(task.clone());
 }
 
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
@@ -302,180 +301,206 @@ impl SessionEngine {
         provider_task
             .evidence
             .extend(context_evidence_rows(&context_bundle));
+        let mut turn_tasks = TurnTaskTracker::default();
+        turn_tasks.track(&provider_task.id);
         self.upsert_agent_task(provider_task.clone());
 
-        let mut retried_request_too_large = false;
-        let mut provider_retry_count = 0_u64;
-        for attempt_index in 0..8 {
-            provider_task.status = AgentTaskStatus::Thinking;
-            provider_task.activity = "waiting for provider response".to_string();
-            provider_task.progress = provider_task.progress.max(20);
-            provider_task.updated_at = Some(now_millis());
-            self.upsert_agent_task(provider_task.clone());
-            let request_messages = self.build_provider_request_messages_for_current_mode(
-                &context_bundle,
-                retried_request_too_large,
-            );
-            #[cfg(test)]
-            self.record_context_benchmark_metrics_for_test(
-                &request_messages,
-                &context_bundle,
-                context_build_elapsed,
-                provider_retry_count,
-            );
-            let request = ModelRequest {
-                session_id: self.session_id().to_string(),
-                model: self.provider.model().to_string(),
-                messages: request_messages,
-                tools: self.tools.specs(),
-                work_mode: self.runtime_snapshot.work_mode,
-                permission_mode: self.permissions.mode(),
-                permission_level: self.runtime_snapshot.permission_level,
-            };
-            let request_started = Instant::now();
-            let model_events = match self.provider.next_events_with_control(&request, control) {
-                Ok(events) => {
-                    let usage = aggregate_model_usage(&events);
-                    let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
-                    progress.carry(self.record_cost_usage(provider_attempt_cost_record(
-                        self.provider_name(),
-                        self.model_name(),
-                        attempt_index,
-                        usage.as_ref(),
-                        CostUsageOutcome::Success,
-                        self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
-                    )))?;
-                    self.provider_telemetry.record_success(
-                        request_started.elapsed(),
-                        events.len(),
-                        usage,
-                    );
-                    events
-                }
-                Err(err) => {
-                    let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
-                    progress.carry(self.record_cost_usage(provider_attempt_cost_record(
-                        self.provider_name(),
-                        self.model_name(),
-                        attempt_index,
-                        None,
-                        CostUsageOutcome::Failure,
-                        self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
-                    )))?;
-                    self.provider_telemetry
-                        .record_failure(request_started.elapsed(), &err);
-                    if crate::provider_commands::is_request_too_large_provider_failure(&err)
-                        && !retried_request_too_large
-                    {
-                        retried_request_too_large = true;
-                        provider_retry_count = provider_retry_count.saturating_add(1);
-                        let retry_context = self.materialize_existing_context_bundle(
-                            &context_bundle,
-                            ContextBuildMode::RequestTooLargeRetry,
+        let turn_result = (|| -> Result<(), crate::EngineTurnFailure> {
+            let mut retried_request_too_large = false;
+            let mut provider_retry_count = 0_u64;
+            for attempt_index in 0..8 {
+                provider_task.status = AgentTaskStatus::Thinking;
+                provider_task.activity = "waiting for provider response".to_string();
+                provider_task.progress = provider_task.progress.max(20);
+                provider_task.updated_at = Some(now_millis());
+                self.upsert_agent_task(provider_task.clone());
+                let request_messages = self.build_provider_request_messages_for_current_mode(
+                    &context_bundle,
+                    retried_request_too_large,
+                );
+                #[cfg(test)]
+                self.record_context_benchmark_metrics_for_test(
+                    &request_messages,
+                    &context_bundle,
+                    context_build_elapsed,
+                    provider_retry_count,
+                );
+                let request = ModelRequest {
+                    session_id: self.session_id().to_string(),
+                    model: self.provider.model().to_string(),
+                    messages: request_messages,
+                    tools: self.tools.specs(),
+                    work_mode: self.runtime_snapshot.work_mode,
+                    permission_mode: self.permissions.mode(),
+                    permission_level: self.runtime_snapshot.permission_level,
+                };
+                let request_started = Instant::now();
+                let model_events = match self.provider.next_events_with_control(&request, control) {
+                    Ok(events) => {
+                        let usage = aggregate_model_usage(&events);
+                        let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
+                        progress.carry(self.record_cost_usage(provider_attempt_cost_record(
+                            self.provider_name(),
+                            self.model_name(),
+                            attempt_index,
+                            usage.as_ref(),
+                            CostUsageOutcome::Success,
+                            self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
+                        )))?;
+                        self.provider_telemetry.record_success(
+                            request_started.elapsed(),
+                            events.len(),
+                            usage,
                         );
-                        context_bundle = retry_context.bundle;
-                        self.last_context_runtime_events = retry_context.events;
-                        self.last_context_bundle = Some(context_bundle.clone());
-                        if retry_context.hard_exceeded {
-                            return Err(progress.fail(format!(
-                                "context hard limit exceeded during request-too-large recovery: used {} tokens, hard limit {}. reduce input, narrow file scope, or split the task.",
-                                context_bundle.estimated_tokens, context_bundle.hard_token_limit
-                            )));
-                        }
-                        let note =
-                            "Provider request was too large; retrying with compacted context.";
-                        let system_message = Message::new(Role::System, note);
-                        self.messages.push(system_message.clone());
-                        progress.carry(self.store_entry(TranscriptEntry::Message {
-                            message: system_message,
-                        }))?;
-                        progress
-                            .engine_events
-                            .push(EngineEvent::System(note.to_string()));
-                        provider_task.status = AgentTaskStatus::Thinking;
-                        provider_task.activity =
-                            "compacting provider context after request-too-large".to_string();
-                        provider_task.progress = provider_task.progress.max(35);
-                        provider_task
-                            .evidence
-                            .push("provider_retry request_too_large compacted".to_string());
-                        provider_task.updated_at = Some(now_millis());
-                        self.upsert_agent_task(provider_task.clone());
-                        continue;
+                        events
                     }
-                    let rendered_error = self
-                        .provider_model_recovery_prompt(&err)
-                        .map(|hint| format!("{err}\n\n{hint}"))
-                        .unwrap_or_else(|| err.clone());
-                    provider_task.status = AgentTaskStatus::Failed;
-                    provider_task.activity = format!("provider error: {err}");
-                    provider_task.progress = 100;
-                    provider_task.updated_at = Some(now_millis());
-                    provider_task.result = Some(rendered_error.clone());
-                    self.upsert_agent_task(provider_task);
-                    return Err(progress.fail(rendered_error));
-                }
-            };
-            let mut observed_tool_call = false;
-            let mut observed_text = false;
-            for model_event in model_events {
-                match model_event {
-                    ModelEvent::AssistantText { content } => {
-                        if content.trim().is_empty() {
+                    Err(err) => {
+                        let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
+                        progress.carry(self.record_cost_usage(provider_attempt_cost_record(
+                            self.provider_name(),
+                            self.model_name(),
+                            attempt_index,
+                            None,
+                            CostUsageOutcome::Failure,
+                            self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
+                        )))?;
+                        self.provider_telemetry
+                            .record_failure(request_started.elapsed(), &err);
+                        if crate::provider_commands::is_request_too_large_provider_failure(&err)
+                            && !retried_request_too_large
+                        {
+                            retried_request_too_large = true;
+                            provider_retry_count = provider_retry_count.saturating_add(1);
+                            let retry_context = self.materialize_existing_context_bundle(
+                                &context_bundle,
+                                ContextBuildMode::RequestTooLargeRetry,
+                            );
+                            context_bundle = retry_context.bundle;
+                            self.last_context_runtime_events = retry_context.events;
+                            self.last_context_bundle = Some(context_bundle.clone());
+                            if retry_context.hard_exceeded {
+                                return Err(progress.fail(format!(
+                                    "context hard limit exceeded during request-too-large recovery: used {} tokens, hard limit {}. reduce input, narrow file scope, or split the task.",
+                                    context_bundle.estimated_tokens, context_bundle.hard_token_limit
+                                )));
+                            }
+                            let note =
+                                "Provider request was too large; retrying with compacted context.";
+                            let system_message = Message::new(Role::System, note);
+                            self.messages.push(system_message.clone());
+                            progress.carry(self.store_entry(TranscriptEntry::Message {
+                                message: system_message,
+                            }))?;
+                            progress
+                                .engine_events
+                                .push(EngineEvent::System(note.to_string()));
+                            provider_task.status = AgentTaskStatus::Thinking;
+                            provider_task.activity =
+                                "compacting provider context after request-too-large".to_string();
+                            provider_task.progress = provider_task.progress.max(35);
+                            provider_task
+                                .evidence
+                                .push("provider_retry request_too_large compacted".to_string());
+                            provider_task.updated_at = Some(now_millis());
+                            self.upsert_agent_task(provider_task.clone());
                             continue;
                         }
-                        provider_task.status = AgentTaskStatus::Streaming;
-                        provider_task.activity = "streaming assistant response".to_string();
-                        provider_task.progress = provider_task.progress.max(65);
+                        let rendered_error = self
+                            .provider_model_recovery_prompt(&err)
+                            .map(|hint| format!("{err}\n\n{hint}"))
+                            .unwrap_or_else(|| err.clone());
+                        provider_task.status = AgentTaskStatus::Failed;
+                        provider_task.activity = format!("provider error: {err}");
+                        provider_task.progress = 100;
                         provider_task.updated_at = Some(now_millis());
+                        provider_task.result = Some(rendered_error.clone());
                         self.upsert_agent_task(provider_task.clone());
-                        observed_text = true;
-                        let assistant = Message::new(Role::Assistant, &content);
-                        self.messages.push(assistant.clone());
-                        progress.carry(
-                            self.store_entry(TranscriptEntry::Message { message: assistant }),
-                        )?;
-                        progress.engine_events.push(EngineEvent::Assistant(content));
+                        return Err(progress.fail(rendered_error));
                     }
-                    ModelEvent::ToolCall(call) => {
-                        observed_tool_call = true;
-                        provider_task.status = AgentTaskStatus::RunningTool;
-                        provider_task.activity = format!("requested tool `{}`", call.name);
-                        provider_task.progress = provider_task.progress.max(75);
-                        provider_task.updated_at = Some(now_millis());
-                        self.upsert_agent_task(provider_task.clone());
-                        if let Err(failure) = self.handle_tool_call(
-                            call,
-                            approver,
-                            &mut progress,
-                            on_approval_boundary,
-                        ) {
-                            provider_task.status = AgentTaskStatus::Failed;
-                            provider_task.activity =
-                                "provider turn stopped after tool failure".to_string();
-                            provider_task.progress = 100;
+                };
+                let mut observed_tool_call = false;
+                let mut observed_text = false;
+                for model_event in model_events {
+                    match model_event {
+                        ModelEvent::AssistantText { content } => {
+                            if content.trim().is_empty() {
+                                continue;
+                            }
+                            provider_task.status = AgentTaskStatus::Streaming;
+                            provider_task.activity = "streaming assistant response".to_string();
+                            provider_task.progress = provider_task.progress.max(65);
                             provider_task.updated_at = Some(now_millis());
-                            provider_task.result = Some(failure.message.clone());
-                            self.upsert_agent_task(provider_task);
-                            return Err(failure);
+                            self.upsert_agent_task(provider_task.clone());
+                            observed_text = true;
+                            let assistant = Message::new(Role::Assistant, &content);
+                            self.messages.push(assistant.clone());
+                            progress.carry(
+                                self.store_entry(TranscriptEntry::Message { message: assistant }),
+                            )?;
+                            progress.engine_events.push(EngineEvent::Assistant(content));
                         }
+                        ModelEvent::ToolCall(call) => {
+                            observed_tool_call = true;
+                            provider_task.status = AgentTaskStatus::RunningTool;
+                            provider_task.activity = format!("requested tool `{}`", call.name);
+                            provider_task.progress = provider_task.progress.max(75);
+                            provider_task.updated_at = Some(now_millis());
+                            self.upsert_agent_task(provider_task.clone());
+                            let _ = self.handle_tool_call(
+                                call,
+                                approver,
+                                &mut progress,
+                                &mut turn_tasks,
+                                on_approval_boundary,
+                            )?;
+                        }
+                        ModelEvent::Usage(_) => {}
+                        ModelEvent::Done => {}
                     }
-                    ModelEvent::Usage(_) => {}
-                    ModelEvent::Done => {}
+                }
+                if !observed_tool_call || observed_text {
+                    break;
                 }
             }
-            if !observed_tool_call || observed_text {
-                break;
-            }
+            provider_task.status = AgentTaskStatus::Done;
+            provider_task.activity = "provider turn complete".to_string();
+            provider_task.progress = 100;
+            provider_task.updated_at = Some(now_millis());
+            provider_task.result = Some("turn complete".to_string());
+            self.upsert_agent_task(provider_task.clone());
+            Ok(())
+        })();
+
+        if let Err(failure) = turn_result {
+            self.terminalize_failed_turn_tasks(&turn_tasks, &failure.message);
+            return Err(failure);
         }
-        provider_task.status = AgentTaskStatus::Done;
-        provider_task.activity = "provider turn complete".to_string();
-        provider_task.progress = 100;
-        provider_task.updated_at = Some(now_millis());
-        provider_task.result = Some("turn complete".to_string());
-        self.upsert_agent_task(provider_task);
 
         Ok(progress.finish())
+    }
+
+    fn terminalize_failed_turn_tasks(&mut self, turn_tasks: &TurnTaskTracker, message: &str) {
+        // Only task identities registered by this turn are eligible. Tasks
+        // that already reached a terminal state keep their original outcome.
+        for task_id in &turn_tasks.task_ids {
+            let Some(mut task) = self
+                .runtime_tasks
+                .iter()
+                .find(|task| task.id == *task_id)
+                .cloned()
+            else {
+                continue;
+            };
+            if !task.is_active() {
+                continue;
+            }
+            task.status = AgentTaskStatus::Failed;
+            task.activity = "turn stopped before task completion".to_string();
+            task.progress = 100;
+            task.result = Some(message.to_string());
+            task.updated_at = Some(now_millis());
+            self.upsert_agent_task(task);
+        }
     }
 
     fn handle_tool_call<F>(
@@ -483,6 +508,7 @@ impl SessionEngine {
         call: ToolCall,
         approver: &mut F,
         progress: &mut EngineTurnProgress,
+        turn_tasks: &mut TurnTaskTracker,
         on_approval_boundary: &mut Option<&mut dyn FnMut(crate::EngineTurnOutput)>,
     ) -> Result<ToolResult, crate::EngineTurnFailure>
     where
@@ -505,6 +531,7 @@ impl SessionEngine {
             "checking permissions",
             15,
         );
+        turn_tasks.track(&task.id);
         self.upsert_agent_task(task.clone());
         let mut assistant_input = call.input.clone();
         if let Some(reasoning_content) = reasoning_content {
@@ -563,7 +590,7 @@ impl SessionEngine {
 
         match decision {
             PermissionDecision::Allow(allow) => {
-                if let Err(message) = self.store_entry(TranscriptEntry::Permission {
+                progress.carry(self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
@@ -571,12 +598,7 @@ impl SessionEngine {
                         reason: format!("{:?}", allow.decision_reason),
                         message: allow.accept_feedback.clone(),
                     },
-                }) {
-                    terminalize_tool_task_after_audit_failure(
-                        self, &mut task, &call.name, &message,
-                    );
-                    return Err(progress.fail(message));
-                }
+                }))?;
                 // Frontend-active lifetime starts only after the permission
                 // decision is durable, so an append failure cannot orphan it.
                 record_started_tool(progress, &call, &encoded_input);
@@ -645,7 +667,7 @@ impl SessionEngine {
             }
             PermissionDecision::Deny(deny) => {
                 let reason = format!("{:?}", deny.decision_reason);
-                if let Err(message) = self.store_entry(TranscriptEntry::Permission {
+                progress.carry(self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
@@ -653,12 +675,7 @@ impl SessionEngine {
                         reason: reason.clone(),
                         message: Some(deny.message.clone()),
                     },
-                }) {
-                    terminalize_tool_task_after_audit_failure(
-                        self, &mut task, &call.name, &message,
-                    );
-                    return Err(progress.fail(message));
-                }
+                }))?;
                 record_started_tool(progress, &call, &encoded_input);
                 task.status = AgentTaskStatus::Cancelled;
                 task.activity = format!("denied `{}`", call.name);
@@ -736,15 +753,23 @@ impl SessionEngine {
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
         let mut progress = EngineTurnProgress::default();
+        let mut turn_tasks = TurnTaskTracker::default();
         let mut on_approval_boundary = None;
         let call = ToolCall {
             id: fresh_id("tool"),
             name: tool_name.to_string(),
             input,
         };
-        let _ = self
-            .handle_tool_call(call, approver, &mut progress, &mut on_approval_boundary)
-            .map_err(|failure| failure.message)?;
+        if let Err(failure) = self.handle_tool_call(
+            call,
+            approver,
+            &mut progress,
+            &mut turn_tasks,
+            &mut on_approval_boundary,
+        ) {
+            self.terminalize_failed_turn_tasks(&turn_tasks, &failure.message);
+            return Err(failure.message);
+        }
         let output = progress
             .engine_events
             .into_iter()
@@ -774,14 +799,26 @@ impl SessionEngine {
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
         let mut progress = EngineTurnProgress::default();
+        let mut turn_tasks = TurnTaskTracker::default();
         let mut on_approval_boundary = None;
         let call = ToolCall {
             id: fresh_id("tool"),
             name: tool_name.to_string(),
             input,
         };
-        self.handle_tool_call(call, approver, &mut progress, &mut on_approval_boundary)
-            .map_err(|failure| failure.message)
+        match self.handle_tool_call(
+            call,
+            approver,
+            &mut progress,
+            &mut turn_tasks,
+            &mut on_approval_boundary,
+        ) {
+            Ok(result) => Ok(result),
+            Err(failure) => {
+                self.terminalize_failed_turn_tasks(&turn_tasks, &failure.message);
+                Err(failure.message)
+            }
+        }
     }
 }
 
