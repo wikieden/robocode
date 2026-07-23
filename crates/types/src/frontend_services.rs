@@ -43,6 +43,93 @@ pub struct RecentSessionSummary {
     pub command_count: u64,
 }
 
+/// Source-control facts for the current workspace, independent of any client layout.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceSourceView {
+    pub branch: Option<String>,
+    pub worktree: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub added: u32,
+    pub deleted: u32,
+    pub dirty: bool,
+}
+
+/// Closed service families reported by the runtime health projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeServiceKind {
+    Mcp,
+    Lsp,
+}
+
+/// Runtime-owned health classifications; clients must not infer availability from these facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeServiceStatus {
+    Connected,
+    Ready,
+    Degraded,
+    Offline,
+    Unavailable,
+}
+
+/// One service-health fact identified by its service family and stable id.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RuntimeServiceHealthView {
+    pub id: String,
+    pub kind: RuntimeServiceKind,
+    pub label: String,
+    pub status: RuntimeServiceStatus,
+    pub detail_key: Option<String>,
+}
+
+/// Closed workspace change classifications shared by terminal and desktop clients.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Untracked,
+}
+
+/// Owner-bound source change fact. The runtime envelope repeats this owner for validation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceChangeView {
+    pub id: String,
+    pub owner: RuntimeOwner,
+    pub path: String,
+    pub kind: WorkspaceChangeKind,
+    pub patch: Option<String>,
+    pub additions: u32,
+    pub deletions: u32,
+}
+
+/// Closed execution states for a runtime-owned check result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckRunStatus {
+    Queued,
+    Running,
+    Passed,
+    Failed,
+    Cancelled,
+}
+
+/// Owner-bound check fact. Presentation labels and localized copy remain frontend concerns.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CheckRunView {
+    pub id: String,
+    pub owner: RuntimeOwner,
+    pub label: String,
+    pub command: String,
+    pub status: CheckRunStatus,
+    pub summary: String,
+    pub failing_location: Option<String>,
+}
+
 /// Closed starter templates offered by first-run and Lane-creation clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -2,18 +2,19 @@ use crate::{
     AgentAdapterView, AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord,
     AgentSessionInput, AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId,
     AgentTaskRecord, ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk,
-    ApprovalScope, ApprovalTarget, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
-    ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
-    ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
-    ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
-    DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
-    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    ApprovalScope, ApprovalTarget, CheckRunView, ConflictBounce, ContextBudgetRecord,
+    ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord,
+    ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord, ContextScope,
+    ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord,
+    CredentialHandle, DependencyRecord, DependencyState, EvidenceCanonicalizationRecord,
+    EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord,
+    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
     RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner, RuntimeSnapshot,
-    SessionId, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
-    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceEligibility,
+    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner,
+    RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
+    TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
+    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceEligibility, WorkspaceSourceView,
     now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -593,6 +594,18 @@ pub enum RuntimeEventKind {
         sessions: Vec<RecentSessionSummary>,
         diagnostics: Vec<String>,
     },
+    WorkspaceSourceUpdated {
+        source: WorkspaceSourceView,
+    },
+    RuntimeServiceHealthUpdated {
+        service: RuntimeServiceHealthView,
+    },
+    WorkspaceChangeUpdated {
+        change: WorkspaceChangeView,
+    },
+    CheckRunUpdated {
+        check: CheckRunView,
+    },
     StarterLanePreviewed {
         preview: StarterLanePreview,
     },
@@ -777,6 +790,14 @@ pub struct RuntimeViewState {
     pub recent_sessions: Vec<RecentSessionSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_work_diagnostics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_source: Option<WorkspaceSourceView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_services: Vec<RuntimeServiceHealthView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_changes: Vec<WorkspaceChangeView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub check_runs: Vec<CheckRunView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub starter_lane_previews: Vec<StarterLanePreview>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -865,6 +886,10 @@ impl RuntimeViewState {
             recent_projects: Vec::new(),
             recent_sessions: Vec::new(),
             recent_work_diagnostics: Vec::new(),
+            workspace_source: None,
+            runtime_services: Vec::new(),
+            workspace_changes: Vec::new(),
+            check_runs: Vec::new(),
             starter_lane_previews: Vec::new(),
             starter_lane_receipts: Vec::new(),
             project_probe: None,
@@ -928,13 +953,18 @@ impl RuntimeViewState {
             | RuntimeEventKind::AgentSessionUpdated { session }
             | RuntimeEventKind::AgentSessionCompleted { session }
             | RuntimeEventKind::AgentSessionFailed { session } => {
-                // Session identity is stable across local status transitions;
-                // owner changes are protocol violations and never replace it.
-                if self
+                let existing_session = self
                     .agent_sessions
                     .iter()
-                    .find(|existing| existing.session_id == session.session_id)
-                    .is_none_or(|existing| existing.owner == session.owner)
+                    .find(|existing| existing.session_id == session.session_id);
+                let lane_is_unbound = self
+                    .agent_sessions
+                    .iter()
+                    .all(|existing| existing.lane_id != session.lane_id);
+                // A Lane's first session identity is authoritative during replay.
+                // Later sessions cannot silently join or replace that projection.
+                if existing_session.is_some_and(|existing| existing.owner == session.owner)
+                    || (existing_session.is_none() && lane_is_unbound)
                 {
                     upsert_by_id(&mut self.agent_sessions, session.clone(), |existing| {
                         existing.session_id == session.session_id
@@ -987,6 +1017,27 @@ impl RuntimeViewState {
                 self.recent_projects = projects.clone();
                 self.recent_sessions = sessions.clone();
                 self.recent_work_diagnostics = diagnostics.clone();
+            }
+            RuntimeEventKind::WorkspaceSourceUpdated { source } => {
+                self.workspace_source = Some(source.clone());
+            }
+            RuntimeEventKind::RuntimeServiceHealthUpdated { service } => {
+                upsert_by_id(&mut self.runtime_services, service.clone(), |existing| {
+                    existing.kind == service.kind && existing.id == service.id
+                });
+                cap_vec(&mut self.runtime_services);
+            }
+            RuntimeEventKind::WorkspaceChangeUpdated { change } => {
+                upsert_by_id(&mut self.workspace_changes, change.clone(), |existing| {
+                    existing.id == change.id
+                });
+                cap_vec(&mut self.workspace_changes);
+            }
+            RuntimeEventKind::CheckRunUpdated { check } => {
+                upsert_by_id(&mut self.check_runs, check.clone(), |existing| {
+                    existing.id == check.id
+                });
+                cap_vec(&mut self.check_runs);
             }
             RuntimeEventKind::StarterLanePreviewed { preview } => {
                 upsert_by_id(

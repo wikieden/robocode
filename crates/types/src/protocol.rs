@@ -42,6 +42,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.starter_lane_preview",
     "runtime.trust_loop",
     "runtime.workspace_eligibility",
+    "runtime.workspace_facts",
     "ui.preference_persistence",
 ];
 
@@ -143,6 +144,8 @@ impl RuntimeEventEnvelope {
             crate::RuntimeEventKind::StarterLanePreviewed { preview } => Some(&preview.owner),
             crate::RuntimeEventKind::StarterLaneCreated { receipt } => Some(&receipt.owner),
             crate::RuntimeEventKind::StarterLanePreviewInvalidated { owner, .. } => Some(owner),
+            crate::RuntimeEventKind::WorkspaceChangeUpdated { change } => Some(&change.owner),
+            crate::RuntimeEventKind::CheckRunUpdated { check } => Some(&check.owner),
             crate::RuntimeEventKind::LaneRuntimeOwnerBound { binding } => Some(&binding.owner),
             crate::RuntimeEventKind::AgentSessionStarted { session }
             | crate::RuntimeEventKind::AgentSessionUpdated { session }
@@ -315,6 +318,10 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "workspace_eligibility_updated"
             | "ui_preferences_updated"
             | "recent_work_loaded"
+            | "workspace_source_updated"
+            | "runtime_service_health_updated"
+            | "workspace_change_updated"
+            | "check_run_updated"
             | "snapshot_updated"
             | "assistant_delta"
             | "tool_call_started"

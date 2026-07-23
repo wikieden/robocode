@@ -2494,6 +2494,382 @@ fn legacy_runtime_view_without_agent_extensions_defaults_to_empty_collections() 
 }
 
 #[test]
+fn d1_main_cockpit_fixture_replays_workspace_and_service_facts() {
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        initial_snapshot: RuntimeSnapshot,
+        events: Vec<RuntimeEventEnvelope>,
+    }
+
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../tests/fixtures/frontend-contract-v1/d1-main-cockpit.json"
+    ))
+    .unwrap();
+    let encoded = serde_json::to_value(&fixture.events).unwrap();
+    let replayed: Vec<RuntimeEventEnvelope> = serde_json::from_value(encoded).unwrap();
+    assert_eq!(replayed, fixture.events);
+
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            view.apply_event(event);
+        }
+    }
+
+    assert_eq!(
+        view.workspace_source,
+        Some(WorkspaceSourceView {
+            branch: Some("codex/d1-cockpit-core".to_string()),
+            worktree: Some(".worktrees/d1-cockpit-core".to_string()),
+            ahead: 1,
+            behind: 0,
+            added: 3,
+            deleted: 1,
+            dirty: true,
+        })
+    );
+    assert_eq!(view.runtime_services.len(), 2);
+    assert!(view.runtime_services.iter().any(|service| {
+        service.id == "codegraph"
+            && service.kind == RuntimeServiceKind::Mcp
+            && service.status == RuntimeServiceStatus::Connected
+    }));
+    assert!(view.runtime_services.iter().any(|service| {
+        service.id == "rust-analyzer"
+            && service.kind == RuntimeServiceKind::Lsp
+            && service.status == RuntimeServiceStatus::Ready
+    }));
+    assert_eq!(view.workspace_changes.len(), 1);
+    assert_eq!(
+        view.workspace_changes[0].path,
+        "crates/types/src/runtime.rs"
+    );
+    assert_eq!(
+        view.workspace_changes[0].kind,
+        WorkspaceChangeKind::Modified
+    );
+    assert_eq!(view.check_runs.len(), 1);
+    assert_eq!(view.check_runs[0].status, CheckRunStatus::Failed);
+    assert_eq!(
+        view.check_runs[0].failing_location.as_deref(),
+        Some("crates/types/src/tests.rs:2500")
+    );
+}
+
+#[test]
+fn d1_main_cockpit_keeps_one_agent_session_per_lane_projection() {
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        initial_snapshot: RuntimeSnapshot,
+        events: Vec<RuntimeEventEnvelope>,
+    }
+
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../tests/fixtures/frontend-contract-v1/d1-main-cockpit.json"
+    ))
+    .unwrap();
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            view.apply_event(event);
+        }
+    }
+
+    assert_eq!(view.lane_runtime_owners.len(), 1);
+    assert_eq!(view.agent_sessions.len(), 1);
+    let first = view.agent_sessions[0].clone();
+    assert_eq!(first.lane_id, "lane-d1-main");
+    let selected_lane = view
+        .lanes
+        .iter()
+        .find(|lane| lane.id == first.lane_id)
+        .unwrap();
+    assert_eq!(
+        selected_lane.active_session_ids,
+        vec![first.session_id.clone()]
+    );
+    assert_eq!(
+        view.lane_runtime_owners[0].owner.session_id.as_deref(),
+        Some(first.session_id.as_str())
+    );
+
+    let replacement = AgentSessionView {
+        session_id: "agent-session-d1-replacement".to_string(),
+        lane_id: first.lane_id.clone(),
+        agent_id: "replacement-agent".to_string(),
+        model: None,
+        status: AgentSessionStatus::Starting,
+        owner: RuntimeOwner {
+            session_id: Some("agent-session-d1-replacement".to_string()),
+            ..first.owner.clone()
+        },
+        task: "replacement must not join the Lane projection".to_string(),
+        diagnostic: None,
+    };
+    view.apply_event(&RuntimeEvent::new(
+        99,
+        RuntimeEventKind::AgentSessionStarted {
+            session: replacement,
+        },
+    ));
+
+    assert_eq!(view.agent_sessions, vec![first]);
+}
+
+#[test]
+fn d1_workspace_and_service_facts_upsert_by_stable_identity_and_stay_bounded() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-d1".to_string(),
+        project_id: "project-d1".to_string(),
+        lane_id: Some("lane-d1".to_string()),
+        session_id: Some("session-d1".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::WorkspaceSourceUpdated {
+            source: WorkspaceSourceView {
+                branch: Some("main".to_string()),
+                worktree: None,
+                ahead: 0,
+                behind: 0,
+                added: 0,
+                deleted: 0,
+                dirty: false,
+            },
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::WorkspaceSourceUpdated {
+            source: WorkspaceSourceView {
+                branch: Some("codex/d1".to_string()),
+                worktree: Some(".worktrees/d1".to_string()),
+                ahead: 2,
+                behind: 1,
+                added: 4,
+                deleted: 3,
+                dirty: true,
+            },
+        },
+    ));
+    assert_eq!(
+        view.workspace_source.as_ref().unwrap().branch.as_deref(),
+        Some("codex/d1")
+    );
+
+    for kind in [RuntimeServiceKind::Mcp, RuntimeServiceKind::Lsp] {
+        view.apply_event(&RuntimeEvent::new(
+            3,
+            RuntimeEventKind::RuntimeServiceHealthUpdated {
+                service: RuntimeServiceHealthView {
+                    id: "shared-service-id".to_string(),
+                    kind,
+                    label: "shared service id".to_string(),
+                    status: RuntimeServiceStatus::Ready,
+                    detail_key: None,
+                },
+            },
+        ));
+    }
+    assert_eq!(
+        view.runtime_services
+            .iter()
+            .filter(|service| service.id == "shared-service-id")
+            .count(),
+        2
+    );
+
+    for index in 0..=50 {
+        view.apply_event(&RuntimeEvent::new(
+            10 + index,
+            RuntimeEventKind::RuntimeServiceHealthUpdated {
+                service: RuntimeServiceHealthView {
+                    id: format!("service-{index}"),
+                    kind: RuntimeServiceKind::Mcp,
+                    label: format!("service-{index}"),
+                    status: RuntimeServiceStatus::Connected,
+                    detail_key: None,
+                },
+            },
+        ));
+        view.apply_event(&RuntimeEvent::new(
+            100 + index,
+            RuntimeEventKind::WorkspaceChangeUpdated {
+                change: WorkspaceChangeView {
+                    id: format!("change-{index}"),
+                    owner: owner.clone(),
+                    path: format!("src/{index}.rs"),
+                    kind: WorkspaceChangeKind::Modified,
+                    patch: None,
+                    additions: index as u32,
+                    deletions: 0,
+                },
+            },
+        ));
+        view.apply_event(&RuntimeEvent::new(
+            200 + index,
+            RuntimeEventKind::CheckRunUpdated {
+                check: CheckRunView {
+                    id: format!("check-{index}"),
+                    owner: owner.clone(),
+                    label: format!("check-{index}"),
+                    command: "cargo test".to_string(),
+                    status: CheckRunStatus::Passed,
+                    summary: "passed".to_string(),
+                    failing_location: None,
+                },
+            },
+        ));
+    }
+    assert_eq!(view.runtime_services.len(), 50);
+    assert_eq!(view.workspace_changes.len(), 50);
+    assert_eq!(view.check_runs.len(), 50);
+    assert_eq!(view.runtime_services[0].id, "service-1");
+    assert_eq!(view.workspace_changes[0].id, "change-1");
+    assert_eq!(view.check_runs[0].id, "check-1");
+
+    view.apply_event(&RuntimeEvent::new(
+        300,
+        RuntimeEventKind::RuntimeServiceHealthUpdated {
+            service: RuntimeServiceHealthView {
+                id: "service-50".to_string(),
+                kind: RuntimeServiceKind::Mcp,
+                label: "service-50".to_string(),
+                status: RuntimeServiceStatus::Degraded,
+                detail_key: Some("service.degraded".to_string()),
+            },
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        301,
+        RuntimeEventKind::WorkspaceChangeUpdated {
+            change: WorkspaceChangeView {
+                id: "change-50".to_string(),
+                owner: owner.clone(),
+                path: "src/replaced.rs".to_string(),
+                kind: WorkspaceChangeKind::Renamed,
+                patch: Some("rename".to_string()),
+                additions: 1,
+                deletions: 1,
+            },
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        302,
+        RuntimeEventKind::CheckRunUpdated {
+            check: CheckRunView {
+                id: "check-50".to_string(),
+                owner,
+                label: "check-50".to_string(),
+                command: "cargo test -p viden-types".to_string(),
+                status: CheckRunStatus::Failed,
+                summary: "failed".to_string(),
+                failing_location: Some("src/replaced.rs:1".to_string()),
+            },
+        },
+    ));
+    assert_eq!(view.runtime_services.len(), 50);
+    assert_eq!(view.workspace_changes.len(), 50);
+    assert_eq!(view.check_runs.len(), 50);
+    assert_eq!(
+        view.runtime_services
+            .iter()
+            .find(|service| service.id == "service-50" && service.kind == RuntimeServiceKind::Mcp)
+            .unwrap()
+            .status,
+        RuntimeServiceStatus::Degraded
+    );
+    assert_eq!(
+        view.workspace_changes
+            .iter()
+            .find(|change| change.id == "change-50")
+            .unwrap()
+            .path,
+        "src/replaced.rs"
+    );
+    assert_eq!(
+        view.check_runs
+            .iter()
+            .find(|check| check.id == "check-50")
+            .unwrap()
+            .status,
+        CheckRunStatus::Failed
+    );
+}
+
+#[test]
+fn legacy_runtime_view_without_d1_workspace_facts_defaults_to_empty_collections() {
+    let view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    let mut encoded = serde_json::to_value(view).unwrap();
+    let object = encoded.as_object_mut().unwrap();
+    object.remove("workspace_source");
+    object.remove("runtime_services");
+    object.remove("workspace_changes");
+    object.remove("check_runs");
+
+    let decoded: RuntimeViewState = serde_json::from_value(encoded).unwrap();
+
+    assert_eq!(decoded.workspace_source, None);
+    assert!(decoded.runtime_services.is_empty());
+    assert!(decoded.workspace_changes.is_empty());
+    assert!(decoded.check_runs.is_empty());
+}
+
+#[test]
+fn d1_owner_bound_change_and_check_events_reject_mismatched_envelope_owner() {
+    let payload_owner = RuntimeOwner {
+        workspace_id: "workspace-d1".to_string(),
+        project_id: "project-d1".to_string(),
+        lane_id: Some("lane-d1".to_string()),
+        session_id: Some("session-d1".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let envelope_owner = RuntimeOwner {
+        session_id: Some("session-other".to_string()),
+        ..payload_owner.clone()
+    };
+    let events = [
+        RuntimeEventKind::WorkspaceChangeUpdated {
+            change: WorkspaceChangeView {
+                id: "change-d1".to_string(),
+                owner: payload_owner.clone(),
+                path: "src/lib.rs".to_string(),
+                kind: WorkspaceChangeKind::Modified,
+                patch: None,
+                additions: 1,
+                deletions: 0,
+            },
+        },
+        RuntimeEventKind::CheckRunUpdated {
+            check: CheckRunView {
+                id: "check-d1".to_string(),
+                owner: payload_owner,
+                label: "types".to_string(),
+                command: "cargo test -p viden-types".to_string(),
+                status: CheckRunStatus::Failed,
+                summary: "failed".to_string(),
+                failing_location: None,
+            },
+        },
+    ];
+
+    for kind in events {
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: envelope_owner.clone(),
+            cursor: EventCursor {
+                stream_id: "fixture:d1-main-cockpit".to_string(),
+                sequence: 1,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::new(1, kind)),
+        };
+        assert!(serde_json::to_value(envelope).is_err());
+    }
+}
+
+#[test]
 fn runtime_v1_known_event_with_unknown_nested_command_is_preserved() {
     let raw = r#"{
         "sequence": 9,

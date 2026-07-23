@@ -29,9 +29,11 @@ pub use context::{
     ProviderCacheObservationRecord, TokenUsage,
 };
 pub use frontend_services::{
-    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, StarterLanePreset,
+    CheckRunStatus, CheckRunView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
+    RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, StarterLanePreset,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, UiPreferencePatch,
+    StarterLaneRequest, UiPreferencePatch, WorkspaceChangeKind, WorkspaceChangeView,
+    WorkspaceSourceView,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
