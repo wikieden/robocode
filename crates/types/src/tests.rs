@@ -2526,6 +2526,7 @@ fn d1_main_cockpit_fixture_replays_workspace_and_service_facts() {
     assert_eq!(
         view.workspace_source,
         Some(WorkspaceSourceView {
+            status: WorkspaceSourceStatus::Ready,
             branch: Some("codex/d1-cockpit-core".to_string()),
             worktree: Some(".worktrees/d1-cockpit-core".to_string()),
             ahead: 1,
@@ -2561,6 +2562,14 @@ fn d1_main_cockpit_fixture_replays_workspace_and_service_facts() {
         view.check_runs[0].failing_location.as_deref(),
         Some("crates/types/src/tests.rs:2500")
     );
+}
+
+#[test]
+fn d1_main_cockpit_fixture_uses_only_the_canonical_cockpit_capability() {
+    let fixture = include_str!("../tests/fixtures/frontend-contract-v1/d1-main-cockpit.json");
+
+    assert!(fixture.contains("\"runtime.cockpit_context_v1\""));
+    assert!(!fixture.contains("runtime.workspace_facts"));
 }
 
 #[test]
@@ -2780,6 +2789,7 @@ fn d1_workspace_and_service_facts_upsert_by_stable_identity_and_stay_bounded() {
         1,
         RuntimeEventKind::WorkspaceSourceUpdated {
             source: WorkspaceSourceView {
+                status: WorkspaceSourceStatus::Ready,
                 branch: Some("main".to_string()),
                 worktree: None,
                 ahead: 0,
@@ -2794,6 +2804,7 @@ fn d1_workspace_and_service_facts_upsert_by_stable_identity_and_stay_bounded() {
         2,
         RuntimeEventKind::WorkspaceSourceUpdated {
             source: WorkspaceSourceView {
+                status: WorkspaceSourceStatus::Ready,
                 branch: Some("codex/d1".to_string()),
                 worktree: Some(".worktrees/d1".to_string()),
                 ahead: 2,
@@ -2946,6 +2957,69 @@ fn d1_workspace_and_service_facts_upsert_by_stable_identity_and_stay_bounded() {
             .unwrap()
             .status,
         CheckRunStatus::Failed
+    );
+}
+
+#[test]
+fn d1_change_and_check_identity_is_scoped_by_runtime_owner() {
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    let owner_a = RuntimeOwner {
+        workspace_id: "workspace-a".to_string(),
+        project_id: "project-a".to_string(),
+        lane_id: Some("lane-a".to_string()),
+        session_id: Some("session-a".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let owner_b = RuntimeOwner {
+        workspace_id: "workspace-b".to_string(),
+        project_id: "project-b".to_string(),
+        lane_id: Some("lane-b".to_string()),
+        session_id: Some("session-b".to_string()),
+        ..RuntimeOwner::default()
+    };
+
+    for owner in [owner_a.clone(), owner_b.clone()] {
+        view.apply_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::WorkspaceChangeUpdated {
+                change: WorkspaceChangeView {
+                    id: "shared-tool-id".to_string(),
+                    owner: owner.clone(),
+                    path: format!("{}/src/lib.rs", owner.workspace_id),
+                    kind: WorkspaceChangeKind::Modified,
+                    patch: None,
+                    additions: 1,
+                    deletions: 0,
+                },
+            },
+        ));
+        view.apply_event(&RuntimeEvent::new(
+            2,
+            RuntimeEventKind::CheckRunUpdated {
+                check: CheckRunView {
+                    id: "shared-tool-id".to_string(),
+                    owner,
+                    label: "cargo test".to_string(),
+                    command: "cargo test".to_string(),
+                    status: CheckRunStatus::Passed,
+                    summary: "passed".to_string(),
+                    failing_location: None,
+                },
+            },
+        ));
+    }
+
+    assert_eq!(view.workspace_changes.len(), 2);
+    assert_eq!(view.check_runs.len(), 2);
+    assert!(
+        view.workspace_changes
+            .iter()
+            .any(|change| change.owner == owner_a)
+    );
+    assert!(
+        view.workspace_changes
+            .iter()
+            .any(|change| change.owner == owner_b)
     );
 }
 

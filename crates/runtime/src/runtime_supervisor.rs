@@ -20,6 +20,7 @@ use viden_types::{
     RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, WorkMode, fresh_id,
     now_timestamp,
 };
+use viden_workflows::stores::WorkflowStore;
 
 use crate::{
     RuntimeEventSink, SessionEngine,
@@ -264,9 +265,8 @@ struct RuntimeEventBus {
 struct RuntimeEventState {
     journal: RuntimeEventJournal,
     live_view: RuntimeViewState,
-    // ACP bindings recover from durable AgentSession facts. Native bindings
-    // remain process-local until the schema gains a durable Lane-agent field.
     lane_agent_bindings: BTreeMap<String, LaneAgentExecutionBinding>,
+    lane_agent_store: Option<WorkflowStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -468,28 +468,69 @@ impl RuntimeSupervisor {
         let approval_timers = Arc::new(ApprovalTimerRegistry::default());
         let worker_alive = Arc::new(AtomicBool::new(true));
         let live_view = engine.runtime_view_state();
-        let lane_agent_bindings = live_view
-            .agent_sessions
-            .iter()
-            .map(|session| {
-                (
-                    session.lane_id.clone(),
-                    LaneAgentExecutionBinding {
-                        lane_id: session.lane_id.clone(),
-                        agent_id: session.agent_id.clone(),
-                        session_id: session.session_id.clone(),
-                    },
-                )
-            })
-            .collect();
+        let lane_agent_store = engine.workflow_store();
+        let mut lane_agent_hydration_error = None;
+        let mut lane_agent_bindings = match lane_agent_store.load_lane_state() {
+            Ok(state) => state
+                .agent_bindings()
+                .values()
+                .map(|binding| {
+                    (
+                        binding.lane_id.clone(),
+                        LaneAgentExecutionBinding {
+                            lane_id: binding.lane_id.clone(),
+                            agent_id: binding.agent_id.clone(),
+                            session_id: binding.session_id.clone(),
+                        },
+                    )
+                })
+                .collect::<BTreeMap<_, _>>(),
+            Err(error) => {
+                lane_agent_hydration_error =
+                    Some(format!("failed to hydrate Lane-agent bindings: {error}"));
+                BTreeMap::new()
+            }
+        };
+        for session in &live_view.agent_sessions {
+            let recovered = LaneAgentExecutionBinding {
+                lane_id: session.lane_id.clone(),
+                agent_id: session.agent_id.clone(),
+                session_id: session.session_id.clone(),
+            };
+            if let Some(existing) = lane_agent_bindings.get(&session.lane_id) {
+                if existing.agent_id != recovered.agent_id
+                    || existing.session_id != recovered.session_id
+                {
+                    lane_agent_hydration_error = Some(format!(
+                        "conflicting durable Lane-agent bindings for lane `{}`: agent `{}` session `{}` versus agent `{}` session `{}`",
+                        session.lane_id,
+                        existing.agent_id,
+                        existing.session_id,
+                        recovered.agent_id,
+                        recovered.session_id
+                    ));
+                }
+            } else {
+                lane_agent_bindings.insert(session.lane_id.clone(), recovered);
+            }
+        }
         let event_bus = RuntimeEventBus {
             sender: event_sender,
             state: Arc::new(Mutex::new(RuntimeEventState {
                 journal: RuntimeEventJournal::default_with_stream(fresh_id("runtime-stream")),
                 live_view,
                 lane_agent_bindings,
+                lane_agent_store: Some(lane_agent_store),
             })),
         };
+        emit_frontend_status_events_if_changed(
+            &event_bus,
+            RuntimeOwner::default(),
+            engine.frontend_status_lifecycle_events(),
+        );
+        if let Some(error) = lane_agent_hydration_error {
+            emit_error(&event_bus, RuntimeOwner::default(), error);
+        }
 
         let lane_repo = engine.cwd().to_path_buf();
         let lane_persistence = lane_persistence.unwrap_or_else(|| {
@@ -1656,12 +1697,13 @@ fn run_supervisor_worker(
                 );
             }
             SupervisorMessage::Snapshot { response } => {
-                let status_events = engine.frontend_status_lifecycle_events();
+                emit_frontend_status_events_if_changed(
+                    &event_bus,
+                    RuntimeOwner::default(),
+                    engine.frontend_status_lifecycle_events(),
+                );
                 let envelope = match event_bus.state.lock() {
-                    Ok(mut state) => {
-                        for event in &status_events {
-                            state.live_view.apply_event(event);
-                        }
+                    Ok(state) => {
                         // Cursor and live projection share one lock so a
                         // reconnect cannot pair a newer transient event with
                         // an older snapshot boundary.
@@ -2357,14 +2399,92 @@ fn lane_agent_session_binding(
     event_bus: &RuntimeEventBus,
     owner: &RuntimeOwner,
 ) -> Result<Option<LaneAgentExecutionBinding>, String> {
-    let Some(lane_id) = owner.lane_id.as_deref() else {
+    let Some(lane_id) = owner.lane_id.clone() else {
         return Ok(None);
     };
-    event_bus
+    let (store, cached) = event_bus
         .state
         .lock()
         .map_err(|_| "runtime event state poisoned".to_string())
-        .map(|state| state.lane_agent_bindings.get(lane_id).cloned())
+        .map(|state| {
+            (
+                state.lane_agent_store.clone(),
+                state.lane_agent_bindings.get(&lane_id).cloned(),
+            )
+        })?;
+    let Some(store) = store else {
+        return Ok(cached);
+    };
+    let durable = store
+        .load_lane_state()
+        .map_err(|error| format!("failed to revalidate Lane-agent binding: {error}"))?
+        .agent_binding(&lane_id)
+        .map(|binding| LaneAgentExecutionBinding {
+            lane_id: binding.lane_id.clone(),
+            agent_id: binding.agent_id.clone(),
+            session_id: binding.session_id.clone(),
+        });
+    let Some(durable) = durable else {
+        return Ok(cached);
+    };
+    if let Some(cached) = cached
+        && (cached.agent_id != durable.agent_id || cached.session_id != durable.session_id)
+    {
+        return Err(format!(
+            "conflicting Lane-agent binding for lane `{lane_id}`: cached agent `{}` session `{}` versus durable agent `{}` session `{}`",
+            cached.agent_id, cached.session_id, durable.agent_id, durable.session_id
+        ));
+    }
+    event_bus
+        .state
+        .lock()
+        .map_err(|_| "runtime event state poisoned".to_string())?
+        .lane_agent_bindings
+        .insert(lane_id, durable.clone());
+    Ok(Some(durable))
+}
+
+fn reserve_lane_agent_session_binding(
+    event_bus: &RuntimeEventBus,
+    lane_id: &str,
+    agent_id: &str,
+    session_id: &str,
+) -> Result<LaneAgentExecutionBinding, String> {
+    let store = event_bus
+        .state
+        .lock()
+        .map_err(|_| "runtime event state poisoned".to_string())?
+        .lane_agent_store
+        .clone();
+    let binding = if let Some(store) = store {
+        store
+            .bind_lane_agent_once(lane_id, agent_id, session_id, now_timestamp())
+            .map(|binding| LaneAgentExecutionBinding {
+                lane_id: binding.lane_id,
+                agent_id: binding.agent_id,
+                session_id: binding.session_id,
+            })
+            .map_err(|error| format!("lane_already_bound_to_agent_session: {error}"))?
+    } else {
+        LaneAgentExecutionBinding {
+            lane_id: lane_id.to_string(),
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
+        }
+    };
+    let mut state = event_bus
+        .state
+        .lock()
+        .map_err(|_| "runtime event state poisoned".to_string())?;
+    if let Some(existing) = state.lane_agent_bindings.get(lane_id)
+        && (existing.agent_id != binding.agent_id || existing.session_id != binding.session_id)
+    {
+        return Err(lane_agent_session_binding_rejection(existing));
+    }
+    state
+        .lane_agent_bindings
+        .insert(lane_id.to_string(), binding.clone());
+    Ok(binding)
 }
 
 fn lane_agent_session_binding_rejection(binding: &LaneAgentExecutionBinding) -> String {
@@ -2442,6 +2562,19 @@ fn run_supervised_agent_session(
         session_id: Some(session_id.clone()),
         ..owner
     };
+    if let Err(reason) = reserve_lane_agent_session_binding(
+        event_bus,
+        &request.lane_id,
+        &request.agent_id,
+        &session_id,
+    ) {
+        emit_event(
+            event_bus,
+            session_owner,
+            RuntimeEventKind::CommandRejected { command_id, reason },
+        );
+        return;
+    }
     let control = ModelRequestControl::new();
     if let Err(error) = acquire_active_agent_session(
         active_control,
@@ -3024,6 +3157,19 @@ fn run_supervised_input(
             return;
         }
     }
+    if let Some(lane_id) = owner.lane_id.as_deref() {
+        let session_id = owner.session_id.as_deref().unwrap_or(engine.session_id());
+        if let Err(reason) =
+            reserve_lane_agent_session_binding(event_bus, lane_id, "viden", session_id)
+        {
+            emit_event(
+                event_bus,
+                owner,
+                RuntimeEventKind::CommandRejected { command_id, reason },
+            );
+            return;
+        }
+    }
     let control = ModelRequestControl::new();
     if let Err(err) = acquire_active_job(
         active_control,
@@ -3108,8 +3254,13 @@ fn run_supervised_input(
             owner.clone(),
             engine.runtime_events_for_engine_events(&events),
         ),
-        Err(err) => emit_error(event_bus, owner, err),
+        Err(err) => emit_error(event_bus, owner.clone(), err),
     }
+    emit_frontend_status_events_if_changed(
+        event_bus,
+        owner,
+        engine.frontend_status_lifecycle_events(),
+    );
 }
 
 fn approval_request_view(
@@ -3178,6 +3329,33 @@ fn emit_events(bus: &RuntimeEventBus, owner: RuntimeOwner, events: Vec<RuntimeEv
     }
 }
 
+fn emit_frontend_status_events_if_changed(
+    bus: &RuntimeEventBus,
+    owner: RuntimeOwner,
+    events: Vec<RuntimeEvent>,
+) {
+    for event in events {
+        let unchanged = bus
+            .state
+            .lock()
+            .ok()
+            .is_some_and(|state| match &event.kind {
+                RuntimeEventKind::WorkspaceSourceUpdated { source } => {
+                    state.live_view.workspace_source.as_ref() == Some(source)
+                }
+                RuntimeEventKind::RuntimeServiceHealthUpdated { service } => state
+                    .live_view
+                    .runtime_services
+                    .iter()
+                    .any(|existing| existing == service),
+                _ => false,
+            });
+        if !unchanged {
+            emit_known_event(bus, owner.clone(), event);
+        }
+    }
+}
+
 fn emit_error(bus: &RuntimeEventBus, owner: RuntimeOwner, message: String) {
     emit_event(
         bus,
@@ -3213,58 +3391,11 @@ fn emit_known_event(bus: &RuntimeEventBus, owner: RuntimeOwner, event: RuntimeEv
         event: RuntimeWireEvent::Known(event),
     });
     if let RuntimeWireEvent::Known(event) = &envelope.event {
-        record_lane_agent_binding(&mut state.lane_agent_bindings, &envelope.owner, event);
         state.live_view.apply_event(event);
     }
     // The send remains inside the journal critical section so concurrent
     // producers cannot make a later envelope visible first.
     let _ = bus.sender.send(envelope);
-}
-
-fn record_lane_agent_binding(
-    bindings: &mut BTreeMap<String, LaneAgentExecutionBinding>,
-    owner: &RuntimeOwner,
-    event: &RuntimeEvent,
-) {
-    let binding = match &event.kind {
-        RuntimeEventKind::CommandAccepted {
-            command: RuntimeCommand::SubmitUserInput { .. },
-            command_id,
-        } => owner
-            .lane_id
-            .as_ref()
-            .map(|lane_id| LaneAgentExecutionBinding {
-                lane_id: lane_id.clone(),
-                agent_id: "viden".to_string(),
-                session_id: owner
-                    .session_id
-                    .clone()
-                    .unwrap_or_else(|| command_id.clone()),
-            }),
-        RuntimeEventKind::CommandAccepted {
-            command: RuntimeCommand::StartAgentSession { request },
-            ..
-        } => owner
-            .session_id
-            .as_ref()
-            .map(|session_id| LaneAgentExecutionBinding {
-                lane_id: request.lane_id.clone(),
-                agent_id: request.agent_id.clone(),
-                session_id: session_id.clone(),
-            }),
-        RuntimeEventKind::AgentSessionStarted { session }
-        | RuntimeEventKind::AgentSessionUpdated { session }
-        | RuntimeEventKind::AgentSessionCompleted { session }
-        | RuntimeEventKind::AgentSessionFailed { session } => Some(LaneAgentExecutionBinding {
-            lane_id: session.lane_id.clone(),
-            agent_id: session.agent_id.clone(),
-            session_id: session.session_id.clone(),
-        }),
-        _ => None,
-    };
-    if let Some(binding) = binding {
-        bindings.entry(binding.lane_id.clone()).or_insert(binding);
-    }
 }
 
 #[cfg(test)]
@@ -3300,6 +3431,7 @@ mod contract_freeze_tests {
                 journal: RuntimeEventJournal::default_with_stream("fixture:frontend-host-services"),
                 live_view: RuntimeViewState::new(snapshot.clone()),
                 lane_agent_bindings: BTreeMap::new(),
+                lane_agent_store: None,
             })),
         };
         let owner = RuntimeOwner {

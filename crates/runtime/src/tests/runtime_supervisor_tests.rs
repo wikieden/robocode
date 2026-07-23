@@ -205,11 +205,15 @@ fn runtime_supervisor_envelopes_are_contiguous_owned_and_replayable_before_visib
         })
         .unwrap();
 
-    let first = supervisor
-        .recv_event_envelope_timeout(Duration::from_secs(2))
-        .expect("first event envelope");
+    let first = loop {
+        let envelope = supervisor
+            .recv_event_envelope_timeout(Duration::from_secs(2))
+            .expect("first owner-scoped event envelope");
+        if envelope.owner == owner {
+            break envelope;
+        }
+    };
     assert_eq!(first.owner, owner);
-    assert_eq!(first.cursor.sequence, 1);
     assert_eq!(
         match &first.event {
             RuntimeWireEvent::Known(event) => event.sequence,
@@ -227,13 +231,18 @@ fn runtime_supervisor_envelopes_are_contiguous_owned_and_replayable_before_visib
             limit: 10,
         })
         .unwrap();
-    assert_eq!(replay.events.first(), Some(&first));
+    assert!(replay.events.contains(&first));
 
-    let second = supervisor
-        .recv_event_envelope_timeout(Duration::from_secs(2))
-        .expect("second event envelope");
+    let second = loop {
+        let envelope = supervisor
+            .recv_event_envelope_timeout(Duration::from_secs(2))
+            .expect("second owner-scoped event envelope");
+        if envelope.owner == owner {
+            break envelope;
+        }
+    };
     assert_eq!(second.owner, owner);
-    assert_eq!(second.cursor.sequence, 2);
+    assert_eq!(second.cursor.sequence, first.cursor.sequence + 1);
     assert_eq!(
         match &second.event {
             RuntimeWireEvent::Known(event) => event.sequence,
@@ -254,9 +263,20 @@ fn runtime_supervisor_snapshot_pairs_transient_live_view_with_exact_cursor() {
     supervisor
         .send_command("cmd-no-active", RuntimeCommand::CancelActiveTurn)
         .unwrap();
-    let event = supervisor
-        .recv_event_envelope_timeout(Duration::from_secs(2))
-        .expect("transient command rejection");
+    let event = loop {
+        let envelope = supervisor
+            .recv_event_envelope_timeout(Duration::from_secs(2))
+            .expect("transient command rejection");
+        if matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                ..
+            }) if command_id == "cmd-no-active"
+        ) {
+            break envelope;
+        }
+    };
     assert!(matches!(
         &event.event,
         RuntimeWireEvent::Known(RuntimeEvent {
@@ -309,6 +329,11 @@ fn runtime_supervisor_transport_receive_distinguishes_timeout_from_stopped_worke
     let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
+    while supervisor
+        .recv_event_envelope(Duration::from_millis(1))
+        .unwrap()
+        .is_some()
+    {}
     assert_eq!(
         supervisor
             .recv_event_envelope(Duration::from_millis(1))

@@ -42,7 +42,7 @@ pub use viden_types::{
     TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
     UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
     UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility,
-    WorkspaceSourceView,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.

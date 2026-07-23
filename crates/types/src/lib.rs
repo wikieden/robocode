@@ -33,7 +33,7 @@ pub use frontend_services::{
     RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, StarterLanePreset,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
     StarterLaneRequest, UiPreferencePatch, WorkspaceChangeKind, WorkspaceChangeView,
-    WorkspaceSourceView,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{

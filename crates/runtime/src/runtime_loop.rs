@@ -411,21 +411,34 @@ impl SessionEngine {
                     exit_code: result.exit_code,
                 });
                 let unbound_owner = viden_types::RuntimeOwner::default();
-                events.extend(
+                let mut cockpit_events =
                     crate::frontend_status::workspace_changes_from_tool_result(
                         &call,
                         &result,
                         &unbound_owner,
                     )
                     .into_iter()
-                    .map(EngineEvent::WorkspaceChange),
-                );
+                    .map(|change| {
+                        viden_types::RuntimeEvent::new(
+                            0,
+                            viden_types::RuntimeEventKind::WorkspaceChangeUpdated { change },
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 if let Some(check) = crate::frontend_status::check_run_from_tool_result(
                     &call,
                     &result,
                     &unbound_owner,
                 ) {
-                    events.push(EngineEvent::CheckRun(check));
+                    cockpit_events.push(viden_types::RuntimeEvent::new(
+                        0,
+                        viden_types::RuntimeEventKind::CheckRunUpdated { check },
+                    ));
+                }
+                if !cockpit_events.is_empty()
+                    && let Some(sink) = self.runtime_event_sink()
+                {
+                    sink(cockpit_events);
                 }
                 if let Some(message) = post_edit_diagnostics {
                     let system_message = Message::new(Role::System, message.clone());
@@ -542,9 +555,7 @@ impl SessionEngine {
                 | EngineEvent::Assistant(text)
                 | EngineEvent::Command(text) => Some(text),
                 EngineEvent::ToolResult { output, .. } => Some(output),
-                EngineEvent::ToolCall(_)
-                | EngineEvent::WorkspaceChange(_)
-                | EngineEvent::CheckRun(_) => None,
+                EngineEvent::ToolCall(_) => None,
             })
             .collect::<Vec<_>>()
             .join("\n");

@@ -1,9 +1,9 @@
 use super::*;
 use crate::frontend_status::{
     MAX_COCKPIT_PATCH_BYTES, check_run_from_tool_result, runtime_service_health,
-    sample_workspace_source, workspace_changes_from_tool_result,
+    sample_workspace_source, sample_workspace_source_with_git, workspace_changes_from_tool_result,
 };
-use crate::{RuntimeSupervisor, SessionEngine};
+use crate::{EngineEvent, RuntimeSupervisor, SessionEngine};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -18,7 +18,7 @@ use viden_types::{
     RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState, RuntimeWireEvent, SessionMetaEntry,
     StarterLanePreset, StarterLanePreviewInvalidationReason, StarterLaneRequest, ToolCall,
     ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
-    UiPreferences, UiSkin, WorkMode,
+    UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::lane_runtime::{
@@ -26,6 +26,24 @@ use crate::lane_runtime::{
 };
 use crate::lane_supervisor::LanePersistence;
 use viden_workflows::lanes::LaneEvent;
+
+#[test]
+fn frontend_status_preserves_the_legacy_public_engine_event_surface() {
+    fn legacy_event_kind(event: EngineEvent) -> &'static str {
+        match event {
+            EngineEvent::System(_) => "system",
+            EngineEvent::Assistant(_) => "assistant",
+            EngineEvent::ToolCall(_) => "tool_call",
+            EngineEvent::ToolResult { .. } => "tool_result",
+            EngineEvent::Command(_) => "command",
+        }
+    }
+
+    assert_eq!(
+        legacy_event_kind(EngineEvent::System("ready".to_string())),
+        "system"
+    );
+}
 
 #[test]
 fn frontend_status_git_sampling_is_read_only_and_missing_git_is_not_clean() {
@@ -36,10 +54,11 @@ fn frontend_status_git_sampling_is_read_only_and_missing_git_is_not_clean() {
     }
     let before = run_git(&repo, &["status", "--porcelain=v1", "--branch"]);
 
-    let source = sample_workspace_source(&repo).expect("Git workspace should produce source facts");
+    let source = sample_workspace_source(&repo);
 
     let after = run_git(&repo, &["status", "--porcelain=v1", "--branch"]);
     assert_eq!(after, before, "source inspection must not mutate Git state");
+    assert_eq!(source.status, WorkspaceSourceStatus::Ready);
     assert_eq!(source.branch.as_deref(), Some("main"));
     assert!(source.worktree.is_some());
     assert!(source.dirty);
@@ -47,7 +66,95 @@ fn frontend_status_git_sampling_is_read_only_and_missing_git_is_not_clean() {
     assert_eq!(source.behind, 0);
 
     let non_repo = temp_dir("frontend_status_missing_git");
-    assert_eq!(sample_workspace_source(&non_repo), None);
+    let unavailable = sample_workspace_source(&non_repo);
+    assert_eq!(unavailable.status, WorkspaceSourceStatus::Unavailable);
+    assert_eq!(unavailable.dirty, false);
+}
+
+#[test]
+fn frontend_status_git_sampling_is_time_and_memory_bounded_and_marks_truncation() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cwd = temp_dir("frontend_status_bounded_git");
+    let fake_git = cwd.join("fake-git");
+    fs::write(
+        &fake_git,
+        r#"#!/bin/sh
+[ "$GIT_OPTIONAL_LOCKS" = "0" ] || exit 9
+case "$*" in
+  *"rev-parse --show-toplevel"*) printf '%s\n' "$PWD" ;;
+  *"symbolic-ref --quiet --short HEAD"*) printf 'main\n' ;;
+  *"status --porcelain=v1"*)
+    (sleep 5) &
+    i=0
+    while [ "$i" -lt 100000 ]; do
+      printf ' M file-%s\n' "$i"
+      i=$((i + 1))
+    done
+    sleep 5
+    ;;
+  *"rev-list --left-right --count"*) printf '0 0\n' ;;
+  *"diff --no-ext-diff --no-textconv --numstat"*) printf '1\t0\tREADME.md\n' ;;
+  *) exit 8 ;;
+esac
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&fake_git).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_git, permissions).unwrap();
+
+    let started = Instant::now();
+    let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_millis(100));
+
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(source.status, WorkspaceSourceStatus::Truncated);
+    assert_eq!(source.added, 0, "partial totals must not be published");
+    assert_eq!(source.deleted, 0, "partial totals must not be published");
+}
+
+#[test]
+fn frontend_status_git_totals_cover_all_rows_without_a_row_cap() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cwd = temp_dir("frontend_status_complete_git_totals");
+    let fake_git = cwd.join("fake-git");
+    fs::write(
+        &fake_git,
+        r#"#!/bin/sh
+[ "$GIT_OPTIONAL_LOCKS" = "0" ] || exit 9
+case "$*" in
+  *"rev-parse --show-toplevel"*) printf '%s\n' "$PWD" ;;
+  *"symbolic-ref --quiet --short HEAD"*) printf 'main\n' ;;
+  *"status --porcelain=v1"*) printf ' M README.md\n' ;;
+  *"rev-list --left-right --count"*) printf '2 3\n' ;;
+  *"diff --no-ext-diff --no-textconv --numstat"*)
+    i=0
+    while [ "$i" -lt 75 ]; do
+      if [ "$i" -eq 0 ]; then
+        printf '1000001\t2\tfile-%s\n' "$i"
+      else
+        printf '1\t2\tfile-%s\n' "$i"
+      fi
+      i=$((i + 1))
+    done
+    ;;
+  *) exit 8 ;;
+esac
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&fake_git).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_git, permissions).unwrap();
+
+    let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(1));
+
+    assert_eq!(source.status, WorkspaceSourceStatus::Ready);
+    assert_eq!(source.ahead, 2);
+    assert_eq!(source.behind, 3);
+    assert_eq!(source.added, 1_000_075);
+    assert_eq!(source.deleted, 150);
 }
 
 #[test]
@@ -154,6 +261,28 @@ fn frontend_status_structured_tool_results_are_owner_bound_and_bounded() {
             .unwrap()
             .contains("rendered output")
     );
+    assert_eq!(
+        changes[0].additions, 20_000,
+        "counts must come from the complete structured diff before display truncation"
+    );
+
+    let mut write_input = viden_types::ToolInput::new();
+    write_input.insert("path".to_string(), "existing.txt".to_string());
+    let write_call = ToolCall {
+        id: "tool-write-existing".to_string(),
+        name: "write_file".to_string(),
+        input: write_input,
+    };
+    let write_result = ToolResult {
+        tool_call_id: write_call.id.clone(),
+        name: write_call.name.clone(),
+        output: String::new(),
+        diff: Some("--- before\n+++ after\n+replacement\n".to_string()),
+        success: true,
+        exit_code: None,
+    };
+    let conservative = workspace_changes_from_tool_result(&write_call, &write_result, &owner);
+    assert_eq!(conservative[0].kind, WorkspaceChangeKind::Modified);
 
     let mut check_input = viden_types::ToolInput::new();
     check_input.insert(
@@ -207,13 +336,29 @@ fn frontend_status_snapshot_and_replay_have_the_same_cockpit_hash() {
     let supervisor = RuntimeSupervisor::start(engine);
 
     let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert!(
+        snapshot.cursor.sequence > 0,
+        "snapshot sampling must be ordered through the runtime journal"
+    );
     let replay = supervisor
         .replay_events(ReplayRequest {
-            after: snapshot.cursor.clone(),
+            after: EventCursor {
+                stream_id: snapshot.cursor.stream_id.clone(),
+                sequence: 0,
+            },
             limit: 100,
         })
         .unwrap();
-    let mut replayed = snapshot.view.clone();
+    assert!(replay.events.iter().any(|envelope| {
+        matches!(
+            envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceSourceUpdated { .. },
+                ..
+            })
+        )
+    }));
+    let mut replayed = RuntimeViewState::new(snapshot.view.snapshot.clone());
     for envelope in replay.events {
         if let RuntimeWireEvent::Known(event) = envelope.event {
             replayed.apply_event(&event);
@@ -236,6 +381,35 @@ fn frontend_status_snapshot_and_replay_have_the_same_cockpit_hash() {
     assert_eq!(
         Sha256::digest(live_cockpit),
         Sha256::digest(replayed_cockpit)
+    );
+}
+
+#[test]
+fn frontend_status_later_git_failure_replaces_stale_ready_source() {
+    let repo = starter_lane_repo("frontend_status_source_replacement");
+    let home = temp_dir("frontend_status_source_replacement_home");
+    let engine =
+        SessionEngine::new_with_home(&repo, Box::new(SequenceProvider::new(vec![])), Some(home))
+            .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    let ready = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(
+        ready.view.workspace_source.as_ref().unwrap().status,
+        WorkspaceSourceStatus::Ready
+    );
+    fs::rename(repo.join(".git"), repo.join(".git-offline")).unwrap();
+
+    let unavailable = supervisor.snapshot_envelope().unwrap();
+
+    assert!(unavailable.cursor.sequence > ready.cursor.sequence);
+    assert_eq!(
+        unavailable.view.workspace_source.as_ref().unwrap().status,
+        WorkspaceSourceStatus::Unavailable
+    );
+    assert_eq!(
+        unavailable.view.workspace_source.as_ref().unwrap().branch,
+        None
     );
 }
 
@@ -346,6 +520,212 @@ fn frontend_status_supervisor_rejects_a_second_agent_binding_for_one_lane() {
 }
 
 #[test]
+fn frontend_status_native_lane_binding_survives_core_restart() {
+    let cwd = temp_dir("frontend_status_native_binding_restart");
+    let home = temp_dir("frontend_status_native_binding_restart_home");
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-agent-restart".to_string(),
+        project_id: "project-agent-restart".to_string(),
+        lane_id: Some("lane-agent-restart".to_string()),
+        session_id: Some("session-native-restart".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(vec![vec![
+            viden_types::ModelEvent::Done,
+        ]])),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let first = RuntimeSupervisor::start(engine);
+    first
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-bind-before-restart",
+            RuntimeCommand::SubmitUserInput {
+                content: "bind native Viden".to_string(),
+            },
+        )
+        .unwrap();
+    collect_starter_envelopes_until(&first, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::TaskUpdated { task },
+                    ..
+                }) if task.status == viden_types::AgentTaskStatus::Done
+            )
+        })
+    });
+    drop(first);
+
+    let restarted = RuntimeSupervisor::start(
+        SessionEngine::new_with_home(&cwd, Box::new(SequenceProvider::new(vec![])), Some(home))
+            .unwrap(),
+    );
+    restarted
+        .send_command_from_owner(
+            owner,
+            "cmd-rebind-after-restart",
+            RuntimeCommand::StartAgentSession {
+                request: viden_types::AgentSessionRequest {
+                    lane_id: "lane-agent-restart".to_string(),
+                    agent_id: "codex-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "must remain rejected after restart".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&restarted, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                    ..
+                }) if command_id == "cmd-rebind-after-restart"
+                    && reason.starts_with("lane_already_bound_to_agent_session")
+            )
+        })
+    });
+    assert!(events.iter().all(|envelope| {
+        !matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                ..
+            }) if command_id == "cmd-rebind-after-restart"
+        )
+    }));
+}
+
+#[test]
+fn frontend_status_native_lane_binding_without_owner_session_uses_runtime_session() {
+    let cwd = temp_dir("frontend_status_native_binding_runtime_session");
+    let home = temp_dir("frontend_status_native_binding_runtime_session_home");
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(vec![
+            vec![viden_types::ModelEvent::Done],
+            vec![viden_types::ModelEvent::Done],
+        ])),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-native-session".to_string(),
+        project_id: "project-native-session".to_string(),
+        lane_id: Some("lane-native-session".to_string()),
+        ..RuntimeOwner::default()
+    };
+
+    for (command_id, content) in [
+        ("cmd-native-session-one", "first native turn"),
+        ("cmd-native-session-two", "second native turn"),
+    ] {
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                command_id,
+                RuntimeCommand::SubmitUserInput {
+                    content: content.to_string(),
+                },
+            )
+            .unwrap();
+        let events = collect_starter_envelopes_until(&supervisor, |events| {
+            events.iter().any(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RuntimeWireEvent::Known(RuntimeEvent {
+                        kind: RuntimeEventKind::TaskUpdated { task },
+                        ..
+                    }) if task.status == viden_types::AgentTaskStatus::Done
+                )
+            })
+        });
+        assert!(events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandAccepted {
+                        command_id: accepted,
+                        ..
+                    },
+                    ..
+                }) if accepted == command_id
+            )
+        }));
+    }
+}
+
+#[test]
+fn frontend_status_worker_revalidates_a_binding_persisted_after_startup() {
+    let cwd = temp_dir("frontend_status_binding_revalidation");
+    let home = temp_dir("frontend_status_binding_revalidation_home");
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(vec![vec![
+            viden_types::ModelEvent::Done,
+        ]])),
+        Some(home),
+    )
+    .unwrap();
+    let store = engine.workflow_store();
+    let supervisor = RuntimeSupervisor::start(engine);
+    store
+        .bind_lane_agent_once(
+            "lane-revalidation",
+            "codex-acp",
+            "session-external",
+            viden_types::now_timestamp(),
+        )
+        .unwrap();
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-revalidation".to_string(),
+        project_id: "project-revalidation".to_string(),
+        lane_id: Some("lane-revalidation".to_string()),
+        session_id: Some("session-native".to_string()),
+        ..RuntimeOwner::default()
+    };
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd-revalidate-binding",
+            RuntimeCommand::SubmitUserInput {
+                content: "must revalidate durable ownership".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                    ..
+                }) if command_id == "cmd-revalidate-binding"
+                    && reason.starts_with("lane_already_bound_to_agent_session")
+            )
+        })
+    });
+    assert!(events.iter().all(|envelope| {
+        !matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                ..
+            }) if command_id == "cmd-revalidate-binding"
+        )
+    }));
+}
+
+#[test]
 fn frontend_status_production_path_emits_only_executed_tool_facts_with_owner() {
     let cwd = temp_dir("frontend_status_production_tool_facts");
     let home = temp_dir("frontend_status_production_tool_facts_home");
@@ -398,6 +778,14 @@ fn frontend_status_production_path_emits_only_executed_tool_facts_with_owner() {
                     kind: RuntimeEventKind::WorkspaceChangeUpdated { .. },
                     ..
                 })
+            )
+        }) && events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::TaskUpdated { task },
+                    ..
+                }) if task.status == viden_types::AgentTaskStatus::Done
             )
         })
     });

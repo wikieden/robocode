@@ -841,11 +841,17 @@ fn lane_supervisor_plan_mode_rejects_effectful_commands_before_effects() {
             == 7
     });
     assert_eq!(effects.calls.load(Ordering::SeqCst), 0);
-    assert!(
-        envelopes
-            .iter()
-            .all(|envelope| envelope.owner == lane_owner)
-    );
+    assert!(envelopes.iter().all(|envelope| {
+        envelope.owner == lane_owner
+            || matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::WorkspaceSourceUpdated { .. }
+                        | RuntimeEventKind::RuntimeServiceHealthUpdated { .. },
+                    ..
+                })
+            )
+    }));
     assert!(!envelopes.iter().any(|envelope| {
         matches!(
             &envelope.event,
@@ -2775,7 +2781,17 @@ fn lane_supervisor_hydrates_persisted_lane_for_restart_commands() {
             )
         })
     });
-    assert!(events.iter().all(|envelope| envelope.owner == owner));
+    assert!(events.iter().all(|envelope| {
+        envelope.owner == owner
+            || matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::WorkspaceSourceUpdated { .. }
+                        | RuntimeEventKind::RuntimeServiceHealthUpdated { .. },
+                    ..
+                })
+            )
+    }));
 }
 
 #[test]
@@ -2883,6 +2899,36 @@ fn lane_hydration_keeps_first_persisted_origin_as_legacy_owner() {
     assert_eq!(
         hydrated["lane-origin"].active_session_ids,
         vec!["session-origin".to_string()]
+    );
+}
+
+#[test]
+fn lane_hydration_does_not_treat_durable_agent_identity_as_a_live_session() {
+    let cwd = temp_dir("lane_agent_identity_not_live_cwd");
+    let home = temp_dir("lane_agent_identity_not_live_home");
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    store
+        .append_lane_event_checked(&LaneEvent::created(
+            "lane-agent-identity-created",
+            lane("lane-agent-identity"),
+            1,
+            None,
+        ))
+        .unwrap();
+    store
+        .bind_lane_agent_once(
+            "lane-agent-identity",
+            "codex-acp",
+            "session-durable-identity",
+            2,
+        )
+        .unwrap();
+
+    let hydrated = WorkflowLanePersistence(store).load_lanes().unwrap();
+    assert!(
+        hydrated["lane-agent-identity"]
+            .active_session_ids
+            .is_empty()
     );
 }
 

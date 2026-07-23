@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use viden_session::project_key_for_path;
 
 use crate::lanes::{
-    LEGACY_LANES_MIGRATION_ID, LaneEvent, LaneState, LegacyLaneImportOutcome,
+    LEGACY_LANES_MIGRATION_ID, LaneAgentBinding, LaneEvent, LaneState, LegacyLaneImportOutcome,
     parse_legacy_lanes_tsv, reduce_lane_events,
 };
 use crate::memory::{MemoryEvent, MemoryState, reduce_memory_events};
@@ -172,6 +172,42 @@ impl WorkflowStore {
 
     pub fn load_lane_state(&self) -> Result<LaneState, String> {
         reduce_lane_events(&self.load_lane_events()?)
+    }
+
+    pub fn bind_lane_agent_once(
+        &self,
+        lane_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        timestamp: u64,
+    ) -> Result<LaneAgentBinding, String> {
+        let _lock = self.lock_lanes_exclusive()?;
+        let mut events = self.load_lane_events_unlocked()?;
+        let state = reduce_lane_events(&events)?;
+        if let Some(existing) = state.agent_binding(lane_id) {
+            if existing.agent_id == agent_id && existing.session_id == session_id {
+                return Ok(existing.clone());
+            }
+            return Err(format!(
+                "lane `{lane_id}` is already bound to agent `{}` session `{}`; cannot bind agent `{agent_id}` session `{session_id}`",
+                existing.agent_id, existing.session_id
+            ));
+        }
+        let event = LaneEvent::agent_bound(
+            format!("lane-agent-bound:{lane_id}"),
+            lane_id,
+            agent_id,
+            session_id,
+            timestamp,
+        );
+        events.push(event);
+        let state = reduce_lane_events(&events)?;
+        let binding = state
+            .agent_binding(lane_id)
+            .cloned()
+            .ok_or_else(|| format!("lane `{lane_id}` binding was not reduced"))?;
+        self.append_lane_event_unlocked(events.last().expect("binding event exists"))?;
+        Ok(binding)
     }
 
     pub fn import_legacy_lanes_tsv_once(

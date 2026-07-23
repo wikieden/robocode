@@ -100,6 +100,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
+| Cockpit context | 有界 workspace source、结构化 change/check、MCP/LSP health | `WorkspaceSourceUpdated`、`WorkspaceChangeUpdated`、`CheckRunUpdated`、`RuntimeServiceHealthUpdated` | 只读 status sampling；常规 runtime/tool command 产生 facts | Core `0.3.5` extension `runtime.cockpit_context_v1` |
 | Mode and permissions | top bar、approval panel、permission picker | `RuntimeSnapshot.work_mode`、`RuntimeSnapshot.permission_level`、`ApprovalRequestView` | `SetWorkMode`、`SetPermissionLevel`、`RespondToApproval` | 已落地 |
 | Provider/model setup | provider panel、model picker、health strip | `RuntimeSnapshot.provider_id`、`ProviderHealthView`、active model config | `ConfigureProvider`、`SelectModel`、`ActivateModel`、`DeactivateModel` | 已落地 |
 | Tool execution | transcript tool cards、active tool strip、evidence list | `ToolCallStarted`、`ToolCallFinished`、structured `success` / `exit_code` | 只发送 approval response；tools 由 core 执行 | 已落地 |
@@ -122,6 +123,24 @@ ACP continuation 会重新加载 agent-native session id；取消必须使用该
 `AgentSessionInputAccepted` 在进程启动前追加，重启后的 snapshot/replay 会恢复 session
 及已接受输入。Retry 是同一逻辑 session 的新 attempt，前端不能从显示文本推断出一个
 新 session。
+
+### Cockpit Context
+
+该区域只使用 `runtime.cockpit_context_v1` 这一 capability 名称。Workspace source
+采样严格只读，并有时间与内存上限。`WorkspaceSourceStatus` 为 `ready`、
+`unavailable` 或 `truncated`；只有 `ready` 状态下的 branch totals 才具有权威性。
+后续失败或截断的采样必须通过有序 `WorkspaceSourceUpdated` event 替换旧的 ready
+source，不能继续显示过期数据。
+
+Change 与 check 来自结构化 tool result，不能解析 transcript 文本；其 identity 是
+`(RuntimeOwner, id)`。Patch 的 additions/deletions 必须在 display bytes 截断前计算，
+change kind 只能根据结构化 diff marker 保守判断。MCP 在 execution/permission path
+接通前保持 unavailable；LSP 仅在已配置的 child process 仍在运行时为 ready。
+
+所有 cockpit lifecycle 与 tool-result facts 都进入标准的有序 `RuntimeEvent`
+journal、reducer、snapshot 和 replay 路径。每个 Lane 的第一个 native 或 ACP
+agent/session identity 会原子持久化；重启时恢复该 identity，并发重复尝试只产生一个
+持久 identity，冲突 identity 必须在接受工作前 fail closed。
 
 ## Event 消费规则
 
@@ -149,6 +168,9 @@ flowchart LR
 - `InputQueued` 和 `InputDequeued` 维护 follow-up input state。
 - `ProviderHealthUpdated`、`TokenCostUpdated` 和 `Error` 更新侧栏或状态区，不能阻塞
   composer input。
+- `WorkspaceSourceUpdated` 替换完整 source sample；
+  `WorkspaceChangeUpdated` 与 `CheckRunUpdated` 按 `(owner, id)` upsert；
+  `RuntimeServiceHealthUpdated` upsert 单个 service-health sample。
 - `ProjectProbed`、`ProjectConfigPreviewed`、`ProjectConfigConfirmed` 与
   `CredentialHandleStored` 更新项目接入状态；client 不能只凭 command acceptance
   推断文件已经写入成功。

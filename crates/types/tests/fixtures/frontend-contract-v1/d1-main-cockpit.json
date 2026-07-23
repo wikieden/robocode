@@ -4,7 +4,7 @@
   "required_capabilities": [
     "runtime.events",
     "runtime.lane_owner_projection",
-    "runtime.workspace_facts"
+    "runtime.cockpit_context_v1"
   ],
   "initial_snapshot": {
     "cwd": "workspace/viden",
@@ -44,6 +44,7 @@
           "type": "workspace_source_updated",
           "payload": {
             "source": {
+              "status": "ready",
               "branch": "codex/d1-cockpit-core",
               "worktree": ".worktrees/d1-cockpit-core",
               "ahead": 1,
@@ -303,5 +304,5 @@
     "stream_id": "fixture:d1-main-cockpit",
     "sequence": 8
   },
-  "expected_view_sha256": "13b12afcac56c288024d68a9f599674c206437a99b338c9a8c5055d895d3dbdc"
+  "expected_view_sha256": "5792199adff1883c0dc9dbe91991d9a6c7cd08b81bb475174b1f1929c923fe27"
 }

@@ -43,9 +43,22 @@ pub struct RecentSessionSummary {
     pub command_count: u64,
 }
 
+/// Whether source-control fields are complete enough for clients to use.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceSourceStatus {
+    #[default]
+    Ready,
+    Unavailable,
+    Truncated,
+}
+
 /// Source-control facts for the current workspace, independent of any client layout.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WorkspaceSourceView {
+    /// Legacy schema-v1 payloads predate explicit availability and were complete.
+    #[serde(default)]
+    pub status: WorkspaceSourceStatus,
     pub branch: Option<String>,
     pub worktree: Option<String>,
     pub ahead: u32,

@@ -1029,13 +1029,13 @@ impl RuntimeViewState {
             }
             RuntimeEventKind::WorkspaceChangeUpdated { change } => {
                 upsert_by_id(&mut self.workspace_changes, change.clone(), |existing| {
-                    existing.id == change.id
+                    existing.owner == change.owner && existing.id == change.id
                 });
                 cap_vec(&mut self.workspace_changes);
             }
             RuntimeEventKind::CheckRunUpdated { check } => {
                 upsert_by_id(&mut self.check_runs, check.clone(), |existing| {
-                    existing.id == check.id
+                    existing.owner == check.owner && existing.id == check.id
                 });
                 cap_vec(&mut self.check_runs);
             }

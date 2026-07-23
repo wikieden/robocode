@@ -105,6 +105,7 @@ self-referential inside the payload commit.
 | Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
+| Cockpit context | bounded workspace source, structured changes/checks, MCP/LSP health | `WorkspaceSourceUpdated`, `WorkspaceChangeUpdated`, `CheckRunUpdated`, `RuntimeServiceHealthUpdated` | read-only status sampling; normal runtime/tool commands produce facts | Core `0.3.5` extension `runtime.cockpit_context_v1` |
 | Mode and permissions | top bar, approval panel, permission picker | `RuntimeSnapshot.work_mode`, `RuntimeSnapshot.permission_level`, `ApprovalRequestView` | `SetWorkMode`, `SetPermissionLevel`, `RespondToApproval` | landed |
 | Provider/model setup | provider panel, model picker, health strip | `RuntimeSnapshot.provider_id`, `ProviderHealthView`, active model config | `ConfigureProvider`, `SelectModel`, `ActivateModel`, `DeactivateModel` | landed |
 | Tool execution | transcript tool cards, active tool strip, evidence list | `ToolCallStarted`, `ToolCallFinished`, structured `success` / `exit_code` | approval response only; tools run through core | landed |
@@ -128,6 +129,28 @@ must use that exact owner. `AgentSessionInputAccepted` is appended before proces
 spawn, and snapshot/replay restores both the session and accepted inputs after a
 restart. A retry is a new attempt of the same logical session, not a new frontend
 session inferred from display text.
+
+### Cockpit Context
+
+`runtime.cockpit_context_v1` is the only capability name for this surface.
+Workspace source sampling is strictly read-only, time bounded, and memory
+bounded. `WorkspaceSourceStatus` is `ready`, `unavailable`, or `truncated`;
+branch totals are authoritative only when status is `ready`. A later failed or
+truncated sample replaces an older ready source through an ordered
+`WorkspaceSourceUpdated` event instead of leaving stale data visible.
+
+Changes and checks come from structured tool results, not transcript text.
+Their identity is the pair `(RuntimeOwner, id)`. Patch additions/deletions are
+calculated before display bytes are truncated, and change kind is inferred
+conservatively from structured diff markers. MCP remains unavailable until its
+execution and permission path is wired. LSP is ready only while the configured
+child process is still running.
+
+All cockpit lifecycle and tool-result facts enter the normal ordered
+`RuntimeEvent` journal, reducer, snapshot, and replay path. A Lane's first
+native or ACP agent/session identity is persisted atomically. Restarts hydrate
+that identity, concurrent duplicate attempts resolve to one durable identity,
+and a conflicting identity fails closed before work is accepted.
 
 ## Event Consumption Rules
 
@@ -155,6 +178,9 @@ flowchart LR
 - `InputQueued` and `InputDequeued` maintain follow-up input state.
 - `ProviderHealthUpdated`, `TokenCostUpdated`, and `Error` update side panels
   without blocking composer input.
+- `WorkspaceSourceUpdated` replaces the complete source sample;
+  `WorkspaceChangeUpdated` and `CheckRunUpdated` upsert by `(owner, id)`; and
+  `RuntimeServiceHealthUpdated` upserts one service-health sample.
 - `ProjectProbed`, `ProjectConfigPreviewed`, `ProjectConfigConfirmed`, and
   `CredentialHandleStored` update onboarding state; clients must not infer a
   successful write from command acceptance alone.

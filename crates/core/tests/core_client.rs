@@ -634,20 +634,33 @@ fn core_client_local_transport_supports_full_boundary_surface() {
     let session_id = engine.session_id().to_string();
     let supervisor = RuntimeSupervisor::start(engine);
     let mut transport = LocalCoreTransport::new(supervisor);
-    assert_eq!(
-        CoreTransport::recv(&mut transport, Duration::ZERO).unwrap(),
-        None
-    );
+    let mut startup_events = Vec::new();
+    while let Some(event) = CoreTransport::recv(&mut transport, Duration::ZERO).unwrap() {
+        startup_events.push(event);
+    }
+    assert!(startup_events.iter().any(|event| {
+        matches!(
+            &event.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceSourceUpdated { .. },
+                ..
+            })
+        )
+    }));
     let mut client: Box<dyn CoreClient> = Box::new(StatefulCoreClient::new(transport));
 
     let handshake = client.discover().unwrap();
     assert_eq!(handshake.active_schema_version, FRONTEND_SCHEMA_V1);
     let initial = client.snapshot().unwrap();
-    assert_eq!(initial.cursor.sequence, 0);
+    assert_eq!(
+        initial.cursor.sequence,
+        startup_events.last().unwrap().cursor.sequence
+    );
+    assert!(initial.view.workspace_source.is_some());
 
     client.send(command(FRONTEND_SCHEMA_V1)).unwrap();
     let event = client.recv(Duration::from_secs(1)).unwrap().unwrap();
-    assert_eq!(event.cursor.sequence, 1);
+    assert_eq!(event.cursor.sequence, initial.cursor.sequence + 1);
 
     let replay = client
         .replay(ReplayRequest {
