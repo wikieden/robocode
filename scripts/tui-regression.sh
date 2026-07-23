@@ -150,8 +150,8 @@ if release["base_core_checkpoint"] != "54965464e87860f9c39a1fb656c2f528e354da94"
     raise SystemExit("TUI certification Core checkpoint is not Core 0.3.4")
 if release["supported_schema_versions"] != [1]:
     raise SystemExit("TUI certification schema set is not [1]")
-if len(base_capabilities) != 15 or len(extension_capabilities) != 15:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 15")
+if len(base_capabilities) != 15 or len(extension_capabilities) != 16:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 16")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 
@@ -438,8 +438,8 @@ if certification.get("core", {}).get("schema") != 1:
     fail("frontend schema is not 1")
 if certification.get("core", {}).get("base_capability_count") != 15:
     fail("frozen base capability count is not 15")
-if certification.get("core", {}).get("extension_capability_count") != 15:
-    fail("feature extension capability count is not 15")
+if certification.get("core", {}).get("extension_capability_count") != 16:
+    fail("feature extension capability count is not 16")
 if len(certification.get("appearance", {}).get("palette_depth_matrix", [])) != 24:
     fail("appearance evidence does not cover eight palettes across three depths")
 for field, expected in {
