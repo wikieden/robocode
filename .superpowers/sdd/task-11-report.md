@@ -1,97 +1,151 @@
-# Task 11 Report — D1 New Lane Popover Loop
+# Task 11 Project Onboarding Runtime Contract Report
 
-## Status
+Date: 2026-07-20
+Branch: `codex/v3-core-runtime`
+Worktree: `/Users/wiki/Documents/GitHub/viden/.worktrees/v3-core-runtime`
+Starting HEAD: `31bf6c5fb07907bf28c32e84d80f0120598112ec`
 
-DONE_WITH_CONCERNS
+## Outcome
 
-## Commit And HEAD
+Task 11 now provides a typed, frontend-safe project onboarding boundary for
+Core 0.3.1:
 
-- Branch: `codex/d1-lane-popover-loop`
-- Worktree: `/Users/wiki/Documents/GitHub/viden/.worktrees/d1-lane-popover-loop`
-- Implementation commit: `407f306707148e44b62a12a3db37cb4d765339c2`
-- HEAD when report was written: `407f306707148e44b62a12a3db37cb4d765339c2`
+- read-only Git/non-Git and root `viden.toml` project probes;
+- a repository-policy parser kept separate from machine-local
+  `.viden/config.toml` provider settings;
+- read-only preview with exact reviewable UTF-8 contents, byte length, SHA-256,
+  and destination base hash;
+- Build-mode confirmation that writes only the retained preview bytes after
+  permission approval and rejects stale or mismatched previews before effects;
+- an injected credential backend whose serialized command carries only an
+  opaque one-use ingress id and whose facts contain only safe handle metadata;
+- provider/model health projected together with the active credential handle;
+- schema-1 known events, additive capability negotiation, Core facade exports,
+  replayable view state, and durable workflow audit facts.
 
-## Files Changed
+The task brief listed no credential-specific event. `CredentialHandleStored`
+was added because otherwise `CredentialHandle` could not become a replayable
+Core fact without frontend-private state. The additive
+`runtime.project_onboarding` and `runtime.credential_handles` capabilities gate
+the new commands/events while the frozen Core 0.3.0 fixture corpus remains
+unchanged.
 
-- `apps/gui/src/components/agent_menu.ts`
-- `apps/gui/src/components/agent_menu.css`
-- `apps/gui/src/components/lane_task_prompt.ts` removed
-- `apps/gui/src/components/lane_task_prompt.css` removed
-- `apps/gui/src/screens/d1_cockpit.ts`
-- `apps/gui/src/i18n/catalog.ts`
-- `apps/gui/src/i18n/en.json`
-- `apps/gui/src/i18n/zh-CN.json`
-- `apps/gui/tests/agent_menu.spec.ts`
-- `apps/gui/tests/d1_cockpit.spec.ts`
-- `apps/gui/README.md`
-- `apps/gui/README.zh-CN.md`
+## TDD evidence
 
-## Red Evidence
+The implementation followed RED-GREEN checkpoints:
 
-- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts` failed as expected before production changes.
-- Failure: `keeps Agent selection, task draft, and Create in one focused popover` reported `expected null not to be null` for `[data-lane-task]`.
-- Meaning: current production rendered only the compact Agent menu and had no task textarea in the same popover, matching the two-stage gap.
+1. The first config test failed because `ProjectFileConfig`,
+   `parse_project_config`, and the project module did not exist. The D11 policy
+   parser then made valid, malformed, empty, missing-runner, and secret-bearing
+   cases pass.
+2. The first runtime test compile failed because `CredentialBackend` and the
+   four onboarding commands/facts did not exist. Typed facts, engine state,
+   exact preview retention, command handling, and the backend boundary made the
+   focused runtime suite pass.
+3. The credential audit assertion then failed because the safe handle was not
+   in the workflow projection. Making `CredentialHandleStored` durable produced
+   an auditable handle without exposing the seeded secret.
+4. The transaction failure test exposed a macOS `/var` versus `/private/var`
+   canonical-path mismatch during rollback. Capturing the rollback target under
+   the canonical project root restored the old exact bytes and kept the preview
+   retryable.
+5. A supervisor integration test exercises the real
+   preview -> approval request -> response -> exact-byte confirmation path,
+   preventing the generic supervisor's deny-only approver from blocking
+   CoreClient usage.
 
-## Green Evidence
+The eight focused runtime tests cover Git/non-Git, valid/missing/invalid config,
+preview read-only behavior, exact confirmed bytes/hash, stale destination
+rejection, Plan denial before approval/write, audit rollback/retry, supervisor
+approval resume, provider/model health, and credential redaction across command,
+event, transcript-shaped JSON, and workflow audit JSON.
 
-- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts tests/i18n_parity.spec.ts` -> 3 files passed, 67 tests passed.
-- `npm --prefix apps/gui test -- --run` -> 17 files passed, 241 tests passed.
-- `npm --prefix apps/gui run build` -> `tsc --noEmit && vite build` succeeded.
-- `cargo test -p viden-gui` -> all GUI Rust unit, integration, and doc tests passed.
-- `scripts/check-doc-pairs.sh apps/gui/README.md apps/gui/README.zh-CN.md` -> passed.
-- `git diff --check` -> passed.
+### Independent review hardening follow-up
 
-## Behavior And Contract Impact
+An independent review of implementation commit `1fd3e59c` found that the first
+parser revision still allowed unknown root tables and relied on a small key
+denylist. It also found that opaque credential identifiers accepted path-like
+and secret-like labels. The follow-up used two new RED checkpoints:
 
-- Replaced the Agent-menu -> task-dialog loop with one anchored New Lane popover.
-- The popover contains the New Lane heading, built-in Viden Agent, discovered ACP Agents, one selected Agent, focused task textarea, disabled-until-non-empty Create Lane action, Core eligibility/probe diagnostics, and a presentation-only branch/worktree hint derived from task text.
-- Agent selection stays inside the popover and updates the selected Agent instead of closing.
-- Create dispatches the existing ordered flow: `preview_default_lane`, `create_starter_lane`, then native `submit` or ACP `start_agent_session` after the exact Core Lane is projected.
-- Core/transport rejection preserves the task draft and exposes the existing D1 typed rejection surface.
-- ACP discovery serialization remains in D1: native Viden stays selectable while probes run, and ACP rows remain probe-gated.
-- CJK IME composition is preserved for Cmd/Ctrl+Enter create.
-- The removed second task prompt had no remaining callers.
+- the config regression failed because `[provider] api_token = "sk-..."`
+  parsed successfully;
+- the runtime regressions failed because that candidate produced valid exact
+  preview contents and `sk-*` credential identifiers reached the backend.
 
-## Docs And Comments Decision
+The hardened parser now implements the strict D11 root/nested allowlist,
+validates runner/target records, rejects expanded secret field names, and scans
+string values for credential-shaped prefixes before exposing exact contents.
+Provider, backend, and credential-request identifiers now use a bounded ASCII
+opaque-id grammar that excludes path syntax, traversal, secret markers, and
+unsafe long labels. The regressions cover `api_token`, `token`, `sk-*`, unknown
+`provider`/`local` tables, plus field-specific `sk-`, `token`, `api_key`, and
+path-like values for all three identifiers.
 
-- Updated `apps/gui/README.md` and `apps/gui/README.zh-CN.md` because the D1 New Lane interaction changed.
-- Added no new code comments; the changed control flow is covered by focused tests and existing function boundaries.
-- No shared design source, Core crate, TUI, manifest, or token source was changed.
+## Security and transaction invariants
 
-## Self-Review Findings
+- Root `viden.toml` policy is never parsed through layered
+  `.viden/config.toml`, which may contain machine-local provider secrets.
+- The parser rejects known secret-bearing field names and does not echo source
+  snippets in syntax diagnostics. It accepts only the documented D11
+  `project`, `gates`, `runner`, `budget`, and `targets` schema and rejects
+  credential-shaped string values before preview publication.
+- Invalid candidates omit exact contents and are never inserted into the
+  confirmable preview map.
+- `ConfirmProjectConfig` carries only preview id and SHA-256. Core rehashes the
+  retained bytes, reparses them, checks the destination base hash, resolves
+  permission, then writes through a same-directory temporary file and rename.
+- A failed workflow audit append restores both the previous file bytes and the
+  in-memory preview/state snapshot.
+- `StoreCredentialHandle` carries provider id, backend id, and an opaque ingress
+  id only. All three ids must satisfy the bounded, non-path, non-secret-like
+  opaque ASCII grammar. The injected backend owns secret bytes and returns a
+  `CredentialHandle { provider_id, backend_id, status }`.
+- Command-accepted payloads redact config contents and bound credential
+  identifiers. Durable audit stores only valid project policy and safe handle
+  metadata.
+- Project mutation approvals participate in supervisor permission generations;
+  queued Plan/ReadOnly changes stale an outstanding allow before any effect.
 
-- The first implementation preserved draft state but remounted the popover asynchronously after ordered projection redraws; fixed by synchronous remount.
-- A later self-review found rejection could leave Create disabled after a remount with `submitting=true`; fixed by re-rendering after rejected dispatch and added a regression test.
-- No unrelated files were staged in the implementation commit.
+## Documentation and comments
 
-## Remaining Concerns
+English and Chinese compatibility and frontend contract documents were updated
+together. They describe capability negotiation, preview/confirm semantics, and
+the credential secret boundary. Concise comments were added only at the policy
+file boundary, credential backend boundary, exact preview field, and secret-safe
+handle type; ordinary control flow remains self-explanatory.
 
-- The required report file was written after the implementation commit so it could name the real implementation hash, then committed separately to leave the worktree clean. The behavior checkpoint remains `407f306707148e44b62a12a3db37cb4d765339c2`; the report-only commit is not part of the GUI runtime change.
+No migrations or frozen fixture refresh were required. Existing Core 0.3.0
+fixture replay remained byte-for-byte valid because optional extension fields
+are omitted when empty.
 
-## Review Fix Evidence
+## Verification
 
-### Findings Addressed
+Passed:
 
-- HIGH: textarea navigation keys bubbled to the popover roving-focus handler and moved focus to Agent radios.
-- MEDIUM: ACP Agent buttons were appended to the popover root outside the `radiogroup` and before the heading.
+- `cargo test -p viden-config`: 24 passed;
+- `cargo test -p viden-types`: 49 passed;
+- `cargo test -p viden-runtime project_runtime_`: 8 passed;
+- `cargo test -p viden-runtime`: 357 passed, 1 ignored live-provider test;
+- `cargo test -p viden-core`: unit, 12 CoreClient, 3 frontend-contract, and 5
+  workspace-identity tests passed; 1 manual fixture refresh ignored;
+- `cargo clippy -p viden-config -p viden-types -p viden-runtime -p viden-core --all-targets -- -D warnings`;
+- `scripts/check-dependency-boundaries.sh`;
+- paired-document and link checks for both changed English/Chinese document
+  pairs;
+- `cargo fmt --all -- --check`;
+- `git diff --check`.
 
-### Red Evidence
+Attempted but blocked outside Task 11 scope:
 
-- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts` failed before the fix with 2 failures:
-  - `keeps every Agent option inside the radiogroup after the heading` -> expected all ACP entries to be descendants of the radiogroup.
-  - `keeps textarea focus for navigation keys while editing the task` -> expected textarea focus to remain on ArrowUp/ArrowDown/Home/End.
+- `cargo test --workspace --quiet` reaches the existing TUI/Core migration
+  mismatch. `apps/tui` still imports removed root facade items such as
+  `viden_core::SessionEngine`, uses the removed `ApprovalResponse.approved`
+  field, and constructs historical string/field forms of typed task/lane
+  records. No TUI or GUI files were changed.
 
-### Green Evidence
+## Handoff
 
-- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts` -> 1 file passed, 9 tests passed.
-- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts tests/i18n_parity.spec.ts` -> 3 files passed, 69 tests passed.
-- `npm --prefix apps/gui test -- --run` -> 17 files passed, 243 tests passed.
-- `npm --prefix apps/gui run build` -> `tsc --noEmit && vite build` succeeded.
-- `cargo test -p viden-gui` -> all GUI Rust unit, integration, and doc tests passed.
-- `scripts/check-doc-pairs.sh apps/gui/README.md apps/gui/README.zh-CN.md` -> passed.
-- `git diff --check` -> passed.
-
-### Fix Summary
-
-- ACP entries now append to `.agent-menu-agents`, the same `role="radiogroup"` container as the built-in Viden Agent, which keeps heading -> group order correct.
-- The popover root still handles Escape globally, but ArrowUp/ArrowDown/Home/End roving behavior now only runs when the event target is an Agent selector button. Textarea editing keeps focus and still supports Escape plus Cmd/Ctrl+Enter outside IME composition.
+Owned changes are limited to Core types/config/runtime/supervisor/session
+projection, the Core facade extension manifest/tests, paired Core/frontend
+contract documentation, and this report. No Task 12+ implementation, live
+provider, push, merge, tag, release, or frontend mutation was performed.
