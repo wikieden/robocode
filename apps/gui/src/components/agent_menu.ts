@@ -8,6 +8,9 @@ export interface AgentMenuModel {
   canCreateLane: boolean;
   probing: boolean;
   eligibilityDiagnostic: string | null;
+  selected?: AgentMenuSelection;
+  taskDraft?: string;
+  submitting?: boolean;
   adapters: Array<{
     agentId: string;
     displayName: string;
@@ -41,25 +44,60 @@ export function orderedAgentAdapters<T extends { agentId: string }>(
     .map(({ adapter }) => adapter);
 }
 
+function selectionKey(selection: AgentMenuSelection): string {
+  return selection.kind === "native" ? "native" : `acp:${selection.agentId}`;
+}
+
+function taskSlug(task: string): string {
+  return (
+    task
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 26) || "new-lane"
+  );
+}
+
 export function renderAgentMenu(
   anchor: HTMLButtonElement,
   model: AgentMenuModel,
   onSelect: (selection: AgentMenuSelection) => void,
   onClose: () => void = () => undefined,
+  onCreate: (selection: AgentMenuSelection, task: string) => Promise<boolean> | boolean = () =>
+    true,
+  onTaskChange: (task: string) => void = () => undefined,
 ): AgentMenuController {
   const menu = document.createElement("div");
-  menu.className = "agent-menu";
-  menu.setAttribute("role", "menu");
+  menu.className = "agent-menu new-lane-popover";
+  menu.dataset.newLanePopover = "true";
+  menu.setAttribute("role", "dialog");
   menu.setAttribute("aria-label", translate(model.locale, "d1.agentMenu.title", {}));
   menu.setAttribute("aria-busy", String(model.probing));
 
-  const section = (label: string): HTMLElement => {
-    const heading = document.createElement("div");
-    heading.className = "agent-menu-section";
-    heading.setAttribute("role", "presentation");
-    heading.textContent = label;
-    return heading;
+  let selected = model.selected ?? { kind: "native" };
+  let taskDraft = model.taskDraft ?? "";
+  let composing = false;
+
+  const heading = document.createElement("h2");
+  heading.className = "agent-menu-heading";
+  heading.textContent = translate(model.locale, "d1.agentMenu.newLane", {});
+
+  const diagnostic = document.createElement("p");
+  diagnostic.className = "agent-menu-diagnostic";
+  diagnostic.setAttribute("role", "status");
+
+  const agentGrid = document.createElement("div");
+  agentGrid.className = "agent-menu-agents";
+  agentGrid.setAttribute("role", "radiogroup");
+  agentGrid.setAttribute("aria-label", translate(model.locale, "d1.agentMenu.agentLabel", {}));
+
+  const select = (next: AgentMenuSelection): void => {
+    selected = next;
+    onSelect(next);
+    sync();
   };
+
   const item = (
     label: string,
     status: string | null,
@@ -69,11 +107,14 @@ export function renderAgentMenu(
     const button = document.createElement("button");
     button.type = "button";
     button.className = "agent-menu-item";
-    button.setAttribute("role", "menuitem");
+    button.setAttribute("role", "radio");
     button.tabIndex = -1;
     button.setAttribute("aria-disabled", String(!enabled));
+    button.setAttribute("aria-checked", "false");
+    button.setAttribute("aria-pressed", "false");
     if (selection.kind === "acp") button.dataset.agentId = selection.agentId;
     if (selection.kind === "native") button.dataset.nativeAgent = "true";
+    button.dataset.selectionKey = selectionKey(selection);
     const name = document.createElement("span");
     name.textContent = label;
     button.append(name);
@@ -84,16 +125,12 @@ export function renderAgentMenu(
     }
     button.addEventListener("click", () => {
       if (!enabled) return;
-      close();
-      // Close first so the selection handler can hand focus to the task
-      // prompt without the menu restoring focus to its trigger afterward.
-      onSelect(selection);
+      select(selection);
     });
     return button;
   };
 
-  menu.append(section(translate(model.locale, "d1.agentMenu.newLane", {})));
-  menu.append(
+  agentGrid.append(
     item(
       translate(model.locale, "d1.agentMenu.viden", {}),
       model.canCreateLane ? null : model.eligibilityDiagnostic,
@@ -125,13 +162,63 @@ export function renderAgentMenu(
       model.probing ? "d1.agentMenu.probing" : "d1.agentMenu.empty",
       {},
     );
-    menu.append(empty);
+    agentGrid.append(empty);
   }
+
+  const taskLabel = document.createElement("label");
+  taskLabel.className = "agent-menu-task";
+  taskLabel.textContent = translate(model.locale, "d1.task.label", {});
+  const task = document.createElement("textarea");
+  task.dataset.laneTask = "true";
+  task.rows = 4;
+  task.value = taskDraft;
+  task.placeholder = translate(model.locale, "d1.task.placeholder", {});
+  task.setAttribute("aria-label", translate(model.locale, "d1.task.label", {}));
+  taskLabel.append(task);
+
+  const hint = document.createElement("p");
+  hint.className = "agent-menu-hint";
+  hint.dataset.laneHint = "true";
+
+  const actions = document.createElement("div");
+  actions.className = "agent-menu-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = translate(model.locale, "d1.task.cancel", {});
+  const create = document.createElement("button");
+  create.type = "button";
+  create.className = "agent-menu-create";
+  create.dataset.laneTaskSubmit = "true";
+  create.textContent = translate(model.locale, "d1.task.submit", {});
+  actions.append(cancel, create);
+
+  menu.append(heading, diagnostic, agentGrid, taskLabel, hint, actions);
 
   anchor.setAttribute("aria-expanded", "true");
   anchor.parentElement?.append(menu);
+
+  function sync(): void {
+    const selectedKey = selectionKey(selected);
+    for (const candidate of menu.querySelectorAll<HTMLButtonElement>("[data-selection-key]")) {
+      const isSelected = candidate.dataset.selectionKey === selectedKey;
+      candidate.classList.toggle("on", isSelected);
+      candidate.setAttribute("aria-checked", String(isSelected));
+      candidate.setAttribute("aria-pressed", String(isSelected));
+    }
+    const slug = taskSlug(taskDraft);
+    hint.textContent = translate(model.locale, "d1.task.hint", {
+      branch: `vd/${slug}`,
+      worktree: `.worktrees/${slug}`,
+    });
+    create.disabled = model.submitting === true || taskDraft.trim().length === 0;
+    diagnostic.textContent =
+      model.eligibilityDiagnostic ??
+      (model.probing ? translate(model.locale, "d1.agentMenu.probing", {}) : "");
+    diagnostic.hidden = diagnostic.textContent.length === 0;
+  }
+
   const enabledItems = (): HTMLButtonElement[] =>
-    Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).filter(
+    Array.from(menu.querySelectorAll<HTMLButtonElement>("[data-selection-key]")).filter(
       (candidate) => candidate.getAttribute("aria-disabled") !== "true",
     );
   const focusAt = (index: number): void => {
@@ -166,6 +253,34 @@ export function renderAgentMenu(
       focusAt(items.length - 1);
     }
   });
+  task.addEventListener("compositionstart", () => (composing = true));
+  task.addEventListener("compositionend", () => (composing = false));
+  task.addEventListener("input", () => {
+    taskDraft = task.value;
+    onTaskChange(taskDraft);
+    sync();
+  });
+  task.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey) || composing) return;
+    event.preventDefault();
+    void submit();
+  });
+  cancel.addEventListener("click", close);
+  create.addEventListener("click", () => void submit());
+
+  async function submit(): Promise<void> {
+    const trimmed = taskDraft.trim();
+    if (!trimmed || create.disabled) return;
+    create.disabled = true;
+    const accepted = await onCreate(selected, trimmed);
+    if (accepted) close();
+    else sync();
+  }
 
   let closed = false;
   const outside = (event: MouseEvent): void => {
@@ -181,6 +296,7 @@ export function renderAgentMenu(
     onClose();
   }
   document.addEventListener("mousedown", outside);
-  focusAt(0);
+  sync();
+  task.focus();
   return { root: menu, close };
 }

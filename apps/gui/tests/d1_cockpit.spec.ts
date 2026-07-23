@@ -1125,7 +1125,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
     await vi.waitFor(() =>
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false"),
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
     );
     root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
@@ -1208,7 +1208,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
     await vi.waitFor(() =>
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false"),
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
     );
     root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
@@ -1254,7 +1254,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
     await vi.waitFor(() =>
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false"),
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
     );
     root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
@@ -1269,6 +1269,46 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector<HTMLTextAreaElement>("[data-lane-task]")?.value).toBe(
       "read README only",
     );
+  });
+
+  test("preserves the New Lane task draft when Core rejects preview dispatch", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const rejected: D1IntentResult = {
+      projection: D1_PROJECTION,
+      pendingCommandId: null,
+      outcome: { state: "rejected", reason: "Core denied preview" },
+    };
+    renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      vi.fn(async () => rejected),
+      async () => rejected,
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-new-lane-popover]")?.getAttribute("aria-busy")).toBe(
+        "false",
+      ),
+    );
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "keep this lane task";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLTextAreaElement>("[data-lane-task]")?.value).toBe(
+        "keep this lane task",
+      );
+      expect(root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.disabled).toBe(
+        false,
+      );
+      expect(root.querySelector("[data-d1-rejection]")?.textContent).toBe("Core denied preview");
+    });
   });
 
   test("creates a dedicated Lane for ACP and keeps one Agent per Lane", async () => {
@@ -1356,7 +1396,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
     await vi.waitFor(() =>
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false"),
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
     );
     root.querySelector<HTMLButtonElement>('[data-agent-id="codex-acp"]')?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
@@ -1521,7 +1561,7 @@ describe("D1 canonical streaming cockpit", () => {
         { type: "query_agent_adapters" },
         { type: "probe_agent_adapter", agentId: "codex-acp" },
       ]);
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("true");
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("true");
       expect(root.querySelector("[data-native-agent]")?.getAttribute("aria-disabled")).toBe(
         "false",
       );
@@ -1533,12 +1573,12 @@ describe("D1 canonical streaming cockpit", () => {
     });
 
     root
-      .querySelector<HTMLElement>('[role="menu"]')
+      .querySelector<HTMLElement>('[data-new-lane-popover]')
       ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(root.querySelector('[role="menu"]')).toBeNull();
+    expect(root.querySelector('[data-new-lane-popover]')).toBeNull();
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
     await vi.waitFor(() =>
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("true"),
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("true"),
     );
     expect(sent).toEqual([
       { type: "query_agent_adapters" },
@@ -1561,7 +1601,7 @@ describe("D1 canonical streaming cockpit", () => {
           { type: "probe_agent_adapter", agentId: "kiro-cli" },
           { type: "probe_agent_adapter", agentId: "custom-acp" },
         ]);
-        expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false");
+        expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false");
         expect(
           Array.from(root.querySelectorAll<HTMLElement>("[data-agent-id]")).map(
             (item) => item.dataset.agentId,
@@ -1639,7 +1679,7 @@ describe("D1 canonical streaming cockpit", () => {
           { type: "query_agent_adapters" },
           { type: "probe_agent_adapter", agentId: "codex-acp" },
         ]);
-        expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false");
+        expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false");
         expect(
           root.querySelector('[data-agent-id="codex-acp"]')?.getAttribute("aria-disabled"),
         ).toBe("false");
@@ -1749,7 +1789,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
     await vi.waitFor(() =>
-      expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("false"),
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
     );
 
     expect(sent).toEqual([

@@ -11,8 +11,9 @@ workspace and injects its `CoreClient` through `GuiCoreAdapter`. Once connected,
 the app always presents the D1 cockpit shell. With no bound workspace, `Open
 project` opens the native folder picker and rebinds through
 `LocalCoreHost::open_workspace`; it never enters D11 or asks for a model. A
-bound zero-Lane project renders the project cockpit with `New Lane`, which opens
-D4. The exact `StarterLaneCreated.receipt` returns focus to D1.
+bound zero-Lane project renders the project cockpit with `New Lane`, which
+opens the D1 New Lane popover for quick native or ACP lane startup. The exact
+Core Lane receipt returns focus to D1.
 
 ## Run the desktop client locally
 
@@ -210,6 +211,16 @@ projections of Core's latest `RuntimeViewState`.
 The webview owns only focus, draft, layout, bounded-row, and scroll-anchor
 state. It does not parse display strings, persist a second workspace model, or
 claim command acceptance as business success.
+
+`New Lane` opens one anchored popover with the built-in Viden Agent, discovered
+ACP Agents, the task draft, Core-projected eligibility/probe diagnostics, and a
+presentation-only branch/worktree hint derived from the task text. Agent
+selection stays inside the popover, the task textarea receives focus, and
+Create Lane is disabled until the task is non-empty. Create dispatches the
+existing ordered path: `preview_default_lane`, `create_starter_lane`, then
+native `submit` or ACP `start_agent_session` only after the exact Core Lane is
+projected. Transport or Core rejection preserves the draft and uses the typed
+D1 rejection surface.
 
 The composer remains editable while an assistant stream, tool, task, approval,
 or queued input is active. Enter sends `QueueFollowUp` in that state and

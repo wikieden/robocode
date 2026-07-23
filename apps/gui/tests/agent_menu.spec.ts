@@ -35,7 +35,7 @@ describe("compact agent menu", () => {
   test("offers every ready Agent as the unique owner of a new Lane", () => {
     const { controller } = setup();
 
-    expect(controller.root.textContent).toContain("NEW LANE");
+    expect(controller.root.textContent).toContain("New Lane");
     expect(controller.root.textContent).toContain("Viden Agent");
     expect(controller.root.textContent).not.toContain("DELEGATE TO CURRENT LANE");
     expect(controller.root.textContent).toContain("Codex");
@@ -91,12 +91,15 @@ describe("compact agent menu", () => {
     ).toBe("true");
   });
 
-  test("uses roving keyboard focus and restores the trigger on Escape", () => {
+  test("uses roving Agent keyboard focus and restores the trigger on Escape", () => {
     const { anchor, controller } = setup();
     const native = controller.root.querySelector<HTMLButtonElement>("[data-native-agent]")!;
     const acp = controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')!;
-    expect(document.activeElement).toBe(native);
+    expect(document.activeElement).toBe(
+      controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]"),
+    );
 
+    native.focus();
     native.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     expect(document.activeElement).toBe(acp);
     acp.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -111,17 +114,49 @@ describe("compact agent menu", () => {
     expect(onSelect).toHaveBeenCalledWith({ kind: "acp", agentId: "codex" });
   });
 
-  test("does not steal focus from the task prompt opened by a selection", () => {
+  test("keeps Agent selection, task draft, and Create in one focused popover", () => {
+    const { onSelect, controller } = setup();
+
+    const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]");
+    const create = controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]");
+    expect(task).not.toBeNull();
+    expect(create).not.toBeNull();
+    expect(document.activeElement).toBe(task);
+    expect(create?.disabled).toBe(true);
+
+    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')?.click();
+    expect(onSelect).toHaveBeenCalledWith({ kind: "acp", agentId: "codex" });
+    expect(document.body.contains(controller.root)).toBe(true);
+    expect(controller.root.querySelector('[data-agent-id="codex"]')?.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+
+    task!.value = "Review the parser diff";
+    task!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(create?.disabled).toBe(false);
+  });
+
+  test("creates from Cmd/Ctrl+Enter only outside IME composition", async () => {
+    const onCreate = vi.fn(async () => true);
     document.body.innerHTML = '<div id="host"><button id="anchor">+</button></div>';
     const anchor = document.querySelector<HTMLButtonElement>("#anchor")!;
-    const prompt = document.createElement("textarea");
-    const controller = renderAgentMenu(anchor, MODEL, () => {
-      document.body.append(prompt);
-      prompt.focus();
+    const controller = renderAgentMenu(anchor, MODEL, vi.fn(), vi.fn(), onCreate);
+    const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+
+    task.value = "Write parser tests";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    task.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    task.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    );
+    expect(onCreate).not.toHaveBeenCalled();
+
+    task.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    task.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    );
+    await vi.waitFor(() => {
+      expect(onCreate).toHaveBeenCalledWith({ kind: "native" }, "Write parser tests");
     });
-
-    controller.root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
-
-    expect(document.activeElement).toBe(prompt);
   });
 });

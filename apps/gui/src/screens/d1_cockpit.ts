@@ -19,7 +19,6 @@ import { appendTranscriptRows, transcriptAtBottom } from "../components/transcri
 import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
-import { renderLaneTaskPrompt } from "../components/lane_task_prompt";
 import type { D1Intent } from "../models/composer";
 import { BoundedTranscript } from "../models/transcript";
 import type { D1CockpitProjection, D6RecoveryProjection } from "../models/workspace";
@@ -160,8 +159,10 @@ export function renderD1Cockpit(
   let laneRailFocusTarget: "rail" | "toggle" | null = null;
   let menuController: AgentMenuController | null = null;
   let agentMenuOpen = false;
-  let pendingAgentSelection: AgentMenuSelection | null = null;
+  let remountingAgentMenu = false;
+  let newLaneSelection: AgentMenuSelection = { kind: "native" };
   let pendingAgentTaskDraft = "";
+  let creatingLane = false;
   let pendingLaneStart:
     | { laneId: string; task: string; agentId: string | null }
     | null = null;
@@ -355,16 +356,21 @@ export function renderD1Cockpit(
     });
   };
 
-  const startLane = async (task: string, agentId: string | null): Promise<void> => {
+  const startLane = async (task: string, agentId: string | null): Promise<boolean> => {
     const previewResult = await sendAndWait({ type: "preview_default_lane", preset: "coder" });
     const preview = previewResult?.projection.starterLanePreviews.at(-1);
-    if (!preview || preview.diagnostics.length > 0) {
+    if (
+      !preview ||
+      previewResult?.outcome.state === "rejected" ||
+      preview.diagnostics.length > 0
+    ) {
       errorMessage =
+        previewResult?.outcome.reason ??
         preview?.diagnostics[0] ??
         projection.workspaceEligibility?.diagnostic ??
         "Core did not publish a creatable Lane preview.";
       render(false);
-      return;
+      return false;
     }
     pendingLaneStart = { laneId: preview.laneId, task, agentId };
     const createResult = await sendAndWait({
@@ -377,9 +383,10 @@ export function renderD1Cockpit(
     });
     if (!createResult || createResult.outcome.state === "rejected") {
       pendingLaneStart = null;
-      return;
+      return false;
     }
     await maybeResumeLaneStart();
+    return true;
   };
 
   async function maybeResumeLaneStart(): Promise<void> {
@@ -422,38 +429,6 @@ export function renderD1Cockpit(
     return agentDiscoveryStarted && !agentDiscoveryComplete;
   }
 
-  function mountLaneTaskPrompt(): void {
-    const selection = pendingAgentSelection;
-    if (!selection || disposed || root.querySelector("[data-lane-task]")) return;
-    const title =
-      selection.kind === "native"
-        ? translate(locale, "d1.task.nativeTitle", {})
-        : translate(locale, "d1.task.acpTitle", {
-            agent:
-              projection.agentAdapters.find(
-                (adapter) => adapter.agentId === selection.agentId,
-              )?.displayName ?? selection.agentId,
-          });
-    renderLaneTaskPrompt(
-      root,
-      locale,
-      title,
-      (task) => {
-        pendingAgentSelection = null;
-        pendingAgentTaskDraft = "";
-        void startLane(task, selection.kind === "native" ? null : selection.agentId);
-      },
-      () => {
-        pendingAgentSelection = null;
-        pendingAgentTaskDraft = "";
-      },
-      pendingAgentTaskDraft,
-      (task) => {
-        pendingAgentTaskDraft = task;
-      },
-    );
-  }
-
   function mountAgentMenu(): void {
     if (!agentMenuOpen || disposed) return;
     const anchor = root.querySelector<HTMLButtonElement>("[data-create-lane]");
@@ -465,16 +440,41 @@ export function renderD1Cockpit(
         canCreateLane: projection.workspaceEligibility?.canCreateLane === true,
         probing: discoveryIsProbing(),
         eligibilityDiagnostic: projection.workspaceEligibility?.diagnostic ?? null,
+        selected: newLaneSelection,
+        taskDraft: pendingAgentTaskDraft,
+        submitting: creatingLane,
         adapters: projection.agentAdapters,
       },
       (selection) => {
-        pendingAgentSelection = selection;
-        pendingAgentTaskDraft = "";
-        mountLaneTaskPrompt();
+        newLaneSelection = selection;
       },
       () => {
         agentMenuOpen = false;
         menuController = null;
+        creatingLane = false;
+        if (!remountingAgentMenu) {
+          pendingAgentTaskDraft = "";
+          newLaneSelection = { kind: "native" };
+        }
+      },
+      async (selection, task) => {
+        pendingAgentTaskDraft = task;
+        creatingLane = true;
+        const accepted = await startLane(
+          task,
+          selection.kind === "native" ? null : selection.agentId,
+        );
+        creatingLane = false;
+        if (!accepted) {
+          render(false);
+          return false;
+        }
+        pendingAgentTaskDraft = "";
+        newLaneSelection = { kind: "native" };
+        return true;
+      },
+      (task) => {
+        pendingAgentTaskDraft = task;
       },
     );
   }
@@ -586,8 +586,10 @@ export function renderD1Cockpit(
   const render = (focusComposer = false): void => {
     const reopenAgentMenu = agentMenuOpen;
     if (menuController) {
+      remountingAgentMenu = true;
       agentMenuOpen = false;
       menuController.close();
+      remountingAgentMenu = false;
       menuController = null;
       agentMenuOpen = reopenAgentMenu;
     }
@@ -839,7 +841,7 @@ export function renderD1Cockpit(
     frame.append(titlebar, body, status);
     root.replaceChildren(frame);
 
-    if (agentMenuOpen) queueMicrotask(mountAgentMenu);
+    if (agentMenuOpen) mountAgentMenu();
 
     if (laneRailFocusTarget) {
       const focusTarget =
@@ -853,7 +855,6 @@ export function renderD1Cockpit(
       nextComposer?.focus();
       nextComposer?.setSelectionRange(selectionStart, selectionEnd);
     }
-    mountLaneTaskPrompt();
   };
 
   render(true);

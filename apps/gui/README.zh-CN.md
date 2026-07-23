@@ -9,7 +9,8 @@ frontend-safe `LocalCoreHost` 打开工作区，并把它的 `CoreClient` 注入
 `GuiCoreAdapter`。应用始终先显示 D1 驾驶舱外壳。未绑定工作区时，“打开项目”只会
 打开系统文件夹选择器，并通过 `LocalCoreHost::open_workspace` 重绑；它不会进入 D11，
 也不会要求选择模型。已打开但没有 Lane 的项目仍显示项目驾驶舱及“新建 Lane”，
-随后才可进入 D4；精确 `StarterLaneCreated.receipt` 会把焦点带回 D1。
+并打开 D1 的 New Lane 弹层，用于快速启动原生或 ACP Lane；精确 Core Lane receipt
+会把焦点带回 D1。
 
 ## 本地运行桌面客户端
 
@@ -177,6 +178,13 @@ transcript/tool rows、排队状态、evidence 与 composer 都是 Core 最新
 `RuntimeViewState` 的 transport-safe 投影。Webview 只持有焦点、draft、布局、有界行窗口
 与滚动锚点，不解析显示字符串，不持久化第二套 workspace 模型，也不会把 command
 acceptance 当作业务成功。
+
+“新建 Lane”会打开一个锚定弹层，包含内置 Viden Agent、已发现的 ACP Agents、任务 draft、
+Core 投影的 eligibility/probe 诊断，以及仅由任务文本派生、只作呈现的 branch/worktree
+提示。选择 Agent 不会关闭弹层，任务 textarea 会获得焦点，任务非空前“创建 Lane”保持禁用。
+创建时沿用现有有序路径：`preview_default_lane`、`create_starter_lane`，并且只有在精确
+Core Lane 已投影后才发送原生 `submit` 或 ACP `start_agent_session`。Transport 或 Core
+拒绝会保留 draft，并使用 D1 已有 typed rejection surface。
 
 当 assistant stream、tool、task、approval 或 queued input 仍活跃时，composer 仍可编辑。
 此时 Enter 发送 `QueueFollowUp`，空闲时发送 `SubmitUserInput`；Shift+Enter 保留多行输入，
