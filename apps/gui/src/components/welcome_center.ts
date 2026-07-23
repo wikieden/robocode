@@ -87,9 +87,7 @@ export function renderWelcomeCenter(
   unavailableTitle.textContent = translate(locale, "d1.welcome.recentUnavailable", {});
   const unavailableDetail = document.createElement("span");
   unavailableDetail.textContent = translate(locale, "d1.welcome.recentHint", {});
-  const contract = document.createElement("code");
-  contract.textContent = "GUI-CORE-007";
-  unavailable.append(unavailableTitle, unavailableDetail, contract);
+  unavailable.append(unavailableTitle, unavailableDetail);
   recent.append(recentTitle, unavailable);
 
   content.append(brand, start, recent);

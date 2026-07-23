@@ -213,6 +213,139 @@ describe("D1 canonical streaming cockpit", () => {
     controller.dispose();
   });
 
+  test("renders the one-Agent Context Dock in typed collapsible order", () => {
+    const projection = {
+      ...D1_PROJECTION,
+      contextDock: {
+        ...D1_PROJECTION.contextDock,
+        source: null,
+        context: null,
+        services: [
+          {
+            id: "github-mcp",
+            kind: "mcp" as const,
+            label: "GitHub MCP",
+            status: "unavailable" as const,
+            detailKey: "transport_missing",
+          },
+          {
+            id: "rust-analyzer",
+            kind: "lsp" as const,
+            label: "rust-analyzer",
+            status: "offline" as const,
+            detailKey: null,
+          },
+        ],
+        checklist: [],
+      },
+    };
+    const { root, controller } = setup(projection, { poll: false });
+    const sections = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-context-section]"),
+      (section) => section.dataset.contextSection,
+    );
+
+    expect(sections).toEqual([
+      "environment",
+      "changes-source",
+      "context",
+      "lane-agent",
+      "sources",
+      "mcp",
+      "lsp",
+      "task-checklist",
+    ]);
+    expect(root.querySelectorAll("[data-lane-agent]")).toHaveLength(1);
+    expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("lane-core");
+    expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("Native");
+    expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("deepseek-v4-flash");
+    expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("Running");
+    expect(root.querySelector('[data-typed-empty="source"]')?.textContent).toBe(
+      "No source facts are available.",
+    );
+    expect(root.querySelector('[data-typed-empty="context"]')?.textContent).toBe(
+      "No typed context budget is available.",
+    );
+    expect(root.querySelector("[data-context-section='mcp']")?.textContent).toContain(
+      "Unavailable",
+    );
+    expect(root.querySelector("[data-context-section='mcp']")?.textContent).not.toContain(
+      "Connected",
+    );
+    expect(root.querySelector("[data-context-section='lsp']")?.textContent).toContain("Offline");
+    expect(root.querySelector('[data-typed-empty="task-checklist"]')?.textContent).toBe(
+      "No task checklist is available.",
+    );
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-context-section-toggle]")) {
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+    }
+    expect(root.textContent).not.toContain("Subagents");
+    expect(root.textContent).not.toContain("GUI-CORE-");
+    controller.dispose();
+  });
+
+  test("localizes non-empty zh-CN Context Dock facts without raw diagnostic accessibility copy", () => {
+    const { root, controller } = setup(
+      {
+        ...D1_PROJECTION,
+        preferences: { ...D1_PROJECTION.preferences, locale: "zh-CN" },
+        contextDock: {
+          ...D1_PROJECTION.contextDock,
+          context: {
+            budgetId: "budget-main",
+            usedTokens: 64,
+            softTokenLimit: 96,
+            hardTokenLimit: 128,
+            remainingTokens: 64,
+            exceeded: false,
+          },
+          checklist: [
+            {
+              id: "change-zh",
+              kind: "workspace_change" as const,
+              label: "src/main.rs",
+              status: "modified",
+              command: null,
+              path: "src/main.rs",
+              summary: null,
+              failingLocation: null,
+              additions: 2,
+              deletions: 1,
+            },
+          ],
+        },
+      },
+      { poll: false },
+    );
+
+    const contextDock = root.querySelector<HTMLElement>("[data-context-dock]")!;
+    expect(contextDock.textContent).toContain("执行身份");
+    expect(contextDock.textContent).toContain("领先");
+    expect(contextDock.textContent).toContain("落后");
+    expect(contextDock.textContent).toContain("有变更");
+    expect(contextDock.textContent).toContain("预算");
+    expect(contextDock.textContent).toContain("剩余");
+    expect(contextDock.querySelector("[data-checklist-item='change-zh']")?.textContent).toContain(
+      "已修改",
+    );
+    expect(contextDock.textContent).not.toContain("Ahead");
+    expect(contextDock.textContent).not.toContain("Behind");
+    expect(contextDock.textContent).not.toContain("Dirty");
+    expect(contextDock.textContent).not.toContain("Budget");
+    expect(contextDock.textContent).not.toContain("Remaining");
+    expect(contextDock.textContent).not.toContain("Lane");
+    for (const row of contextDock.querySelectorAll<HTMLElement>("[data-unavailable-feature]")) {
+      expect(row.textContent).not.toContain("GUI-CORE-");
+      expect(row.getAttribute("title")).toBeNull();
+      expect(row.getAttribute("aria-label") ?? "").not.toContain("GUI-CORE-");
+    }
+    controller.dispose();
+  });
+
   test("renders localized typed empty states when a change patch or check result is absent", () => {
     const { root, controller } = setup(
       {
@@ -685,7 +818,8 @@ describe("D1 canonical streaming cockpit", () => {
     expect(welcome?.textContent).toContain("Your local-first agent workspace");
     expect(welcome?.textContent).toContain("Get started");
     expect(welcome?.textContent).toContain("Recent projects");
-    expect(welcome?.textContent).toContain("GUI-CORE-007");
+    expect(welcome?.textContent).toContain("Recent project history is not connected yet");
+    expect(welcome?.textContent).not.toContain("GUI-CORE-");
     expect(root.querySelector('[aria-label="Transcript"]')).toBeNull();
     expect(root.querySelector("[data-composer]")).toBeNull();
     expect(root.querySelector(".d1-lanes")).toBeNull();

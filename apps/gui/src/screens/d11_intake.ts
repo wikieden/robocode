@@ -280,8 +280,7 @@ export function renderD11Intake(
   const bootstrapGap = document.createElement("p");
   bootstrapGap.className = "d11-unavailable";
   bootstrapGap.dataset.projectBootstrap = "unavailable";
-  bootstrapGap.textContent =
-    "GUI-CORE-001 · Project switching waits for a Core-owned bootstrap/rebind channel; probe uses the current Core project.";
+  bootstrapGap.textContent = translate(locale, "d11.projectBootstrapUnavailable", {});
   content.append(bootstrapGap, renderProviderHealth(projection.provider, locale));
 
   const configLabel = document.createElement("label");
@@ -482,10 +481,8 @@ function appendSafeFacts(
     row.textContent = `${handle.providerId} · ${handle.maskedHandle} · ${handle.status}`;
     credential.append(row);
   }
-  const ingress = button(
-    `${projection.credentialIngress.code} · ${projection.credentialIngress.message}`,
-    "credentialIngress",
-  );
+  const ingress = button(projection.credentialIngress.message, "credentialIngress");
+  ingress.title = projection.credentialIngress.code;
   ingress.disabled = !projection.credentialIngress.available;
   credential.append(ingress);
 
@@ -494,7 +491,8 @@ function appendSafeFacts(
   const recentTitle = document.createElement("h2");
   recentTitle.textContent = translate(locale, "d11.history", {});
   const recentStatus = document.createElement("p");
-  recentStatus.textContent = `${projection.recentWork.code} · ${projection.recentWork.message}`;
+  recentStatus.textContent = projection.recentWork.message;
+  recentStatus.title = projection.recentWork.code;
   recent.append(recentTitle, recentStatus);
   content.append(credential, recent);
 }

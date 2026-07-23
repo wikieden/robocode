@@ -434,7 +434,8 @@ describe("D11 project intake", () => {
     expect(root.textContent).not.toContain("keychain:deepseek-primary");
     expect(root.querySelector('input[type="password"]')).toBeNull();
     expect(root.querySelector<HTMLButtonElement>("[data-credential-ingress]")?.disabled).toBe(true);
-    expect(root.textContent).toContain("GUI-CORE-007");
+    expect(root.textContent).toContain("Project switching waits for a Core-owned bootstrap channel");
+    expect(root.textContent).not.toContain("GUI-CORE-");
   });
 
   test("renders Core approval and rejection facts without inferring success", () => {

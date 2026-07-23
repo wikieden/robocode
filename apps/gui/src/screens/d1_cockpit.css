@@ -423,6 +423,7 @@
 }
 
 .d1-work-item,
+.d1-context-item,
 .d1-unavailable {
   margin-block: var(--sp-2);
   padding: var(--sp-2);
