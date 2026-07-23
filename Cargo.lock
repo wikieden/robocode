@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "viden-core"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",

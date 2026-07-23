@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use viden_core::{
-    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES,
-    frontend_capabilities, local_core_handshake,
+    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES, CheckRunView,
+    RuntimeServiceHealthView, WorkspaceChangeView, WorkspaceSourceView, frontend_capabilities,
+    local_core_handshake,
 };
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentDagRecord,
@@ -135,15 +136,15 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.4\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.5\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 7"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.4");
-    assert_eq!(local_core_handshake().core_version, "0.3.4");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.5");
+    assert_eq!(local_core_handshake().core_version, "0.3.5");
 }
 
 #[test]
-fn frontend_host_capabilities_are_schema_one_core_0_3_4_and_additive() {
+fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
     let frozen_base = [
         "runtime.agent_dag",
         "runtime.approvals",
@@ -167,6 +168,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_4_and_additive() {
         "runtime.agent_permission_bridge",
         "runtime.agent_session_input",
         "runtime.agent_sessions",
+        "runtime.cockpit_context_v1",
         "runtime.credential_handles",
         "runtime.credential_staging",
         "runtime.lane_lifecycle",
@@ -180,7 +182,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_4_and_additive() {
     ];
 
     assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.4");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.5");
     assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
     assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
     assert!(
@@ -209,15 +211,25 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_4_and_additive() {
         .expect("missing optional extensions must not block a frozen-base client");
 
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.4\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.5\""));
     assert!(extension_manifest.contains("schema_version = 1"));
+    assert!(extension_manifest.contains("runtime.cockpit_context_v1"));
+    assert!(!extension_manifest.contains("runtime.workspace_facts"));
     assert!(extension_manifest.contains("runtime.lane_owner_projection"));
     assert!(extension_manifest.contains(
         "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
     ));
     assert!(extension_manifest.contains(
-        "interaction_fixture_sha256 = \"ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826\""
+        "interaction_fixture_sha256 = \"78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5\""
     ));
+}
+
+#[test]
+fn frontend_contract_v1_exports_cockpit_fact_types() {
+    assert!(std::any::type_name::<WorkspaceSourceView>().contains("WorkspaceSourceView"));
+    assert!(std::any::type_name::<RuntimeServiceHealthView>().contains("RuntimeServiceHealthView"));
+    assert!(std::any::type_name::<WorkspaceChangeView>().contains("WorkspaceChangeView"));
+    assert!(std::any::type_name::<CheckRunView>().contains("CheckRunView"));
 }
 
 #[test]
@@ -294,7 +306,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     let fixture_bytes = fs::read(root.join(name)).expect("read interaction fixture bytes");
     assert_eq!(
         format!("{:x}", Sha256::digest(&fixture_bytes)),
-        "ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826"
+        "78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5"
     );
     let fixture = read_fixture(&root, name);
     assert_fixture_identity(name, &fixture);
@@ -387,7 +399,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
             .iter()
             .any(|adapter| { adapter.route == AgentRoute::Acp && adapter.agent_id == "codex-acp" })
     );
-    assert_eq!(full_view.agent_sessions.len(), 2);
+    assert_eq!(full_view.agent_sessions.len(), 1);
     assert_eq!(full_view.agent_session_inputs.len(), 1);
     assert_eq!(
         full_view.agent_session_inputs[0].input_id,
@@ -413,15 +425,17 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert_eq!(full_view.lane_recoveries.len(), 1);
 
     let release_manifest = include_str!("../release-manifest.toml");
-    assert!(release_manifest.contains("component_version = \"0.3.4\""));
+    assert!(release_manifest.contains("component_version = \"0.3.5\""));
+    assert!(release_manifest.contains("runtime.cockpit_context_v1"));
+    assert!(!release_manifest.contains("runtime.workspace_facts"));
     assert!(release_manifest.contains(
         "contract_implementation_checkpoint = \"e989fa7cd3ccd9664196309586e5d135e3115693\""
     ));
     assert!(release_manifest.contains(
-        "payload_sha256 = \"ee699d9db335300d2d1ebc124c3d91388369b7b10fbf95089ddc889b4f9ab826\""
+        "payload_sha256 = \"78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5\""
     ));
     assert!(release_manifest.contains(
-        "view_sha256 = \"6d0b71dd744732cbbe322fca18302a0002c81f5f7a7fc0233411198d9af3fde0\""
+        "view_sha256 = \"46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0\""
     ));
 }
 

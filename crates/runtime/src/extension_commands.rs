@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::SessionEngine;
+use viden_types::{RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus};
 
 impl SessionEngine {
     pub(super) fn handle_extensions_command(&self, args: &[String]) -> Result<String, String> {
@@ -126,6 +127,26 @@ fn render_mcp_doctor(cwd: &Path) -> String {
         "  boundary: MCP tools must enter through tool permissions before mutation.".to_string(),
     );
     lines.join("\n")
+}
+
+pub(crate) fn mcp_runtime_service_health(cwd: &Path) -> Vec<RuntimeServiceHealthView> {
+    let config_count = mcp_config_candidates(cwd)
+        .into_iter()
+        .filter(|path| path.exists())
+        .count();
+    vec![RuntimeServiceHealthView {
+        id: "mcp-runtime".to_string(),
+        kind: RuntimeServiceKind::Mcp,
+        label: "MCP runtime".to_string(),
+        // Configuration discovery is visibility only. Until MCP tools enter
+        // the shared permission path, Core must not publish a connected fact.
+        status: RuntimeServiceStatus::Unavailable,
+        detail_key: Some(if config_count == 0 {
+            "mcp.config_not_found".to_string()
+        } else {
+            "mcp.config_visible_runtime_unavailable".to_string()
+        }),
+    }]
 }
 
 fn render_skills_list(cwd: &Path, show_all: bool) -> String {

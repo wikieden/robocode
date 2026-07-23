@@ -1,16 +1,23 @@
 use super::*;
+use crate::frontend_status::{
+    MAX_COCKPIT_PATCH_BYTES, check_run_from_tool_result, runtime_service_health,
+    sample_workspace_source, workspace_changes_from_tool_result,
+};
 use crate::{RuntimeSupervisor, SessionEngine};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use viden_config::CliOverrides;
+use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_types::{
     AgentRole, ApprovalResponse, EventCursor, LocaleId, Message, RecentWorkQuery, ReplayRequest,
     Role, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeWireEvent, SessionMetaEntry, StarterLanePreset, StarterLanePreviewInvalidationReason,
-    StarterLaneRequest, TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
+    RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState, RuntimeWireEvent, SessionMetaEntry,
+    StarterLanePreset, StarterLanePreviewInvalidationReason, StarterLaneRequest, ToolCall,
+    ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
     UiPreferences, UiSkin, WorkMode,
 };
 
@@ -19,6 +26,434 @@ use crate::lane_runtime::{
 };
 use crate::lane_supervisor::LanePersistence;
 use viden_workflows::lanes::LaneEvent;
+
+#[test]
+fn frontend_status_git_sampling_is_read_only_and_missing_git_is_not_clean() {
+    let repo = starter_lane_repo("frontend_status_git_sampling");
+    fs::write(repo.join("README.md"), "starter\nchanged\n").unwrap();
+    for index in 0..75 {
+        fs::write(repo.join(format!("untracked-{index}.txt")), "untracked\n").unwrap();
+    }
+    let before = run_git(&repo, &["status", "--porcelain=v1", "--branch"]);
+
+    let source = sample_workspace_source(&repo).expect("Git workspace should produce source facts");
+
+    let after = run_git(&repo, &["status", "--porcelain=v1", "--branch"]);
+    assert_eq!(after, before, "source inspection must not mutate Git state");
+    assert_eq!(source.branch.as_deref(), Some("main"));
+    assert!(source.worktree.is_some());
+    assert!(source.dirty);
+    assert!(source.added > 0);
+    assert_eq!(source.behind, 0);
+
+    let non_repo = temp_dir("frontend_status_missing_git");
+    assert_eq!(sample_workspace_source(&non_repo), None);
+}
+
+#[test]
+fn frontend_status_service_health_never_invents_mcp_or_lsp_readiness() {
+    let repo = temp_dir("frontend_status_service_health");
+    fs::write(repo.join(".mcp.json"), r#"{"mcpServers":{"demo":{}}}"#).unwrap();
+    let no_lsp = LspRuntime::new(LspServerRegistry::new(Vec::new()));
+
+    let services = runtime_service_health(&repo, &no_lsp);
+
+    assert!(services.iter().any(|service| {
+        service.kind == RuntimeServiceKind::Mcp
+            && service.status == RuntimeServiceStatus::Unavailable
+    }));
+    assert!(services.iter().any(|service| {
+        service.kind == RuntimeServiceKind::Lsp
+            && service.status == RuntimeServiceStatus::Unavailable
+    }));
+    assert!(services.iter().all(|service| {
+        service.status != RuntimeServiceStatus::Connected
+            && service.status != RuntimeServiceStatus::Ready
+    }));
+
+    let configured_but_not_running = LspRuntime::new(LspServerRegistry::default());
+    let configured = runtime_service_health(&repo, &configured_but_not_running);
+    assert!(configured.iter().any(|service| {
+        service.kind == RuntimeServiceKind::Lsp
+            && service.id == "rust-analyzer"
+            && service.status == RuntimeServiceStatus::Offline
+    }));
+
+    let snapshot = viden_types::RuntimeSnapshot {
+        cwd: repo,
+        provider_family: "test".to_string(),
+        model_label: "test".to_string(),
+        work_mode: WorkMode::Build,
+        permission_mode: viden_types::PermissionMode::Default,
+        permission_level: viden_types::PermissionLevel::Ask,
+        config_summary: String::new(),
+        loaded_config_files: Vec::new(),
+        startup_overrides: Vec::new(),
+        ui_preferences: viden_types::ResolvedUiPreferences::default(),
+    };
+    let mut view = RuntimeViewState::new(snapshot);
+    let mut first = services[0].clone();
+    first.status = RuntimeServiceStatus::Connected;
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::RuntimeServiceHealthUpdated { service: first },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::RuntimeServiceHealthUpdated {
+            service: services[0].clone(),
+        },
+    ));
+    assert_eq!(view.runtime_services.len(), 1);
+    assert_eq!(
+        view.runtime_services[0].status,
+        RuntimeServiceStatus::Unavailable
+    );
+}
+
+#[test]
+fn frontend_status_structured_tool_results_are_owner_bound_and_bounded() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-cockpit".to_string(),
+        project_id: "project-cockpit".to_string(),
+        lane_id: Some("lane-cockpit".to_string()),
+        session_id: Some("session-cockpit".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let mut file_input = viden_types::ToolInput::new();
+    file_input.insert("path".to_string(), "src/lib.rs".to_string());
+    let file_call = ToolCall {
+        id: "tool-file".to_string(),
+        name: "edit_file".to_string(),
+        input: file_input,
+    };
+    let file_result = ToolResult {
+        tool_call_id: file_call.id.clone(),
+        name: file_call.name.clone(),
+        output: "rendered output must not become a patch".to_string(),
+        diff: Some(format!(
+            "--- before\n+++ after\n{}",
+            "+bounded\n".repeat(20_000)
+        )),
+        success: true,
+        exit_code: None,
+    };
+
+    let changes = workspace_changes_from_tool_result(&file_call, &file_result, &owner);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].owner, owner);
+    assert_eq!(changes[0].path, "src/lib.rs");
+    assert!(
+        changes[0].patch.as_ref().unwrap().len() <= MAX_COCKPIT_PATCH_BYTES,
+        "captured patch must have a documented byte cap"
+    );
+    assert!(
+        !changes[0]
+            .patch
+            .as_ref()
+            .unwrap()
+            .contains("rendered output")
+    );
+
+    let mut check_input = viden_types::ToolInput::new();
+    check_input.insert(
+        "command".to_string(),
+        "cargo test -p viden-runtime".to_string(),
+    );
+    let check_call = ToolCall {
+        id: "tool-check".to_string(),
+        name: "shell".to_string(),
+        input: check_input,
+    };
+    let check_result = ToolResult {
+        tool_call_id: check_call.id.clone(),
+        name: check_call.name.clone(),
+        output: "test result: ok. this display text must not override failure".to_string(),
+        diff: None,
+        success: false,
+        exit_code: Some(101),
+    };
+    let check = check_run_from_tool_result(&check_call, &check_result, &owner)
+        .expect("a real executed check command should produce a check fact");
+    assert_eq!(check.owner, owner);
+    assert_eq!(check.command, "cargo test -p viden-runtime");
+    assert_eq!(check.status, viden_types::CheckRunStatus::Failed);
+    assert_eq!(check.failing_location, None);
+    assert!(!check.summary.contains("test result: ok"));
+
+    let failed_file_result = ToolResult {
+        success: false,
+        diff: Some("invented".to_string()),
+        ..file_result
+    };
+    assert!(workspace_changes_from_tool_result(&file_call, &failed_file_result, &owner).is_empty());
+    let unrelated_call = ToolCall {
+        id: "tool-read".to_string(),
+        name: "read_file".to_string(),
+        input: viden_types::ToolInput::new(),
+    };
+    assert!(
+        check_run_from_tool_result(&unrelated_call, &check_result, &owner).is_none(),
+        "rendered output alone must never synthesize a check"
+    );
+}
+
+#[test]
+fn frontend_status_snapshot_and_replay_have_the_same_cockpit_hash() {
+    let repo = starter_lane_repo("frontend_status_snapshot_replay");
+    let home = temp_dir("frontend_status_snapshot_replay_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&repo, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: snapshot.cursor.clone(),
+            limit: 100,
+        })
+        .unwrap();
+    let mut replayed = snapshot.view.clone();
+    for envelope in replay.events {
+        if let RuntimeWireEvent::Known(event) = envelope.event {
+            replayed.apply_event(&event);
+        }
+    }
+    let live_cockpit = serde_json::to_vec(&(
+        &snapshot.view.workspace_source,
+        &snapshot.view.runtime_services,
+        &snapshot.view.workspace_changes,
+        &snapshot.view.check_runs,
+    ))
+    .unwrap();
+    let replayed_cockpit = serde_json::to_vec(&(
+        &replayed.workspace_source,
+        &replayed.runtime_services,
+        &replayed.workspace_changes,
+        &replayed.check_runs,
+    ))
+    .unwrap();
+    assert_eq!(
+        Sha256::digest(live_cockpit),
+        Sha256::digest(replayed_cockpit)
+    );
+}
+
+#[test]
+fn frontend_status_supervisor_rejects_a_second_agent_binding_for_one_lane() {
+    let cwd = temp_dir("frontend_status_unique_lane_agent");
+    let home = temp_dir("frontend_status_unique_lane_agent_home");
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(vec![vec![
+            viden_types::ModelEvent::Done,
+        ]])),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-agent-binding".to_string(),
+        project_id: "project-agent-binding".to_string(),
+        lane_id: Some("lane-agent-binding".to_string()),
+        session_id: Some("session-native-agent".to_string()),
+        ..RuntimeOwner::default()
+    };
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-native-agent",
+            RuntimeCommand::SubmitUserInput {
+                content: "bind the Lane to native Viden".to_string(),
+            },
+        )
+        .unwrap();
+    let first = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                    ..
+                }) if command_id == "cmd-native-agent"
+            )
+        }) && events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::TaskUpdated { task },
+                    ..
+                }) if task.status == viden_types::AgentTaskStatus::Done
+            )
+        })
+    });
+    assert!(first.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                ..
+            }) if command_id == "cmd-native-agent"
+        )
+    }));
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd-second-agent",
+            RuntimeCommand::StartAgentSession {
+                request: viden_types::AgentSessionRequest {
+                    lane_id: "lane-agent-binding".to_string(),
+                    agent_id: "claude-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "must not replace the Lane agent".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let rejected = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                    ..
+                }) if command_id == "cmd-second-agent"
+                    && reason.starts_with("lane_already_bound_to_agent_session")
+            )
+        })
+    });
+    assert!(rejected.iter().all(|envelope| {
+        !matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandAccepted { command_id, .. },
+                ..
+            }) if command_id == "cmd-second-agent"
+        )
+    }));
+    assert!(rejected.iter().all(|envelope| {
+        !matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::AgentSessionStarted { session },
+                ..
+            }) if session.lane_id == "lane-agent-binding"
+        )
+    }));
+}
+
+#[test]
+fn frontend_status_production_path_emits_only_executed_tool_facts_with_owner() {
+    let cwd = temp_dir("frontend_status_production_tool_facts");
+    let home = temp_dir("frontend_status_production_tool_facts_home");
+    let mut file_input = viden_types::ToolInput::new();
+    file_input.insert("path".to_string(), "generated.txt".to_string());
+    file_input.insert("content".to_string(), "generated\n".to_string());
+    let mut check_input = viden_types::ToolInput::new();
+    check_input.insert("command".to_string(), "cargo check --help".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![viden_types::ModelEvent::ToolCall(ToolCall {
+            id: "tool-production-file".to_string(),
+            name: "write_file".to_string(),
+            input: file_input,
+        })],
+        vec![viden_types::ModelEvent::Done],
+        vec![viden_types::ModelEvent::ToolCall(ToolCall {
+            id: "tool-production-check".to_string(),
+            name: "shell".to_string(),
+            input: check_input,
+        })],
+        vec![viden_types::ModelEvent::Done],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-production".to_string(),
+        project_id: "project-production".to_string(),
+        lane_id: Some("lane-production".to_string()),
+        session_id: Some("session-production".to_string()),
+        ..RuntimeOwner::default()
+    };
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-production-file",
+            RuntimeCommand::SubmitUserInput {
+                content: "create a file".to_string(),
+            },
+        )
+        .unwrap();
+    let change_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::WorkspaceChangeUpdated { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let (change_owner, change) = change_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceChangeUpdated { change },
+                ..
+            }) => Some((&envelope.owner, change)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(change_owner, &owner);
+    assert_eq!(&change.owner, &owner);
+    assert_eq!(change.path, "generated.txt");
+    assert_eq!(
+        fs::read_to_string(cwd.join("generated.txt")).unwrap(),
+        "generated\n"
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-production-check",
+            RuntimeCommand::SubmitUserInput {
+                content: "run a check".to_string(),
+            },
+        )
+        .unwrap();
+    let check_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::CheckRunUpdated { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let (check_owner, check) = check_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CheckRunUpdated { check },
+                ..
+            }) => Some((&envelope.owner, check)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(check_owner, &owner);
+    assert_eq!(&check.owner, &owner);
+    assert_eq!(check.command, "cargo check --help");
+    assert_eq!(check.status, viden_types::CheckRunStatus::Passed);
+}
 
 fn append_recent_runtime_fixture(home: &Path, root: &Path, session_id: &str, timestamp: u64) {
     let root = root.canonicalize().unwrap();

@@ -11,8 +11,9 @@ mod local_transport;
 
 pub use client::{CoreClient, CoreClientError, CoreTransport, StatefulCoreClient};
 pub use compatibility::{
-    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES,
-    frontend_capabilities, local_core_handshake, validate_handshake, validate_schema_version,
+    COCKPIT_CONTEXT_CAPABILITY, CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION,
+    CORE_EXTENSION_CAPABILITIES, frontend_capabilities, local_core_handshake, validate_handshake,
+    validate_schema_version,
 };
 pub use host::{
     BoundCoreClient, CoreHostError, LocalCoreHost, SecretBytes, WorkspaceBinding,
@@ -25,21 +26,23 @@ pub use viden_types::{
     AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
     AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CapabilityId, CommandAction, ContextBundleRecord, ContextOmittedSourceRecord,
-    ContextSourceRecord, CoreHandshake, CostLedgerTotals, CostUsageRecord, CredentialHandle,
-    CredentialRequestId, CredentialStatus, DataEgressPolicy, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, LaneBudget,
-    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
+    ApprovalTarget, CapabilityId, CheckRunStatus, CheckRunView, CommandAction, ContextBundleRecord,
+    ContextOmittedSourceRecord, ContextSourceRecord, CoreHandshake, CostLedgerTotals,
+    CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus, DataEgressPolicy,
+    EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength,
+    LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
     MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
     ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
     RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RuntimeCommand,
     RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent,
-    SchemaVersion, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
     StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
     TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
     UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
-    UiSkin, WorkMode, WorkspaceEligibility,
+    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility,
+    WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.

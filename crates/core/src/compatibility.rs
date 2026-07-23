@@ -7,6 +7,7 @@ use viden_types::{
 
 pub const CORE_CLIENT_CAPABILITIES: &[&str] = FRONTEND_V1_CAPABILITIES;
 pub const CORE_EXTENSION_CAPABILITIES: &[&str] = FRONTEND_V1_EXTENSION_CAPABILITIES;
+pub const COCKPIT_CONTEXT_CAPABILITY: &str = "runtime.cockpit_context_v1";
 
 pub const CORE_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 

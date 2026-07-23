@@ -410,6 +410,23 @@ impl SessionEngine {
                     success: result.success,
                     exit_code: result.exit_code,
                 });
+                let unbound_owner = viden_types::RuntimeOwner::default();
+                events.extend(
+                    crate::frontend_status::workspace_changes_from_tool_result(
+                        &call,
+                        &result,
+                        &unbound_owner,
+                    )
+                    .into_iter()
+                    .map(EngineEvent::WorkspaceChange),
+                );
+                if let Some(check) = crate::frontend_status::check_run_from_tool_result(
+                    &call,
+                    &result,
+                    &unbound_owner,
+                ) {
+                    events.push(EngineEvent::CheckRun(check));
+                }
                 if let Some(message) = post_edit_diagnostics {
                     let system_message = Message::new(Role::System, message.clone());
                     self.messages.push(system_message.clone());
@@ -525,7 +542,9 @@ impl SessionEngine {
                 | EngineEvent::Assistant(text)
                 | EngineEvent::Command(text) => Some(text),
                 EngineEvent::ToolResult { output, .. } => Some(output),
-                EngineEvent::ToolCall(_) => None,
+                EngineEvent::ToolCall(_)
+                | EngineEvent::WorkspaceChange(_)
+                | EngineEvent::CheckRun(_) => None,
             })
             .collect::<Vec<_>>()
             .join("\n");

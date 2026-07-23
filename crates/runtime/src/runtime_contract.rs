@@ -267,6 +267,22 @@ impl SessionEngine {
                         },
                     ));
                 }
+                EngineEvent::WorkspaceChange(change) => {
+                    out.push(RuntimeEvent::new(
+                        sequence,
+                        RuntimeEventKind::WorkspaceChangeUpdated {
+                            change: change.clone(),
+                        },
+                    ));
+                }
+                EngineEvent::CheckRun(check) => {
+                    out.push(RuntimeEvent::new(
+                        sequence,
+                        RuntimeEventKind::CheckRunUpdated {
+                            check: check.clone(),
+                        },
+                    ));
+                }
                 EngineEvent::Command(text) => {
                     out.push(RuntimeEvent::new(
                         sequence,
@@ -1427,6 +1443,10 @@ impl SessionEngine {
                 snapshot: self.runtime_snapshot(),
             },
         )];
+        for mut event in self.frontend_status_lifecycle_events() {
+            event.sequence = next_sequence(&events);
+            events.push(event);
+        }
         if let Some(preview) = &self.confirmed_project_config {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),

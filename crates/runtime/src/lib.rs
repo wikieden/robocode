@@ -18,6 +18,7 @@ mod event_journal;
 mod extension_commands;
 mod formatting;
 mod frontend_services;
+mod frontend_status;
 mod git_commands;
 mod lane_runtime;
 mod lane_supervisor;
@@ -59,11 +60,12 @@ use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
 use viden_types::{
-    AgentDagRecord, AgentTaskRecord, ConflictBounce, ContextBundleRecord, ContractRecord,
-    CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord, MemoryEntry,
-    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, SessionMetaEntry, TaskRecord,
-    TranscriptEntry, UiPreferences, WorkMode, now_timestamp,
+    AgentDagRecord, AgentTaskRecord, CheckRunView, ConflictBounce, ContextBundleRecord,
+    ContractRecord, CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord,
+    MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
+    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot,
+    SessionMetaEntry, TaskRecord, TranscriptEntry, UiPreferences, WorkMode, WorkspaceChangeView,
+    now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -151,6 +153,8 @@ pub enum EngineEvent {
         success: bool,
         exit_code: Option<i32>,
     },
+    WorkspaceChange(WorkspaceChangeView),
+    CheckRun(CheckRunView),
     Command(String),
 }
 
