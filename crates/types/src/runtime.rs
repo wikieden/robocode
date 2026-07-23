@@ -1177,7 +1177,21 @@ impl RuntimeViewState {
                 // A Lane's first valid execution owner is authoritative for
                 // the view lifetime. Exact replay is already idempotent, and
                 // a later owner/session cannot replace the existing binding.
+                let lane_is_terminal = self
+                    .lanes
+                    .iter()
+                    .find(|lane| lane.id == binding.lane_id)
+                    .is_some_and(|lane| {
+                        matches!(
+                            lane.status,
+                            LaneStatus::Done
+                                | LaneStatus::Failed
+                                | LaneStatus::Cancelled
+                                | LaneStatus::Archived
+                        )
+                    });
                 if binding.owner.lane_id.as_ref() == Some(&binding.lane_id)
+                    && !lane_is_terminal
                     && self
                         .lane_runtime_owners
                         .iter()

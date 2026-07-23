@@ -2665,6 +2665,84 @@ fn d1_main_cockpit_keeps_one_agent_session_per_lane_projection() {
     assert_eq!(view.lane_runtime_owners, vec![first_binding]);
 }
 
+#[test]
+fn d1_terminal_lane_cannot_rebind_a_second_execution_owner() {
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        initial_snapshot: RuntimeSnapshot,
+        events: Vec<RuntimeEventEnvelope>,
+    }
+
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../tests/fixtures/frontend-contract-v1/d1-main-cockpit.json"
+    ))
+    .unwrap();
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            view.apply_event(event);
+        }
+    }
+
+    let first_session = view.agent_sessions[0].clone();
+    let first_binding = view.lane_runtime_owners[0].clone();
+    view.apply_event(&RuntimeEvent::new(
+        90,
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: first_binding.clone(),
+        },
+    ));
+    assert_eq!(view.lane_runtime_owners, vec![first_binding]);
+
+    let mut terminal_lane = view
+        .lanes
+        .iter()
+        .find(|lane| lane.id == first_session.lane_id)
+        .unwrap()
+        .clone();
+    terminal_lane.status = LaneStatus::Done;
+    view.apply_event(&RuntimeEvent::new(
+        91,
+        RuntimeEventKind::LaneUpdated {
+            lane: terminal_lane,
+        },
+    ));
+    assert!(view.lane_runtime_owners.is_empty());
+
+    let replacement_owner = RuntimeOwner {
+        session_id: Some("agent-session-d1-terminal-replacement".to_string()),
+        ..first_session.owner.clone()
+    };
+    let replacement_session = AgentSessionView {
+        session_id: "agent-session-d1-terminal-replacement".to_string(),
+        lane_id: first_session.lane_id.clone(),
+        agent_id: "replacement-agent".to_string(),
+        model: None,
+        status: AgentSessionStatus::Starting,
+        owner: replacement_owner.clone(),
+        task: "must not restart a terminal Lane".to_string(),
+        diagnostic: None,
+    };
+    view.apply_event(&RuntimeEvent::new(
+        92,
+        RuntimeEventKind::AgentSessionStarted {
+            session: replacement_session,
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        93,
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: first_session.lane_id.clone(),
+                owner: replacement_owner,
+            },
+        },
+    ));
+
+    assert_eq!(view.agent_sessions, vec![first_session]);
+    assert!(view.lane_runtime_owners.is_empty());
+}
+
 fn canonical_view_sha256(view: &RuntimeViewState) -> String {
     let value = serde_json::to_value(view).expect("runtime view must serialize");
     let sorted = sort_json(value);
