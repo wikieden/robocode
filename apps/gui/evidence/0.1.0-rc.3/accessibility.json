@@ -6,12 +6,15 @@
   "scope": "D1 cockpit preference, accessibility, and input certification",
   "generated_at": "2026-07-24T00:00:00+08:00",
   "provenance": {
-    "source": "apps/gui/tests/theme_matrix.spec.ts, apps/gui/tests/preferences.spec.ts, apps/gui/tests/visual/d1.spec.ts, apps/gui/tests/visual/contrast.spec.ts, apps/gui/tests/composer_ime.spec.ts",
-    "method": "deterministic jsdom DOM contract tests plus Browser-controlled local preview checks; Browser evidence is limited to the committed QA page and does not persist font scale",
+    "source": "apps/gui/evidence/0.1.0-rc.3/d1-canonical-qa.html plus deterministic jsdom DOM contract tests",
+    "method": "Browser-controlled Chrome local preview checks against the committed rc.3 canonical QA page; exact-size screenshots use the Browser-rendered d1-target-viewport-capture.html iframe harness because Chrome caps the outer viewport in this session.",
     "core_authority": "RuntimeViewState/RuntimeSnapshot ui_preferences projection only; GUI draft is memory-only and cancellable"
   },
   "matrix": {
-    "locales": ["en", "zh-CN"],
+    "locales": [
+      "en",
+      "zh-CN"
+    ],
     "skin_mode_pairs": [
       "aurora/dark",
       "aurora/light",
@@ -22,9 +25,19 @@
       "amber/dark",
       "phosphor/dark"
     ],
-    "densities": ["compact", "regular", "comfy"],
-    "motion": ["system", "reduced"],
-    "rendered_font_scale": ["100%", "200%"],
+    "densities": [
+      "compact",
+      "regular",
+      "comfy"
+    ],
+    "motion": [
+      "system",
+      "reduced"
+    ],
+    "rendered_font_scale": [
+      "100%",
+      "200%"
+    ],
     "preference_cases": 96,
     "cases": 192
   },
@@ -40,15 +53,16 @@
     "task6_task7_ownership_safety": "pass"
   },
   "browser_provenance": {
-    "url": "http://127.0.0.1:4173/evidence/task-6-work-surface/qa.html?busy=1",
+    "url": "http://127.0.0.1:4173/evidence/0.1.0-rc.3/d1-canonical-qa.html",
+    "exact_viewport_harness": "http://127.0.0.1:4173/evidence/0.1.0-rc.3/d1-target-viewport-capture.html",
     "backend": "Chrome extension via Browser runtime",
-    "server": "npm --prefix apps/gui run dev -- --host 127.0.0.1 --port 4173",
+    "server": "npm --prefix apps/gui run dev -- --host 127.0.0.1 --port 4173 --strictPort",
     "collected_at": "2026-07-24T00:00:00+08:00",
     "observations": [
       {
-        "viewport": "1440x900",
+        "viewport": "5140x2650 nested exact target viewport",
+        "source": "d1-canonical-qa.html",
         "rendered_font_scale": "100%",
-        "html_font_size": "16px",
         "layout": "desktop",
         "screen": "d1-cockpit",
         "document_overflow_x": false,
@@ -56,33 +70,15 @@
         "composer_label": "Message the selected Lane",
         "send_label": "Send message",
         "transcript_role": "log",
-        "context_toggle_visible": false,
         "context_internal_scroll": true,
         "permission_internal_scroll": false,
         "missing_keys": false,
-        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+        "clipping_observation": "No horizontal document overflow in the exact-size rendered surface; cockpit frame overflow is intentionally hidden while transcript and context regions provide internal scrolling."
       },
       {
-        "viewport": "1440x900",
-        "rendered_font_scale": "200%",
-        "html_font_size": "32px",
-        "layout": "desktop",
-        "screen": "d1-cockpit",
-        "document_overflow_x": false,
-        "frame_overflow": "hidden",
-        "composer_label": "Message the selected Lane",
-        "send_label": "Send message",
-        "transcript_role": "log",
-        "context_toggle_visible": false,
-        "context_internal_scroll": true,
-        "permission_internal_scroll": false,
-        "missing_keys": false,
-        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
-      },
-      {
-        "viewport": "1280x800",
+        "viewport": "1280x800 nested responsive viewport",
+        "source": "d1-canonical-qa.html",
         "rendered_font_scale": "100%",
-        "html_font_size": "16px",
         "layout": "desktop",
         "screen": "d1-cockpit",
         "document_overflow_x": false,
@@ -90,33 +86,15 @@
         "composer_label": "Message the selected Lane",
         "send_label": "Send message",
         "transcript_role": "log",
-        "context_toggle_visible": false,
         "context_internal_scroll": true,
         "permission_internal_scroll": false,
         "missing_keys": false,
-        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+        "clipping_observation": "No horizontal document overflow in the clipped Browser screenshot; cockpit frame overflow is intentionally hidden while transcript and context regions provide internal scrolling."
       },
       {
-        "viewport": "1280x800",
-        "rendered_font_scale": "200%",
-        "html_font_size": "32px",
-        "layout": "desktop",
-        "screen": "d1-cockpit",
-        "document_overflow_x": false,
-        "frame_overflow": "hidden",
-        "composer_label": "Message the selected Lane",
-        "send_label": "Send message",
-        "transcript_role": "log",
-        "context_toggle_visible": false,
-        "context_internal_scroll": true,
-        "permission_internal_scroll": false,
-        "missing_keys": false,
-        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
-      },
-      {
-        "viewport": "960x640",
+        "viewport": "960x640 nested responsive viewport",
+        "source": "d1-canonical-qa.html?drawer=open",
         "rendered_font_scale": "100%",
-        "html_font_size": "16px",
         "layout": "narrow",
         "screen": "d1-cockpit",
         "document_overflow_x": false,
@@ -125,51 +103,111 @@
         "send_label": "Send message",
         "transcript_role": "log",
         "context_toggle_visible": true,
+        "context_drawer_open": true,
         "context_internal_scroll": true,
         "permission_internal_scroll": false,
         "missing_keys": false,
-        "intentional_offscreen_surfaces": ["lane rail", "closed context drawer"],
-        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+        "clipping_observation": "No horizontal document overflow in the clipped Browser screenshot; the Context Dock drawer is visibly open."
       },
       {
-        "viewport": "960x640",
-        "rendered_font_scale": "200%",
-        "html_font_size": "32px",
-        "layout": "narrow",
+        "viewport": "1280x800 nested responsive viewport",
+        "source": "d1-canonical-qa.html?contextScroll=bottom",
+        "rendered_font_scale": "100%",
+        "layout": "desktop",
         "screen": "d1-cockpit",
         "document_overflow_x": false,
-        "frame_overflow": "hidden",
-        "composer_label": "Message the selected Lane",
-        "send_label": "Send message",
-        "transcript_role": "log",
-        "context_toggle_visible": true,
         "context_internal_scroll": true,
-        "permission_internal_scroll": false,
-        "missing_keys": false,
-        "intentional_offscreen_surfaces": ["lane rail", "closed context drawer"],
-        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+        "context_scroll_top": 183,
+        "context_scroll_height": 1376,
+        "context_client_height": 1193,
+        "visible_tail": [
+          "MCP",
+          "LSP",
+          "Task checklist",
+          "type layer contract",
+          "Unavailable / context"
+        ],
+        "clipping_observation": "Lower Context Dock facts are reachable through internal scrolling and captured in d1-context-dock-bottom-1280x800.png."
       }
     ],
     "keyboard_and_cjk_probe": {
       "viewport": "960x640",
       "rendered_font_scale": "200%",
       "active_after_keyboard_traversal": "composer",
-      "composer_value": "继续验证\n第二行",
+      "composer_value": "continue validation\\nsecond line",
       "send_buttons": 1,
       "cancel_buttons": 1,
       "drawer_toggle_expanded": "false",
       "html_font_size": "32px"
     },
+    "accessibility_probe": {
+      "viewport": "2560x1267 outer Chrome viewport; d1-canonical-qa.html page",
+      "html_font_size": "16px",
+      "document_overflow_x": false,
+      "document_overflow_y": false,
+      "body_background": "rgb(5, 9, 15)",
+      "landmark_count": 9,
+      "missing_button_names": 0,
+      "transcript_role_present": true,
+      "canonical_fixture_text_present": true,
+      "lane_agent_text_present": true,
+      "console": [
+        "[vite] connecting...",
+        "[vite] connected."
+      ]
+    },
     "cap_probe": {
-      "requested_viewport": "5140x2650",
-      "actual_viewport": "5140x2650",
-      "backend_cap_encountered": false
+      "requested_outer_viewport": "5140x2650",
+      "actual_outer_viewport": "2560x1267",
+      "backend_cap_encountered": true,
+      "exact_target_surface": "5140x2650 iframe viewport captured with Browser fullPage screenshot"
+    },
+    "drawer_probe": {
+      "url": "http://127.0.0.1:4173/evidence/0.1.0-rc.3/d1-canonical-qa.html?drawer=open",
+      "dock_drawer_open": "true",
+      "toggle_expanded": "true",
+      "dock_overflow": {
+        "scroll_top": 0,
+        "scroll_height": 1376,
+        "client_height": 1193
+      }
+    },
+    "context_bottom_probe": {
+      "url": "http://127.0.0.1:4173/evidence/0.1.0-rc.3/d1-canonical-qa.html?contextScroll=bottom",
+      "context_scroll": "bottom",
+      "scroll_top": 183,
+      "scroll_height": 1376,
+      "client_height": 1193,
+      "visible_tail_contains": [
+        "MCP",
+        "rust-analyzer / Ready",
+        "Task checklist",
+        "viden-types / Failed",
+        "Unavailable / context"
+      ]
     }
   },
   "responsive_checks": [
-    { "viewport": "1440x900", "method": "Browser local preview at 100% and 200% rendered font scale", "result": "pass" },
-    { "viewport": "1280x800", "method": "Browser local preview at 100% and 200% rendered font scale", "result": "pass" },
-    { "viewport": "960x640", "method": "Browser local preview at 100% and 200% rendered font scale with narrow drawer contract", "result": "pass" }
+    {
+      "viewport": "5140x2650",
+      "method": "Browser fullPage capture of exact-size nested viewport",
+      "result": "pass"
+    },
+    {
+      "viewport": "1280x800",
+      "method": "Browser clipped screenshot of exact-size nested viewport",
+      "result": "pass"
+    },
+    {
+      "viewport": "960x640",
+      "method": "Browser clipped screenshot of exact-size nested viewport",
+      "result": "pass"
+    },
+    {
+      "viewport": "1280x800 bottom",
+      "method": "Browser clipped screenshot after Context Dock internal scroll to bottom",
+      "result": "pass"
+    }
   ],
   "contract_limitations": [
     "Core-resolved ui_preferences does not currently expose a font-scale field; 200% is certified only as rendered browser/local preview scale, not as a persisted GUI preference."
@@ -178,6 +216,6 @@
     "Browser-controlled native accessibility tree audit was not executed in this artifact.",
     "Native Tauri accessibility API inspection was not executed in this artifact.",
     "jsdom does not calculate rendered pixel clipping, platform contrast, or OS screen-reader output.",
-    "Browser viewport capability represented 5140x2650 during the cap probe; no 5140 backend cap was encountered, but Task 8 rendered checks were limited to 1440x900, 1280x800, and 960x640."
+    "Chrome capped the outer Browser viewport at 2560x1267 in this session; exact target-size visual evidence was captured through a Browser-rendered 5140x2650 iframe harness."
   ]
 }

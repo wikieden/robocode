@@ -3,7 +3,9 @@
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
 This directory is the GUI implementation track for Viden. The alpha evidence
-gate selected Tauri, and `0.1.0-beta.1` establishes the single production
+gate selected Tauri, and `0.1.0-rc.3` certifies the canonical D1 cockpit
+against the Core `0.3.5` same-state fixture. `0.1.0-beta.1` established the
+single production
 desktop bootstrap. The native launcher opens a frontend-safe `LocalCoreHost`
 workspace and injects its `CoreClient` through `GuiCoreAdapter`. Once connected,
 the app always presents the D1 cockpit shell. With no bound workspace, `Open
@@ -53,20 +55,23 @@ VIDEN_GUI_WORKSPACE=/absolute/project/path \
 
 | Field | Value |
 | --- | --- |
-| GUI component version | `0.1.0-beta.1` |
-| Minimum Core version | `0.3.2` |
+| GUI component version | `0.1.0-rc.3` |
+| Minimum Core version | `0.3.5` |
 | Supported frontend schemas | `[1]` |
-| Common branch base | `afd6fcc9aaf3039ba79bb4588ed33bf1547209f5` |
+| Common branch base | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
+| Core final checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
+| Core code checkpoint | `17fa2071398d5eaf30045257163d57d22d99177b` |
 | Contract payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
-| Required Core capabilities | 15 frozen values plus 3 additive extension capabilities |
+| Canonical D1 fixture | `d1-main-cockpit.json`, SHA-256 `f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b` |
+| Required Core capabilities | 15 frozen values plus additive extension capabilities, including `runtime.cockpit_context_v1` |
 | Built-in locales | `en`, `zh-CN` |
 | Appearance | 5 skins, 8 valid skin/mode pairs, 3 densities, 3 motion policies |
 
 The active machine-readable manifest is
-[release-manifest.toml](release-manifest.toml). Its immutable beta snapshot is
-[manifests/0.1.0-beta.1.toml](manifests/0.1.0-beta.1.toml); both files must
-remain byte-equivalent for this release checkpoint. The alpha snapshot remains
-historical evidence and is not rewritten.
+[release-manifest.toml](release-manifest.toml). Its immutable rc.3 snapshot is
+[manifests/0.1.0-rc.3.toml](manifests/0.1.0-rc.3.toml); both files must
+remain byte-equivalent for this release checkpoint. Earlier alpha, beta, and
+rc.2 snapshots remain historical evidence and are not rewritten.
 
 ## Design source order
 
@@ -104,9 +109,9 @@ GUI must not import `viden_core::legacy`, `viden-runtime`, `viden-provider`,
 `RuntimeCommand`; visible success waits for `CommandAccepted` and the
 subsequent ordered state events.
 
-## Inventory against Core `0.3.2`
+## Inventory against Core `0.3.5`
 
-| GUI area | Design intent | Core `0.3.2` status | GUI handling |
+| GUI area | Design intent | Core `0.3.5` status | GUI handling |
 | --- | --- | --- | --- |
 | Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding; secure credential ingress and the GUI recent-work adapter remain incomplete | Welcome uses the native folder picker and host rebind directly; D11 stays an explicit in-project configuration flow and never owns folder open |
 | D4 lane creation | typed role, route, gate strength, mutation policy, target, budget, worktree preview, lane receipt | `PreviewStarterLane`/`CreateStarterLane`, Core-resolved preview, invalidation, approval, exact receipt, and `runtime.starter_lane_preview` advertisement are available | Task 8 renders the four-step reviewed flow; older Core handshakes still fail closed visibly with zero sends |
@@ -172,16 +177,16 @@ denial, and typed preview invalidation preserve the webview draft and require
 a new preview. Only a full owner/id/hash/Lane/branch/worktree/base/config match
 on `StarterLaneCreated` authorizes queue advancement.
 
-Core `0.3.2` advertises the exact additive capability
-`runtime.starter_lane_preview`, so the production D4 path can use the reviewed
-typed flow. Connections to older or partial Core handshakes still show the
-gate and send nothing; `runtime.lane_lifecycle` is deliberately not accepted
-as a substitute.
+Core `0.3.5` advertises the exact additive capabilities
+`runtime.starter_lane_preview` and `runtime.cockpit_context_v1`, so the
+production D4 path and D1 Context Dock can use the reviewed typed flow.
+Connections to older or partial Core handshakes still show the gate and send
+nothing; `runtime.lane_lifecycle` is deliberately not accepted as a substitute.
 
-Deterministic browser evidence covers Aurora dark/regular English, Ice
-light/comfy Chinese, and Amber dark/compact English under
-`output/playwright/`. The complete eight-pair theme matrix, all three density
-values, both catalogs, and reduced-motion behavior remain automated tests.
+Deterministic browser evidence for rc.3 is retained under
+`evidence/0.1.0-rc.3/`. The complete eight-pair theme matrix, all three
+density values, both catalogs, and reduced-motion behavior remain automated
+tests.
 
 The config rail renders only Core's exact reviewed `viden.toml` contents, and
 confirmation copies the preview id and SHA from the current Core projection.
@@ -221,10 +226,14 @@ The transcript retains at most 240 rows. Leaving the latest edge sets
 new-output count instead of forcing a scroll. Rust and webview tests cover
 10,000-event bursts, 50,000 rows, resize/idle reads, CJK composition,
 multiline paste/undo, keyboard traversal, ARIA regions, and visible focus.
-Deterministic Playwright evidence under `output/playwright/` includes Aurora
-dark/regular English and Ice light/comfy Chinese. Diff, apply, audit, and
-untyped recovery actions remain explicit unavailable facts; D1 never
-fabricates a successful placeholder.
+Browser-controlled rc.3 evidence under `evidence/0.1.0-rc.3/` includes
+Aurora dark/regular English, Ice light/regular English, Aurora dark/regular
+Chinese, compact density, responsive drawer states, and an independent
+same-state design reference populated from `d1-main-cockpit.json`. It also
+includes a supplemental Context Dock bottom-state capture that proves lower
+facts are reachable by internal scrolling. Diff, apply, audit, and untyped
+recovery actions remain explicit unavailable facts; D1 never fabricates a
+successful placeholder.
 
 ## Permission dock and D6 recovery
 
@@ -247,7 +256,7 @@ disabled under `GUI-CORE-003`; the GUI never fabricates recovery receipts.
 ## Production bootstrap
 
 `src-tauri` is the only GUI member of the root Rust workspace and declares its
-own `0.1.0-beta.1` version. `GuiCoreAdapter`, its D4 adapter extension, and
+own `0.1.0-rc.3` version. `GuiCoreAdapter`, its D4 adapter extension, and
 `RuntimeProjection` are the only production boundary modules that hold Core
 contracts. `GuiPreferences`,
 `WorkspaceSelection`, `ComposerDraft`, and `TranscriptViewport` are
@@ -285,18 +294,22 @@ not construct `SessionEngine`/`RuntimeSupervisor` or add a private reducer.
 Task 6 now owns the resolved locale/appearance projection and unsaved draft
 contract; Task 7 owns D11, and Task 9 owns D1.
 
-## Beta visual and accessibility gate
+## rc.3 visual, metadata, and bundle gate
 
 Task 11 adds a framework-neutral component gallery and a deterministic pairwise
 case inventory/DOM contract for D1, D11, D4, D6, and the gallery. It enumerates
 both locales, every valid skin/mode pair, all densities, system/reduced motion,
 and desktop, narrow, and scaled-font requirements. The reviewed visual evidence
-is the representative desktop gate only; gallery, narrow, and scaled-font
-captures remain explicitly partial. D1 stays pinned to the live desktop cockpit
-HTML as its primary comparison source.
+is the representative desktop gate plus exact-size D1 same-state QA; gallery,
+narrow, and scaled-font captures remain explicitly partial. D1 pass/fail visual
+QA compares an independent canonical-state design reference against the
+production canonical capture. The older accepted desktop cockpit screenshot is
+kept only as historical visual lineage.
 
-Machine-readable accessibility and bounded-model performance records, reviewed
-Playwright screenshot paths, exact methods, and explicit native audit/profile
-skips are under [evidence/0.1.0-beta.1](evidence/0.1.0-beta.1/README.md). The
-active manifest and immutable beta snapshot record the same evidence paths and
-remain byte-equivalent.
+Machine-readable accessibility, bounded local performance records,
+Browser-controlled same-state screenshots, side-by-side QA, exact methods, and
+explicit native audit/profile skips are under
+[evidence/0.1.0-rc.3](evidence/0.1.0-rc.3/README.md). The active manifest and
+immutable rc.3 snapshot record the same evidence paths and remain
+byte-equivalent. The macOS `.app` bundle is a local build artifact only; it is
+not installed, signed, notarized, published, tagged, or released.

@@ -41,7 +41,7 @@ fn production_crate_has_an_explicit_version_and_only_core_as_a_viden_dependency(
         .parse()
         .expect("parse production GUI manifest");
 
-    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.2"));
+    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.3"));
     let mut internal = Vec::new();
     for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(table) = manifest.get(section).and_then(toml::Value::as_table) {
@@ -74,8 +74,8 @@ fn rust_web_and_tauri_packages_share_the_explicit_rc_version() {
     )
     .expect("parse Tauri configuration");
 
-    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.2"));
-    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.2"));
+    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.3"));
+    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.3"));
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn root_workspace_contains_only_the_selected_tauri_production_crate() {
 fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
     let gui_root = gui_root();
     let active_path = gui_root.join("release-manifest.toml");
-    let snapshot_path = gui_root.join("manifests/0.1.0-rc.2.toml");
+    let snapshot_path = gui_root.join("manifests/0.1.0-rc.3.toml");
     let active = fs::read(&active_path).expect("read active GUI release manifest");
     let snapshot = fs::read(&snapshot_path).expect("read immutable beta release manifest");
 
@@ -150,21 +150,21 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         .expect("release manifest must be UTF-8")
         .parse()
         .expect("parse GUI release manifest");
-    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.2"));
+    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.3"));
     assert_eq!(manifest["release_channel"].as_str(), Some("rc"));
     assert_eq!(
         manifest["status"].as_str(),
-        Some("native-acp-interaction-candidate")
+        Some("canonical-d1-cockpit-candidate")
     );
     assert_eq!(manifest["selected_framework"].as_str(), Some("tauri"));
-    assert_eq!(manifest["core"]["minimum_version"].as_str(), Some("0.3.4"));
+    assert_eq!(manifest["core"]["minimum_version"].as_str(), Some("0.3.5"));
     assert_eq!(
         manifest["core"]["base_checkpoint"].as_str(),
-        Some("54965464e87860f9c39a1fb656c2f528e354da94")
+        Some("f7fe1b31dfb237e4062209767a7051c2b2c68b93")
     );
     assert_eq!(
         manifest["core"]["extension_fixture_sha256"].as_str(),
-        Some("96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580")
+        Some("f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b")
     );
     let required = manifest["core"]["required_capabilities"]
         .as_array()
@@ -179,6 +179,7 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         "runtime.credential_handles",
         "runtime.lane_lifecycle",
         "runtime.project_onboarding",
+        "runtime.cockpit_context_v1",
     ] {
         assert!(
             !required.contains(&capability),
@@ -205,16 +206,39 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
     }
     assert_eq!(
         manifest["evidence"]["root"].as_str(),
-        Some("apps/gui/evidence/0.1.0-rc.2")
+        Some("apps/gui/evidence/0.1.0-rc.3")
     );
     assert_eq!(
         manifest["evidence"]["accessibility"].as_str(),
-        Some("apps/gui/evidence/0.1.0-rc.2/accessibility.json")
+        Some("apps/gui/evidence/0.1.0-rc.3/accessibility.json")
     );
     assert_eq!(
         manifest["evidence"]["performance"].as_str(),
-        Some("apps/gui/evidence/0.1.0-rc.2/performance.json")
+        Some("apps/gui/evidence/0.1.0-rc.3/performance.json")
     );
+    assert_eq!(
+        manifest["evidence"]["design_reference"].as_str(),
+        Some("apps/gui/evidence/0.1.0-rc.3/d1-design-reference.html")
+    );
+    assert_eq!(
+        manifest["evidence"]["same_state_comparison"].as_str(),
+        Some("apps/gui/evidence/0.1.0-rc.3/d1-design-reference-vs-actual.png")
+    );
+    assert_eq!(
+        manifest["evidence"]["context_dock_bottom_capture"].as_str(),
+        Some("apps/gui/evidence/0.1.0-rc.3/d1-context-dock-bottom-1280x800.png")
+    );
+    assert_eq!(
+        manifest["evidence"]["accepted_target_role"].as_str(),
+        Some("historical visual reference only; not same-state acceptance evidence")
+    );
+    let required_ids = manifest["fixtures"]["required_ids"]
+        .as_array()
+        .expect("fixture ids")
+        .iter()
+        .filter_map(toml::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(required_ids.contains(&"d1-main-cockpit"));
 }
 
 #[test]

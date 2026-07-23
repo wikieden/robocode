@@ -3,6 +3,7 @@
 英文版：[README.md](README.md)
 
 本目录是 Viden 的 GUI 实施线。Alpha 证据门禁已经选择 Tauri，
+`0.1.0-rc.3` 使用 Core `0.3.5` 的同状态 fixture 认证规范 D1 驾驶舱。
 `0.1.0-beta.1` 建立唯一 production desktop bootstrap。原生启动器会通过
 frontend-safe `LocalCoreHost` 打开工作区，并把它的 `CoreClient` 注入
 `GuiCoreAdapter`。应用始终先显示 D1 驾驶舱外壳。未绑定工作区时，“打开项目”只会
@@ -45,19 +46,22 @@ VIDEN_GUI_WORKSPACE=/absolute/project/path \
 
 | 字段 | 值 |
 | --- | --- |
-| GUI 组件版本 | `0.1.0-beta.1` |
-| 最低 Core 版本 | `0.3.2` |
+| GUI 组件版本 | `0.1.0-rc.3` |
+| 最低 Core 版本 | `0.3.5` |
 | 支持 frontend schema | `[1]` |
-| 共同分支基线 | `afd6fcc9aaf3039ba79bb4588ed33bf1547209f5` |
+| 共同分支基线 | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
+| Core 最终 checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
+| Core code checkpoint | `17fa2071398d5eaf30045257163d57d22d99177b` |
 | 合同 payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
-| 必需 Core capabilities | 15 项冻结能力加 3 项 additive extension capability |
+| 规范 D1 fixture | `d1-main-cockpit.json`，SHA-256 `f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b` |
+| 必需 Core capabilities | 15 项冻结能力加 additive extension capabilities，包括 `runtime.cockpit_context_v1` |
 | 内置 locale | `en`、`zh-CN` |
 | 外观系统 | 5 套 skin、8 组有效 skin/mode、3 档 density、3 种 motion |
 
 当前机器可读 manifest 是 [release-manifest.toml](release-manifest.toml)。
-不可变 beta 快照是
-[manifests/0.1.0-beta.1.toml](manifests/0.1.0-beta.1.toml)；此版本 checkpoint
-下两者必须逐字节一致。Alpha 快照继续作为历史证据保留，不会被重写。
+不可变 rc.3 快照是
+[manifests/0.1.0-rc.3.toml](manifests/0.1.0-rc.3.toml)；此版本 checkpoint
+下两者必须逐字节一致。更早的 alpha、beta 与 rc.2 快照继续作为历史证据保留，不会被重写。
 
 ## 设计真源顺序
 
@@ -91,9 +95,9 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 `viden-context` 或 config internals。所有 mutation 都发送 `RuntimeCommand`；
 只有收到 `CommandAccepted` 和后续有序 state event 后才能显示成功。
 
-## 对照 Core `0.3.2` 的清单
+## 对照 Core `0.3.5` 的清单
 
-| GUI 区域 | 设计意图 | Core `0.3.2` 状态 | GUI 处理 |
+| GUI 区域 | 设计意图 | Core `0.3.5` 状态 | GUI 处理 |
 | --- | --- | --- | --- |
 | 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑；安全 credential ingress 与 GUI recent-work adapter 仍不完整 | Welcome 直接使用原生选择器和 host rebind；D11 只作为项目内显式配置流程，不接管打开文件夹 |
 | D4 Lane 创建 | typed role、route、gate strength、mutation policy、target、budget、worktree preview、lane receipt | 已有 `PreviewStarterLane`/`CreateStarterLane`、Core 解析 preview、invalidation、approval、精确 receipt 与 `runtime.starter_lane_preview` 广告 | Task 8 渲染四步复核流程；连接旧版 Core 时仍以可见 unavailable 和零发送 fail closed |
@@ -148,13 +152,13 @@ Plan 模式可预览但不可创建。`CommandAccepted` 与 `LaneUpdated` 都只
 draft，并要求重新预览。只有 owner/id/hash/Lane/branch/worktree/base/config 全量匹配的
 `StarterLaneCreated` 才能推进队列。
 
-Core `0.3.2` production handshake 已包含精确 additive capability
-`runtime.starter_lane_preview`，因此 D4 可使用已复核 typed flow。连接旧版或不完整 Core 时
-仍明确展示门禁并保持零发送；`runtime.lane_lifecycle` 不能作为替代。
+Core `0.3.5` production handshake 已包含精确 additive capabilities
+`runtime.starter_lane_preview` 与 `runtime.cockpit_context_v1`，因此 D4 与 D1
+Context Dock 可使用已复核 typed flow。连接旧版或不完整 Core 时仍明确展示门禁并保持零发送；
+`runtime.lane_lifecycle` 不能作为替代。
 
-确定性浏览器证据位于 `output/playwright/`，覆盖 Aurora dark/regular 英文、Ice
-light/comfy 中文与 Amber dark/compact 英文。完整 8 组主题矩阵、3 档 density、两套 catalog
-和 reduced-motion 行为仍由自动化测试覆盖。
+rc.3 的确定性浏览器证据位于 `evidence/0.1.0-rc.3/`。完整 8 组主题矩阵、3 档
+density、两套 catalog 和 reduced-motion 行为仍由自动化测试覆盖。
 
 配置 rail 只渲染 Core 返回的 `viden.toml` 精确复核内容，confirm 的 preview id 与 SHA
 也从当前 Core projection 复制。Credential 行只显示 masked handle。由于尚无
@@ -184,9 +188,12 @@ live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 act
 Transcript 最多保留 240 行。离开最新输出边缘后会设为 `follow_latest=false`、保留当前锚点，
 并递增可见的新输出计数，而不会强制滚动。Rust 与 webview 测试覆盖 10,000-event burst、
 50,000 行、resize/idle 读取、CJK composition、多行 paste/undo、键盘遍历、ARIA region 与
-可见焦点。`output/playwright/` 下的确定性证据至少包含 Aurora dark/regular 英文和 Ice
-light/comfy 中文。Diff、apply、audit 与未类型化 recovery actions 始终是明确 unavailable
-facts；D1 不会伪造成功占位。
+可见焦点。`evidence/0.1.0-rc.3/` 下的 Browser-controlled 证据包含 Aurora
+dark/regular 英文、Ice light/regular 英文、Aurora dark/regular 中文、compact density
+和 responsive drawer 状态，并包含一个由 `d1-main-cockpit.json` 填充的独立同状态设计
+reference。它还包含一个补充 Context Dock bottom-state capture，用于证明下方事实可通过内部
+滚动到达。Diff、apply、audit 与未类型化 recovery actions 始终是明确 unavailable facts；D1
+不会伪造成功占位。
 
 ## Permission Dock 与 D6 恢复
 
@@ -206,7 +213,7 @@ agent stopped、context overflow、capability、incompatible schema、queue clea
 ## Production bootstrap
 
 `src-tauri` 是 root Rust workspace 中唯一 GUI member，并显式声明独立
-`0.1.0-beta.1` 版本。`GuiCoreAdapter`、其 D4 adapter extension 与
+`0.1.0-rc.3` 版本。`GuiCoreAdapter`、其 D4 adapter extension 与
 `RuntimeProjection` 是 production source 中仅有的 Core contract 边界模块；
 `GuiPreferences`、`WorkspaceSelection`、
 `ComposerDraft` 与 `TranscriptViewport` 只保存 presentation state。关闭窗口只会丢弃
@@ -238,14 +245,18 @@ runtime。真正的 host/bootstrap 失败显示 D6 disconnected，不进入 D11�
 Task 6 现已负责 resolved locale/appearance projection 与未保存 draft contract；Task 7
 负责 D11，Task 9 负责 D1。
 
-## Beta 视觉与可访问性门禁
+## rc.3 视觉、元数据与 bundle 门禁
 
 Task 11 新增 framework-neutral 组件画廊，以及面向 D1、D11、D4、D6 和 gallery 的
 deterministic pairwise case inventory/DOM contract。它枚举中英文、全部有效 skin/mode
 组合、3 档 density、system/reduced motion，以及桌面、窄屏和放大字体要求。当前已复核
-视觉证据仅构成代表性 desktop gate；gallery、窄屏与放大字体 capture 仍明确标为 partial。
-D1 继续固定以 live desktop cockpit HTML 作为主对比源。
+视觉证据包含代表性 desktop gate 和精确尺寸的 D1 同状态 QA；gallery、窄屏与放大字体
+capture 仍明确标为 partial。D1 的 pass/fail 视觉 QA 使用独立 canonical-state design
+reference 与 production canonical capture 对比；旧 accepted desktop cockpit 截图仅作为历史视觉
+lineage 保留。
 
-机器可读的可访问性与有界模型性能记录、已复核 Playwright 截图路径、精确方法和明确的
-原生审计/profile skip 都在 [evidence/0.1.0-beta.1](evidence/0.1.0-beta.1/README.md)。
-active manifest 与 immutable beta snapshot 记录相同证据路径并保持逐字节一致。
+机器可读的可访问性、有界本地性能记录、Browser-controlled 同状态截图、side-by-side QA、
+精确方法和明确的原生审计/profile skip 都在
+[evidence/0.1.0-rc.3](evidence/0.1.0-rc.3/README.md)。active manifest 与
+immutable rc.3 snapshot 记录相同证据路径并保持逐字节一致。macOS `.app` bundle
+只是本地构建产物；未安装、签名、公证、发布、打 tag 或 release。

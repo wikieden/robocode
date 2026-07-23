@@ -77,21 +77,30 @@ describe("D1 accessibility and contrast semantics", () => {
     expect(evidence.matrix.motion).toEqual(["system", "reduced"]);
     expect(evidence.matrix.rendered_font_scale).toEqual(["100%", "200%"]);
     expect(evidence.browser_provenance.url).toBe(
-      "http://127.0.0.1:4173/evidence/task-6-work-surface/qa.html?busy=1",
+      "http://127.0.0.1:4173/evidence/0.1.0-rc.3/d1-canonical-qa.html",
+    );
+    expect(evidence.browser_provenance.exact_viewport_harness).toBe(
+      "http://127.0.0.1:4173/evidence/0.1.0-rc.3/d1-target-viewport-capture.html",
     );
     expect(evidence.browser_provenance.backend).toBe("Chrome extension via Browser runtime");
-    expect(evidence.browser_provenance.observations).toHaveLength(6);
+    expect(evidence.browser_provenance.observations).toHaveLength(4);
     expect(
       evidence.browser_provenance.observations.every(
         (observation: { rendered_font_scale: string; clipping_observation: string }) =>
-          ["100%", "200%"].includes(observation.rendered_font_scale) &&
-          observation.clipping_observation ===
-            "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling.",
+          observation.rendered_font_scale === "100%" &&
+          (observation.clipping_observation.includes("No horizontal document overflow") ||
+            observation.clipping_observation.includes("Lower Context Dock facts")),
       ),
     ).toBe(true);
     expect(evidence.outcomes.keyboard_only).toBe("pass");
     expect(evidence.outcomes.cjk_ime).toBe("pass");
     expect(evidence.outcomes.browser_rendered_200_percent_font_scale).toBe("pass");
+    expect(evidence.browser_provenance.drawer_probe.dock_drawer_open).toBe("true");
+    expect(evidence.browser_provenance.drawer_probe.toggle_expanded).toBe("true");
+    expect(evidence.browser_provenance.context_bottom_probe.scroll_top).toBeGreaterThan(0);
+    expect(evidence.browser_provenance.context_bottom_probe.visible_tail_contains).toContain(
+      "Task checklist",
+    );
     expect(evidence.contract_limitations).toContain(
       "Core-resolved ui_preferences does not currently expose a font-scale field; 200% is certified only as rendered browser/local preview scale, not as a persisted GUI preference.",
     );
@@ -99,7 +108,7 @@ describe("D1 accessibility and contrast semantics", () => {
       "Browser-controlled native accessibility tree audit was not executed in this artifact.",
     );
     expect(evidence.limitations).toContain(
-      "Browser viewport capability represented 5140x2650 during the cap probe; no 5140 backend cap was encountered, but Task 8 rendered checks were limited to 1440x900, 1280x800, and 960x640.",
+      "Chrome capped the outer Browser viewport at 2560x1267 in this session; exact target-size visual evidence was captured through a Browser-rendered 5140x2650 iframe harness.",
     );
   });
 });
