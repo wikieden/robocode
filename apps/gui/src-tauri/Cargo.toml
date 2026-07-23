@@ -22,6 +22,10 @@ name = "fixture_parity"
 path = "../tests/fixture_parity.rs"
 
 [[test]]
+name = "native_acp_fixture"
+path = "../tests/native_acp_fixture.rs"
+
+[[test]]
 name = "d11_intake"
 path = "../tests/d11_intake.rs"
 

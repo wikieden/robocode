@@ -1517,6 +1517,7 @@ mod tests {
         events: VecDeque<RuntimeEventEnvelope>,
         view: Option<RuntimeViewState>,
         capabilities: Option<BTreeSet<CapabilityId>>,
+        snapshot_cursor: Option<EventCursor>,
     }
 
     impl CoreTransport for FakeCoreTransport {
@@ -1565,8 +1566,14 @@ mod tests {
                     .clone()
                     .unwrap_or_else(frontend_capabilities),
                 cursor: EventCursor {
-                    stream_id: "fixture".to_string(),
-                    sequence: 0,
+                    stream_id: self
+                        .snapshot_cursor
+                        .as_ref()
+                        .map_or_else(|| "fixture".to_string(), |cursor| cursor.stream_id.clone()),
+                    sequence: self
+                        .snapshot_cursor
+                        .as_ref()
+                        .map_or(0, |cursor| cursor.sequence),
                 },
                 view,
                 snapshot,
@@ -4268,6 +4275,124 @@ mod tests {
                 .iter()
                 .all(|entry| entry.label != "assistant")
         );
+    }
+
+    #[test]
+    fn native_acp_fixture_render() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+            expected_final_cursor: EventCursor,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+        ))
+        .expect("interaction fixture");
+        let initial_cursor = EventCursor {
+            stream_id: fixture.expected_final_cursor.stream_id.clone(),
+            sequence: 0,
+        };
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: fixture.events.clone().into(),
+                view: Some(RuntimeViewState::new(fixture.initial_snapshot)),
+                snapshot_cursor: Some(initial_cursor),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect canonical fixture");
+        let mut observed = Vec::new();
+
+        for _ in 0..fixture.events.len() {
+            assert!(matches!(
+                driver.pump().expect("apply ordered fixture event"),
+                PumpOutcome::Applied(_)
+            ));
+            observed.extend(driver.take_applied_events());
+        }
+
+        assert_eq!(driver.cursor(), &fixture.expected_final_cursor);
+        let mut state = state_from_driver(&driver, &TuiOptions::new("fixture parity"));
+        let projection = CockpitProjection::from(&state.runtime, &state.ui);
+        state.ui.lens = Lens::Board;
+        let board_rendered = super::super::render::render_frame(&state, 160, 55);
+        state.ui.lens = Lens::Gallery;
+        let gallery_rendered = super::super::render::render_frame(&state, 160, 55);
+        state.ui.lens = Lens::Decisions;
+        let decisions_rendered = super::super::render::render_frame(&state, 160, 55);
+
+        assert_eq!(projection.lanes.len(), 1);
+        assert_eq!(projection.lanes[0].id, "lane-loop-coder");
+        assert!(board_rendered.contains("lane-loop-coder"));
+
+        // The canonical reducer keeps one execution identity per Lane. Both
+        // start receipts remain observable, but the frontend cannot invent a
+        // second concurrent Agent owner from historical session events.
+        assert_eq!(state.runtime.agent_sessions.len(), 1);
+        assert_eq!(
+            state.runtime.agent_sessions[0].session_id,
+            "session-loop-built-in"
+        );
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionStarted { session }
+                if session.session_id == "session-loop-built-in"
+        )));
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionStarted { session }
+                if session.session_id == "session-loop-acp"
+        )));
+
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallStarted { tool_call_id, .. }
+                if tool_call_id == "tool-loop-test"
+        )));
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished { tool_call_id, success, .. }
+                if tool_call_id == "tool-loop-test" && *success
+        )));
+        assert!(projection.active_tools.is_empty());
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == "approval-loop-tool"
+        )));
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved { request_id, .. }
+                if request_id == "approval-loop-tool"
+        )));
+        assert!(projection.approvals.is_empty());
+
+        assert_eq!(projection.evidence[0].id, "evidence-loop-test");
+        assert_eq!(projection.merge_gates[0].gate_id, "gate-loop-apply");
+        assert_eq!(projection.lane_conflicts[0].lane_id, "lane-loop-coder");
+        assert_eq!(projection.lane_conflicts[0].paths, ["src/lib.rs"]);
+        assert_eq!(projection.lane_recoveries[0].lane_id, "lane-loop-coder");
+        assert_eq!(
+            projection.recovery_actions[0].action,
+            "action.revalidate_merge_conflict"
+        );
+        assert_eq!(
+            state.runtime.agent_session_inputs[0].input_id,
+            "agent-input-loop-follow-up"
+        );
+        assert!(observed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionStarted { session }
+                if session.session_id == "session-loop-acp"
+                    && session.task == "task.loop.follow_up"
+        )));
+        assert!(gallery_rendered.contains("evidence-loop-test"));
+        assert!(gallery_rendered.contains("gate-loop-apply"));
+        assert!(decisions_rendered.contains("gate-loop-apply"));
+        assert!(decisions_rendered.contains("action.revalidate_merge_conflict"));
     }
 
     #[test]
