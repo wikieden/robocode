@@ -2,7 +2,7 @@
 
 Chinese version: [tui-interaction-flow-design.zh-CN.md](tui-interaction-flow-design.zh-CN.md)
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 
 ## Purpose
 
@@ -41,7 +41,35 @@ runtime cannot explain.
   marks the badge; it does not yank the user back to the bottom.
 - Input has three explicit modes: Normal for cockpit navigation, Insert for
   composer editing, and Overlay for selectors, panels, and approvals. `Esc`
-  unwinds one layer at a time; `Ctrl-C` interrupts active work.
+  unwinds one layer at a time. `Ctrl-C`, Normal-mode `Esc` after local selection
+  unwind, and ExitConfirm send owner-scoped cancellation only when Core exposes
+  exactly one owner binding for the selected active lane. Missing capability,
+  zero or multiple bindings, lane mismatch, inactive/stale lanes, and a fresh
+  Core event stream before its owner binding arrives all render cancellation as
+  unavailable and send no transport command. Repeated `Ctrl-C` in those active
+  ownerless states must not open exit confirmation.
+- `Ctrl-P` opens selector-first Global Jump. It projects only typed Core lanes,
+  their active session IDs, merge gates, pending approvals, and a controlled
+  navigation/completion command registry. `:`, `@`, `#`, `>`, and `~` scope
+  lane, session, gate/ask, command, and file results; arrows or `j`/`k` move,
+  Enter selects, and Esc restores the prior overlay owner and composer context.
+Core does not yet expose a typed file inventory, so File remains visible but
+disabled with that concrete reason; the TUI never scans the filesystem or Git.
+
+## Core 0.3.2 Compatibility
+
+TUI 0.3.0 requires only the frozen 15-capability base contract at startup. The
+10 Core 0.3.2 extension capabilities are negotiated individually and gate only
+their owning feature; one absent extension must not block connection. Both the
+handshake and the confirmed snapshot must advertise an extension before the TUI
+uses it. In particular, cancellation requires
+`runtime.lane_owner_projection`, while setup transport requires
+`runtime.project_onboarding`.
+
+The TUI release manifest pins Core checkpoint
+`a927e2f31d2cb9bb6015c30bc0ed0976e958c77e`, preserves the frozen payload SHA,
+and records the Core-owned extension fixture SHA-256. The fixture is replayed as
+typed state; display text is never parsed to recover an owner.
 
 ## Top-Level State Model
 
@@ -60,8 +88,13 @@ stateDiagram-v2
 
     Cockpit --> ActiveTurn: submit prompt
     ActiveTurn --> ActiveTurn: stream delta / tool event / queued follow-up
-    ActiveTurn --> ApprovalPanel: permission request
-    ApprovalPanel --> ActiveTurn: approve / deny / inspect
+    ActiveTurn --> ActiveTurn: permission request pinned
+    ActiveTurn --> Decisions: ctrl-g
+    Decisions --> ApprovalFocus: select concrete request
+    Decisions --> ActiveTurn: esc
+    ApprovalFocus --> ActiveTurn: y approve once / n deny / esc close (still pinned)
+    ApprovalFocus --> EvidenceFocus: d diff/evidence
+    EvidenceFocus --> ApprovalFocus: close / return
     ActiveTurn --> ErrorRecovery: provider/tool failure
     ErrorRecovery --> Cockpit: retry / switch model / run doctor / continue
     ActiveTurn --> Cockpit: assistant result / cancelled
@@ -90,7 +123,7 @@ flowchart TD
     F -->|composer| G["ComposerAction<br/>edit/submit/queue/cancel"]
     F -->|palette| H["PaletteAction<br/>filter/select/close"]
     F -->|panel| I["PanelAction<br/>edit/select/apply/cancel"]
-    F -->|approval| J["ApprovalAction<br/>approve/deny/inspect"]
+    F -->|explicit approval focus| J["ApprovalAction<br/>approve once/deny/diff/close"]
     F -->|transcript| K["HistoryAction<br/>scroll/follow live"]
     F -->|side screen| L["SideAction<br/>focus/select/close"]
 
@@ -119,8 +152,8 @@ and provider turns from stealing the keyboard.
 
 ```mermaid
 flowchart TD
-    A["Input Event"] --> B{"Has modal approval?"}
-    B -->|yes| C["Approval keymap<br/>1-4/arrows/enter/esc"]
+    A["Input Event"] --> B{"Has explicit approval focus?"}
+    B -->|yes| C["Approval keymap<br/>y/n/d/arrows/enter/esc"]
     B -->|no| D{"Interaction panel open?"}
     D -->|yes| E["Panel keymap<br/>search/edit/select/save/cancel"]
     D -->|no| F{"Command palette open?"}
@@ -129,6 +162,8 @@ flowchart TD
     H -->|yes| I["History keymap<br/>page/wheel/ctrl-end"]
     H -->|no| J["Composer keymap"]
 
+    J --> Q{"Ctrl-G?"}
+    Q -->|yes| R["Open Decisions<br/>select concrete request"]
     J --> K{"Enter while active turn?"}
     K -->|yes| L["Queue follow-up<br/>clear composer"]
     K -->|no| M["Start new turn"]
@@ -139,31 +174,39 @@ flowchart TD
 
 ## Welcome And Configuration Flow
 
-Welcome is not a session. Configuration should not jump into the cockpit unless
-the user starts real work or resumes history.
+Welcome is not a session. TUI 0.3.0 negotiates the Core 0.3.2 base contract and
+then requests `ProbeProject` only when `runtime.project_onboarding` is confirmed
+by both handshake and snapshot. Without that extension, Welcome and `/setup`
+remain usable, the setup panel explains the unavailable Core service, and the
+TUI sends no onboarding transport command. The event cursor is not a session
+id.
 
 ```mermaid
 flowchart TD
-    A["Launch Viden"] --> B{"Has visible session content?"}
-    B -->|no| C["Welcome surface<br/>logo + composer + context row"]
-    B -->|yes| D["Cockpit"]
+    A["Launch Viden"] --> B["Negotiate Core base + extensions<br/>ProbeProject only when available"]
+    B --> C{"Selected Core lane/session<br/>or real prompt?"}
+    C -->|no| D["Welcome surface<br/>logo + composer + context row"]
+    C -->|yes| E["Unified cockpit"]
 
-    C --> E{"User action"}
-    E -->|/connect| F["Provider picker"]
-    E -->|/models| G["Configured model picker"]
-    E -->|/setup| H["Setup checklist"]
-    E -->|real prompt| I["Start session"]
+    D --> F{"User action"}
+    F -->|/setup| G["Setup selector<br/>edit D11 draft · PreviewProjectConfig"]
+    F -->|/lanes| H["Core lane board"]
+    F -->|real prompt| E
 
-    F --> J["Provider setup form<br/>auth/key/endpoint/default model"]
-    J --> K{"Save?"}
-    K -->|save| C
-    K -->|cancel/esc| C
-
-    G --> L["Switch active provider/model"]
-    L --> C
-    H --> C
-    I --> D
+    G --> I{"Core event?"}
+    I -->|ProjectConfigPreviewed| G
+    I -->|ProjectConfigConfirmed| J["Setup complete"]
+    J --> D
+    H --> K["Select lane"]
+    K --> L["Select Core active_session_id<br/>when multiple exist"]
+    L --> E
 ```
+
+The TUI only projects Core onboarding facts and sends typed commands through
+`CoreClient`. It does not scan the project, write or confirm configuration by
+itself, or accept raw credential bytes locally. It may request confirmation by
+immutable preview id/hash, but completion is derived only from
+`ProjectConfigConfirmed`; a command receipt is not success.
 
 ## Provider Turn And Queued Follow-Up
 
@@ -204,29 +247,43 @@ sequenceDiagram
 ## Approval Flow
 
 Approval is a focus target in the same event loop. It must not call a separate
-blocking input loop.
+blocking input loop. Pending approvals are pinned but do not own input.
+Composer `y`, `n`, `d`, and `Enter` remain ordinary draft/submission input until
+the operator opens Decisions with `Ctrl-G` and selects a concrete request.
 
 ```mermaid
 flowchart TD
     A["Runtime requests mutation"] --> B["Permission layer builds ApprovalRequest"]
     B --> C["TurnController emits PendingApproval"]
-    C --> D["TUI renders approval panel"]
-    D --> E{"User action"}
-    E -->|1 allow once| F["resolve_approval(once)"]
-    E -->|2 allow session| G["resolve_approval(session)"]
-    E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
-    E -->|4 / esc / timeout| I["resolve_approval(deny)"]
-    E -->|inspect diff| J["Focus evidence/diff"]
-    E -->|scroll/resize/type| K["Still handled by main loop"]
-    J --> D
-    K --> D
-    F --> L["Runtime continues"]
-    G --> L
-    H --> L
-    I --> M["Runtime records denial"]
-    L --> N["LIVE WORK updates"]
-    M --> N
+    C --> D["Pin request<br/>composer retains input"]
+    D --> E["Ctrl-G opens Decisions"]
+    E --> F["Select concrete request"]
+    F --> G["Explicit approval focus"]
+    G -->|1 / y| H["forward allow-once scope"]
+    G -->|2| H2["forward exact session scope"]
+    G -->|3| H3["forward exact repository allowlist"]
+    G -->|4 / n| I["forward deny"]
+    G -->|d| J["Focus request diff/evidence"]
+    G -->|arrows| K["Move selected action"]
+    K -->|Enter| L["Activate selected action"]
+    G -->|Esc| M["Close focus<br/>request stays pinned"]
+    J --> G
+    H --> N["Runtime continues"]
+    H2 --> N
+    H3 --> N
+    I --> O["Runtime records denial"]
+    L --> P["Dispatch selected current action"]
+    N --> Q["LIVE WORK updates"]
+    O --> Q
+    P --> Q
 ```
+
+Session-scoped approval and repository allowlisting are request-gated Core
+actions. The TUI exposes a choice only when that request's typed
+`allowed_scopes` provides the exact payload, forwards it through the original
+request owner, and waits for Core resolution. Expired requests remain pinned
+and inert until `ApprovalResolved`; the TUI never synthesizes local denial or
+success.
 
 ## Model And Provider Panels
 
@@ -236,15 +293,13 @@ behind command-completion semantics.
 ```mermaid
 flowchart TD
     A["/connect"] --> B["Provider picker<br/>providers only"]
-    B --> C["Provider setup form"]
-    C --> D{"Auth mode"}
-    D -->|API key| E["Edit/delete masked key"]
-    D -->|web login| F["Open login / confirm token"]
-    D -->|local/no key| G["Show local status"]
-    C --> H["Endpoint edit"]
-    C --> I["Default model picker"]
+    B --> C["Core provider health"]
+    C --> D{"Safe credential handle?"}
+    D -->|yes| E["Show masked handle metadata"]
+    D -->|no| F["Trusted ingress unavailable<br/>read-only"]
+    C --> I["Configured model picker"]
     I --> J["Provider-scoped model list"]
-    J --> K["Save provider config"]
+    J --> K["Send Core-owned provider/model action"]
     K --> L["Return to previous surface"]
 
     M["/models"] --> N["Configured providers only"]
@@ -343,8 +398,10 @@ flowchart LR
 - Plan mode turn: the provider only produces requirements, architecture,
   implementation approach, test strategy, and development plans; mutating tools
   are blocked by permission/runtime policy; composer input continues to work.
-- Approval request: approval panel handles approve/deny/inspect, while resize,
-  scroll, and typed follow-up remain routed through the main loop.
+- Approval request: the request stays pinned without owning composer input;
+  `Ctrl-G` opens Decisions, selecting a concrete request creates explicit focus,
+  `y` approves once, `n` denies, `d` opens diff/evidence, `Enter` activates the
+  selected action, and `Esc` only closes focus.
 - Streaming while scrolled up: transcript badge shows new output; scrollback
   does not jump.
 - Provider failure: inline recovery shows concrete next action; TUI remains
@@ -359,7 +416,8 @@ flowchart LR
 ## Implementation Implications
 
 - Keep one interaction router and one event loop.
-- Promote approval into non-blocking `InteractionPanel` state.
+- Keep pending approvals as pinned runtime facts and create non-blocking
+  `OverlayKind::Approval` state only after a concrete Decisions selection.
 - Centralize active turn state in a `TurnController`-style runtime boundary.
 - Derive all TUI text from a stable view model.
 - Make preview and regression tests cover welcome, active turn, queued input,

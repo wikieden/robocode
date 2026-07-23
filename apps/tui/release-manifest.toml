@@ -1,0 +1,95 @@
+[release]
+component = "tui"
+version = "0.3.3"
+min_core_version = "0.3.4"
+base_core_checkpoint = "54965464e87860f9c39a1fb656c2f528e354da94"
+contract_payload_sha = "e989fa7cd3ccd9664196309586e5d135e3115693"
+extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
+supported_schema_versions = [1]
+design_entry = "docs/viden-design/Viden/index.html"
+tui_design_entry = "docs/viden-design/Viden/TUI/Viden - 设计稿索引 (TUI).html"
+tui_reference = "docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html"
+
+[compatibility]
+required_capabilities = [
+  "runtime.agent_dag",
+  "runtime.approvals",
+  "runtime.commands",
+  "runtime.context",
+  "runtime.cost",
+  "runtime.events",
+  "runtime.evidence",
+  "runtime.merge_gate",
+  "runtime.queued_input",
+  "runtime.replay",
+  "runtime.snapshot",
+  "runtime.transcript_page",
+  "runtime.typed_lanes",
+  "runtime.typed_tasks",
+  "ui.preferences",
+]
+
+[extensions]
+# Extensions are independently negotiated feature gates. Missing one entry
+# never blocks the frozen schema-1 base client from starting.
+capabilities = [
+  "core.workspace_host",
+  "runtime.agent_adapters",
+  "runtime.agent_permission_bridge",
+  "runtime.agent_session_input",
+  "runtime.agent_sessions",
+  "runtime.credential_handles",
+  "runtime.credential_staging",
+  "runtime.lane_lifecycle",
+  "runtime.lane_owner_projection",
+  "runtime.project_onboarding",
+  "runtime.recent_work",
+  "runtime.starter_lane_preview",
+  "runtime.trust_loop",
+  "runtime.workspace_eligibility",
+  "ui.preference_persistence",
+]
+
+[presentation]
+# Resolver inputs may contain `system`/`auto`; effective values never do.
+locales = ["system", "en", "zh-CN"]
+effective_locales = ["en", "zh-CN"]
+skins = ["aurora", "ice", "mono", "amber", "phosphor"]
+modes = ["system", "dark", "light"]
+effective_modes = ["dark", "light"]
+valid_skin_modes = [
+  "aurora:dark",
+  "aurora:light",
+  "ice:dark",
+  "ice:light",
+  "mono:dark",
+  "mono:light",
+  "amber:dark",
+  "phosphor:dark",
+]
+densities = ["compact", "regular", "comfy"]
+motion = ["system", "reduced", "full"]
+tui_color_depth = ["auto", "truecolor", "ansi256", "ansi16"]
+effective_tui_color_depth = ["truecolor", "ansi256", "ansi16"]
+mouse_capture = false
+
+[source_revisions]
+algorithm = "sha256"
+tokens_css = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
+catalog_en = "c695d62825df9a53ce193944a9f524b7859b4d2f3c2e19a855bcd429f02f4267"
+catalog_zh_cn = "a87d033031db8c01f625492146b66b4ce516c194c6a7b2a488db4535bba713af"
+
+[fixture_revisions]
+algorithm = "sha256"
+base_corpus_sha256 = "e272d7bee25af5d4a0e719aa7226f1b5bf22086e90f0d02224196c41ce67fcab"
+base_fixture_sha256 = [
+  "approval-allow-deny.json:a31d8c64ecfb5477f8e7b9c0ac53fbda2c447f7972e818be16ae2e388700248e",
+  "context-pressure-cost-blind.json:dbae6f879036248de2509f79a1afbfc6a8be27bc63b8198a39f4bc5be270d697",
+  "d1-vertical-slice.json:d8dc7a14d2f4a16ff6ebbab27a6760fbf0a22bce3a3dc74e98d46c248a71df5e",
+  "dag-blocker.json:98e2ad2b91b136df312aef38c4d58be054634d7c0828053e3021abc37c85e5c7",
+  "merge-gate.json:d71807abacf7ed55d5bd9b8a687853f94786f4a8967bb04f681cd50365becf11",
+  "multi-lane.json:1a20e8ec733774bc734e06252a635105b954c6a40b44f3aeead90788331fc5cd",
+  "plan-denial.json:6a04b5ef3f3847ec1cac2453eb07fe74058a1422aafa1a05da762d55d783b307",
+  "queued-follow-up.json:83c31272bba0831807aeb14fc4dcb3faabec078442243038470c7a6892299031",
+  "stream-tool.json:a097f17da294e0a32d7df88f5948eff2be2d93e966eb318b00e39951c9fd548a",
+]

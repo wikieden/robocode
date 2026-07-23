@@ -5,17 +5,20 @@ use std::{
 
 use crossterm::{
     SynchronizedUpdate, cursor,
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange},
     execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use viden_core::{ResolvedUiPreferences, UiMotion};
 
 use super::{
     command_palette::is_command_palette_visible,
     composer::{composer_cursor_position, should_render_welcome},
+    glyphs::ascii_fallback,
     modal::{approval_focus_cursor, has_pending_approval},
-    render::{render_frame, render_ops_frame, render_side_frame},
+    preferences::{ColorDepth, TerminalCapabilities, resolve_appearance},
+    render::{render_frame, render_ops_frame, render_side_frame, right_rail_width},
     state::TuiState,
     statusbar::BOTTOM_BAR_HEIGHT,
     text::char_width,
@@ -25,26 +28,58 @@ use super::{
 pub(super) struct TerminalGuard {
     active: bool,
     theme: TuiTheme,
+    motion: UiMotion,
+    color_depth: ColorDepth,
+    capabilities: TerminalCapabilities,
     last_lines: Vec<String>,
     last_size: Option<(u16, u16)>,
     last_style_signature: Option<String>,
     last_full_redraw: Instant,
 }
 
-const MAIN_RIGHT_RAIL_WIDTH: usize = 38;
 // Terminal emulators can lose alternate-screen contents after sleep, focus, or
 // long idle periods; periodic full redraw keeps the dirty-row cache honest.
 const FULL_REDRAW_INTERVAL: Duration = Duration::from_secs(5);
 
 impl TerminalGuard {
     pub(super) fn enter_with_theme(theme_name: Option<&str>) -> Result<Self, String> {
+        let capabilities = TerminalCapabilities::detect();
+        Self::enter(
+            TuiTheme::from_name_or_env(theme_name),
+            UiMotion::System,
+            ColorDepth::Auto,
+            capabilities,
+        )
+    }
+
+    pub(super) fn enter_with_preferences(
+        preferences: &ResolvedUiPreferences,
+        color_depth: ColorDepth,
+        capabilities: TerminalCapabilities,
+    ) -> Result<Self, String> {
+        let appearance = resolve_appearance(preferences, color_depth, capabilities);
+        Self::enter(
+            TuiTheme::from_palette(appearance.palette, appearance.color_depth),
+            preferences.motion,
+            color_depth,
+            capabilities,
+        )
+    }
+
+    fn enter(
+        theme: TuiTheme,
+        motion: UiMotion,
+        color_depth: ColorDepth,
+        capabilities: TerminalCapabilities,
+    ) -> Result<Self, String> {
         let mut stdout = io::stdout();
         terminal::enable_raw_mode().map_err(|err| err.to_string())?;
         if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
-            EnableMouseCapture,
-            cursor::SetCursorStyle::BlinkingBar,
+            EnableBracketedPaste,
+            EnableFocusChange,
+            cursor_style(motion),
             cursor::Show
         ) {
             let _ = terminal::disable_raw_mode();
@@ -52,7 +87,10 @@ impl TerminalGuard {
         }
         Ok(Self {
             active: true,
-            theme: TuiTheme::from_name_or_env(theme_name),
+            theme,
+            motion,
+            color_depth,
+            capabilities,
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
@@ -64,7 +102,10 @@ impl TerminalGuard {
     pub(super) fn test() -> Self {
         Self {
             active: false,
-            theme: TuiTheme::named("aurora-cyan"),
+            theme: TuiTheme::named("aurora"),
+            motion: UiMotion::System,
+            color_depth: ColorDepth::Auto,
+            capabilities: TerminalCapabilities::default(),
             last_lines: Vec::new(),
             last_size: None,
             last_style_signature: None,
@@ -75,7 +116,7 @@ impl TerminalGuard {
     pub(super) fn draw(&mut self, state: &TuiState) -> Result<(), String> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
         let frame = render_frame(state, width, height);
-        let cursor = approval_focus_cursor(state, width, height, MAIN_RIGHT_RAIL_WIDTH)
+        let cursor = approval_focus_cursor(state, width, height, right_rail_width(state))
             .unwrap_or_else(|| composer_cursor_position(state, width, height, BOTTOM_BAR_HEIGHT));
         self.draw_frame(&frame, Some(cursor), style_signature(state, &self.theme))
     }
@@ -126,7 +167,10 @@ impl TerminalGuard {
                         Clear(ClearType::CurrentLine)
                     )?;
                     let mut drawn_width = 0usize;
-                    for segment in line_segments(line, &self.theme) {
+                    for mut segment in line_segments(line, &self.theme) {
+                        if !self.capabilities.unicode {
+                            segment.text = ascii_fallback(&segment.text);
+                        }
                         drawn_width += char_width(&segment.text);
                         queue!(
                             stdout,
@@ -153,7 +197,7 @@ impl TerminalGuard {
                             column.min(size.0.saturating_sub(1)),
                             row.min(size.1.saturating_sub(1))
                         ),
-                        cursor::SetCursorStyle::BlinkingBar,
+                        cursor_style(self.motion),
                         cursor::Show
                     )?;
                 } else {
@@ -175,6 +219,27 @@ impl TerminalGuard {
     pub(super) fn cycle_theme(&mut self) -> &'static str {
         self.theme = self.theme.next();
         self.theme.name
+    }
+
+    pub(super) fn refresh_appearance(
+        &mut self,
+        preferences: &ResolvedUiPreferences,
+        color_depth: ColorDepth,
+        capabilities: TerminalCapabilities,
+    ) {
+        let appearance = resolve_appearance(preferences, color_depth, capabilities);
+        let next_theme = TuiTheme::from_palette(appearance.palette, appearance.color_depth);
+        if self.theme != next_theme
+            || self.motion != appearance.motion
+            || self.capabilities != capabilities
+        {
+            self.theme = next_theme;
+            self.motion = appearance.motion;
+            self.color_depth = color_depth;
+            self.capabilities = capabilities;
+            // The dirty-row cache contains styled output from the old profile.
+            self.last_style_signature = None;
+        }
     }
 
     pub(super) fn set_theme(&mut self, theme_name: &str) -> Result<&'static str, String> {
@@ -202,11 +267,19 @@ impl TerminalGuard {
             stdout,
             cursor::SetCursorStyle::DefaultUserShape,
             cursor::Show,
-            DisableMouseCapture,
+            DisableFocusChange,
+            DisableBracketedPaste,
             LeaveAlternateScreen
         )
         .map_err(|err| err.to_string())?;
         terminal::disable_raw_mode().map_err(|err| err.to_string())
+    }
+}
+
+fn cursor_style(motion: UiMotion) -> cursor::SetCursorStyle {
+    match motion {
+        UiMotion::Full => cursor::SetCursorStyle::BlinkingBar,
+        UiMotion::System | UiMotion::Reduced => cursor::SetCursorStyle::SteadyBar,
     }
 }
 
@@ -242,7 +315,7 @@ fn style_signature(state: &TuiState, theme: &TuiTheme) -> String {
             "cockpit"
         },
         has_pending_approval(state),
-        state.focused_lane.as_deref().unwrap_or(""),
+        state.ui.focused_lane.as_deref().unwrap_or(""),
         is_command_palette_visible(state)
     )
 }
@@ -879,20 +952,26 @@ fn collect_bracket_spans(line: &str, theme: &TuiTheme, spans: &mut Vec<(usize, u
 }
 
 fn is_shortcut_chip(text: &str) -> bool {
-    text.starts_with("[^") || text == "[? Help]"
+    text.starts_with("[^") || text.starts_with("[? ")
 }
 
 fn shortcut_chip_color(text: &str, theme: &TuiTheme) -> Color {
-    if text.contains("Theme") {
+    // Chords are stable identifiers while their action copy is localized.
+    // Style by the chord so switching locale cannot change semantic color.
+    if text.starts_with("[^T ") || text.contains("Theme") {
         theme.warning
-    } else if text.contains("Lane")
+    } else if text.starts_with("[^J ")
+        || text.starts_with("[^R ")
+        || text.starts_with("[^N ")
+        || text.starts_with("[^L ")
+        || text.contains("Lane")
         || text.contains("Route")
         || text.contains("Send")
         || text.contains("Regenerate")
         || text.contains("New Task")
     {
         theme.accent
-    } else if text.contains("Help") {
+    } else if text.starts_with("[? ") || text.contains("Help") {
         theme.muted
     } else {
         theme.title
@@ -1080,6 +1159,7 @@ fn is_panel_title(line: &str) -> bool {
         || line.contains(" PROVIDER HEALTH ")
         || line.contains(" RECENT FILES ")
         || line.contains(" APPROVAL ")
+        || line.contains(" APPROVAL · 审批 ")
         || line.contains(" AGENT LANES ")
         || line.contains(" LIVE OUTPUT ")
         || line.contains(" SIDE STATUS ")
@@ -1090,6 +1170,36 @@ fn is_panel_title(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_preference_refresh_rebuilds_theme_motion_and_color_depth() {
+        let mut terminal = TerminalGuard::test();
+        let capabilities = crate::tui::preferences::TerminalCapabilities {
+            truecolor: true,
+            ansi256: true,
+            unicode: true,
+            reduced_motion: false,
+        };
+        let preferences = ResolvedUiPreferences {
+            skin: viden_core::UiSkin::Ice,
+            mode: viden_core::UiColorMode::Light,
+            motion: UiMotion::Reduced,
+            ..ResolvedUiPreferences::default()
+        };
+
+        terminal.refresh_appearance(
+            &preferences,
+            crate::tui::preferences::ColorDepth::Ansi256,
+            capabilities,
+        );
+
+        assert_eq!(terminal.theme.name, "ice-light");
+        assert_eq!(
+            terminal.theme.depth(),
+            crate::tui::preferences::ColorDepth::Ansi256
+        );
+        assert_eq!(terminal.motion, UiMotion::Reduced);
+    }
 
     #[test]
     fn colors_approval_and_actions_by_semantics() {
@@ -1111,6 +1221,24 @@ mod tests {
                 .iter()
                 .any(|segment| segment.text == "APPROVAL REQUIRED"
                     && segment.foreground == theme.warning)
+        );
+    }
+
+    #[test]
+    fn localized_and_numbered_rows_do_not_invent_approval_semantics() {
+        let theme = TuiTheme::aurora_cyan();
+
+        assert_eq!(color_for_line("│ 1 本次允许", &theme), theme.text);
+        assert_eq!(color_for_line("│ 4 拒绝", &theme), theme.text);
+        assert_eq!(
+            color_for_line("│ 1 retry command output", &theme),
+            theme.text
+        );
+        assert_eq!(color_for_line("│ 4 failed cases", &theme), theme.text);
+        assert_eq!(color_for_line("1 arbitrary output", &theme), theme.text);
+        assert_eq!(
+            color_for_line("┌ APPROVAL · 审批 ─────────────┐", &theme),
+            theme.title
         );
     }
 
@@ -1495,6 +1623,24 @@ mod tests {
     }
 
     #[test]
+    fn highlights_localized_composer_shortcuts_by_stable_key_chords() {
+        let theme = TuiTheme::aurora_cyan();
+        let segments = line_segments(
+            "│ ACTIONS: [^J 发送] [^K 清空] [^R 重新生成] [^N 新任务] [? 帮助] │",
+            &theme,
+        );
+
+        for shortcut in ["[^J 发送]", "[^R 重新生成]", "[^N 新任务]"] {
+            assert!(segments.iter().any(|segment| segment.text == shortcut
+                && segment.foreground == theme.accent
+                && segment.background == theme.chip));
+        }
+        assert!(segments.iter().any(|segment| segment.text == "[? 帮助]"
+            && segment.foreground == theme.muted
+            && segment.background == theme.chip));
+    }
+
+    #[test]
     fn highlights_roles_paths_and_operational_metrics() {
         let theme = TuiTheme::aurora_cyan();
         let segments = line_segments(
@@ -1542,7 +1688,7 @@ mod tests {
         let ember = render_ansi_preview_with_theme(frame, Some("ember-gold"));
 
         assert_ne!(aurora, ember);
-        assert!(ember.contains("\x1b[38;2;255;176;64m"));
+        assert!(ember.contains("\x1b[38;2;224;154;62m"));
     }
 
     #[test]

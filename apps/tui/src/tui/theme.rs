@@ -1,4 +1,10 @@
 use crossterm::style::Color;
+use viden_core::{ResolvedUiPreferences, TuiColorDepth};
+
+use super::{
+    palette::Palette,
+    preferences::{ColorDepth, ColorMode, Skin, TerminalCapabilities, resolve_appearance},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiTheme {
@@ -15,217 +21,116 @@ pub(super) struct TuiTheme {
     pub(super) warning: Color,
     pub(super) error: Color,
     pub(super) muted: Color,
+    palette: &'static Palette,
+    depth: ColorDepth,
 }
 
 impl TuiTheme {
+    pub(super) fn aurora() -> Self {
+        Self::from_key(Skin::Aurora, ColorMode::Dark, ColorDepth::Truecolor)
+    }
+
+    #[cfg(test)]
     pub(super) fn aurora_cyan() -> Self {
+        Self::aurora()
+    }
+
+    pub(super) fn ice() -> Self {
+        Self::from_key(Skin::Ice, ColorMode::Dark, ColorDepth::Truecolor)
+    }
+
+    pub(super) fn mono() -> Self {
+        Self::from_key(Skin::Mono, ColorMode::Dark, ColorDepth::Truecolor)
+    }
+
+    pub(super) fn amber() -> Self {
+        Self::from_key(Skin::Amber, ColorMode::Dark, ColorDepth::Truecolor)
+    }
+
+    pub(super) fn phosphor() -> Self {
+        Self::from_key(Skin::Phosphor, ColorMode::Dark, ColorDepth::Truecolor)
+    }
+
+    fn from_key(skin: Skin, mode: ColorMode, depth: ColorDepth) -> Self {
+        let palette = Palette::find(skin, mode).unwrap_or_else(|| {
+            Palette::find(Skin::Aurora, ColorMode::Dark)
+                .expect("generated palettes include the safe fallback")
+        });
+        Self::from_palette(palette, depth)
+    }
+
+    pub(super) fn from_palette(palette: &'static Palette, depth: ColorDepth) -> Self {
+        let colors = palette.for_depth(depth);
         Self {
-            name: "aurora-cyan",
-            background: Color::Rgb { r: 3, g: 12, b: 22 },
-            surface: Color::Rgb { r: 5, g: 19, b: 35 },
-            overlay: Color::Rgb {
-                r: 11,
-                g: 22,
-                b: 43,
-            },
-            chip: Color::Rgb { r: 8, g: 35, b: 58 },
-            text: Color::Rgb {
-                r: 196,
-                g: 224,
-                b: 255,
-            },
-            frame: Color::Rgb {
-                r: 28,
-                g: 95,
-                b: 132,
-            },
-            title: Color::Rgb {
-                r: 25,
-                g: 202,
-                b: 255,
-            },
-            accent: Color::Rgb {
-                r: 37,
-                g: 166,
-                b: 255,
-            },
-            success: Color::Rgb {
-                r: 71,
-                g: 214,
-                b: 128,
-            },
-            warning: Color::Rgb {
-                r: 241,
-                g: 196,
-                b: 15,
-            },
-            error: Color::Rgb {
-                r: 255,
-                g: 77,
-                b: 109,
-            },
-            muted: Color::Rgb {
-                r: 119,
-                g: 151,
-                b: 184,
-            },
+            name: profile_name(palette.skin, palette.mode),
+            background: colors.background,
+            surface: colors.surface,
+            overlay: colors.overlay,
+            chip: colors.chip,
+            text: colors.text,
+            frame: colors.frame,
+            title: colors.title,
+            accent: colors.accent,
+            success: colors.success,
+            warning: colors.warning,
+            error: colors.error,
+            muted: colors.muted,
+            palette,
+            depth,
         }
     }
 
-    pub(super) fn ember_gold() -> Self {
-        Self {
-            name: "ember-gold",
-            background: Color::Rgb { r: 18, g: 11, b: 7 },
-            surface: Color::Rgb {
-                r: 28,
-                g: 17,
-                b: 10,
-            },
-            overlay: Color::Rgb {
-                r: 37,
-                g: 24,
-                b: 12,
-            },
-            chip: Color::Rgb {
-                r: 50,
-                g: 31,
-                b: 14,
-            },
-            accent: Color::Rgb {
-                r: 255,
-                g: 176,
-                b: 64,
-            },
-            title: Color::Rgb {
-                r: 255,
-                g: 207,
-                b: 92,
-            },
-            frame: Color::Rgb {
-                r: 140,
-                g: 82,
-                b: 38,
-            },
-            ..Self::aurora_cyan()
-        }
-    }
-
-    pub(super) fn plasma_violet() -> Self {
-        Self {
-            name: "plasma-violet",
-            background: Color::Rgb { r: 10, g: 7, b: 23 },
-            surface: Color::Rgb {
-                r: 17,
-                g: 11,
-                b: 38,
-            },
-            overlay: Color::Rgb {
-                r: 27,
-                g: 18,
-                b: 54,
-            },
-            chip: Color::Rgb {
-                r: 35,
-                g: 22,
-                b: 68,
-            },
-            accent: Color::Rgb {
-                r: 177,
-                g: 114,
-                b: 255,
-            },
-            title: Color::Rgb {
-                r: 217,
-                g: 154,
-                b: 255,
-            },
-            frame: Color::Rgb {
-                r: 90,
-                g: 63,
-                b: 150,
-            },
-            ..Self::aurora_cyan()
-        }
-    }
-
-    pub(super) fn monochrome_ice() -> Self {
-        Self {
-            name: "monochrome-ice",
-            background: Color::Rgb { r: 7, g: 11, b: 16 },
-            surface: Color::Rgb {
-                r: 13,
-                g: 18,
-                b: 25,
-            },
-            overlay: Color::Rgb {
-                r: 20,
-                g: 26,
-                b: 34,
-            },
-            chip: Color::Rgb {
-                r: 29,
-                g: 38,
-                b: 48,
-            },
-            accent: Color::Rgb {
-                r: 188,
-                g: 211,
-                b: 232,
-            },
-            title: Color::Rgb {
-                r: 230,
-                g: 239,
-                b: 247,
-            },
-            frame: Color::Rgb {
-                r: 100,
-                g: 119,
-                b: 136,
-            },
-            ..Self::aurora_cyan()
-        }
-    }
-
-    pub(super) fn builtins() -> [Self; 4] {
-        [
-            Self::aurora_cyan(),
-            Self::ember_gold(),
-            Self::plasma_violet(),
-            Self::monochrome_ice(),
-        ]
+    pub(super) fn builtins() -> [Self; 8] {
+        std::array::from_fn(|index| {
+            Self::from_palette(&Palette::all()[index], ColorDepth::Truecolor)
+        })
     }
 
     pub(super) fn names() -> &'static [&'static str] {
         &[
-            "aurora-cyan",
-            "ember-gold",
-            "plasma-violet",
-            "monochrome-ice",
+            "aurora",
+            "aurora-light",
+            "ice",
+            "ice-light",
+            "mono",
+            "mono-light",
+            "amber",
+            "phosphor",
         ]
     }
 
     pub(super) fn named(name: &str) -> Self {
-        Self::builtins()
-            .into_iter()
-            .find(|theme| theme.name.eq_ignore_ascii_case(name))
-            .unwrap_or_else(Self::aurora_cyan)
+        parse_profile(name)
+            .map(|(skin, mode)| Self::from_key(skin, mode, ColorDepth::Truecolor))
+            .unwrap_or_else(Self::aurora)
     }
 
     pub(super) fn is_known(name: &str) -> bool {
-        Self::names()
-            .iter()
-            .any(|theme_name| theme_name.eq_ignore_ascii_case(name))
+        parse_profile(name).is_some()
     }
 
     pub(super) fn from_name_or_env(name: Option<&str>) -> Self {
         name.map(Self::named).unwrap_or_else(Self::from_env)
     }
 
+    pub(super) fn from_preferences(preferences: &ResolvedUiPreferences) -> Self {
+        let appearance = resolve_appearance(
+            preferences,
+            ColorDepth::Truecolor,
+            TerminalCapabilities::default(),
+        );
+        Self::from_palette(appearance.palette, appearance.color_depth)
+    }
+
+    pub(super) fn with_color_depth(self, depth: TuiColorDepth) -> Self {
+        Self::from_palette(self.palette, ColorDepth::from(depth))
+    }
+
     pub(super) fn from_env() -> Self {
         std::env::var("VIDEN_TUI_THEME")
             .ok()
             .map(|name| Self::named(&name))
-            .unwrap_or_else(Self::aurora_cyan)
+            .unwrap_or_else(Self::aurora)
     }
 
     pub(super) fn next(&self) -> Self {
@@ -236,6 +141,40 @@ impl TuiTheme {
             .unwrap_or(0);
         themes[(index + 1) % themes.len()].clone()
     }
+
+    pub(super) fn depth(&self) -> ColorDepth {
+        self.depth
+    }
+}
+
+fn profile_name(skin: Skin, mode: ColorMode) -> &'static str {
+    match (skin, mode) {
+        (Skin::Aurora, ColorMode::Dark) => "aurora",
+        (Skin::Aurora, ColorMode::Light) => "aurora-light",
+        (Skin::Ice, ColorMode::Dark) => "ice",
+        (Skin::Ice, ColorMode::Light) => "ice-light",
+        (Skin::Mono, ColorMode::Dark) => "mono",
+        (Skin::Mono, ColorMode::Light) => "mono-light",
+        (Skin::Amber, ColorMode::Dark) => "amber",
+        (Skin::Phosphor, ColorMode::Dark) => "phosphor",
+        _ => "aurora",
+    }
+}
+
+fn parse_profile(name: &str) -> Option<(Skin, ColorMode)> {
+    let normalized = name.trim().to_ascii_lowercase();
+    let normalized = normalized.replace([':', '/'], "-");
+    match normalized.as_str() {
+        "aurora" | "aurora-dark" | "aurora-cyan" => Some((Skin::Aurora, ColorMode::Dark)),
+        "aurora-light" => Some((Skin::Aurora, ColorMode::Light)),
+        "ice" | "ice-dark" | "monochrome-ice" => Some((Skin::Ice, ColorMode::Dark)),
+        "ice-light" => Some((Skin::Ice, ColorMode::Light)),
+        "mono" | "mono-dark" => Some((Skin::Mono, ColorMode::Dark)),
+        "mono-light" => Some((Skin::Mono, ColorMode::Light)),
+        "amber" | "amber-dark" | "ember-gold" => Some((Skin::Amber, ColorMode::Dark)),
+        "phosphor" | "phosphor-dark" | "plasma-violet" => Some((Skin::Phosphor, ColorMode::Dark)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -243,7 +182,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn built_in_themes_cover_expected_visual_variants() {
+    fn built_in_themes_cover_the_eight_registered_profiles() {
         let names: Vec<_> = TuiTheme::builtins()
             .into_iter()
             .map(|theme| theme.name)
@@ -252,13 +191,46 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "aurora-cyan",
-                "ember-gold",
-                "plasma-violet",
-                "monochrome-ice"
+                "aurora",
+                "aurora-light",
+                "ice",
+                "ice-light",
+                "mono",
+                "mono-light",
+                "amber",
+                "phosphor"
             ]
         );
-        assert_eq!(TuiTheme::named("unknown").name, "aurora-cyan");
-        assert_eq!(TuiTheme::named("aurora-cyan").next().name, "ember-gold");
+        assert_eq!(TuiTheme::named("unknown").name, "aurora");
+        assert_eq!(TuiTheme::named("aurora").next().name, "aurora-light");
+        assert!(!TuiTheme::is_known("amber-light"));
+        assert!(!TuiTheme::is_known("phosphor-light"));
+    }
+
+    #[test]
+    fn core_color_mode_changes_the_effective_palette() {
+        let dark = TuiTheme::from_preferences(&viden_core::ResolvedUiPreferences {
+            skin: Skin::Ice,
+            mode: ColorMode::Dark,
+            ..viden_core::ResolvedUiPreferences::default()
+        });
+        let light = TuiTheme::from_preferences(&viden_core::ResolvedUiPreferences {
+            skin: Skin::Ice,
+            mode: ColorMode::Light,
+            ..viden_core::ResolvedUiPreferences::default()
+        });
+
+        assert_ne!(dark.background, light.background);
+        assert_eq!(dark.name, "ice");
+        assert_eq!(light.name, "ice-light");
+    }
+
+    #[test]
+    fn core_color_depth_selects_a_non_rgb_terminal_palette() {
+        let theme = TuiTheme::aurora().with_color_depth(viden_core::TuiColorDepth::Ansi16);
+
+        assert_eq!(theme.depth(), ColorDepth::Ansi16);
+        assert!(!matches!(theme.background, Color::Rgb { .. }));
+        assert!(!matches!(theme.accent, Color::Rgb { .. }));
     }
 }

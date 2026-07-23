@@ -35,17 +35,19 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` starts the main TUI by default. A clean session opens on the
-focused welcome composer first; it does not auto-submit or auto-open setup. Use
-`Ctrl-P` for commands, or submit one of these entries when you want
-provider/model setup. Slash setup commands keep the welcome surface active; the
-full cockpit appears after the first normal task prompt.
+`viden` starts the main TUI by default. TUI 0.3.1 negotiates the Core 0.3.2
+frontend-service extensions and requests a project probe, but a clean session remains
+on the focused Welcome composer. `/setup` opens the Core-backed Setup selector;
+`/lanes` opens the Core lane board. The full cockpit appears after a normal task
+prompt or selection of a Core lane/session.
 
 ```text
 /setup
+/lanes
 /setup provider
 /connect
 /models
+/settings
 ```
 
 Start the main cockpit with explicit startup overrides:
@@ -80,8 +82,8 @@ Common flags:
 - `--tui`: start the main cockpit. This is the default.
 - `--no-tui`: start the legacy line REPL.
 - `--tui-screen <main|side-1|side-2>`: start a specific screen.
-- `--tui-theme <aurora-cyan|ember-gold|plasma-violet|monochrome-ice>`: select
-  a built-in theme.
+- `--tui-theme <aurora|aurora-light|ice|ice-light|mono|mono-light|amber|phosphor>`:
+  select one of the eight registered palette profiles.
 
 Preview flags for visual review:
 
@@ -94,12 +96,16 @@ Preview flags for visual review:
 - `--tui-preview-lane`
 - `--tui-preview-setup-wizard`
 - `--tui-preview-provider-selector`
+- `--tui-preview-provider-detail`
 - `--tui-preview-model-selector`
 - `--tui-preview-lane-selector`
 - `--tui-preview-side`
 - `--tui-preview-side-2`
 
 Each preview also has an ANSI variant ending in `-ansi`.
+`scripts/tui-previews.sh` writes to `target/tui-previews/0.3.1` by default;
+`scripts/tui-regression.sh target/tui-regression/0.3.1` adds the structured
+TUI 0.3.1 certification report without modifying accepted design references.
 
 ## Configuration
 
@@ -127,19 +133,44 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-The TUI setup path is panel-first after you submit the command. `/connect`,
-`/provider`, `/setup provider`, and `/settings provider` open a provider picker;
-`Enter` selects the highlighted supplier, opens API-key entry when that supplier
-needs one, and then opens the provider config action panel. That panel can
-change the API key, clear the current process key, run provider doctor, or open
-the provider-scoped model picker. Selecting a model from that provider-scoped
-picker saves the provider/model, runs provider doctor, and writes the readiness
-result back into the transcript. `/models`, `/model`, `/setup model`, and
-`/settings model` open a provider-grouped model picker; it only shows providers
-that have been configured/activated in provider settings. For configured
-providers, the picker includes active, favorite, default, and known models.
-Choosing a model applies the provider/model switch immediately. API keys are
-masked in the TUI and Viden saves the env var name, not the raw key.
+The stable TUI 0.3.0 project-onboarding path is Core-backed. Setup renders the
+Core project probe and keeps a local, secret-free D11-shaped draft containing
+`project.name` and `project.pack`. Preview sends the draft's exact bytes through
+`PreviewProjectConfig`. Confirm remains unavailable until Core returns a valid
+preview matching the current draft, and only `ProjectConfigConfirmed` marks the
+configuration complete. The TUI does not scan the project, write configuration,
+or infer success locally.
+
+`/connect` and `/provider` show supplier metadata; `/models` and `/model` show
+configured model choices. TUI 0.3.0 has no trusted frontend secret-ingress
+method, so these panels never collect credential bytes or serialize a
+`/provider key` command. Provider detail displays active Core health and only a
+masked credential-handle summary. If Core has no safe handle or ingress, it
+shows `TRUSTED INGRESS unavailable` and remains read-only. Core 0.3.2 also does
+not expose global session enumeration; `/lanes` selects only session ids
+advertised on each Core lane.
+
+TUI 0.3.1 opens `/settings` as a selector-first UI preference surface. It
+offers locale (`system | en | zh-CN`), five skins, system/dark/light mode,
+compact/regular/comfy density, system/reduced/full motion, terminal color
+depth, Apply, and Reset. Amber and Phosphor are dark-only; their light choices
+remain visible but disabled with an explanation. Every row shows the current
+selection and its effect.
+
+Stable Apply sends only a typed `UiPreferencePatch`; Reset sends
+`ResetUiPreferences`. `CommandAccepted` means pending, not saved. The selector
+reports success only after the matching `UiPreferencesUpdated` returns Core's
+resolved value, persisted value, and diagnostics. A rejection keeps the draft
+and shows Core's reason. CLI and user-config precedence is displayed from Core
+diagnostics and is never re-resolved in the TUI. The same UI preference command
+path remains available in Plan mode because Core classifies this presentation
+mutation separately from project, file, shell, Git, workflow, and memory
+effects.
+
+Color depth is a clearly labeled, unsaved session-only terminal preview because
+schema 1 has no persisted color-depth field. It never writes a TUI config or
+local preference store. If `ui.preference_persistence` is absent, Settings is
+still visible as unavailable, and Apply/Reset send no command.
 
 Typed commands still use compact completion while you are editing, so a large
 selector does not steal the composer before you press Enter. Direct commands
@@ -283,44 +314,34 @@ setting `VIDEN_SCREEN_SIDE_1_LAUNCH_TEMPLATE`,
 
 ## TUI Controls
 
-The controls below describe the current `0.1.x` implementation, not the next
-TUI visual/interaction target. The accepted target is the T4 contract linked
-from [Viden Design Adoption](viden-design-adoption.md); the `v3-tui-client`
-branch must update this section when that behavior ships.
+TUI 0.3.1 uses explicit Normal, Insert, and Overlay ownership. The status bar
+always shows the active mode.
 
-- `Enter`: submit composer.
-- `Ctrl-J`: explicit send action.
-- `Ctrl-K`: clear composer.
-- `Ctrl-R`: reload the latest user prompt into the composer for regeneration.
-- `Ctrl-N`: start a new `/task add ...` command.
-- `?`: open help when the composer is empty.
-- `Esc` or `Ctrl-C`: exit.
-- `/quit` or `/exit`: exit from command input.
-- `/`: open command suggestions. Use `Up` / `Down`, `Tab`, `Enter`, or click a
-  visible suggestion row. Long suggestion lists scroll as the selection moves
-  so keyboard and mouse behavior stay aligned.
-- Transcript history: use `PageUp` / `PageDown` or the mouse wheel to browse
-  older transcript rows. `Ctrl-Home` jumps to the oldest visible history and
-  `Ctrl-End` returns to the live tail. When history mode is active, the
-  transcript panel badge changes from `live session` to `history N`.
-- Approval modal: `y` approve, `n` deny, `d` focus diff, `Tab` / arrows move
-  focus. Diff focus now shows the prompt's actual evidence/preview lines when
-  they are available instead of a decorative placeholder.
-- Active provider turns keep the TUI event loop alive. The transcript live tail
-  shows a prominent `LIVE WORK` strip directly below the latest conversation
-  content, with phase, signal, and next-action guidance while Viden works.
-  Provider thinking does not show fake progress percentages. The status bar,
-  elapsed time, lane snapshots, and pending approval bridge can repaint while
-  the provider worker runs. `Ctrl-C` requests cancellation; an already in-flight
-  HTTP request may still complete before the provider returns.
-- Streaming-capable HTTP providers request server-sent streaming during TUI
-  turns. Text deltas are appended to a temporary assistant transcript row while
-  the provider is still responding, then replaced by the canonical transcript
-  event when the turn completes.
-- During an active provider turn, the composer stays editable. Press `Enter` to
-  queue the draft as the next prompt; Viden clears the composer immediately
-  and runs queued prompts after the current turn finishes. If the active turn
-  fails, the first queued prompt is restored to the composer.
+- Normal: press `i` to enter Insert. Context keys act on the selected runtime
+  fact instead of inserting text.
+- Insert: printable keys edit the grapheme-safe multiline composer. `Enter`
+  submits when idle and queues a follow-up during active work. `Shift-Enter` or
+  `Alt-Enter` inserts a newline; `Enter` inside an open triple-backtick fence
+  also inserts a newline. Bracketed paste preserves newlines and never sends.
+- Overlay: arrows or `j`/`k` move focus, typing filters, and `Enter` applies the
+  focused action. `Esc` unwinds overlay, then selection, then Insert while
+  preserving the draft.
+- Global chords work in every mode: `Ctrl-L` lane, `Ctrl-S` session, `Ctrl-T`
+  new session, `Ctrl-K` command palette, `Ctrl-B` board, `Ctrl-G` decisions,
+  and `?` context help.
+- `Ctrl-C` requests cancellation only for the exact active Core owner. It does
+  not deny an approval or exit directly. Two idle presses open exit
+  confirmation only when Core reports no current work.
+- Streaming, tool execution, and pinned approvals never lock the composer.
+  Approval shortcuts belong to an explicitly focused approval: arrows or
+  `Tab` reach Deny, Diff, and Approve; typed scopes are sent with the stable
+  Core request id and owner.
+- `PageUp` / `PageDown` browse transcript history; `Ctrl-Home` jumps to the
+  oldest visible history and `Ctrl-End` returns to the live tail. CJK and
+  grapheme cursor placement use terminal cell width.
+- Mouse capture is off by default so native text selection keeps working. TUI
+  0.3.1 has complete keyboard paths but does not yet expose the optional
+  `mouse_capture=true` opt-in described by the design.
 
 ## Slash Commands
 

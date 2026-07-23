@@ -239,11 +239,16 @@ favorite_models = ["deepseek-v4-pro"]
 
 ```bash
 viden --config .viden/config.toml
-viden --resume latest
+viden --no-tui --resume latest
 viden --permissions plan
-viden --tui-theme aurora-cyan
-viden --tui-screen side-1
+viden --tui-theme aurora
+viden --provider fallback --model test-local --tui-startup-check
 ```
+
+V3 TUI 统一从 CoreClient cockpit 入口进入。为迁移兼容仍接受旧的
+`--tui-screen side-1|side-2` 参数，但不会再启动由前端自行管理的 lane/process
+监控进程。可用皮肤为 `aurora`、`ice`、`mono`、`amber`、`phosphor`；语言、
+明暗模式、密度与动效均读取 Core 持有的 UI preference snapshot。
 
 ## 当前实验边界
 

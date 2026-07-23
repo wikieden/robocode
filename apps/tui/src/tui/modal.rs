@@ -1,18 +1,24 @@
 use super::{
     canvas::Frame,
     command_palette::render_command_suggestions,
-    indicators::{progress_bar, status_dot},
-    lane::{command_hint, interaction_hint, pid_hint, pty_label, terminal_label},
+    jump::JumpIndex,
+    keymap::OverlayKind,
     panel::panel,
-    state::{InteractionPanel, ProviderOption, TerminalLane, TuiState, lane_runtime_evidence},
-    text::{char_width, horizontal, pad, truncate},
+    preferences::{
+        PreferenceValue, SettingsPanel, UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+        color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
+    },
+    projection::CockpitProjection,
+    state::{AcpPickerPhase, InteractionPanel, TuiState, has_active_work},
+    text::truncate,
 };
 
+pub(super) const DEFAULT_APPROVAL_FOCUS: usize = 3;
 const APPROVAL_FOCUS_APPLY_ALL: usize = 0;
 const APPROVAL_FOCUS_DENY: usize = 1;
 const APPROVAL_FOCUS_DIFF: usize = 2;
 const APPROVAL_FOCUS_APPROVE: usize = 3;
-pub(super) const DEFAULT_APPROVAL_FOCUS: usize = APPROVAL_FOCUS_APPROVE;
+const GLOBAL_JUMP_VISIBLE_ROWS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ApprovalAction {
@@ -22,715 +28,891 @@ pub(super) enum ApprovalAction {
     Approve,
 }
 
-pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, right_rail_width: usize) {
-    if let Some(lane) = focused_lane(state) {
-        render_lane_modal(frame, state, lane, right_rail_width);
-    }
-    if let Some(approval) = latest_approval(state) {
-        render_approval_modal(frame, approval, state, right_rail_width);
-    } else if state.interaction_panel.is_some() {
-        render_interaction_panel(frame, state, right_rail_width);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum AcpPickerRowKind {
+    Session {
+        session_id: String,
+    },
+    Adapter {
+        agent_id: String,
+        startability: viden_core::AgentStartability,
+    },
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AcpPickerRow {
+    pub(super) id: String,
+    pub(super) label: String,
+    pub(super) kind: AcpPickerRowKind,
+}
+
+pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_width: usize) {
+    if let Some(overlay) = state.ui.overlay.as_ref() {
+        let title_key = match overlay.kind {
+            OverlayKind::GlobalJump => "overlay.title.global_jump",
+            OverlayKind::Lane => "overlay.title.lanes",
+            OverlayKind::Session => "overlay.title.sessions",
+            OverlayKind::NewSession => "overlay.title.new_session",
+            OverlayKind::CommandPalette => "overlay.title.commands",
+            OverlayKind::Board => "overlay.title.board",
+            OverlayKind::Decisions => "overlay.title.decisions",
+            OverlayKind::ContextHelp => "overlay.title.context_help",
+            OverlayKind::ExitConfirm => "overlay.title.exit",
+            OverlayKind::Approval => "overlay.title.approval",
+            OverlayKind::InteractionPanel => "overlay.title.select",
+            OverlayKind::ComposerCommands => "overlay.title.commands",
+        };
+        let title = super::i18n::text(state, title_key);
+        let overlay_height = match overlay.kind {
+            OverlayKind::Approval | OverlayKind::Decisions => 14,
+            _ => 10,
+        };
+        let hint = if overlay.kind == OverlayKind::GlobalJump {
+            super::i18n::text(state, "overlay.global_hint")
+        } else {
+            super::i18n::text(state, "overlay.close_hint")
+        };
+        let block = panel(
+            &title,
+            global_overlay_rows(state, overlay.kind, &overlay.filter),
+            frame.width.min(76),
+            overlay_height,
+            Some(&hint),
+        );
+        frame.write_block(
+            4,
+            frame.width.saturating_sub(frame.width.min(76)) / 2,
+            &block,
+        );
+    } else if let Some(approval) = state.runtime.pending_approvals.first() {
+        let target = truncate(&approval.target.display, 56);
+        let input = truncate(&approval.input_preview, 56);
+        let rows = vec![
+            format!("{} · {:?}", approval.title, approval.risk),
+            truncate(&approval.message, 68),
+            super::i18n::translate(
+                state,
+                "approval.target_only",
+                &[("target", target.as_str())],
+            ),
+            super::i18n::translate(state, "approval.input", &[("input", input.as_str())]),
+            super::i18n::text(state, "approval.pinned"),
+        ];
+        let title = super::i18n::text(state, "overlay.title.approval");
+        let block = panel(
+            &title,
+            rows,
+            frame.width.min(76),
+            8,
+            Some(&approval.audit_id),
+        );
+        frame.write_block(
+            4,
+            frame.width.saturating_sub(frame.width.min(76)) / 2,
+            &block,
+        );
+    } else if let Some(lane) = state
+        .ui
+        .focused_lane
+        .as_ref()
+        .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
+    {
+        let mut rows = vec![
+            format!("{} {}", lane.id, lane.role),
+            "ROUTE main→side-1".to_string(),
+            format!("STATE  {:?}", lane.status),
+        ];
+        rows.extend(lane.evidence.iter().cloned());
+        rows.push("CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string());
+        let title = super::i18n::text(state, "overlay.title.lane_detail");
+        let block = panel(&title, rows, frame.width.min(76), 10, Some(&lane.id));
+        frame.write_block(
+            4,
+            frame.width.saturating_sub(frame.width.min(76)) / 2,
+            &block,
+        );
+    } else if state.ui.interaction_panel.is_some() {
+        let title_key = match state.ui.interaction_panel.as_ref() {
+            Some(InteractionPanel::Settings(_)) => "interaction.settings",
+            Some(InteractionPanel::Setup { .. }) => "interaction.setup",
+            Some(InteractionPanel::ConnectProvider { .. }) => "interaction.connect_provider",
+            Some(InteractionPanel::ModelPicker { .. }) => "interaction.select_model",
+            Some(InteractionPanel::ProviderConfig { .. }) => "interaction.select",
+            Some(InteractionPanel::AcpPicker { phase, .. }) => match phase {
+                AcpPickerPhase::Browse => "interaction.acp",
+                AcpPickerPhase::TaskEntry { .. } => "interaction.acp.task",
+            },
+            Some(InteractionPanel::NewLaneTask { .. }) => "interaction.native_lane.task",
+            None => unreachable!("panel presence checked above"),
+        };
+        let title = super::i18n::text(state, title_key);
+        let overlay_height = if matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::Settings(_))
+        ) {
+            16
+        } else {
+            10
+        };
+        let block = panel(
+            &title,
+            interaction_rows(state),
+            frame.width.min(72),
+            overlay_height,
+            None,
+        );
+        frame.write_block(
+            4,
+            frame.width.saturating_sub(frame.width.min(72)) / 2,
+            &block,
+        );
     } else {
         render_command_suggestions(frame, state);
     }
 }
 
-pub(super) fn interaction_panel_index_at(
-    state: &TuiState,
-    column: u16,
-    row: u16,
-    frame_width: u16,
-    frame_height: u16,
-    right_rail_width: usize,
-) -> Option<usize> {
-    state.interaction_panel.as_ref()?;
-    let bounds = interaction_panel_bounds(
-        frame_width as usize,
-        frame_height as usize,
-        right_rail_width,
-    );
-    let column = column as usize;
-    let row = row as usize;
-    if !(bounds.left + 2..bounds.left + bounds.width.saturating_sub(2)).contains(&column) {
-        return None;
-    }
-    let content_row = row.checked_sub(bounds.top + 1)?;
-    interaction_panel_selectable_rows(state)
-        .into_iter()
-        .find_map(|(selectable_row, index)| (selectable_row == content_row).then_some(index))
-}
-
-fn render_interaction_panel(frame: &mut Frame, state: &TuiState, right_rail_width: usize) {
-    let bounds = interaction_panel_bounds(frame.width, frame.height, right_rail_width);
-    let (title, rows, right_title) = match state.interaction_panel.as_ref() {
-        Some(InteractionPanel::ConnectProvider { search, selected }) => (
-            "Connect a provider",
-            provider_panel_rows(state, search, *selected, bounds.width),
-            "esc",
-        ),
-        Some(InteractionPanel::ProviderConfig {
-            provider_id,
-            selected,
-        }) => (
-            "Provider config",
-            provider_config_panel_rows(state, provider_id, *selected, bounds.width),
-            "esc",
-        ),
-        Some(InteractionPanel::ProviderApiKey { provider_id, input }) => (
-            "API key",
-            api_key_panel_rows(state, provider_id, input, bounds.width),
-            "esc",
-        ),
-        Some(InteractionPanel::ModelPicker {
-            provider_id,
-            search,
-            selected,
-        }) => (
-            "Select model",
-            model_panel_rows(
-                state,
-                provider_id.as_deref(),
-                search,
-                *selected,
-                bounds.width,
-            ),
-            "esc",
-        ),
-        None => return,
-    };
-    let modal = panel(title, rows, bounds.width, bounds.height, Some(right_title));
-    clear_overlay_bounds(frame, bounds.top, bounds.height, bounds.transcript_width);
-    render_modal_shadow(frame, bounds.top, bounds.left, bounds.width, bounds.height);
-    frame.write_block(bounds.top, bounds.left, &modal);
-}
-
-fn provider_panel_rows(
-    state: &TuiState,
-    search: &str,
-    selected: usize,
-    modal_width: usize,
-) -> Vec<String> {
-    let choices = filtered_providers(state, search);
-    let mut rows = vec![
-        format!("Search {}", search_cursor(search)),
-        "".to_string(),
-        "Popular".to_string(),
-    ];
-    rows.extend(choices.iter().enumerate().map(|(index, provider)| {
-        selectable_row(index, selected, &provider.display_name, modal_width)
-    }));
-    rows.extend([
-        "".to_string(),
-        "Enter select    type search    esc close".to_string(),
-    ]);
-    rows
-}
-
-fn provider_config_panel_rows(
-    state: &TuiState,
-    provider_id: &str,
-    selected: usize,
-    modal_width: usize,
-) -> Vec<String> {
-    let provider = state
-        .provider_catalog
-        .iter()
-        .find(|provider| provider.provider_id == provider_id);
-    let display_name = provider
-        .map(|provider| provider.display_name.as_str())
-        .unwrap_or(provider_id);
-    let key_status = provider
-        .and_then(|provider| provider.api_key_env.as_deref())
-        .map(|env| {
-            let status = std::env::var(env)
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .map(|value| mask_api_key(&value))
-                .unwrap_or_else(|| "missing".to_string());
-            format!("{env}: {status}")
-        })
-        .unwrap_or_else(|| "not required".to_string());
-    let model = provider
-        .and_then(|provider| provider.default_model.as_deref())
-        .unwrap_or("<choose model>");
-    let actions = [
-        format!("choose model    {model}"),
-        "change API key".to_string(),
-        "clear session key".to_string(),
-        "run doctor".to_string(),
-    ];
-    let mut rows = vec![
-        format!("{provider_id} / {display_name}"),
-        format!("key: {key_status}"),
-        "".to_string(),
-    ];
-    rows.extend(
-        actions
+fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec<String> {
+    let mut rows = match kind {
+        OverlayKind::GlobalJump => return global_jump_rows(state, filter),
+        OverlayKind::Lane => state
+            .runtime
+            .lanes
             .iter()
-            .enumerate()
-            .map(|(index, label)| selectable_row(index, selected, label, modal_width)),
-    );
-    rows.extend([
-        "".to_string(),
-        "Enter apply    ↑↓ select    esc close".to_string(),
-    ]);
-    rows
-}
-
-fn api_key_panel_rows(
-    state: &TuiState,
-    provider_id: &str,
-    input: &str,
-    modal_width: usize,
-) -> Vec<String> {
-    let provider = state
-        .provider_catalog
-        .iter()
-        .find(|provider| provider.provider_id == provider_id);
-    let display_name = provider
-        .map(|provider| provider.display_name.as_str())
-        .unwrap_or(provider_id);
-    let key_env = provider
-        .and_then(|provider| provider.api_key_env.as_deref())
-        .unwrap_or("API_KEY");
-    vec![
-        format!("{display_name} needs an API key."),
-        format!("It will be used for this session via {key_env}."),
-        "Viden will save the env var name, not the raw key.".to_string(),
-        "".to_string(),
-        format!(
-            "API key {}",
-            input_cursor(input, modal_width.saturating_sub(12))
-        ),
-        "".to_string(),
-        "Enter submit    esc back".to_string(),
-    ]
-}
-
-fn model_panel_rows(
-    state: &TuiState,
-    provider_filter: Option<&str>,
-    search: &str,
-    selected: usize,
-    modal_width: usize,
-) -> Vec<String> {
-    let choices = filtered_models(state, provider_filter, search);
-    let mut rows = vec![format!("Search {}", search_cursor(search)), "".to_string()];
-    let mut last_provider = "";
-    for (index, choice) in choices.iter().enumerate() {
-        if choice.provider_id != last_provider {
-            rows.push(choice.provider_name.clone());
-            last_provider = &choice.provider_id;
-        }
-        let label = format!("  {}", choice.model);
-        rows.push(selectable_row(index, selected, &label, modal_width));
-    }
-    rows.extend([
-        "".to_string(),
-        "Enter switch    type search    esc close".to_string(),
-    ]);
-    rows
-}
-
-fn selectable_row(index: usize, selected: usize, label: &str, modal_width: usize) -> String {
-    let marker = if index == selected { "› " } else { "  " };
-    truncate(&format!("{marker}{label}"), modal_width.saturating_sub(4))
-}
-
-fn search_cursor(value: &str) -> String {
-    if value.is_empty() {
-        "_".to_string()
-    } else {
-        format!("{value}_")
-    }
-}
-
-fn input_cursor(value: &str, width: usize) -> String {
-    if value.is_empty() {
-        "_".to_string()
-    } else {
-        truncate(&format!("{}_", mask_api_key(value)), width)
-    }
-}
-
-fn mask_api_key(value: &str) -> String {
-    let value = value.trim();
-    if value.len() <= 8 {
-        "*".repeat(value.len().max(1))
-    } else {
-        format!(
-            "{}{}{}",
-            &value[..4],
-            "*".repeat(value.len() - 8),
-            &value[value.len() - 4..]
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ModelChoice {
-    provider_id: String,
-    provider_name: String,
-    model: String,
-}
-
-fn interaction_panel_selectable_rows(state: &TuiState) -> Vec<(usize, usize)> {
-    match state.interaction_panel.as_ref() {
-        Some(InteractionPanel::ConnectProvider { search, .. }) => filtered_providers(state, search)
-            .iter()
-            .enumerate()
-            .map(|(index, _)| (3 + index, index))
+            .map(|lane| format!("{}  {}  {:?}", lane.id, lane.role, lane.status))
             .collect(),
-        Some(InteractionPanel::ProviderConfig { .. }) => {
-            (0..4).map(|index| (3 + index, index)).collect()
+        OverlayKind::Board => state
+            .runtime
+            .tasks
+            .iter()
+            .map(|task| format!("{}  {}  {}", task.id, task.role, task.status.as_str()))
+            .collect(),
+        OverlayKind::Decisions => decision_center_rows(state),
+        OverlayKind::ContextHelp => [
+            "modal.context_help.mode",
+            "modal.context_help.lanes",
+            "modal.context_help.commands",
+            "modal.context_help.exit",
+        ]
+        .into_iter()
+        .map(|key| super::i18n::text(state, key))
+        .collect(),
+        OverlayKind::ExitConfirm if has_active_work(state) => vec![
+            super::i18n::text(state, "modal.exit.active.blocked"),
+            super::i18n::text(state, "modal.exit.active.core"),
+            super::i18n::text(state, "modal.exit.active.stay"),
+        ],
+        OverlayKind::ExitConfirm => vec![
+            super::i18n::text(state, "modal.exit.idle.ready"),
+            super::i18n::text(state, "modal.exit.idle.select"),
+        ],
+        OverlayKind::Session => state
+            .ui
+            .focused_lane
+            .as_ref()
+            .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
+            .map(|lane| {
+                lane.active_session_ids
+                    .iter()
+                    .map(|session_id| format!("{}  {}", lane.id, session_id))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        OverlayKind::NewSession => vec![super::i18n::text(state, "modal.new_session.pending")],
+        OverlayKind::CommandPalette | OverlayKind::ComposerCommands => vec![
+            super::i18n::text(state, "modal.command.lanes"),
+            super::i18n::text(state, "modal.command.sessions"),
+            super::i18n::text(state, "modal.command.board"),
+            super::i18n::text(state, "modal.command.decisions"),
+        ],
+        OverlayKind::Approval => focused_approval_rows(state),
+        OverlayKind::InteractionPanel => Vec::new(),
+    };
+    if !filter.is_empty() {
+        let needle = filter.to_ascii_lowercase();
+        rows.retain(|row| row.to_ascii_lowercase().contains(&needle));
+        rows.insert(0, format!("filter: {filter}"));
+    }
+    if rows.is_empty() {
+        rows.push("No matching items.".to_string());
+    }
+    rows
+}
+
+fn decision_center_rows(state: &TuiState) -> Vec<String> {
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
+    let mut rows = projection
+        .approval_actions
+        .iter()
+        .map(|approval| {
+            let title = projection
+                .approvals
+                .iter()
+                .find(|request| request.id == approval.request_id)
+                .map_or("approval", |request| request.title.as_str());
+            format!(
+                "APPROVAL {} · {} · {:?} · AUDIT {}",
+                approval.request_id, title, approval.expiry, approval.audit_id
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.extend(projection.merge_gates.iter().map(|gate| {
+        format!(
+            "GATE {} · {:?} · {:?}",
+            gate.gate_id, gate.status, gate.decision
+        )
+    }));
+    rows.extend(projection.recovery_actions.iter().map(|recovery| {
+        format!(
+            "RECOVERY {} · {} · {}",
+            recovery.lane_id.as_deref().unwrap_or("runtime"),
+            recovery.reason,
+            recovery.action
+        )
+    }));
+    if let Some(command) = projection.pending_command.as_ref() {
+        rows.push(format!(
+            "COMMAND {} · pending Core fact",
+            command.command_id
+        ));
+    }
+    rows.extend(
+        projection
+            .errors
+            .iter()
+            .map(|error| format!("ERROR {}", error.message)),
+    );
+    rows
+}
+
+fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
+    let index = JumpIndex::from_view(&state.runtime);
+    let mut rows = Vec::new();
+    let mut previous_kind = None;
+    for (position, item) in index.search(filter).into_iter().enumerate() {
+        if previous_kind != Some(item.kind) {
+            rows.push((format!("[{}]", item.kind.label()), None, item.kind));
+            previous_kind = Some(item.kind);
         }
+        let marker = state
+            .ui
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| overlay.selected == position);
+        let detail = item.disabled_reason.as_deref().unwrap_or(&item.context);
+        rows.push((
+            format!(
+                "{} {:<16} {}{}",
+                if marker { ">" } else { " " },
+                truncate(&item.title, 16),
+                truncate(detail, 42),
+                if item.enabled { "" } else { " · unavailable" },
+            ),
+            Some(position),
+            item.kind,
+        ));
+    }
+    if rows.is_empty() {
+        return vec!["No matching items. Try : @ # > or ~.".to_string()];
+    }
+    let selected = state
+        .ui
+        .overlay
+        .as_ref()
+        .map_or(0, |overlay| overlay.selected);
+    let selected_row = rows
+        .iter()
+        .position(|(_, result_index, _)| *result_index == Some(selected))
+        .unwrap_or(0);
+    let start = selected_row
+        .saturating_sub(GLOBAL_JUMP_VISIBLE_ROWS / 2)
+        .min(rows.len().saturating_sub(GLOBAL_JUMP_VISIBLE_ROWS));
+    let mut visible = rows
+        .iter()
+        .skip(start)
+        .take(GLOBAL_JUMP_VISIBLE_ROWS)
+        .map(|(text, _, _)| text.clone())
+        .collect::<Vec<_>>();
+    if start > 0 && rows[start].1.is_some() && rows[start - 1].2 == rows[start].2 {
+        visible.insert(0, format!("[{}] · continued", rows[start].2.label()));
+        if visible
+            .iter()
+            .position(|row| row.starts_with("> "))
+            .is_some_and(|position| position >= GLOBAL_JUMP_VISIBLE_ROWS)
+        {
+            visible.remove(1);
+        }
+        visible.truncate(GLOBAL_JUMP_VISIBLE_ROWS);
+    }
+    visible
+}
+
+fn interaction_rows(state: &TuiState) -> Vec<String> {
+    match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Settings(panel)) => settings_rows(state, panel),
+        Some(InteractionPanel::Setup { selected, draft }) => {
+            if !state.has_capability("runtime.project_onboarding") {
+                return vec![super::i18n::text(state, "interaction.setup.unavailable")];
+            }
+            let mut rows = vec![
+                setup_action_row(*selected, 0, "Probe project through Core"),
+                setup_action_row(*selected, 1, "Preview exact draft through Core"),
+            ];
+            if state
+                .runtime
+                .project_config_preview
+                .as_ref()
+                .is_some_and(|preview| setup_preview_matches_draft(preview, draft))
+            {
+                let preview = state.runtime.project_config_preview.as_ref().unwrap();
+                rows.push(setup_action_row(
+                    *selected,
+                    2,
+                    &format!("Confirm {} through Core", preview.relative_path),
+                ));
+            }
+            rows.push("DRAFT viden.toml (paste/type to edit)".to_string());
+            rows.extend(draft.lines().map(|line| format!("  {line}")));
+            rows
+        }
+        Some(InteractionPanel::ConnectProvider { search, .. }) => state
+            .ui
+            .provider_catalog
+            .iter()
+            .filter(|provider| {
+                provider.provider_id.contains(search)
+                    || provider
+                        .display_name
+                        .to_ascii_lowercase()
+                        .contains(&search.to_ascii_lowercase())
+            })
+            .map(|provider| format!("{}  {}", provider.provider_id, provider.display_name))
+            .collect(),
+        Some(InteractionPanel::ProviderConfig { provider_id, .. }) => vec![
+            format!("configure {provider_id}"),
+            "credential handles are read-only".to_string(),
+            "trusted ingress unavailable".to_string(),
+        ],
         Some(InteractionPanel::ModelPicker {
             provider_id,
             search,
             ..
-        }) => {
-            let choices = filtered_models(state, provider_id.as_deref(), search);
-            let mut rows = Vec::new();
-            let mut content_row = 2usize;
-            let mut last_provider = "";
-            for (index, choice) in choices.iter().enumerate() {
-                if choice.provider_id != last_provider {
-                    content_row += 1;
-                    last_provider = &choice.provider_id;
+        }) => state
+            .ui
+            .provider_catalog
+            .iter()
+            .filter(|provider| !provider.enabled_models.is_empty())
+            .filter(|provider| {
+                provider_id
+                    .as_ref()
+                    .is_none_or(|id| id == &provider.provider_id)
+            })
+            .flat_map(|provider| {
+                provider
+                    .enabled_models
+                    .iter()
+                    .filter(|model| model.contains(search))
+                    .map(|model| {
+                        format!(
+                            "{}  {model}  {}",
+                            provider.provider_id, provider.display_name
+                        )
+                    })
+            })
+            .collect(),
+        Some(InteractionPanel::AcpPicker { selected, phase }) => match phase {
+            AcpPickerPhase::Browse => acp_picker_rows(state)
+                .into_iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    format!(
+                        "{} {}",
+                        if index == *selected { ">" } else { " " },
+                        row.label
+                    )
+                })
+                .collect(),
+            AcpPickerPhase::TaskEntry { agent_id, draft } => vec![
+                super::i18n::translate(state, "acp.task.agent", &[("agent", agent_id)]),
+                super::i18n::text(state, "acp.task.prompt"),
+                format!("> {draft}"),
+            ],
+        },
+        Some(InteractionPanel::NewLaneTask { task }) => {
+            let eligibility = state.runtime.workspace_eligibility.as_ref();
+            let status = match eligibility {
+                Some(value) if value.can_create_lane => {
+                    super::i18n::text(state, "native_lane.eligible")
                 }
-                rows.push((content_row, index));
-                content_row += 1;
-            }
-            rows
+                Some(value) => value
+                    .diagnostic
+                    .clone()
+                    .unwrap_or_else(|| super::i18n::text(state, "native_lane.ineligible")),
+                None => super::i18n::text(state, "native_lane.unknown"),
+            };
+            vec![
+                status,
+                super::i18n::text(state, "native_lane.task.prompt"),
+                format!("> {task}"),
+            ]
         }
-        _ => Vec::new(),
+        None => Vec::new(),
     }
 }
 
-fn filtered_providers<'a>(state: &'a TuiState, search: &str) -> Vec<&'a ProviderOption> {
-    let needle = search.trim().to_ascii_lowercase();
-    let mut providers = state
-        .provider_catalog
+pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
+    let Some(lane_id) = state.ui.focused_lane.as_deref() else {
+        return vec![AcpPickerRow {
+            id: "disabled:no-lane".to_string(),
+            label: super::i18n::text(state, "acp.no_lane"),
+            kind: AcpPickerRowKind::Disabled,
+        }];
+    };
+    let mut rows = state
+        .runtime
+        .agent_sessions
         .iter()
-        .filter(|provider| provider.provider_id != "fallback")
-        .filter(|provider| {
-            needle.is_empty()
-                || provider.provider_id.to_ascii_lowercase().contains(&needle)
-                || provider.display_name.to_ascii_lowercase().contains(&needle)
+        .filter(|session| session.lane_id == lane_id)
+        .map(|session| {
+            let retry = matches!(
+                session.status,
+                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
+            )
+            .then(|| format!(" · {}", super::i18n::text(state, "acp.retry_hint")))
+            .unwrap_or_default();
+            AcpPickerRow {
+                id: format!("session:{}", session.session_id),
+                label: format!(
+                    "{} · {} · {:?}{retry}",
+                    session.agent_id, session.task, session.status
+                ),
+                kind: AcpPickerRowKind::Session {
+                    session_id: session.session_id.clone(),
+                },
+            }
         })
         .collect::<Vec<_>>();
-    providers.sort_by_key(|provider| {
-        (
-            provider.provider_id != state.provider,
-            !matches!(
-                provider.provider_id.as_str(),
-                "deepseek" | "dashscope-coding-plan" | "openrouter" | "openai" | "anthropic"
-            ),
-            provider.display_name.to_ascii_lowercase(),
-        )
-    });
-    providers
+    rows.extend(
+        state
+            .runtime
+            .agent_adapters
+            .iter()
+            .filter(|adapter| adapter.route == viden_core::AgentRoute::Acp)
+            .map(|adapter| {
+                let status_key = match adapter.startability {
+                    viden_core::AgentStartability::Ready => "acp.status.ready",
+                    viden_core::AgentStartability::ProbeRequired => "acp.status.probe_required",
+                    viden_core::AgentStartability::InstallRequired => {
+                        "acp.status.installation_required"
+                    }
+                    viden_core::AgentStartability::AuthenticationRequired => {
+                        "acp.status.authentication_required"
+                    }
+                    viden_core::AgentStartability::Unavailable => "acp.status.unavailable",
+                };
+                AcpPickerRow {
+                    id: format!("adapter:{}", adapter.agent_id),
+                    label: format!(
+                        "{} · {}",
+                        adapter.display_name,
+                        super::i18n::text(state, status_key)
+                    ),
+                    kind: AcpPickerRowKind::Adapter {
+                        agent_id: adapter.agent_id.clone(),
+                        startability: adapter.startability,
+                    },
+                }
+            }),
+    );
+    if rows.is_empty() {
+        rows.push(AcpPickerRow {
+            id: "disabled:no-adapters".to_string(),
+            label: super::i18n::text(state, "acp.no_adapters"),
+            kind: AcpPickerRowKind::Disabled,
+        });
+    }
+    rows
 }
 
-fn filtered_models(
-    state: &TuiState,
-    provider_filter: Option<&str>,
-    search: &str,
-) -> Vec<ModelChoice> {
-    let needle = search.trim().to_ascii_lowercase();
-    let mut choices = Vec::new();
-    for provider in &state.provider_catalog {
-        if provider_filter.is_some_and(|filter| filter != provider.provider_id) {
-            continue;
-        }
-        let models = if provider_filter.is_some() {
-            provider_models(provider)
-        } else if provider_is_available_for_model_picker(provider) {
-            configured_provider_models(provider)
-        } else {
-            Vec::new()
+fn settings_rows(state: &TuiState, panel: &SettingsPanel) -> Vec<String> {
+    if !state.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
+        return vec![super::i18n::text(state, "settings.unavailable")];
+    }
+    let mut rows = if let Some(field) = panel.field {
+        panel
+            .choices(field)
+            .into_iter()
+            .enumerate()
+            .map(|(index, choice)| {
+                let marker = if index == panel.selected { ">" } else { " " };
+                let current = if preference_value_is_current(panel, choice.value) {
+                    super::i18n::text(state, "settings.current")
+                } else {
+                    String::new()
+                };
+                let effect = super::i18n::text(state, choice.effect_key);
+                let invalid = choice
+                    .invalid_reason_key
+                    .map(|key| format!(" · {}", super::i18n::text(state, key)))
+                    .unwrap_or_default();
+                let disabled = if choice.enabled {
+                    String::new()
+                } else {
+                    format!(" {}", super::i18n::text(state, "settings.label.disabled"))
+                };
+                format!(
+                    "{marker} {} · {current} · {}: {effect}{disabled}{invalid}",
+                    super::i18n::text(state, choice.label_key),
+                    super::i18n::text(state, "settings.label.effect")
+                )
+            })
+            .collect::<Vec<_>>()
+    } else {
+        let categories = [
+            (
+                "settings.field.locale",
+                preference_value_label(state, PreferenceValue::Locale(panel.selected_locale())),
+                "settings.effect.locale",
+            ),
+            (
+                "settings.field.skin",
+                preference_value_label(state, PreferenceValue::Skin(panel.selected_skin())),
+                "settings.effect.skin",
+            ),
+            (
+                "settings.field.mode",
+                preference_value_label(state, PreferenceValue::Mode(panel.selected_mode())),
+                "settings.effect.mode",
+            ),
+            (
+                "settings.field.density",
+                preference_value_label(state, PreferenceValue::Density(panel.selected_density())),
+                "settings.effect.density",
+            ),
+            (
+                "settings.field.motion",
+                preference_value_label(state, PreferenceValue::Motion(panel.selected_motion())),
+                "settings.effect.motion",
+            ),
+            (
+                "settings.field.color_depth",
+                preference_value_label(state, PreferenceValue::ColorDepth(panel.color_depth())),
+                "settings.effect.color_depth",
+            ),
+            (
+                "settings.action.apply",
+                super::i18n::text(state, "settings.value.draft"),
+                "settings.effect.apply",
+            ),
+            (
+                "settings.action.reset",
+                super::i18n::text(state, "settings.value.core_default"),
+                "settings.effect.reset",
+            ),
+        ];
+        categories
+            .into_iter()
+            .enumerate()
+            .map(|(index, (key, current, effect_key))| {
+                let marker = if index == panel.selected { ">" } else { " " };
+                format!(
+                    "{marker} {} · {}: {current} · {}: {}",
+                    super::i18n::text(state, key),
+                    super::i18n::text(state, "settings.label.current"),
+                    super::i18n::text(state, "settings.label.effect"),
+                    super::i18n::text(state, effect_key)
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    if panel.is_pending() {
+        rows.push(super::i18n::text(state, "settings.pending"));
+    } else if let Some(reason) = panel.rejection_reason() {
+        rows.push(super::i18n::translate(
+            state,
+            "settings.rejected",
+            &[("reason", reason)],
+        ));
+    } else if panel.has_succeeded() {
+        rows.push(super::i18n::text(state, "settings.saved"));
+    }
+    if !panel.diagnostics().is_empty() {
+        rows.push(super::i18n::translate(
+            state,
+            "settings.diagnostics",
+            &[("diagnostics", &panel.diagnostics().join(", "))],
+        ));
+    }
+    rows
+}
+
+fn preference_value_label(state: &TuiState, value: PreferenceValue) -> String {
+    let key = match value {
+        PreferenceValue::Locale(viden_core::LocaleId::System) => "settings.value.system",
+        PreferenceValue::Locale(viden_core::LocaleId::En) => "settings.value.en",
+        PreferenceValue::Locale(viden_core::LocaleId::ZhCn) => "settings.value.zh_cn",
+        PreferenceValue::Skin(value) => skin_label_key(value),
+        PreferenceValue::Mode(value) => mode_label_key(value),
+        PreferenceValue::Density(value) => density_label_key(value),
+        PreferenceValue::Motion(value) => motion_label_key(value),
+        PreferenceValue::ColorDepth(value) => color_depth_label_key(value),
+    };
+    super::i18n::text(state, key)
+}
+
+fn preference_value_is_current(panel: &SettingsPanel, value: PreferenceValue) -> bool {
+    match value {
+        PreferenceValue::Locale(value) => panel.selected_locale() == value,
+        PreferenceValue::Skin(value) => panel.selected_skin() == value,
+        PreferenceValue::Mode(value) => panel.selected_mode() == value,
+        PreferenceValue::Density(value) => panel.selected_density() == value,
+        PreferenceValue::Motion(value) => panel.selected_motion() == value,
+        PreferenceValue::ColorDepth(value) => panel.color_depth() == value,
+    }
+}
+
+fn setup_action_row(selected: usize, index: usize, label: &str) -> String {
+    format!("{} {label}", if selected == index { ">" } else { " " })
+}
+
+fn focused_approval_rows(state: &TuiState) -> Vec<String> {
+    focused_approval_request(state).map_or_else(Vec::new, |approval| {
+        let once = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::Once));
+        let session = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::Session { .. }));
+        let repo = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::RepoAllowlist { .. }));
+        let availability = |available: bool| {
+            if available {
+                String::new()
+            } else {
+                super::i18n::text(state, "approval.scope_unavailable")
+            }
         };
-        for model in models {
-            if needle.is_empty()
-                || model.to_ascii_lowercase().contains(&needle)
-                || provider.display_name.to_ascii_lowercase().contains(&needle)
-            {
-                choices.push(ModelChoice {
-                    provider_id: provider.provider_id.clone(),
-                    provider_name: provider.display_name.clone(),
-                    model,
-                });
+        let expiry = if approval_is_expired(approval) {
+            super::i18n::text(state, "approval.expiry.core")
+        } else if approval.expires_at > 0 {
+            let expires_at = approval.expires_at.to_string();
+            super::i18n::translate(
+                state,
+                "approval.expiry.auto_deny",
+                &[("expires_at", expires_at.as_str())],
+            )
+        } else {
+            super::i18n::text(state, "approval.expiry.none")
+        };
+        let target = truncate(&approval.target.display, 56);
+        let input = truncate(&approval.input_preview, 56);
+        let once_availability = availability(once);
+        let session_availability = availability(session);
+        let repo_availability = availability(repo);
+        vec![
+            format!("{} · {:?}", approval.title, approval.risk),
+            truncate(&approval.message, 68),
+            super::i18n::translate(
+                state,
+                "approval.target_only",
+                &[("target", target.as_str())],
+            ),
+            super::i18n::translate(state, "approval.input", &[("input", input.as_str())]),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_once",
+                &[("availability", once_availability.as_str())],
+            ),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_session",
+                &[("availability", session_availability.as_str())],
+            ),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_repo",
+                &[("availability", repo_availability.as_str())],
+            ),
+            super::i18n::text(state, "approval.action.deny"),
+            expiry,
+            super::i18n::translate(
+                state,
+                "approval.audit",
+                &[("audit_id", approval.audit_id.as_str())],
+            ),
+        ]
+    })
+}
+
+pub(super) fn focused_approval_request(
+    state: &TuiState,
+) -> Option<&viden_core::ApprovalRequestView> {
+    let overlay = state
+        .ui
+        .overlay
+        .as_ref()
+        .filter(|overlay| overlay.kind == OverlayKind::Approval)?;
+    overlay.selected_id.as_ref().map_or_else(
+        || state.runtime.pending_approvals.get(overlay.selected),
+        |request_id| {
+            state
+                .runtime
+                .pending_approvals
+                .iter()
+                .find(|approval| &approval.id == request_id)
+        },
+    )
+}
+
+pub(super) fn approval_is_expired(approval: &viden_core::ApprovalRequestView) -> bool {
+    if approval.expires_at == 0 {
+        return false;
+    }
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| approval.expires_at <= duration.as_secs())
+        .unwrap_or(false)
+}
+
+pub(super) fn interaction_panel_index_at(
+    state: &TuiState,
+    _width: u16,
+    _height: u16,
+    _rail: usize,
+    _column: u16,
+    row: u16,
+) -> Option<usize> {
+    state.ui.interaction_panel.as_ref()?;
+    let index = usize::from(row.saturating_sub(5));
+    (index < interaction_panel_choice_count(state)).then_some(index)
+}
+
+pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
+    match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::Settings(panel)) => {
+            if !state.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
+                0
+            } else {
+                panel.field.map_or(8, |field| panel.choices(field).len())
             }
         }
-    }
-    choices.sort_by_key(|choice| {
-        (
-            choice.provider_id != state.provider,
-            choice.provider_name.to_ascii_lowercase(),
-            choice.model.to_ascii_lowercase(),
-        )
-    });
-    choices
-}
-
-fn provider_models(provider: &ProviderOption) -> Vec<String> {
-    let mut models = provider.favorite_models.clone();
-    for model in &provider.enabled_models {
-        if !models.contains(model) {
-            models.push(model.clone());
+        Some(InteractionPanel::Setup { .. }) => {
+            if !state.has_capability("runtime.project_onboarding") {
+                return 0;
+            }
+            let draft = match state.ui.interaction_panel.as_ref() {
+                Some(InteractionPanel::Setup { draft, .. }) => draft,
+                _ => unreachable!("setup panel matched"),
+            };
+            2 + usize::from(
+                state
+                    .runtime
+                    .project_config_preview
+                    .as_ref()
+                    .is_some_and(|preview| setup_preview_matches_draft(preview, draft)),
+            )
         }
+        Some(InteractionPanel::AcpPicker { phase, .. }) => match phase {
+            AcpPickerPhase::Browse => acp_picker_rows(state).len(),
+            AcpPickerPhase::TaskEntry { .. } => 1,
+        },
+        Some(InteractionPanel::NewLaneTask { .. }) => 1,
+        _ => interaction_rows(state).len(),
     }
-    if let Some(default_model) = &provider.default_model
-        && !models.contains(default_model)
-    {
-        models.push(default_model.clone());
-    }
-    for model in &provider.known_models {
-        if !models.contains(model) {
-            models.push(model.clone());
+}
+
+fn setup_preview_matches_draft(preview: &viden_core::ProjectConfigPreview, draft: &str) -> bool {
+    preview.is_valid() && preview.exact_contents.as_deref() == Some(draft)
+}
+
+pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
+    match state.ui.interaction_panel.as_ref()? {
+        InteractionPanel::Settings(_) => None,
+        InteractionPanel::Setup { .. } => None,
+        InteractionPanel::ConnectProvider { selected, .. } => state
+            .ui
+            .provider_catalog
+            .get(*selected)
+            .map(|provider| format!("/provider use {}", provider.provider_id)),
+        InteractionPanel::ProviderConfig { provider_id, .. } => {
+            Some(format!("/provider configure {provider_id}"))
         }
-    }
-    models
-}
-
-fn active_provider_models(provider: &ProviderOption) -> Vec<String> {
-    let mut models = provider.favorite_models.clone();
-    for model in &provider.enabled_models {
-        if !models.contains(model) {
-            models.push(model.clone());
+        InteractionPanel::ModelPicker { selected, .. } => {
+            interaction_rows(state).get(*selected).and_then(|row| {
+                row.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .get(..2)
+                    .map(|parts| format!("/model use {} {}", parts[0], parts[1]))
+            })
         }
-    }
-    models
-}
-
-fn configured_provider_models(provider: &ProviderOption) -> Vec<String> {
-    let mut models = active_provider_models(provider);
-    if let Some(default_model) = &provider.default_model
-        && !models.contains(default_model)
-    {
-        models.push(default_model.clone());
-    }
-    for model in &provider.known_models {
-        if !models.contains(model) {
-            models.push(model.clone());
-        }
-    }
-    models
-}
-
-fn provider_is_available_for_model_picker(provider: &ProviderOption) -> bool {
-    !active_provider_models(provider).is_empty()
-        || provider.api_key_env.as_deref().is_some_and(|env| {
-            std::env::var(env)
-                .ok()
-                .is_some_and(|value| !value.trim().is_empty())
-        })
-}
-
-#[derive(Debug, Clone, Copy)]
-struct InteractionBounds {
-    top: usize,
-    left: usize,
-    width: usize,
-    height: usize,
-    transcript_width: usize,
-}
-
-fn interaction_panel_bounds(
-    frame_width: usize,
-    frame_height: usize,
-    right_rail_width: usize,
-) -> InteractionBounds {
-    let width = frame_width
-        .saturating_mul(3)
-        .saturating_div(7)
-        .clamp(58, 82);
-    let height = frame_height
-        .saturating_mul(3)
-        .saturating_div(5)
-        .clamp(18, 30);
-    let top = frame_height
-        .saturating_sub(height)
-        .saturating_div(2)
-        .min(frame_height.saturating_sub(height));
-    let transcript_width = frame_width.saturating_sub(right_rail_width + 1);
-    let left = transcript_width
-        .saturating_sub(width)
-        .saturating_div(2)
-        .min(transcript_width.saturating_sub(width));
-    InteractionBounds {
-        top,
-        left,
-        width,
-        height,
-        transcript_width,
+        InteractionPanel::AcpPicker { .. } | InteractionPanel::NewLaneTask { .. } => None,
     }
 }
 
 pub(super) fn has_pending_approval(state: &TuiState) -> bool {
-    latest_approval(state).is_some()
-}
-
-pub(super) fn latest_approval(state: &TuiState) -> Option<&str> {
-    for (index, entry) in state.entries.iter().enumerate().rev() {
-        if entry.label != "approval" {
-            continue;
-        }
-        if entry.body.contains("Press y") {
-            return (!state.entries[index + 1..]
-                .iter()
-                .any(closes_pending_approval_modal))
-            .then_some(entry.body.as_str());
-        }
-        if entry.body.contains("Approved") || entry.body.contains("Denied") {
-            return None;
-        }
-    }
-    None
-}
-
-fn closes_pending_approval_modal(entry: &super::state::TuiEntry) -> bool {
-    matches!(
-        entry.label.as_str(),
-        "tool-result" | "assistant" | "command"
-    ) || (entry.label == "approval" && !entry.body.contains("Press y"))
-}
-
-fn focused_lane(state: &TuiState) -> Option<&TerminalLane> {
-    let id = state.focused_lane.as_deref()?;
-    state
-        .lanes
-        .iter()
-        .find(|lane| lane.id.eq_ignore_ascii_case(id))
-}
-
-fn render_lane_modal(
-    frame: &mut Frame,
-    state: &TuiState,
-    lane: &TerminalLane,
-    right_rail_width: usize,
-) {
-    let modal_width = frame
-        .width
-        .saturating_mul(2)
-        .saturating_div(5)
-        .clamp(54, 72);
-    let modal_height = 16usize.min(frame.height.saturating_sub(4));
-    let top = frame.height.saturating_sub(modal_height).saturating_div(2);
-    let transcript_width = frame.width.saturating_sub(right_rail_width + 1);
-    let centered_left = transcript_width
-        .saturating_sub(modal_width)
-        .saturating_div(2);
-    let left = centered_left
-        .max(22)
-        .min(transcript_width.saturating_sub(modal_width));
-    let mut rows = vec![
-        format!(
-            "{} {}  [{}]",
-            lane.id,
-            lane.tool,
-            terminal_label(&lane.tool)
-        ),
-        format!(
-            "PTY    {}  PID {}     ROUTE {}→{}",
-            pty_label(&lane.tool),
-            pid_hint(lane),
-            truncate(&lane.target, 8),
-            lane_screen_hint(lane)
-        ),
-        format!(
-            "TASK   {}",
-            truncate(&lane.title, modal_width.saturating_sub(11))
-        ),
-        format!(
-            "STATE  {} {}",
-            status_dot(&lane.status),
-            progress_bar(lane.progress)
-        ),
-        format!(
-            "CMD    {}",
-            truncate(
-                &command_hint(&lane.tool, &lane.title),
-                modal_width.saturating_sub(11)
-            )
-        ),
-        format!(
-            "ATTACH {}",
-            truncate(&interaction_hint(lane), modal_width.saturating_sub(11))
-        ),
-        scan_divider(modal_width),
-        "LATEST OUTPUT".to_string(),
-    ];
-    rows.extend(lane_latest_output_rows(
-        state,
-        lane,
-        modal_width.saturating_sub(6),
-        3,
-    ));
-    rows.extend([
-        scan_divider(modal_width),
-        "CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string(),
-        "SIDE    --tui-screen side-1   live tail".to_string(),
-    ]);
-    let modal = panel(
-        "LANE DETAIL",
-        rows,
-        modal_width,
-        modal_height,
-        Some("focus"),
-    );
-    clear_overlay_bounds(frame, top, modal_height, transcript_width);
-    render_modal_shadow(frame, top, left, modal_width, modal_height);
-    frame.write_block(top, left, &modal);
-}
-
-fn lane_latest_output_rows(
-    state: &TuiState,
-    lane: &TerminalLane,
-    max_width: usize,
-    max_lines: usize,
-) -> Vec<String> {
-    let tail = state
-        .lane_store
-        .as_deref()
-        .and_then(|store| lane_runtime_evidence(store, &lane.id))
-        .map(|evidence| evidence.log_tail)
-        .unwrap_or_default();
-    if tail.is_empty() {
-        return vec![format!("  {}", truncate(&lane.summary, max_width))];
-    }
-    let keep_from = tail.len().saturating_sub(max_lines);
-    tail.iter()
-        .skip(keep_from)
-        .map(|line| format!("  {}", truncate(line, max_width)))
-        .collect()
-}
-
-fn lane_screen_hint(lane: &TerminalLane) -> &'static str {
-    match lane.tool.as_str() {
-        "codex" | "claude" => "side-1",
-        "shell" | "run" => "side-2",
-        _ => "main",
-    }
-}
-
-fn render_approval_modal(
-    frame: &mut Frame,
-    approval: &str,
-    state: &TuiState,
-    right_rail_width: usize,
-) {
-    let details = ApprovalDetails::parse(approval);
-    let bounds = approval_modal_bounds(frame.width, frame.height, right_rail_width);
-    let mut rows = vec![
-        format!(
-            "APPROVAL REQUIRED: {:<14} ID: call_7f2a9c1e",
-            truncate(details.tool, 14)
-        ),
-        format!(
-            "PATH    {}",
-            truncate(details.path, bounds.width.saturating_sub(12))
-        ),
-        "ACTION  Write (new content)  [MODIFIES FILE]".to_string(),
-        "SIZE    +48 lines (2.1 KB)".to_string(),
-        if focused_approval_action(state) == ApprovalAction::Diff {
-            "DIFF / EVIDENCE (focused)".to_string()
-        } else {
-            "PREVIEW (first lines)".to_string()
-        },
-    ];
-    rows.extend(code_preview_rows(&details, bounds.width));
-    rows.extend([
-        apply_all_row(state),
-        format!(
-            "{}{}{}",
-            pad(
-                &approval_button("[Deny (n)]", APPROVAL_FOCUS_DENY, state),
-                20
-            ),
-            pad(&approval_button("[Diff]", APPROVAL_FOCUS_DIFF, state), 16),
-            approval_button("[Approve (y)]", APPROVAL_FOCUS_APPROVE, state)
-        ),
-    ]);
-    let modal = panel(
-        "APPROVAL",
-        rows,
-        bounds.width,
-        bounds.height,
-        Some("tab/enter/click"),
-    );
-    clear_overlay_bounds(frame, bounds.top, bounds.height, bounds.transcript_width);
-    render_modal_shadow(frame, bounds.top, bounds.left, bounds.width, bounds.height);
-    frame.write_block(bounds.top, bounds.left, &modal);
+    !state.runtime.pending_approvals.is_empty()
 }
 
 pub(super) fn approval_action_at(
     state: &TuiState,
+    _width: u16,
+    _height: u16,
+    _rail: usize,
     column: u16,
-    row: u16,
-    frame_width: u16,
-    frame_height: u16,
-    right_rail_width: usize,
+    _row: u16,
 ) -> Option<ApprovalAction> {
-    latest_approval(state)?;
-    let bounds = approval_modal_bounds(
-        frame_width as usize,
-        frame_height as usize,
-        right_rail_width,
-    );
-    let column = column as usize;
-    let row = row as usize;
-    if row == bounds.apply_row() && column >= bounds.left + 2 && column < bounds.left + bounds.width
-    {
-        return Some(ApprovalAction::ToggleApplyAll);
-    }
-    if row != bounds.action_row() {
-        return None;
-    }
-    let content_left = bounds.left + 2;
-    if (content_left..content_left + 20).contains(&column) {
-        Some(ApprovalAction::Deny)
-    } else if (content_left + 20..content_left + 36).contains(&column) {
-        Some(ApprovalAction::Diff)
-    } else if (content_left + 36..bounds.left + bounds.width).contains(&column) {
-        Some(ApprovalAction::Approve)
-    } else {
-        None
-    }
+    has_explicit_approval_focus(state).then_some({
+        if column < 28 {
+            ApprovalAction::Deny
+        } else if column < 48 {
+            ApprovalAction::Diff
+        } else {
+            ApprovalAction::Approve
+        }
+    })
 }
 
 pub(super) fn approval_focus_cursor(
     state: &TuiState,
-    frame_width: u16,
-    frame_height: u16,
-    right_rail_width: usize,
+    width: u16,
+    _height: u16,
+    _rail: usize,
 ) -> Option<(u16, u16)> {
-    latest_approval(state)?;
-    let bounds = approval_modal_bounds(
-        frame_width as usize,
-        frame_height as usize,
-        right_rail_width,
-    );
-    let (column, row) = match focused_approval_action(state) {
-        ApprovalAction::ToggleApplyAll => (bounds.left + 2, bounds.apply_row()),
-        ApprovalAction::Deny => (bounds.left + 2, bounds.action_row()),
-        ApprovalAction::Diff => (bounds.left + 22, bounds.action_row()),
-        ApprovalAction::Approve => (bounds.left + 38, bounds.action_row()),
-    };
-    Some((column as u16, row as u16))
+    has_explicit_approval_focus(state).then(|| {
+        let column = match focused_approval_action(state) {
+            ApprovalAction::ToggleApplyAll => 8,
+            ApprovalAction::Deny => 18,
+            ApprovalAction::Diff => 34,
+            ApprovalAction::Approve => 52,
+        };
+        (column.min(width.saturating_sub(1)), 10)
+    })
+}
+
+fn has_explicit_approval_focus(state: &TuiState) -> bool {
+    state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::Approval)
+        && !focused_approval_rows(state).is_empty()
 }
 
 pub(super) fn move_approval_focus(state: &mut TuiState, delta: i8) {
-    let current = state.approval_focus.min(APPROVAL_FOCUS_APPROVE);
-    state.approval_focus = if delta < 0 {
-        current.saturating_sub(1)
+    state.ui.approval_focus = if delta < 0 {
+        state.ui.approval_focus.saturating_sub(1)
     } else {
-        (current + 1).min(APPROVAL_FOCUS_APPROVE)
+        (state.ui.approval_focus + 1).min(APPROVAL_FOCUS_APPROVE)
     };
 }
 
 pub(super) fn set_approval_focus_for_action(state: &mut TuiState, action: ApprovalAction) {
-    state.approval_focus = match action {
+    state.ui.approval_focus = match action {
         ApprovalAction::ToggleApplyAll => APPROVAL_FOCUS_APPLY_ALL,
         ApprovalAction::Deny => APPROVAL_FOCUS_DENY,
         ApprovalAction::Diff => APPROVAL_FOCUS_DIFF,
@@ -739,356 +921,409 @@ pub(super) fn set_approval_focus_for_action(state: &mut TuiState, action: Approv
 }
 
 pub(super) fn focused_approval_action(state: &TuiState) -> ApprovalAction {
-    match state.approval_focus {
+    match state.ui.approval_focus {
+        APPROVAL_FOCUS_APPLY_ALL => ApprovalAction::ToggleApplyAll,
         APPROVAL_FOCUS_DENY => ApprovalAction::Deny,
         APPROVAL_FOCUS_DIFF => ApprovalAction::Diff,
-        APPROVAL_FOCUS_APPROVE => ApprovalAction::Approve,
-        _ => ApprovalAction::ToggleApplyAll,
-    }
-}
-
-fn apply_all_row(state: &TuiState) -> String {
-    let checkbox = if state.approval_apply_all {
-        "[x]"
-    } else {
-        "[ ]"
-    };
-    let marker = if state.approval_focus == APPROVAL_FOCUS_APPLY_ALL {
-        "› "
-    } else {
-        "  "
-    };
-    format!("{marker}{checkbox} Apply to all write_file calls in this session")
-}
-
-fn approval_button(label: &str, focus: usize, state: &TuiState) -> String {
-    if state.approval_focus == focus {
-        format!("› {label}")
-    } else {
-        format!("  {label}")
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ApprovalBounds {
-    top: usize,
-    left: usize,
-    width: usize,
-    height: usize,
-    transcript_width: usize,
-}
-
-impl ApprovalBounds {
-    fn apply_row(self) -> usize {
-        self.top + self.height.saturating_sub(3)
-    }
-
-    fn action_row(self) -> usize {
-        self.top + self.height.saturating_sub(2)
-    }
-}
-
-fn approval_modal_bounds(
-    frame_width: usize,
-    frame_height: usize,
-    right_rail_width: usize,
-) -> ApprovalBounds {
-    let width = frame_width.saturating_div(2).clamp(56, 64);
-    let height = 15usize.min(frame_height.saturating_sub(4));
-    let top = frame_height
-        .saturating_sub(height)
-        .saturating_div(3)
-        .saturating_add(1)
-        .min(frame_height.saturating_sub(height));
-    let transcript_width = frame_width.saturating_sub(right_rail_width + 1);
-    let centered_left = transcript_width.saturating_sub(width).saturating_div(2);
-    let left = centered_left
-        .max(22)
-        .min(transcript_width.saturating_sub(width));
-    ApprovalBounds {
-        top,
-        left,
-        width,
-        height,
-        transcript_width,
-    }
-}
-
-fn scan_divider(modal_width: usize) -> String {
-    let width = modal_width.saturating_sub(4).min(64);
-    "┄".repeat(width)
-}
-
-fn code_preview_rows(details: &ApprovalDetails<'_>, modal_width: usize) -> Vec<String> {
-    let box_width = modal_width.saturating_sub(8).max(28);
-    let label = format!(" {} ", truncate(details.path, box_width.saturating_sub(6)));
-    let top_rule = horizontal(box_width.saturating_sub(char_width(&label) + 2));
-    let bottom_rule = horizontal(box_width.saturating_sub(2));
-    let line_width = box_width.saturating_sub(10);
-    let preview_lines = code_preview_lines(details);
-    let mut rows = vec![format!("  ┌{label}{top_rule}┐")];
-    rows.extend(
-        preview_lines
-            .iter()
-            .take(4)
-            .enumerate()
-            .map(|(index, line)| {
-                format!(
-                    "  │ +{:>2} │ {} │",
-                    index + 1,
-                    pad(&truncate(line, line_width), line_width)
-                )
-            }),
-    );
-    rows.push(format!("  └{bottom_rule}┘"));
-    rows
-}
-
-fn code_preview_lines<'a>(details: &'a ApprovalDetails<'a>) -> Vec<&'a str> {
-    if !details.preview_lines.is_empty() {
-        return details.preview_lines.clone();
-    }
-    if details.tool == "write_file" {
-        return vec![
-            "use std::{fs, path::Path};",
-            "use anyhow::{Context, Result};",
-            "pub fn load_config<P: AsRef<Path>>(path: P) -> Result<Config> {",
-            "    let content = fs::read_to_string(path.as_ref())?;",
-        ];
-    }
-    vec![
-        "let command = PermissionRequest::current();",
-        "let result = workspace.apply(command)?;",
-        "session.append_event(result.summary());",
-        "Ok(())",
-    ]
-}
-
-fn render_modal_shadow(frame: &mut Frame, top: usize, left: usize, width: usize, height: usize) {
-    let _ = (frame, top, left, width, height);
-}
-
-fn clear_overlay_bounds(frame: &mut Frame, top: usize, height: usize, transcript_width: usize) {
-    let clear_top = top.saturating_sub(1);
-    let clear_left = 1;
-    let clear_width = transcript_width
-        .saturating_sub(2)
-        .min(frame.width.saturating_sub(clear_left));
-    let clear_height = (height + 1).min(frame.height.saturating_sub(clear_top));
-    frame.fill_rect_pattern(
-        clear_top,
-        clear_left,
-        clear_width,
-        clear_height,
-        |_x, _y| ' ',
-    );
-}
-
-#[derive(Debug, Clone)]
-struct ApprovalDetails<'a> {
-    tool: &'a str,
-    path: &'a str,
-    preview_lines: Vec<&'a str>,
-}
-
-impl<'a> ApprovalDetails<'a> {
-    fn parse(value: &'a str) -> Self {
-        let mut lines = value.lines();
-        let first = lines.next().unwrap_or("Permission request");
-        let rest = lines
-            .filter(|line| !line.starts_with("Press "))
-            .collect::<Vec<_>>();
-        let tool = first
-            .split('`')
-            .nth(1)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("tool action");
-        let path = rest
-            .iter()
-            .find_map(|line| {
-                line.strip_prefix("path: ")
-                    .or_else(|| line.strip_prefix("path="))
-            })
-            .unwrap_or("current session");
-        let preview_lines = rest
-            .iter()
-            .copied()
-            .filter(|line| !line.trim().is_empty())
-            .filter(|line| !line.starts_with("path: ") && !line.starts_with("path="))
-            .take(8)
-            .collect::<Vec<_>>();
-        Self {
-            tool,
-            path,
-            preview_lines,
-        }
+        _ => ApprovalAction::Approve,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::state::{
-        ProviderStatus, TerminalLane, TuiEntry, WorkspaceSnapshot, lane_store_path,
+    use crate::tui::state::OverlayState;
+    use viden_core::{
+        ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk, ApprovalScope, ApprovalTarget,
     };
-    use std::{
-        fs,
-        time::{SystemTime, UNIX_EPOCH},
+    use viden_types::{
+        LaneRecoveryView, RuntimeCommand, RuntimeCommandReceipt, RuntimeEventEnvelope,
+        RuntimeSnapshot, RuntimeWireEvent,
     };
-
-    fn approval_state() -> TuiState {
-        TuiState {
-            session_id: "session_123".to_string(),
-            provider: "fallback".to_string(),
-            model: "test-local".to_string(),
-            provider_catalog: crate::tui::state::ProviderOption::fixture(),
-            provider_status: ProviderStatus::configured(),
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: DEFAULT_APPROVAL_FOCUS,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: vec![TuiEntry {
-                label: "approval".to_string(),
-                body: "Permission request for `write_file`\npath: src/lib.rs\nPress y to allow, n/Esc to deny.".to_string(),
-            }],
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: TerminalLane::preview_lanes(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        }
-    }
 
     #[test]
-    fn latest_approval_stops_after_resolution_entry() {
-        let mut state = approval_state();
-        assert!(latest_approval(&state).is_some());
-
-        state.entries.push(TuiEntry {
+    fn approvals_are_not_inferred_from_transcript() {
+        let mut state = TuiState::default();
+        state.ui.entries.push(super::super::state::TuiEntry {
             label: "approval".to_string(),
-            body: "Approved `write_file`.".to_string(),
+            body: "Press y".to_string(),
+        });
+        assert!(!has_pending_approval(&state));
+    }
+
+    #[test]
+    fn acp_picker_lists_lane_sessions_before_truthful_adapter_rows() {
+        let mut state = TuiState::default();
+        state.ui.focused_lane = Some("lane-1".to_string());
+        state
+            .runtime
+            .agent_sessions
+            .push(viden_core::AgentSessionView {
+                session_id: "acp-1".to_string(),
+                lane_id: "lane-1".to_string(),
+                agent_id: "codex-acp".to_string(),
+                model: None,
+                status: viden_core::AgentSessionStatus::Running,
+                owner: viden_core::RuntimeOwner {
+                    lane_id: Some("lane-1".to_string()),
+                    session_id: Some("acp-1".to_string()),
+                    ..Default::default()
+                },
+                task: "continue implementation".to_string(),
+                diagnostic: None,
+            });
+        state
+            .runtime
+            .agent_adapters
+            .push(viden_core::AgentAdapterView {
+                agent_id: "claude-acp".to_string(),
+                display_name: "Claude ACP".to_string(),
+                route: viden_core::AgentRoute::Acp,
+                source: viden_core::AgentAdapterSource::Registry,
+                availability: viden_core::AgentAvailability::NeedsAuth,
+                auth_state: viden_core::AgentAuthState::LoggedOut,
+                startability: viden_core::AgentStartability::AuthenticationRequired,
+                capabilities: Vec::new(),
+                models: Vec::new(),
+                diagnostics: vec!["agent.auth.required".to_string()],
+            });
+
+        let rows = acp_picker_rows(&state);
+
+        assert_eq!(rows[0].id, "session:acp-1");
+        assert_eq!(rows[1].id, "adapter:claude-acp");
+        assert!(rows[1].label.contains("Authentication required"));
+    }
+
+    #[test]
+    fn setup_selector_title_follows_core_resolved_locale() {
+        let mut state = TuiState::default();
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        state.ui.interaction_panel = Some(InteractionPanel::Setup {
+            selected: 0,
+            draft: String::new(),
+        });
+        let mut frame = Frame::new(100, 30);
+
+        render_overlays(&mut frame, &state, 0);
+
+        assert!(frame.to_string().contains("SETUP SELECTOR · 设置选择"));
+    }
+
+    #[test]
+    fn models_selector_filters_unconfigured_providers() {
+        let mut state = TuiState::default();
+        let mut catalog = super::super::state::ProviderOption::fixture();
+        let unconfigured = catalog
+            .iter_mut()
+            .find(|provider| provider.provider_id == "anthropic")
+            .expect("anthropic fixture");
+        unconfigured.enabled_models.clear();
+        state.ui.provider_catalog = catalog;
+        state.ui.interaction_panel = Some(InteractionPanel::ModelPicker {
+            provider_id: None,
+            search: String::new(),
+            selected: 0,
         });
 
-        assert!(latest_approval(&state).is_none());
+        let rows = interaction_rows(&state).join("\n");
+
+        assert!(!rows.contains("anthropic"));
+        assert!(rows.contains("deepseek"));
     }
 
     #[test]
-    fn latest_approval_stops_after_runtime_closure_event() {
-        let mut state = approval_state();
-        state.entries.push(TuiEntry {
-            label: "command".to_string(),
-            body: "Test result:\n  status: failed".to_string(),
-        });
+    fn global_jump_windows_rows_to_keep_selected_item_visible() {
+        let mut state = TuiState::default();
+        let mut overlay = OverlayState::global_jump(None);
+        overlay.selected = 12;
+        state.ui.overlay = Some(overlay);
+        let mut frame = Frame::new(120, 40);
 
-        assert!(latest_approval(&state).is_none());
-    }
+        render_overlays(&mut frame, &state, 0);
 
-    #[test]
-    fn approval_mouse_hit_testing_maps_footer_actions() {
-        let state = approval_state();
-        let bounds = approval_modal_bounds(140, 36, 38);
-
-        assert_eq!(
-            approval_action_at(
-                &state,
-                (bounds.left + 4) as u16,
-                bounds.action_row() as u16,
-                140,
-                36,
-                38,
-            ),
-            Some(ApprovalAction::Deny)
-        );
-        assert_eq!(
-            approval_action_at(
-                &state,
-                (bounds.left + 40) as u16,
-                bounds.action_row() as u16,
-                140,
-                36,
-                38,
-            ),
-            Some(ApprovalAction::Approve)
-        );
-    }
-
-    #[test]
-    fn approval_focus_cursor_tracks_selected_action() {
-        let mut state = approval_state();
-        state.approval_focus = APPROVAL_FOCUS_APPROVE;
-        let bounds = approval_modal_bounds(140, 36, 38);
-
-        assert_eq!(
-            approval_focus_cursor(&state, 140, 36, 38),
-            Some(((bounds.left + 38) as u16, bounds.action_row() as u16))
-        );
-    }
-
-    #[test]
-    fn approval_diff_focus_renders_prompt_evidence_not_fake_preview_only() {
-        let mut state = approval_state();
-        state.approval_focus = APPROVAL_FOCUS_DIFF;
-        state.entries[0].body = [
-            "Permission request for `write_file`",
-            "path: hello.py",
-            "content=print(\"Hello, World!\")",
-            "Press y to allow, n/Esc to deny.",
-        ]
-        .join("\n");
-        let mut frame = Frame::new(140, 36);
-
-        render_approval_modal(&mut frame, latest_approval(&state).unwrap(), &state, 38);
         let rendered = frame.to_string();
-
-        assert!(rendered.contains("DIFF / EVIDENCE"));
-        assert!(rendered.contains("hello.py"));
-        assert!(rendered.contains("content=print"));
+        assert!(
+            rendered.contains("> /permissions rea"),
+            "selected result must stay visible inside the fixed-height panel:\n{rendered}"
+        );
     }
 
     #[test]
-    fn default_approval_focus_is_approve_for_fast_enter() {
-        let state = approval_state();
+    fn global_jump_empty_and_disabled_windows_keep_rows_aligned_with_selection() {
+        let mut state = TuiState::default();
+        let mut overlay = OverlayState::global_jump(None);
+        overlay.filter = ">no-such-command".to_string();
+        state.ui.overlay = Some(overlay);
 
-        assert_eq!(focused_approval_action(&state), ApprovalAction::Approve);
+        assert_eq!(
+            global_jump_rows(&state, ">no-such-command"),
+            vec!["No matching items. Try : @ # > or ~."]
+        );
+
+        state.ui.overlay.as_mut().expect("jump").filter = "~".to_string();
+        let rows = global_jump_rows(&state, "~");
+        assert_eq!(rows[0], "[FILES]");
+        assert!(rows[1].starts_with("> Files unavailabl"));
+        assert!(rows[1].contains("Core file inventory is unavailable."));
     }
 
     #[test]
-    fn focused_lane_latest_output_prefers_persisted_log_tail() {
-        let root = temp_root("lane-modal-tail");
-        let lane_store = lane_store_path(&root);
-        let artifact_dir = root.join(".viden").join("lanes");
-        fs::create_dir_all(&artifact_dir).expect("artifact dir");
-        fs::write(
-            artifact_dir.join("L1.log"),
-            "old line\ncargo test --workspace\nfinished cleanly\n",
-        )
-        .expect("lane log");
-        let mut state = approval_state();
-        state.lane_store = Some(lane_store);
-        let lane = state.lanes.first().expect("preview lane");
+    fn global_jump_window_keeps_default_disabled_tail_selected() {
+        let mut state = TuiState::default();
+        let mut overlay = OverlayState::global_jump(None);
+        overlay.selected = 14;
+        state.ui.overlay = Some(overlay);
 
-        let rows = lane_latest_output_rows(&state, lane, 80, 2).join("\n");
+        let rows = global_jump_rows(&state, "");
 
-        assert!(rows.contains("cargo test --workspace"));
-        assert!(rows.contains("finished cleanly"));
-        assert!(!rows.contains("patched failing tests"));
-        let _ = fs::remove_dir_all(root);
+        assert!(
+            rows.iter().any(|row| row.starts_with("> Files unavailabl")),
+            "the disabled tail result must not be dropped by a continued header: {rows:?}"
+        );
     }
 
-    fn temp_root(suffix: &str) -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("viden-modal-test-{nanos}-{suffix}"))
+    #[test]
+    fn approval_overlay_renders_four_core_scopes_and_expiry_without_local_resolution() {
+        let mut state = TuiState::default();
+        state.runtime.pending_approvals.push(ApprovalRequestView {
+            id: "approval-four".to_string(),
+            tool_name: "shell".to_string(),
+            title: "Dangerous command".to_string(),
+            message: "requires operator choice".to_string(),
+            input_preview: "git push --force".to_string(),
+            is_mutating: true,
+            reason: Some("protected branch".to_string()),
+            owner: Default::default(),
+            risk: ApprovalRisk::Critical,
+            target: ApprovalTarget {
+                kind: "command".to_string(),
+                display: "git push --force".to_string(),
+                canonical_ref: Some("command://git-push".to_string()),
+            },
+            allowed_scopes: vec![
+                ApprovalScope::Once,
+                ApprovalScope::Session {
+                    session_id: "session-four".to_string(),
+                },
+                ApprovalScope::RepoAllowlist {
+                    paths: vec!["refs/heads/main".to_string()],
+                },
+            ],
+            policy_reason_key: "approval.protected_branch".to_string(),
+            policy_reason_args: Default::default(),
+            expires_at: 1,
+            default_action: ApprovalDefaultAction::Deny,
+            audit_id: "audit-four".to_string(),
+        });
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval-four".to_string());
+        state.ui.overlay = Some(overlay);
+
+        let rows = focused_approval_rows(&state).join("\n");
+
+        for expected in [
+            "1 Allow once",
+            "2 Allow for session",
+            "3 Add repo allowlist",
+            "4 Deny",
+            "EXPIRED",
+            "awaiting Core ApprovalResolved",
+            "audit-four",
+        ] {
+            assert!(rows.contains(expected), "missing {expected}:\n{rows}");
+        }
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese_rows = focused_approval_rows(&state).join("\n");
+        for expected in [
+            "1 本次允许",
+            "2 本会话允许",
+            "3 加入仓库白名单",
+            "4 拒绝",
+            "等待 Core ApprovalResolved",
+            "git push --force",
+            "audit-four",
+        ] {
+            assert!(
+                chinese_rows.contains(expected),
+                "missing {expected}:\n{chinese_rows}"
+            );
+        }
+        let mut frame = Frame::new(100, 30);
+        render_overlays(&mut frame, &state, 0);
+        assert!(frame.to_string().contains("APPROVAL · 审批"));
+        assert_eq!(state.runtime.pending_approvals.len(), 1);
+    }
+
+    #[test]
+    fn approval_overlay_keeps_all_four_scopes_expiry_and_audit_visible() {
+        let mut state = TuiState::default();
+        state.runtime.pending_approvals.push(ApprovalRequestView {
+            id: "approval-visible".to_string(),
+            tool_name: "shell".to_string(),
+            title: "Visible approval".to_string(),
+            message: "all rows must remain visible".to_string(),
+            input_preview: "cargo test".to_string(),
+            is_mutating: true,
+            reason: None,
+            owner: Default::default(),
+            risk: ApprovalRisk::Medium,
+            target: ApprovalTarget {
+                kind: "command".to_string(),
+                display: "cargo test".to_string(),
+                canonical_ref: None,
+            },
+            allowed_scopes: vec![
+                ApprovalScope::Once,
+                ApprovalScope::Session {
+                    session_id: "session-visible".to_string(),
+                },
+                ApprovalScope::RepoAllowlist {
+                    paths: vec!["Cargo.toml".to_string()],
+                },
+            ],
+            policy_reason_key: "approval.test".to_string(),
+            policy_reason_args: Default::default(),
+            expires_at: 0,
+            default_action: ApprovalDefaultAction::Deny,
+            audit_id: "audit-visible-last-row".to_string(),
+        });
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval-visible".to_string());
+        state.ui.overlay = Some(overlay);
+        let mut frame = Frame::new(100, 30);
+
+        render_overlays(&mut frame, &state, 0);
+
+        let rendered = frame.to_string();
+        assert!(rendered.contains("1 Allow once"));
+        assert!(rendered.contains("4 Deny"));
+        assert!(rendered.contains("default Deny"));
+        assert!(rendered.contains("audit-visible-last-row"));
+    }
+
+    #[test]
+    fn decisions_overlay_projects_typed_gates_recovery_and_pending_core_command() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            initial_snapshot: RuntimeSnapshot,
+            events: Vec<RuntimeEventEnvelope>,
+        }
+
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/merge-gate.json"
+        ))
+        .expect("merge gate fixture");
+        let mut runtime = viden_types::RuntimeViewState::new(fixture.initial_snapshot);
+        for envelope in fixture.events {
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                runtime.apply_event(&event);
+            }
+        }
+        runtime.lane_recoveries.push(LaneRecoveryView {
+            lane_id: "lane-recover".to_string(),
+            reason: "detached".to_string(),
+            next_action: "reattach".to_string(),
+            timestamp: None,
+        });
+        runtime.last_command = Some(RuntimeCommandReceipt {
+            command_id: "cmd-review".to_string(),
+            command: RuntimeCommand::CancelActiveTurn,
+        });
+        let mut state = TuiState::new(runtime);
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Decisions));
+
+        let rows = global_overlay_rows(&state, OverlayKind::Decisions, "").join("\n");
+
+        assert!(rows.contains("GATE gate_merge"));
+        assert!(rows.contains("Accepted"));
+        assert!(rows.contains("RECOVERY lane-recover · detached · reattach"));
+        assert!(rows.contains("COMMAND cmd-review · pending Core fact"));
+    }
+
+    #[test]
+    fn exit_confirmation_blocks_ownerless_active_work_without_offering_enter_to_exit() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+
+        let active = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
+        assert!(active.contains("exit is blocked"));
+        assert!(active.contains("cancellable owner"));
+        assert!(!active.contains("Press Enter to exit"));
+
+        state.runtime.lanes.clear();
+        let inactive = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
+        assert!(inactive.contains("No current work is active"));
+        assert!(inactive.contains("Press Enter to exit"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let help = global_overlay_rows(&state, OverlayKind::ContextHelp, "").join("\n");
+        let inactive = global_overlay_rows(&state, OverlayKind::ExitConfirm, "").join("\n");
+        assert!(help.contains("Ctrl-C 取消当前工作"));
+        assert!(inactive.contains("当前没有正在运行的工作"));
+        assert!(inactive.contains("按 Enter 退出"));
+    }
+
+    #[test]
+    fn settings_modal_shows_authoritative_values_effects_and_unavailable_gate() {
+        let mut state = TuiState::default();
+        state.ui.interaction_panel = Some(InteractionPanel::Settings(Box::new(
+            crate::tui::preferences::SettingsPanel::new(
+                &state.runtime.snapshot.ui_preferences,
+                crate::tui::preferences::ColorDepth::Auto,
+            ),
+        )));
+
+        let unavailable = interaction_rows(&state).join("\n");
+        assert!(unavailable.contains("SETTINGS unavailable"));
+        assert!(unavailable.contains("ui.preference_persistence"));
+
+        state.capabilities.insert(viden_types::CapabilityId(
+            "ui.preference_persistence".to_string(),
+        ));
+        let available = interaction_rows(&state).join("\n");
+        for expected in [
+            "Locale",
+            "Skin",
+            "Mode",
+            "Density",
+            "Motion",
+            "Color depth",
+            "Reset",
+        ] {
+            assert!(
+                available.contains(expected),
+                "missing {expected}:\n{available}"
+            );
+        }
+        assert!(available.contains("current"));
+        assert!(available.contains("effect"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
+            assert!(panel.select(PreferenceValue::Skin(viden_core::UiSkin::Amber)));
+            panel.field = Some(crate::tui::preferences::PreferenceField::Mode);
+        }
+        let chinese = interaction_rows(&state).join("\n");
+        assert!(
+            chinese.contains("效果"),
+            "missing translated effect: {chinese}"
+        );
+        assert!(
+            chinese.contains("[不可用]"),
+            "missing disabled label: {chinese}"
+        );
+        assert!(
+            !chinese.contains("effect:"),
+            "English effect leaked: {chinese}"
+        );
+        assert!(
+            !chinese.contains("[disabled]"),
+            "English disabled leaked: {chinese}"
+        );
     }
 }

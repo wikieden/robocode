@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub(super) fn progress_bar(progress: u8) -> String {
     let filled = (progress as usize / 20).clamp(0, 5);
     let empty = 5usize.saturating_sub(filled);
