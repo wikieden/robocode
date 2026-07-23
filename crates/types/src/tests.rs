@@ -1,5 +1,6 @@
 use super::*;
-use std::collections::BTreeSet;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 
 fn runtime_snapshot_json() -> serde_json::Value {
     serde_json::json!({
@@ -1790,7 +1791,7 @@ fn lane_runtime_owner_binding_reduces_by_lane_and_clears_only_terminal_lane() {
     }
     assert_eq!(
         view.lane_runtime_owners,
-        vec![replacement_a.clone(), binding_b.clone()]
+        vec![binding_a.clone(), binding_b.clone()]
     );
 
     let mismatched = LaneRuntimeOwnerBinding {
@@ -1805,7 +1806,7 @@ fn lane_runtime_owner_binding_reduces_by_lane_and_clears_only_terminal_lane() {
     ));
     assert_eq!(
         view.lane_runtime_owners,
-        vec![replacement_a.clone(), binding_b.clone()]
+        vec![binding_a.clone(), binding_b.clone()]
     );
 
     let mut running_lane = starter_lane_for_contract("lane-a");
@@ -1816,7 +1817,7 @@ fn lane_runtime_owner_binding_reduces_by_lane_and_clears_only_terminal_lane() {
     ));
     assert_eq!(
         view.lane_runtime_owners,
-        vec![replacement_a.clone(), binding_b.clone()]
+        vec![binding_a.clone(), binding_b.clone()]
     );
 
     for status in [
@@ -1826,7 +1827,7 @@ fn lane_runtime_owner_binding_reduces_by_lane_and_clears_only_terminal_lane() {
         LaneStatus::Archived,
     ] {
         let mut terminal_view = RuntimeViewState::new(runtime_snapshot_for_contract());
-        for binding in [replacement_a.clone(), binding_b.clone()] {
+        for binding in [binding_a.clone(), binding_b.clone()] {
             terminal_view.apply_event(&RuntimeEvent::new(
                 1,
                 RuntimeEventKind::LaneRuntimeOwnerBound { binding },
@@ -2499,6 +2500,8 @@ fn d1_main_cockpit_fixture_replays_workspace_and_service_facts() {
     struct Fixture {
         initial_snapshot: RuntimeSnapshot,
         events: Vec<RuntimeEventEnvelope>,
+        expected_final_cursor: EventCursor,
+        expected_view_sha256: String,
     }
 
     let fixture: Fixture = serde_json::from_str(include_str!(
@@ -2510,11 +2513,15 @@ fn d1_main_cockpit_fixture_replays_workspace_and_service_facts() {
     assert_eq!(replayed, fixture.events);
 
     let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    let mut cursor = None;
     for envelope in &fixture.events {
         if let RuntimeWireEvent::Known(event) = &envelope.event {
             view.apply_event(event);
         }
+        cursor = Some(envelope.cursor.clone());
     }
+    assert_eq!(cursor, Some(fixture.expected_final_cursor));
+    assert_eq!(canonical_view_sha256(&view), fixture.expected_view_sha256);
 
     assert_eq!(
         view.workspace_source,
@@ -2592,6 +2599,7 @@ fn d1_main_cockpit_keeps_one_agent_session_per_lane_projection() {
         view.lane_runtime_owners[0].owner.session_id.as_deref(),
         Some(first.session_id.as_str())
     );
+    let first_binding = view.lane_runtime_owners[0].clone();
 
     let replacement = AgentSessionView {
         session_id: "agent-session-d1-replacement".to_string(),
@@ -2606,14 +2614,78 @@ fn d1_main_cockpit_keeps_one_agent_session_per_lane_projection() {
         task: "replacement must not join the Lane projection".to_string(),
         diagnostic: None,
     };
-    view.apply_event(&RuntimeEvent::new(
-        99,
-        RuntimeEventKind::AgentSessionStarted {
-            session: replacement,
+    let replacement_owner = replacement.owner.clone();
+    let replacement_session = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: replacement_owner.clone(),
+        cursor: EventCursor {
+            stream_id: "fixture:d1-main-cockpit".to_string(),
+            sequence: 99,
         },
-    ));
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            99,
+            RuntimeEventKind::AgentSessionStarted {
+                session: replacement,
+            },
+        )),
+    };
+    let replacement_session: RuntimeEventEnvelope =
+        serde_json::from_value(serde_json::to_value(replacement_session).unwrap()).unwrap();
+    let RuntimeWireEvent::Known(replacement_session) = replacement_session.event else {
+        panic!("matching replacement session envelope must remain known");
+    };
+    view.apply_event(&replacement_session);
+
+    let replacement_binding = LaneRuntimeOwnerBinding {
+        lane_id: first.lane_id.clone(),
+        owner: replacement_owner,
+    };
+    let replacement_binding = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: replacement_binding.owner.clone(),
+        cursor: EventCursor {
+            stream_id: "fixture:d1-main-cockpit".to_string(),
+            sequence: 100,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            100,
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: replacement_binding,
+            },
+        )),
+    };
+    let replacement_binding: RuntimeEventEnvelope =
+        serde_json::from_value(serde_json::to_value(replacement_binding).unwrap()).unwrap();
+    let RuntimeWireEvent::Known(replacement_binding) = replacement_binding.event else {
+        panic!("matching replacement binding envelope must remain known");
+    };
+    view.apply_event(&replacement_binding);
 
     assert_eq!(view.agent_sessions, vec![first]);
+    assert_eq!(view.lane_runtime_owners, vec![first_binding]);
+}
+
+fn canonical_view_sha256(view: &RuntimeViewState) -> String {
+    let value = serde_json::to_value(view).expect("runtime view must serialize");
+    let sorted = sort_json(value);
+    let bytes = serde_json::to_vec(&sorted).expect("canonical JSON must serialize");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn sort_json(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let sorted = map
+                .into_iter()
+                .map(|(key, value)| (key, sort_json(value)))
+                .collect::<BTreeMap<_, _>>();
+            serde_json::Value::Object(sorted.into_iter().collect())
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sort_json).collect())
+        }
+        other => other,
+    }
 }
 
 #[test]

@@ -1174,10 +1174,16 @@ impl RuntimeViewState {
             RuntimeEventKind::LaneRuntimeOwnerBound { binding } => {
                 // A mismatched payload is untrusted protocol input. Never
                 // normalize it into an authority the Core did not publish.
-                if binding.owner.lane_id.as_ref() == Some(&binding.lane_id) {
-                    upsert_by_id(&mut self.lane_runtime_owners, binding.clone(), |existing| {
-                        existing.lane_id == binding.lane_id
-                    });
+                // A Lane's first valid execution owner is authoritative for
+                // the view lifetime. Exact replay is already idempotent, and
+                // a later owner/session cannot replace the existing binding.
+                if binding.owner.lane_id.as_ref() == Some(&binding.lane_id)
+                    && self
+                        .lane_runtime_owners
+                        .iter()
+                        .all(|existing| existing.lane_id != binding.lane_id)
+                {
+                    self.lane_runtime_owners.push(binding.clone());
                 }
             }
             RuntimeEventKind::LaneOutputAppended {
