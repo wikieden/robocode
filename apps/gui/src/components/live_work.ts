@@ -79,13 +79,16 @@ export function renderLiveWorkBar(
   bar.dataset.liveWorkBar = "true";
   bar.dataset.centerStep = "live-work";
   bar.setAttribute("role", "status");
-  bar.setAttribute("aria-label", translate(locale, "d1.liveWork", {}));
   const title = document.createElement("strong");
   title.textContent = translate(locale, "d1.liveWork", {});
   const primary = document.createElement("strong");
   primary.className = "d1-live-work-primary";
   primary.dataset.liveWorkPrimary = "true";
   const [first, ...remaining] = entries;
+  bar.setAttribute("aria-label", translate(locale, "d1.liveWork", {}));
+  if (first) {
+    bar.setAttribute("aria-description", first.text);
+  }
   primary.textContent = first?.primary ?? "";
   const secondary = document.createElement("span");
   secondary.className = "d1-live-work-secondary";

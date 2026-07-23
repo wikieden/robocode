@@ -71,6 +71,10 @@ export function acceptResolvedPreferences(
   return { ...state, resolved, draft: null, dirty: false };
 }
 
+export function cancelPreferenceDraft(state: PreferenceState): PreferenceState {
+  return { ...state, draft: null, dirty: false };
+}
+
 function unavailable(
   capability: UnavailablePreferenceIntent["capability"],
 ): UnavailablePreferenceIntent {

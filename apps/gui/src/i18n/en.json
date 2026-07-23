@@ -62,6 +62,8 @@
   "d1.composer.prompt": "Prompt",
   "d1.composer.queue": "Queue follow-up",
   "d1.composer.send": "Send",
+  "d1.composer.inputLabel": "Message the selected Lane",
+  "d1.composer.sendLabel": "Send message",
   "d1.environment": "Environment",
   "d1.environment.cost": "Cost",
   "d1.environment.mode": "Mode",

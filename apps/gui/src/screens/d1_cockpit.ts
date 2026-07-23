@@ -739,6 +739,7 @@ export function renderD1Cockpit(
     composer.value = draft;
     composer.disabled = !projection.composer.editable;
     composer.placeholder = translate(locale, "d1.composer.placeholder", {});
+    composer.setAttribute("aria-label", translate(locale, "d1.composer.inputLabel", {}));
     composer.addEventListener("compositionstart", () => {
       composing = true;
     });
@@ -757,6 +758,7 @@ export function renderD1Cockpit(
     composerLabel.append(composer);
     composerRegion.append(composerLabel);
     const submit = button(translate(locale, "d1.composer.send", {}), "composerSend");
+    submit.setAttribute("aria-label", translate(locale, "d1.composer.sendLabel", {}));
     submit.disabled = composer.disabled;
     submit.addEventListener("click", () => submitComposer(composer.value));
     composerRegion.append(submit);

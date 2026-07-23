@@ -1,0 +1,183 @@
+{
+  "component": "viden-gui",
+  "component_version": "0.1.0-rc.3",
+  "branch": "codex/d1-cockpit-gui",
+  "base_checkpoint": "ff914ab44a5f9245ed0cdb018ae6ec0e99f177f3",
+  "scope": "D1 cockpit preference, accessibility, and input certification",
+  "generated_at": "2026-07-24T00:00:00+08:00",
+  "provenance": {
+    "source": "apps/gui/tests/theme_matrix.spec.ts, apps/gui/tests/preferences.spec.ts, apps/gui/tests/visual/d1.spec.ts, apps/gui/tests/visual/contrast.spec.ts, apps/gui/tests/composer_ime.spec.ts",
+    "method": "deterministic jsdom DOM contract tests plus Browser-controlled local preview checks; Browser evidence is limited to the committed QA page and does not persist font scale",
+    "core_authority": "RuntimeViewState/RuntimeSnapshot ui_preferences projection only; GUI draft is memory-only and cancellable"
+  },
+  "matrix": {
+    "locales": ["en", "zh-CN"],
+    "skin_mode_pairs": [
+      "aurora/dark",
+      "aurora/light",
+      "ice/dark",
+      "ice/light",
+      "mono/dark",
+      "mono/light",
+      "amber/dark",
+      "phosphor/dark"
+    ],
+    "densities": ["compact", "regular", "comfy"],
+    "motion": ["system", "reduced"],
+    "rendered_font_scale": ["100%", "200%"],
+    "preference_cases": 96,
+    "cases": 192
+  },
+  "outcomes": {
+    "core_resolved_preferences": "pass",
+    "gui_draft_cancel": "pass",
+    "keyboard_only": "pass",
+    "visible_focus": "pass",
+    "screen_reader_names": "pass",
+    "non_color_semantics": "pass",
+    "cjk_ime": "pass",
+    "browser_rendered_200_percent_font_scale": "pass",
+    "task6_task7_ownership_safety": "pass"
+  },
+  "browser_provenance": {
+    "url": "http://127.0.0.1:4173/evidence/task-6-work-surface/qa.html?busy=1",
+    "backend": "Chrome extension via Browser runtime",
+    "server": "npm --prefix apps/gui run dev -- --host 127.0.0.1 --port 4173",
+    "collected_at": "2026-07-24T00:00:00+08:00",
+    "observations": [
+      {
+        "viewport": "1440x900",
+        "rendered_font_scale": "100%",
+        "html_font_size": "16px",
+        "layout": "desktop",
+        "screen": "d1-cockpit",
+        "document_overflow_x": false,
+        "frame_overflow": "hidden",
+        "composer_label": "Message the selected Lane",
+        "send_label": "Send message",
+        "transcript_role": "log",
+        "context_toggle_visible": false,
+        "context_internal_scroll": true,
+        "permission_internal_scroll": false,
+        "missing_keys": false,
+        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+      },
+      {
+        "viewport": "1440x900",
+        "rendered_font_scale": "200%",
+        "html_font_size": "32px",
+        "layout": "desktop",
+        "screen": "d1-cockpit",
+        "document_overflow_x": false,
+        "frame_overflow": "hidden",
+        "composer_label": "Message the selected Lane",
+        "send_label": "Send message",
+        "transcript_role": "log",
+        "context_toggle_visible": false,
+        "context_internal_scroll": true,
+        "permission_internal_scroll": false,
+        "missing_keys": false,
+        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+      },
+      {
+        "viewport": "1280x800",
+        "rendered_font_scale": "100%",
+        "html_font_size": "16px",
+        "layout": "desktop",
+        "screen": "d1-cockpit",
+        "document_overflow_x": false,
+        "frame_overflow": "hidden",
+        "composer_label": "Message the selected Lane",
+        "send_label": "Send message",
+        "transcript_role": "log",
+        "context_toggle_visible": false,
+        "context_internal_scroll": true,
+        "permission_internal_scroll": false,
+        "missing_keys": false,
+        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+      },
+      {
+        "viewport": "1280x800",
+        "rendered_font_scale": "200%",
+        "html_font_size": "32px",
+        "layout": "desktop",
+        "screen": "d1-cockpit",
+        "document_overflow_x": false,
+        "frame_overflow": "hidden",
+        "composer_label": "Message the selected Lane",
+        "send_label": "Send message",
+        "transcript_role": "log",
+        "context_toggle_visible": false,
+        "context_internal_scroll": true,
+        "permission_internal_scroll": false,
+        "missing_keys": false,
+        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+      },
+      {
+        "viewport": "960x640",
+        "rendered_font_scale": "100%",
+        "html_font_size": "16px",
+        "layout": "narrow",
+        "screen": "d1-cockpit",
+        "document_overflow_x": false,
+        "frame_overflow": "hidden",
+        "composer_label": "Message the selected Lane",
+        "send_label": "Send message",
+        "transcript_role": "log",
+        "context_toggle_visible": true,
+        "context_internal_scroll": true,
+        "permission_internal_scroll": false,
+        "missing_keys": false,
+        "intentional_offscreen_surfaces": ["lane rail", "closed context drawer"],
+        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+      },
+      {
+        "viewport": "960x640",
+        "rendered_font_scale": "200%",
+        "html_font_size": "32px",
+        "layout": "narrow",
+        "screen": "d1-cockpit",
+        "document_overflow_x": false,
+        "frame_overflow": "hidden",
+        "composer_label": "Message the selected Lane",
+        "send_label": "Send message",
+        "transcript_role": "log",
+        "context_toggle_visible": true,
+        "context_internal_scroll": true,
+        "permission_internal_scroll": false,
+        "missing_keys": false,
+        "intentional_offscreen_surfaces": ["lane rail", "closed context drawer"],
+        "clipping_observation": "No horizontal document overflow; cockpit frame overflow is intentionally hidden while transcript, permission, and context regions provide internal scrolling."
+      }
+    ],
+    "keyboard_and_cjk_probe": {
+      "viewport": "960x640",
+      "rendered_font_scale": "200%",
+      "active_after_keyboard_traversal": "composer",
+      "composer_value": "继续验证\n第二行",
+      "send_buttons": 1,
+      "cancel_buttons": 1,
+      "drawer_toggle_expanded": "false",
+      "html_font_size": "32px"
+    },
+    "cap_probe": {
+      "requested_viewport": "5140x2650",
+      "actual_viewport": "5140x2650",
+      "backend_cap_encountered": false
+    }
+  },
+  "responsive_checks": [
+    { "viewport": "1440x900", "method": "Browser local preview at 100% and 200% rendered font scale", "result": "pass" },
+    { "viewport": "1280x800", "method": "Browser local preview at 100% and 200% rendered font scale", "result": "pass" },
+    { "viewport": "960x640", "method": "Browser local preview at 100% and 200% rendered font scale with narrow drawer contract", "result": "pass" }
+  ],
+  "contract_limitations": [
+    "Core-resolved ui_preferences does not currently expose a font-scale field; 200% is certified only as rendered browser/local preview scale, not as a persisted GUI preference."
+  ],
+  "limitations": [
+    "Browser-controlled native accessibility tree audit was not executed in this artifact.",
+    "Native Tauri accessibility API inspection was not executed in this artifact.",
+    "jsdom does not calculate rendered pixel clipping, platform contrast, or OS screen-reader output.",
+    "Browser viewport capability represented 5140x2650 during the cap probe; no 5140 backend cap was encountered, but Task 8 rendered checks were limited to 1440x900, 1280x800, and 960x640."
+  ]
+}

@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   acceptResolvedPreferences,
+  cancelPreferenceDraft,
   createPreferenceState,
   requestPreferenceRestore,
   requestPreferenceSave,
@@ -65,5 +66,19 @@ describe("Core-owned preference workflow", () => {
     expect(confirmed.resolved.locale).toBe("zh-CN");
     expect(confirmed.draft).toBeNull();
     expect(confirmed.dirty).toBe(false);
+  });
+
+  test("cancel discards a GUI-local draft without changing Core-resolved authority", () => {
+    const draft = updatePreferenceDraft(createPreferenceState(authoritative), {
+      locale: "zh-CN",
+      density: "comfy",
+      motion: "reduced",
+    });
+
+    const cancelled = cancelPreferenceDraft(draft);
+
+    expect(cancelled.resolved).toEqual(authoritative);
+    expect(cancelled.draft).toBeNull();
+    expect(cancelled.dirty).toBe(false);
   });
 });

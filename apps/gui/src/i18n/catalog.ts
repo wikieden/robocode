@@ -67,6 +67,8 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.composer.prompt": [],
   "d1.composer.queue": [],
   "d1.composer.send": [],
+  "d1.composer.inputLabel": [],
+  "d1.composer.sendLabel": [],
   "d1.environment": [],
   "d1.environment.cost": [],
   "d1.environment.mode": [],

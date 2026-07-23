@@ -62,6 +62,8 @@
   "d1.composer.prompt": "提示词",
   "d1.composer.queue": "排队后续输入",
   "d1.composer.send": "发送",
+  "d1.composer.inputLabel": "输入给当前 Lane 的消息",
+  "d1.composer.sendLabel": "发送消息",
   "d1.environment": "环境",
   "d1.environment.cost": "成本",
   "d1.environment.mode": "模式",

@@ -68,7 +68,9 @@ export function renderLaneRail(options: LaneRailOptions): HTMLElement {
 
     const status = document.createElement("span");
     status.className = "d1-lane-status";
+    status.dataset.laneStatus = "true";
     status.dataset.status = lane.status;
+    status.setAttribute("aria-hidden", "true");
     const copy = document.createElement("span");
     copy.className = "lbody";
     const title = document.createElement("strong");

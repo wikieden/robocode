@@ -14,7 +14,12 @@
       import { renderD1Cockpit } from "../../src/screens/d1_cockpit.ts";
       import { D1_PROJECTION } from "../../tests/support/d1_projection.ts";
 
-      const busy = new URLSearchParams(window.location.search).get("busy") !== "0";
+      const params = new URLSearchParams(window.location.search);
+      const busy = params.get("busy") !== "0";
+      const renderedFontScale = params.get("font_scale");
+      if (renderedFontScale === "200%" || renderedFontScale === "100%") {
+        document.documentElement.style.fontSize = renderedFontScale;
+      }
       const projection = {
         ...D1_PROJECTION,
         transcript: [
