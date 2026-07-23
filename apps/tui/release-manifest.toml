@@ -38,6 +38,7 @@ capabilities = [
   "runtime.agent_permission_bridge",
   "runtime.agent_session_input",
   "runtime.agent_sessions",
+  "runtime.cockpit_context_v1",
   "runtime.credential_handles",
   "runtime.credential_staging",
   "runtime.lane_lifecycle",
