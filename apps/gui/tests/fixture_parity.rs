@@ -1,0 +1,147 @@
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use viden_core::{
+    EventCursor, RuntimeEventEnvelope, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent,
+};
+use viden_gui::GuiCoreAdapter;
+
+mod support;
+use support::TestCoreClient;
+
+const D1_MAIN_COCKPIT_FIXTURE: &str =
+    include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json");
+
+#[derive(Deserialize)]
+struct Fixture {
+    initial_snapshot: RuntimeSnapshot,
+    events: Vec<RuntimeEventEnvelope>,
+    expected_final_cursor: EventCursor,
+    expected_view_sha256: String,
+}
+
+fn replay_fixture() -> (Fixture, RuntimeViewState) {
+    let fixture: Fixture =
+        serde_json::from_str(D1_MAIN_COCKPIT_FIXTURE).expect("parse D1 cockpit fixture");
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            view.apply_event(event);
+        }
+    }
+    (fixture, view)
+}
+
+fn sort_json(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let sorted = map
+                .into_iter()
+                .map(|(key, value)| (key, sort_json(value)))
+                .collect::<BTreeMap<_, _>>();
+            serde_json::Value::Object(sorted.into_iter().collect())
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sort_json).collect())
+        }
+        other => other,
+    }
+}
+
+#[test]
+fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
+    let (fixture, view) = replay_fixture();
+    let canonical_view = sort_json(serde_json::to_value(&view).expect("serialize canonical view"));
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&canonical_view).expect("encode canonical view"))
+    );
+    assert_eq!(digest, fixture.expected_view_sha256);
+    assert_eq!(
+        fixture.events.last().map(|event| &event.cursor),
+        Some(&fixture.expected_final_cursor)
+    );
+
+    let mut adapter = GuiCoreAdapter::new(Box::new(TestCoreClient::new(
+        view,
+        Arc::new(Mutex::new(Vec::new())),
+    )));
+    adapter.connect().expect("connect canonical fixture");
+    let projection = adapter
+        .d1_cockpit(Some("lane-d1-main"))
+        .expect("project canonical D1 cockpit");
+    let context_dock =
+        serde_json::to_value(&projection.context_dock).expect("serialize Context Dock");
+
+    assert_eq!(
+        context_dock,
+        serde_json::json!({
+            "source": {
+                "status": "ready",
+                "branch": "codex/d1-cockpit-core",
+                "worktree": ".worktrees/d1-cockpit-core",
+                "ahead": 1,
+                "behind": 0,
+                "added": 3,
+                "deleted": 1,
+                "dirty": true
+            },
+            "context": null,
+            "laneAgent": {
+                "laneId": "lane-d1-main",
+                "workspaceId": "workspace-d1-main",
+                "projectId": "project-viden",
+                "sessionId": "agent-session-d1-main",
+                "taskId": "task-d1-main",
+                "turnId": "turn-d1-main"
+            },
+            "provider": null,
+            "services": [
+                {
+                    "id": "codegraph",
+                    "kind": "mcp",
+                    "label": "codegraph",
+                    "status": "connected",
+                    "detailKey": "service.connected"
+                },
+                {
+                    "id": "rust-analyzer",
+                    "kind": "lsp",
+                    "label": "rust-analyzer",
+                    "status": "ready",
+                    "detailKey": null
+                }
+            ],
+            "checklist": [
+                {
+                    "id": "change-runtime-types",
+                    "kind": "workspace_change",
+                    "label": "crates/types/src/runtime.rs",
+                    "status": "modified",
+                    "command": null,
+                    "path": "crates/types/src/runtime.rs",
+                    "summary": null,
+                    "patch": null,
+                    "failingLocation": null,
+                    "additions": 3,
+                    "deletions": 1
+                },
+                {
+                    "id": "check-viden-types",
+                    "kind": "check_run",
+                    "label": "viden-types",
+                    "status": "failed",
+                    "command": "cargo test -p viden-types",
+                    "path": null,
+                    "summary": "one assertion failed",
+                    "patch": null,
+                    "failingLocation": "crates/types/src/tests.rs:2500",
+                    "additions": null,
+                    "deletions": null
+                }
+            ]
+        })
+    );
+}

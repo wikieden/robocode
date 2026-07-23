@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en" data-mode="dark" data-density="regular">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden D1 rc.3 canonical design reference</title>
+    <script type="module">
+      import "../../src/ui/tokens.css";
+      import "../../src/ui/theme.css";
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ref-bg: #05090f;
+        --ref-panel: #0b111b;
+        --ref-panel-2: #0f1724;
+        --ref-top: #080d15;
+        --ref-border: rgba(132, 160, 188, 0.22);
+        --ref-border-strong: rgba(122, 217, 255, 0.44);
+        --ref-text: #e8f1ff;
+        --ref-muted: #91a2b8;
+        --ref-faint: #5b6b80;
+        --ref-accent: #66d9ef;
+        --ref-accent-2: #f4c95d;
+        --ref-danger: #ff6b6b;
+        --ref-success: #7ee787;
+        --ref-warning: #ffd166;
+        --ref-radius: 6px;
+        --ref-shadow: 0 16px 48px rgba(0, 0, 0, 0.36);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: var(--ref-bg);
+        color: var(--ref-text);
+        font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .frame {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: 46px minmax(0, 1fr) 28px;
+        background:
+          linear-gradient(180deg, rgba(102, 217, 239, 0.08), transparent 18rem),
+          var(--ref-bg);
+      }
+
+      .topbar,
+      .statusbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 16px;
+        background: var(--ref-top);
+        border-bottom: 1px solid var(--ref-border);
+        min-width: 0;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ref-accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-weight: 700;
+      }
+
+      .glyph {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--ref-border-strong);
+        border-radius: 5px;
+        color: var(--ref-accent-2);
+        background: rgba(102, 217, 239, 0.08);
+      }
+
+      .crumb,
+      .mono {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--ref-muted);
+      }
+
+      .top-spacer {
+        flex: 1 1 auto;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 25px;
+        padding: 2px 9px;
+        border: 1px solid var(--ref-border);
+        border-radius: var(--ref-radius);
+        color: var(--ref-muted);
+        background: rgba(255, 255, 255, 0.03);
+        white-space: nowrap;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--ref-success);
+        box-shadow: 0 0 0 3px rgba(126, 231, 135, 0.12);
+      }
+
+      .body {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 52px minmax(0, 1fr) clamp(300px, 20vw, 480px);
+        overflow: hidden;
+      }
+
+      .activity,
+      .dock {
+        min-height: 0;
+        background: var(--ref-panel);
+        border-right: 1px solid var(--ref-border);
+      }
+
+      .activity {
+        padding: 10px 7px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .icon {
+        width: 36px;
+        height: 36px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        color: var(--ref-muted);
+      }
+
+      .icon.active {
+        color: var(--ref-accent);
+        border-color: var(--ref-border-strong);
+        background: rgba(102, 217, 239, 0.1);
+      }
+
+      .main {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        background: rgba(5, 9, 15, 0.82);
+      }
+
+      .workspace {
+        min-height: 0;
+        padding: 18px;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 14px;
+      }
+
+      .lane-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 12px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 22px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        color: var(--ref-muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .grid {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.75fr);
+        gap: 14px;
+      }
+
+      .panel {
+        min-width: 0;
+        min-height: 0;
+        border: 1px solid var(--ref-border);
+        border-radius: var(--ref-radius);
+        background: rgba(11, 17, 27, 0.88);
+        box-shadow: var(--ref-shadow);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        min-height: 40px;
+        padding: 10px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--ref-border);
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .log {
+        height: 100%;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .log-body,
+      .dock-scroll {
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+      }
+
+      .message {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        gap: 11px;
+        padding: 12px;
+        border: 1px solid var(--ref-border);
+        border-radius: var(--ref-radius);
+        background: var(--ref-panel-2);
+      }
+
+      .avatar {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        border: 1px solid var(--ref-border-strong);
+        color: var(--ref-accent);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .message p {
+        color: var(--ref-muted);
+        margin-top: 4px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 10px;
+        border: 1px solid var(--ref-border);
+        border-radius: var(--ref-radius);
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .row strong,
+      .row span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .row small {
+        display: block;
+        color: var(--ref-muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .danger {
+        color: var(--ref-danger);
+        border-color: rgba(255, 107, 107, 0.42);
+        background: rgba(255, 107, 107, 0.08);
+      }
+
+      .composer {
+        min-height: 82px;
+        border-top: 1px solid var(--ref-border);
+        background: var(--ref-panel);
+        padding: 12px 14px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: end;
+      }
+
+      .input {
+        min-height: 46px;
+        padding: 11px 12px;
+        color: var(--ref-muted);
+        border: 1px solid var(--ref-border);
+        border-radius: var(--ref-radius);
+        background: var(--ref-bg);
+      }
+
+      .button {
+        min-height: 36px;
+        padding: 0 14px;
+        border: 1px solid var(--ref-border-strong);
+        border-radius: var(--ref-radius);
+        color: var(--ref-bg);
+        background: var(--ref-accent);
+        font-weight: 700;
+      }
+
+      .dock {
+        border-right: 0;
+        border-left: 1px solid var(--ref-border);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .dock-head {
+        min-height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--ref-border);
+      }
+
+      .statusbar {
+        border-top: 1px solid var(--ref-border);
+        border-bottom: 0;
+        color: var(--ref-muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+
+      [data-field]::after {
+        content: attr(data-field);
+      }
+    </style>
+  </head>
+  <body
+    data-fixture-sha256="f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b"
+    data-provenance="Independent design-reference representation populated from crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json facts; production D1 renderer is not imported."
+  >
+    <main class="frame" aria-label="Viden D1 canonical design reference">
+      <header class="topbar">
+        <div class="brand"><span class="glyph">V</span><span>Viden</span></div>
+        <div class="crumb">workspace/viden</div>
+        <div class="mono">lane-d1-main / agent-session-d1-main</div>
+        <div class="top-spacer"></div>
+        <span class="pill"><span class="dot"></span> live</span>
+        <span class="pill">fallback / test-local</span>
+        <span class="pill">build / ask</span>
+      </header>
+      <section class="body">
+        <nav class="activity" aria-label="Primary">
+          <div class="icon active">D1</div>
+          <div class="icon">LN</div>
+          <div class="icon">AG</div>
+          <div class="icon">ST</div>
+        </nav>
+        <section class="main">
+          <div class="workspace">
+            <div class="lane-header">
+              <div>
+                <h1>D1 main Lane</h1>
+                <p class="mono">codex/d1-cockpit-core / .worktrees/d1-cockpit-core</p>
+              </div>
+              <span class="pill"><span class="dot"></span> running</span>
+              <span class="pill">1 ahead / dirty</span>
+            </div>
+            <div class="grid">
+              <section class="panel log" aria-label="Transcript">
+                <div class="panel-head">
+                  <h2>Transcript</h2>
+                  <span class="pill">canonical fixture</span>
+                </div>
+                <div class="log-body">
+                  <article class="message">
+                    <div class="avatar">A</div>
+                    <div>
+                      <strong>Assistant</strong>
+                      <p>
+                        Canonical D1 fixture loaded: one running lane, one ACP session, typed change and failing check facts.
+                      </p>
+                    </div>
+                  </article>
+                </div>
+              </section>
+              <section class="panel" aria-label="Live work">
+                <div class="panel-head">
+                  <h2>Live Work</h2>
+                  <span class="pill">task-d1-main</span>
+                </div>
+                <div class="log-body stack">
+                  <div class="row">
+                    <div>
+                      <strong>type layer contract</strong>
+                      <small>status: running / progress: 0%</small>
+                    </div>
+                    <span class="pill"><span class="dot"></span> running</span>
+                  </div>
+                  <div class="row">
+                    <div>
+                      <strong>crates/types/src/runtime.rs</strong>
+                      <small>modified / +3 / -1</small>
+                    </div>
+                    <span class="pill">workspace change</span>
+                  </div>
+                  <div class="row danger">
+                    <div>
+                      <strong>viden-types</strong>
+                      <small>cargo test -p viden-types / crates/types/src/tests.rs:2500</small>
+                    </div>
+                    <span>failed</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+          <form class="composer">
+            <div class="input">Message the selected Lane</div>
+            <button class="button" type="button">Cancel turn</button>
+          </form>
+        </section>
+        <aside class="dock" aria-label="Context Dock">
+          <div class="dock-head">
+            <h2>Context Dock</h2>
+            <span class="pill">1 Lane Agent</span>
+          </div>
+          <div class="dock-scroll stack">
+            <div class="row">
+              <div>
+                <strong>Workspace Source</strong>
+                <small>ready / codex/d1-cockpit-core / +3 / -1</small>
+              </div>
+              <span class="pill">dirty</span>
+            </div>
+            <div class="row">
+              <div>
+                <strong>Lane Agent</strong>
+                <small>workspace-d1-main / project-viden / turn-d1-main</small>
+              </div>
+              <span class="pill"><span class="dot"></span> running</span>
+            </div>
+            <div class="row">
+              <div>
+                <strong>codegraph</strong>
+                <small>mcp / service.connected</small>
+              </div>
+              <span class="pill">connected</span>
+            </div>
+            <div class="row">
+              <div>
+                <strong>rust-analyzer</strong>
+                <small>lsp</small>
+              </div>
+              <span class="pill">ready</span>
+            </div>
+            <div class="row">
+              <div>
+                <strong>Context budget</strong>
+                <small>GUI-CORE-011</small>
+              </div>
+              <span class="pill">absent</span>
+            </div>
+          </div>
+        </aside>
+      </section>
+      <footer class="statusbar">
+        <span>fixture:d1-main-cockpit</span>
+        <span>sequence 1-6</span>
+        <span>no approval request</span>
+        <span>no cost or token usage</span>
+      </footer>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,150 @@
+component = "viden-gui"
+component_version = "0.1.0-rc.3"
+release_channel = "rc"
+status = "canonical-d1-cockpit-candidate"
+selected_framework = "tauri"
+
+[core]
+component = "viden-core"
+minimum_version = "0.3.5"
+base_checkpoint = "f7fe1b31dfb237e4062209767a7051c2b2c68b93"
+code_checkpoint = "17fa2071398d5eaf30045257163d57d22d99177b"
+contract_payload_sha = "e989fa7cd3ccd9664196309586e5d135e3115693"
+canonical_d1_fixture = "crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json"
+extension_fixture_sha256 = "f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b"
+supported_schema_versions = [1]
+required_capabilities = [
+  "runtime.agent_dag",
+  "runtime.approvals",
+  "runtime.commands",
+  "runtime.context",
+  "runtime.cost",
+  "runtime.events",
+  "runtime.evidence",
+  "runtime.merge_gate",
+  "runtime.queued_input",
+  "runtime.replay",
+  "runtime.snapshot",
+  "runtime.transcript_page",
+  "runtime.typed_lanes",
+  "runtime.typed_tasks",
+  "ui.preferences",
+]
+feature_capabilities = [
+  "core.workspace_host",
+  "runtime.agent_adapters",
+  "runtime.agent_permission_bridge",
+  "runtime.agent_session_input",
+  "runtime.agent_sessions",
+  "runtime.cockpit_context_v1",
+  "runtime.credential_handles",
+  "runtime.credential_staging",
+  "runtime.lane_lifecycle",
+  "runtime.lane_owner_projection",
+  "runtime.project_onboarding",
+  "runtime.recent_work",
+  "runtime.starter_lane_preview",
+  "runtime.trust_loop",
+  "runtime.workspace_eligibility",
+  "ui.preference_persistence",
+]
+
+[fixtures]
+corpus = "crates/types/tests/fixtures/frontend-contract-v1"
+schema_version = 1
+required_ids = [
+  "interaction-closed-loop",
+  "stream-tool",
+  "approval-allow-deny",
+  "queued-follow-up",
+  "dag-blocker",
+  "multi-lane",
+  "merge-gate",
+  "context-pressure-cost-blind",
+  "plan-denial",
+  "d1-vertical-slice",
+  "d1-main-cockpit",
+]
+
+[locales]
+built_in = ["en", "zh-CN"]
+source_files = [
+  "docs/viden-design/Viden/i18n.js",
+  "docs/viden-design/Viden/i18n-dict.js",
+]
+catalog_revision_sha256 = "65dc527f6a66b12985491a3c51d75b076e624e7b809e91987d6d64a9e0f37f25"
+revision_algorithm = "sha256(path + NUL + bytes + NUL for listed files in order)"
+
+[appearance]
+skins = ["aurora", "ice", "mono", "amber", "phosphor"]
+valid_skin_mode_pairs = [
+  "aurora/dark",
+  "aurora/light",
+  "ice/dark",
+  "ice/light",
+  "mono/dark",
+  "mono/light",
+  "amber/dark",
+  "phosphor/dark",
+]
+densities = ["compact", "regular", "comfy"]
+motion = ["system", "reduced", "full"]
+token_source = "docs/viden-design/Viden/tokens.css"
+token_revision_sha256 = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
+
+[design]
+hierarchy = [
+  "docs/viden-design/Viden/index.html",
+  "docs/viden-design/Viden/GUI/Viden - 设计稿索引 (GUI).html",
+  "docs/viden-design/Viden/GUI/Viden - 组件库 (GUI).html",
+  "docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html",
+]
+subordinate_pages = [
+  "docs/viden-design/Viden/GUI/pages/Viden - D11 首启与项目接入 (GUI).html",
+  "docs/viden-design/Viden/GUI/pages/Viden - D4 Lane创建流程 (GUI).html",
+  "docs/viden-design/Viden/GUI/pages/Viden - D6 空态与错误态 (GUI).html",
+]
+semantic_sources = [
+  "docs/viden-design/Viden/docs/DESIGN-REF.md",
+  "docs/viden-design/Viden/GUI/gui-kit.css",
+  "docs/viden-design/Viden/GUI/gui-icons.jsx",
+  "docs/viden-design/Viden/GUI/gui-titlebar.jsx",
+  "docs/viden-design/Viden/GUI/gui-statusbar.jsx",
+  "docs/viden-design/Viden/GUI/gui-inbox.jsx",
+  "docs/viden-design/Viden/GUI/gui-settings.jsx",
+]
+design_source_revision_sha256 = "5f7a39d10762eaf7c6433599812a6d20c38aa8a1d66c5e0bde3a8bdd0d9fd0f6"
+revision_algorithm = "sha256(path + NUL + bytes + NUL for hierarchy, subordinate_pages, and semantic_sources in order)"
+
+[evidence]
+root = "apps/gui/evidence/0.1.0-rc.3"
+matrix_tests = "apps/gui/tests/visual"
+accessibility = "apps/gui/evidence/0.1.0-rc.3/accessibility.json"
+performance = "apps/gui/evidence/0.1.0-rc.3/performance.json"
+component_gallery = "apps/gui/src/screens/component_gallery.ts"
+browser_screenshots = [
+  "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-canonical.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-main-dark.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-main-light.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-main-zh-CN.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-responsive-1280x800-dark.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-responsive-960x640-dark-drawer.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-context-dock-bottom-1280x800.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-compact-readable.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-vs-actual.png",
+]
+design_reference = "apps/gui/evidence/0.1.0-rc.3/d1-design-reference.html"
+design_reference_capture = "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-canonical.png"
+design_reference_capture_sha256 = "f9209057b5538278da861e04bb43b891438802d9a41dcb5f1476b341b93dc11c"
+context_dock_bottom_capture = "apps/gui/evidence/0.1.0-rc.3/d1-context-dock-bottom-1280x800.png"
+context_dock_bottom_capture_sha256 = "0179f20ac53a484dfb0194392d206d7e182eae1d33d0fd0e94f43c1e2fcc6c30"
+same_state_comparison = "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-vs-actual.png"
+same_state_comparison_sha256 = "d27302d81afaeadfc156513eed30d251ff09194b1b3392010baeac5602ced5e8"
+accepted_target = "apps/gui/evidence/0.1.0-rc.3/accepted-target-dark-cockpit.png"
+accepted_target_sha256 = "d4c97aa4ebe603eddd290785a0e632fd41b72a94de5e7ccb6206352bb0f37e36"
+accepted_target_role = "historical visual reference only; not same-state acceptance evidence"
+design_qa = "apps/gui/design-qa.md"
+
+[contract_requests]
+open_count = 7
+source = "apps/gui/contract-requests.md"

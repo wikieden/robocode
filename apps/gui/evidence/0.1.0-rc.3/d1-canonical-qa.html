@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en" data-skin="aurora" data-mode="dark" data-density="regular">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden D1 rc.3 canonical QA</title>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      import "../../src/ui/tokens.css";
+      import "../../src/ui/theme.css";
+      import "../../src/ui/window_chrome.css";
+      import { renderD1Cockpit } from "../../src/screens/d1_cockpit.ts";
+      import { applyResolvedTheme, resolveTheme } from "../../src/ui/theme.ts";
+
+      const params = new URLSearchParams(window.location.search);
+      const locale = params.get("locale") === "zh-CN" ? "zh-CN" : "en";
+      const mode = params.get("mode") === "light" ? "light" : "dark";
+      const density = params.get("density") === "compact" ? "compact" : "regular";
+      const skin = mode === "light" ? "ice" : "aurora";
+      const preferences = { locale, skin, mode, density, motion: "reduced", diagnostics: [] };
+      document.documentElement.lang = locale;
+      applyResolvedTheme(document.documentElement, resolveTheme(preferences));
+
+      const projection = {
+        preferences,
+        selectedLaneId: "lane-d1-main",
+        contextDock: {
+          source: {
+            status: "ready",
+            branch: "codex/d1-cockpit-core",
+            worktree: ".worktrees/d1-cockpit-core",
+            ahead: 1,
+            behind: 0,
+            added: 3,
+            deleted: 1,
+            dirty: true,
+          },
+          context: null,
+          laneAgent: {
+            laneId: "lane-d1-main",
+            workspaceId: "workspace-d1-main",
+            projectId: "project-viden",
+            sessionId: "agent-session-d1-main",
+            taskId: "task-d1-main",
+            turnId: "turn-d1-main",
+          },
+          provider: null,
+          services: [
+            {
+              id: "codegraph",
+              kind: "mcp",
+              label: "codegraph",
+              status: "connected",
+              detailKey: "service.connected",
+            },
+            {
+              id: "rust-analyzer",
+              kind: "lsp",
+              label: "rust-analyzer",
+              status: "ready",
+              detailKey: null,
+            },
+          ],
+          checklist: [
+            {
+              id: "change-runtime-types",
+              kind: "workspace_change",
+              label: "crates/types/src/runtime.rs",
+              status: "modified",
+              command: null,
+              path: "crates/types/src/runtime.rs",
+              summary: null,
+              patch: null,
+              failingLocation: null,
+              additions: 3,
+              deletions: 1,
+            },
+            {
+              id: "check-viden-types",
+              kind: "check_run",
+              label: "viden-types",
+              status: "failed",
+              command: "cargo test -p viden-types",
+              path: null,
+              summary: "one assertion failed",
+              patch: null,
+              failingLocation: "crates/types/src/tests.rs:2500",
+              additions: null,
+              deletions: null,
+            },
+          ],
+        },
+        lanes: [
+          {
+            id: "lane-d1-main",
+            role: "coder",
+            status: "running",
+            summary: "D1 main Lane",
+            branch: "codex/d1-cockpit-core",
+          },
+        ],
+        environment: {
+          cwd: "workspace/viden",
+          providerId: "fallback",
+          model: "test-local",
+          workMode: "build",
+          permissionLevel: "ask",
+          tokenTotal: 0,
+          costMicroUsd: null,
+        },
+        liveWork: {
+          tasks: [
+            {
+              id: "task-d1-main",
+              title: "type layer contract",
+              status: "running",
+              progress: 0,
+            },
+          ],
+          tools: [],
+          approvals: [],
+          queuedInputs: [],
+          evidence: [],
+        },
+        transcript: [
+          {
+            id: "canonical-fixture-note",
+            kind: "assistant",
+            content:
+              locale === "zh-CN"
+                ? "已加载规范 D1 fixture：一个运行中的 Lane、一个 ACP 会话、typed change 与失败检查事实。"
+                : "Canonical D1 fixture loaded: one running lane, one ACP session, typed change and failing check facts.",
+          },
+        ],
+        workspaceEligibility: {
+          isGitRepository: true,
+          hasHead: true,
+          canCreateLane: true,
+          diagnostic: null,
+        },
+        starterLanePreviews: [],
+        agentAdapters: [
+          {
+            agentId: "viden-agent",
+            displayName: "Viden Agent",
+            startability: "ready",
+            diagnostics: [],
+          },
+        ],
+        agentSessions: [
+          {
+            sessionId: "agent-session-d1-main",
+            laneId: "lane-d1-main",
+            agentId: "viden-agent",
+            model: "test-local",
+            status: "running",
+            task: "type layer contract",
+            diagnostic: null,
+          },
+        ],
+        composer: {
+          editable: true,
+          busy: true,
+          canCancel: true,
+          canSubmitImmediately: false,
+        },
+        permissionDock: { workMode: "build", permissionLevel: "ask", request: null },
+        recovery: {
+          connection: "live",
+          state: "live",
+          detail: null,
+          hint: null,
+          recoverable: false,
+          businessSuccessBlocked: false,
+          usedTokens: null,
+          hardTokenLimit: null,
+          missingCapabilities: [],
+          actions: [],
+        },
+        unavailableFeatures: [
+          {
+            id: "context",
+            available: false,
+            code: "GUI-CORE-011",
+            message: "Typed context budget is absent from d1-main-cockpit.",
+          },
+        ],
+      };
+
+      const result = {
+        projection,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+      renderD1Cockpit(
+        document.querySelector("#app"),
+        projection,
+        async () => result,
+        async () => result,
+        async () => undefined,
+        undefined,
+        { onCreateLane: () => undefined, poll: false },
+      );
+      requestAnimationFrame(() => {
+        if (params.get("drawer") === "open") {
+          document.querySelector("[data-context-drawer-toggle]")?.click();
+          document.body.dataset.drawer = "open";
+        }
+        if (params.get("contextScroll") === "bottom") {
+          const dock = document.querySelector("[data-context-dock]");
+          if (dock) {
+            dock.scrollTop = dock.scrollHeight;
+            document.body.dataset.contextScroll = "bottom";
+            document.body.dataset.contextScrollTop = String(dock.scrollTop);
+            document.body.dataset.contextScrollHeight = String(dock.scrollHeight);
+            document.body.dataset.contextClientHeight = String(dock.clientHeight);
+          }
+        }
+      });
+      document.body.dataset.fixtureSha256 =
+        "f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b";
+    </script>
+  </body>
+</html>

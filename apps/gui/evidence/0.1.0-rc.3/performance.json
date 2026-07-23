@@ -1,0 +1,86 @@
+{
+  "component": "viden-gui",
+  "component_version": "0.1.0-rc.3",
+  "state": "crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json",
+  "fixture_sha256": "f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b",
+  "method": "Browser-controlled Chrome loaded the Vite rc.3 canonical QA page and the exact-size iframe capture harness, then measured DOM facts, scroll metrics, and local capture wall times for the same fixture state.",
+  "measurements": {
+    "dom_nodes": 188,
+    "target_css_viewport": {
+      "width": 2570,
+      "height": 1325,
+      "document_scroll_width_px": 2570,
+      "document_client_width_px": 2570,
+      "document_scroll_height_px": 1325,
+      "document_client_height_px": 1325,
+      "horizontal_overflow_px": 0,
+      "lane_agent_count": 1
+    },
+    "responsive_1280x800": {
+      "document_scroll_width_px": 1280,
+      "document_client_width_px": 1280,
+      "document_scroll_height_px": 800,
+      "document_client_height_px": 800,
+      "horizontal_overflow_px": 0,
+      "lane_agent_count": 1
+    },
+    "responsive_960x640_drawer_open": {
+      "document_scroll_width_px": 960,
+      "document_client_width_px": 960,
+      "document_scroll_height_px": 640,
+      "document_client_height_px": 640,
+      "horizontal_overflow_px": 0,
+      "lane_agent_count": 1,
+      "context_drawer_open": true,
+      "capture_query": "drawer=open"
+    },
+    "browser_navigation_wall_time_ms": [
+      84,
+      72,
+      70,
+      77,
+      80,
+      69
+    ],
+    "capture_wall_time_ms": [
+      38,
+      24,
+      27,
+      36,
+      35,
+      27
+    ],
+    "first_contentful_paint_ms": null,
+    "dom_content_loaded_ms": null,
+    "load_event_ms": null,
+    "target_exact_viewport": {
+      "width": 5140,
+      "height": 2650,
+      "surface": "Browser-rendered iframe viewport in d1-target-viewport-capture.html",
+      "outer_chrome_viewport_cap_px": "2560x1267"
+    },
+    "context_dock_bottom_1280x800": {
+      "document_scroll_width_px": 1280,
+      "document_client_width_px": 1280,
+      "document_scroll_height_px": 800,
+      "document_client_height_px": 800,
+      "horizontal_overflow_px": 0,
+      "context_scroll_top_px": 183,
+      "context_scroll_height_px": 1376,
+      "context_client_height_px": 1193,
+      "visible_tail_contains": [
+        "MCP",
+        "LSP",
+        "Task checklist",
+        "type layer contract",
+        "Unavailable / context"
+      ]
+    }
+  },
+  "limitations": [
+    "Latency and paint values are local browser measurements only; they are not Core event-to-visible p95, native memory, token, or cost measurements.",
+    "No live provider, MCP, LSP, signing, notarization, publishing, or external release measurement was executed.",
+    "Memory profiling was not available through the authorized Browser runtime in this task.",
+    "Chrome capped the outer Browser viewport at 2560x1267; exact target-size captures use a Browser-rendered iframe viewport and fullPage screenshot."
+  ]
+}

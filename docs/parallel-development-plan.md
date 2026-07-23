@@ -330,6 +330,31 @@ cargo fmt --check
 
 Every behavior change updates the matching English and Chinese documentation and necessary code comments in the same branch. A release is complete only when the GitHub Release and Homebrew tap are validated at the same version as one release unit.
 
+### D1 Cockpit Integration Checkpoint
+
+The local `codex/d1-cockpit-integration` checkpoint records a Core-first,
+GUI-second merge for GUI `0.1.0-rc.3`:
+
+- base `origin/main`: `aba8b05c5d334cf1a8424c8dc899819b4ecae0bb`;
+- Core source and merge: `f7fe1b31dfb237e4062209767a7051c2b2c68b93` ->
+  `6d0094a11cc64c097a2f48ee6122ec8bc95a2d23`;
+- GUI source and merge: `4cb2a498c5b091f62f554ff407acdf162f96cc1e` ->
+  `d27dc09fd230e3c2fb3ae79fbf3d10a45f400226`.
+
+This checkpoint is not main-ready. Core, runtime, GUI Rust, GUI npm, GUI build,
+dependency-boundary, manifest/hash, and unsigned app-bundle gates pass, but the
+workspace gate remains blocked by the separately owned TUI/Core API drift and
+the required `scripts/native-acp-fixture-parity.sh` script is absent in this
+Core+GUI-only merge. Independent native desktop control reached Welcome, Open
+Project, D1 shell retention, and the compact New Lane menu; after a scoped GUI
+repair the menu resolves with `Viden Agent` selectable, `Codex` Ready, `Kiro`
+Ready, and `Claude` disabled by an initialize-probe failure. The full closed
+loop remains blocked because selecting `Viden Agent` closes the menu but does
+not create a new Lane within 5 seconds, and an existing selected Lane has no
+sole Core execution owner.
+See `docs/release-gui-0.1.0-rc.3-status.md` and
+`docs/release-evidence/gui-d1-cockpit/checkpoints.md`.
+
 ## Explicit Non-Goals
 
 - Do not create implementation branches from the current dirty, stale local `main`.
