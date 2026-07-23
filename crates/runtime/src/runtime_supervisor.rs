@@ -470,9 +470,8 @@ impl RuntimeSupervisor {
         let live_view = engine.runtime_view_state();
         let lane_agent_store = engine.workflow_store();
         let mut lane_agent_hydration_error = None;
-        let mut lane_agent_bindings = match lane_agent_store.load_lane_state() {
-            Ok(state) => state
-                .agent_bindings()
+        let mut lane_agent_bindings = match lane_agent_store.load_lane_agent_bindings() {
+            Ok(bindings) => bindings
                 .values()
                 .map(|binding| {
                     (
@@ -2416,9 +2415,9 @@ fn lane_agent_session_binding(
         return Ok(cached);
     };
     let durable = store
-        .load_lane_state()
+        .load_lane_agent_bindings()
         .map_err(|error| format!("failed to revalidate Lane-agent binding: {error}"))?
-        .agent_binding(&lane_id)
+        .get(&lane_id)
         .map(|binding| LaneAgentExecutionBinding {
             lane_id: binding.lane_id.clone(),
             agent_id: binding.agent_id.clone(),
@@ -2489,7 +2488,7 @@ fn reserve_lane_agent_session_binding(
 
 fn lane_agent_session_binding_rejection(binding: &LaneAgentExecutionBinding) -> String {
     format!(
-        "lane_already_bound_to_agent_session: lane `{}` is bound to agent `{}` session `{}`; an active agent session is already running for this lane",
+        "lane_already_bound_to_agent_session: lane `{}` has durable Lane-agent identity agent `{}` session `{}`; a different execution identity cannot be accepted",
         binding.lane_id, binding.agent_id, binding.session_id
     )
 }
@@ -3254,7 +3253,14 @@ fn run_supervised_input(
             owner.clone(),
             engine.runtime_events_for_engine_events(&events),
         ),
-        Err(err) => emit_error(event_bus, owner.clone(), err),
+        Err(err) => {
+            emit_events(
+                event_bus,
+                owner.clone(),
+                engine.runtime_events_for_failed_input(),
+            );
+            emit_error(event_bus, owner.clone(), err);
+        }
     }
     emit_frontend_status_events_if_changed(
         event_bus,

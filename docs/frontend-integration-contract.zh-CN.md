@@ -160,6 +160,10 @@ flowchart LR
   deltas。
 - `ToolCallStarted` 插入 active tool call；`ToolCallFinished` 移除 active tool
   call，并可能追加 evidence。
+- 由已执行 provider tool 产生的 facts 按因果顺序发出：
+  `ToolCallStarted`、`ToolCallFinished`，随后是该结果产生的
+  `WorkspaceChangeUpdated` 或 `CheckRunUpdated`。即使后续 provider 失败，也要先
+  保留这段已完成前缀，再发出 `Error`。
 - `TaskUpdated`、`AgentDagUpdated`、`LaneUpdated`、`EvidenceRecorded`、
   `ContextUpdated`、`MergeGateUpdated`、`HandoffUpdated`、
   `ReviewRequestUpdated`、`ContractUpdated`、`DependencyUpdated`、
@@ -187,6 +191,9 @@ flowchart LR
   boundary 拒绝；若 `owner.lane_id` 与 `lane_id` 不精确相等则由 reducer 忽略。
   `LaneUpdated` 进入 `done`、`failed`、`cancelled` 或 `archived` 时，只移除该 Lane
   的 binding。
+- bind-once Lane-agent execution identity 是持久 workflow metadata，独立于公开
+  Lane lifecycle event log 存储。它在重启后仍可用于仲裁并发启动，但不能证明某个
+  agent session 当前仍然存活。
 - 每个 command、snapshot 和 event envelope 都使用 schema `1`。已知 event 的
   sequence 必须等于 cursor sequence。
 - client 必须先调用 `discover`，才能发送 command 或消费状态。缺少 required

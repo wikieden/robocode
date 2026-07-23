@@ -73,6 +73,12 @@ const LANE_STATE_UNAVAILABLE_MESSAGE: &str = "invalid or unreadable lane event l
 
 pub(crate) type RuntimeEventSink = Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>;
 
+#[derive(Debug, Clone)]
+struct OrderedRuntimeFact {
+    after_engine_event_index: usize,
+    event: RuntimeEvent,
+}
+
 const COST_ATTRIBUTION_ID_MAX_CHARS: usize = 96;
 
 #[derive(Debug, Clone, Default)]
@@ -323,6 +329,8 @@ pub struct SessionEngine {
     credential_backend: Arc<dyn CredentialBackend>,
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
     runtime_event_sink: Option<RuntimeEventSink>,
+    ordered_runtime_facts: Vec<OrderedRuntimeFact>,
+    failed_engine_events: Vec<EngineEvent>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
     transaction_file_rollback: RefCell<Vec<FileRollback>>,
@@ -476,6 +484,8 @@ impl SessionEngine {
             credential_backend: Arc::new(project_runtime::UnavailableCredentialBackend),
             queued_runtime_inputs: Vec::new(),
             runtime_event_sink: None,
+            ordered_runtime_facts: Vec::new(),
+            failed_engine_events: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
             transaction_file_rollback: RefCell::new(Vec::new()),

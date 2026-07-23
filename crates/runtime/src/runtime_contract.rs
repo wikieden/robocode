@@ -196,7 +196,7 @@ impl SessionEngine {
         let mut out = self.runtime_state_events();
         let mut last_tool: Option<(ToolCallId, String)> = None;
 
-        for event in events {
+        for (engine_event_index, event) in events.iter().enumerate() {
             let sequence = next_sequence(&out);
             match event {
                 EngineEvent::System(text) => {
@@ -285,9 +285,22 @@ impl SessionEngine {
                     ));
                 }
             }
+            for fact in self
+                .ordered_runtime_facts
+                .iter()
+                .filter(|fact| fact.after_engine_event_index == engine_event_index)
+            {
+                let mut fact = fact.event.clone();
+                fact.sequence = next_sequence(&out);
+                out.push(fact);
+            }
         }
 
         out
+    }
+
+    pub(crate) fn runtime_events_for_failed_input(&self) -> Vec<RuntimeEvent> {
+        self.runtime_events_for_engine_events(&self.failed_engine_events)
     }
 
     pub fn handle_runtime_command<F>(

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use viden_session::project_key_for_path;
 
 use crate::lanes::{
-    LEGACY_LANES_MIGRATION_ID, LaneAgentBinding, LaneEvent, LaneState, LegacyLaneImportOutcome,
+    LEGACY_LANES_MIGRATION_ID, LaneEvent, LaneState, LegacyLaneImportOutcome,
     parse_legacy_lanes_tsv, reduce_lane_events,
 };
 use crate::memory::{MemoryEvent, MemoryState, reduce_memory_events};
@@ -64,6 +64,17 @@ pub struct WorkflowAgentEvent {
     pub timestamp: u64,
     pub origin_session_id: Option<String>,
     pub payload: BTreeMap<String, String>,
+}
+
+/// Durable execution identity for one Lane, stored outside the public Lane
+/// lifecycle event schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaneAgentBinding {
+    pub lane_id: String,
+    pub agent_id: String,
+    pub session_id: String,
+    pub event_id: String,
+    pub timestamp: u64,
 }
 
 impl WorkflowStore {
@@ -181,10 +192,10 @@ impl WorkflowStore {
         session_id: &str,
         timestamp: u64,
     ) -> Result<LaneAgentBinding, String> {
-        let _lock = self.lock_lanes_exclusive()?;
-        let mut events = self.load_lane_events_unlocked()?;
-        let state = reduce_lane_events(&events)?;
-        if let Some(existing) = state.agent_binding(lane_id) {
+        let _lock = self.lock_lane_agent_bindings_exclusive()?;
+        let bindings = self.load_lane_agent_binding_records_unlocked()?;
+        let state = reduce_lane_agent_bindings(&bindings)?;
+        if let Some(existing) = state.get(lane_id) {
             if existing.agent_id == agent_id && existing.session_id == session_id {
                 return Ok(existing.clone());
             }
@@ -193,21 +204,20 @@ impl WorkflowStore {
                 existing.agent_id, existing.session_id
             ));
         }
-        let event = LaneEvent::agent_bound(
-            format!("lane-agent-bound:{lane_id}"),
-            lane_id,
-            agent_id,
-            session_id,
+        let binding = LaneAgentBinding {
+            event_id: format!("lane-agent-bound:{lane_id}"),
+            lane_id: lane_id.to_string(),
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
             timestamp,
-        );
-        events.push(event);
-        let state = reduce_lane_events(&events)?;
-        let binding = state
-            .agent_binding(lane_id)
-            .cloned()
-            .ok_or_else(|| format!("lane `{lane_id}` binding was not reduced"))?;
-        self.append_lane_event_unlocked(events.last().expect("binding event exists"))?;
+        };
+        append_json_line(&self.lane_agent_bindings_log(), &binding)?;
         Ok(binding)
+    }
+
+    pub fn load_lane_agent_bindings(&self) -> Result<BTreeMap<String, LaneAgentBinding>, String> {
+        let _lock = self.lock_lane_agent_bindings_shared()?;
+        reduce_lane_agent_bindings(&self.load_lane_agent_binding_records_unlocked()?)
     }
 
     pub fn import_legacy_lanes_tsv_once(
@@ -275,6 +285,30 @@ impl WorkflowStore {
         Ok(lock)
     }
 
+    fn lane_agent_bindings_log(&self) -> PathBuf {
+        self.paths.project_dir.join("lane-agent-bindings.jsonl")
+    }
+
+    fn lane_agent_bindings_lock(&self) -> PathBuf {
+        self.paths.project_dir.join("lane-agent-bindings.lock")
+    }
+
+    fn load_lane_agent_binding_records_unlocked(&self) -> Result<Vec<LaneAgentBinding>, String> {
+        load_json_lines(&self.lane_agent_bindings_log())
+    }
+
+    fn lock_lane_agent_bindings_exclusive(&self) -> Result<fs::File, String> {
+        let lock = open_lock_file(&self.lane_agent_bindings_lock())?;
+        lock.lock_exclusive().map_err(|error| error.to_string())?;
+        Ok(lock)
+    }
+
+    fn lock_lane_agent_bindings_shared(&self) -> Result<fs::File, String> {
+        let lock = open_lock_file(&self.lane_agent_bindings_lock())?;
+        lock.lock_shared().map_err(|error| error.to_string())?;
+        Ok(lock)
+    }
+
     pub fn rebuild_index(&self) -> Result<(), String> {
         if sqlite_available() {
             let sql = "CREATE TABLE IF NOT EXISTS workflow_events (
@@ -290,6 +324,32 @@ impl WorkflowStore {
         }
         Ok(())
     }
+}
+
+fn reduce_lane_agent_bindings(
+    bindings: &[LaneAgentBinding],
+) -> Result<BTreeMap<String, LaneAgentBinding>, String> {
+    let mut state: BTreeMap<String, LaneAgentBinding> = BTreeMap::new();
+    for binding in bindings {
+        if let Some(existing) = state.get(&binding.lane_id) {
+            if existing == binding
+                || (existing.agent_id == binding.agent_id
+                    && existing.session_id == binding.session_id)
+            {
+                continue;
+            }
+            return Err(format!(
+                "lane `{}` has conflicting durable agent identities: agent `{}` session `{}` versus agent `{}` session `{}`",
+                binding.lane_id,
+                existing.agent_id,
+                existing.session_id,
+                binding.agent_id,
+                binding.session_id
+            ));
+        }
+        state.insert(binding.lane_id.clone(), binding.clone());
+    }
+    Ok(state)
 }
 
 fn append_json_line<T>(path: &Path, value: &T) -> Result<(), String>

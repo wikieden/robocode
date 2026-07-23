@@ -2633,7 +2633,8 @@ fn typed_acp_approval_pauses_only_its_owner_while_another_lane_streams() {
                 &event.kind,
                 RuntimeEventKind::CommandRejected { command_id, reason }
                     if command_id == "cmd_parallel_same_lane"
-                        && reason.contains("already running for this lane")
+                        && reason.contains("durable Lane-agent identity")
+                        && !reason.contains("active agent session")
             )
         })
     });

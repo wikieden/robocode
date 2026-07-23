@@ -170,6 +170,10 @@ flowchart LR
   deltas in transcript order.
 - `ToolCallStarted` inserts an active tool call; `ToolCallFinished` removes it
   and may append evidence.
+- Facts derived from an executed provider tool are emitted in causal order:
+  `ToolCallStarted`, `ToolCallFinished`, then any `WorkspaceChangeUpdated` or
+  `CheckRunUpdated` facts from that result. A later provider failure preserves
+  that completed prefix before emitting `Error`.
 - `TaskUpdated`, `AgentDagUpdated`, `LaneUpdated`, `EvidenceRecorded`,
   `ContextUpdated`, `MergeGateUpdated`, `HandoffUpdated`,
   `ReviewRequestUpdated`, `ContractUpdated`, `DependencyUpdated`,
@@ -200,6 +204,10 @@ flowchart LR
   is ignored by the reducer.
   `LaneUpdated` with `done`, `failed`, `cancelled`, or `archived` removes only
   that Lane's binding.
+- The bind-once Lane-agent execution identity is durable workflow metadata,
+  stored separately from the public Lane lifecycle event log. It survives
+  restart and arbitrates concurrent starts, but it is not evidence that an
+  agent session is currently live.
 - Every command, snapshot, and event envelope uses schema `1`. A known event's
   sequence must equal its cursor sequence.
 - Clients call `discover` before sending commands or consuming state. Missing

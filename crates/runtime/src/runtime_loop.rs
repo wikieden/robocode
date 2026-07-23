@@ -82,6 +82,8 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
+        self.ordered_runtime_facts.clear();
+        self.failed_engine_events.clear();
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Ok(Vec::new());
@@ -230,6 +232,7 @@ impl SessionEngine {
                     provider_task.updated_at = Some(now_millis());
                     provider_task.result = Some(rendered_error.clone());
                     self.upsert_agent_task(provider_task);
+                    self.failed_engine_events = events.clone();
                     return Err(rendered_error);
                 }
             };
@@ -410,36 +413,40 @@ impl SessionEngine {
                     success: result.success,
                     exit_code: result.exit_code,
                 });
+                let after_engine_event_index = events.len() - 1;
                 let unbound_owner = viden_types::RuntimeOwner::default();
-                let mut cockpit_events =
-                    crate::frontend_status::workspace_changes_from_tool_result(
-                        &call,
-                        &result,
-                        &unbound_owner,
+                let mut cockpit_facts = crate::frontend_status::workspace_changes_from_tool_result(
+                    &call,
+                    &result,
+                    &unbound_owner,
+                )
+                .into_iter()
+                .map(|change| {
+                    viden_types::RuntimeEvent::new(
+                        0,
+                        viden_types::RuntimeEventKind::WorkspaceChangeUpdated { change },
                     )
-                    .into_iter()
-                    .map(|change| {
-                        viden_types::RuntimeEvent::new(
-                            0,
-                            viden_types::RuntimeEventKind::WorkspaceChangeUpdated { change },
-                        )
-                    })
-                    .collect::<Vec<_>>();
+                })
+                .collect::<Vec<_>>();
                 if let Some(check) = crate::frontend_status::check_run_from_tool_result(
                     &call,
                     &result,
                     &unbound_owner,
                 ) {
-                    cockpit_events.push(viden_types::RuntimeEvent::new(
+                    cockpit_facts.push(viden_types::RuntimeEvent::new(
                         0,
                         viden_types::RuntimeEventKind::CheckRunUpdated { check },
                     ));
                 }
-                if !cockpit_events.is_empty()
-                    && let Some(sink) = self.runtime_event_sink()
-                {
-                    sink(cockpit_events);
-                }
+                self.ordered_runtime_facts
+                    .extend(
+                        cockpit_facts
+                            .into_iter()
+                            .map(|event| crate::OrderedRuntimeFact {
+                                after_engine_event_index,
+                                event,
+                            }),
+                    );
                 if let Some(message) = post_edit_diagnostics {
                     let system_message = Message::new(Role::System, message.clone());
                     self.messages.push(system_message.clone());

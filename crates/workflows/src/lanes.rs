@@ -33,10 +33,6 @@ pub enum LaneEventKind {
     Archived {
         summary: String,
     },
-    AgentBound {
-        agent_id: String,
-        session_id: String,
-    },
     LegacyImported {
         source: String,
         schema: String,
@@ -55,19 +51,9 @@ pub struct LaneMigrationAudit {
     pub origin_session_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LaneAgentBinding {
-    pub lane_id: String,
-    pub agent_id: String,
-    pub session_id: String,
-    pub event_id: String,
-    pub timestamp: u64,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LaneState {
     lanes: BTreeMap<String, AgentLaneRecord>,
-    agent_bindings: BTreeMap<String, LaneAgentBinding>,
     migrations: BTreeMap<String, LaneMigrationAudit>,
     seen_event_ids: BTreeSet<String>,
 }
@@ -83,14 +69,6 @@ impl LaneState {
 
     pub fn migrations(&self) -> &BTreeMap<String, LaneMigrationAudit> {
         &self.migrations
-    }
-
-    pub fn agent_bindings(&self) -> &BTreeMap<String, LaneAgentBinding> {
-        &self.agent_bindings
-    }
-
-    pub fn agent_binding(&self, lane_id: &str) -> Option<&LaneAgentBinding> {
-        self.agent_bindings.get(lane_id)
     }
 
     pub fn migration(&self, migration_id: &str) -> Option<&LaneMigrationAudit> {
@@ -136,27 +114,6 @@ impl LaneEvent {
             kind: LaneEventKind::StatusChanged {
                 status,
                 summary: summary.into(),
-            },
-        }
-    }
-
-    pub fn agent_bound(
-        event_id: impl Into<String>,
-        lane_id: impl Into<String>,
-        agent_id: impl Into<String>,
-        session_id: impl Into<String>,
-        timestamp: u64,
-    ) -> Self {
-        let session_id = session_id.into();
-        Self {
-            event_id: event_id.into(),
-            lane_id: lane_id.into(),
-            timestamp,
-            // This is durable identity, not proof of a live Lane worker.
-            origin_session_id: None,
-            kind: LaneEventKind::AgentBound {
-                agent_id: agent_id.into(),
-                session_id,
             },
         }
     }
@@ -223,27 +180,6 @@ fn apply_event(state: &mut LaneState, event: &LaneEvent) -> Result<(), String> {
                 .ok_or_else(|| format!("lane `{}` does not exist", event.lane_id))?;
             lane.status = LaneStatus::Archived;
             lane.summary = summary.clone();
-        }
-        LaneEventKind::AgentBound {
-            agent_id,
-            session_id,
-        } => {
-            if let Some(existing) = state.agent_bindings.get(&event.lane_id) {
-                return Err(format!(
-                    "lane `{}` is already bound to agent `{}` session `{}`; cannot bind agent `{}` session `{}`",
-                    event.lane_id, existing.agent_id, existing.session_id, agent_id, session_id
-                ));
-            }
-            state.agent_bindings.insert(
-                event.lane_id.clone(),
-                LaneAgentBinding {
-                    lane_id: event.lane_id.clone(),
-                    agent_id: agent_id.clone(),
-                    session_id: session_id.clone(),
-                    event_id: event.event_id.clone(),
-                    timestamp: event.timestamp,
-                },
-            );
         }
         LaneEventKind::LegacyImported {
             source,
@@ -795,30 +731,45 @@ mod tests {
 
     #[test]
     fn lane_agent_binding_replays_once_and_rejects_conflicting_identity() {
-        let first = LaneEvent::agent_bound(
-            "evt_bind_lane",
-            "lane-cockpit",
-            "viden",
-            "session-native",
-            10,
-        );
-        let conflicting = LaneEvent::agent_bound(
-            "evt_bind_lane_conflict",
-            "lane-cockpit",
-            "codex-acp",
-            "session-acp",
-            11,
-        );
+        let home = temp_dir("lane_agent_binding_replay_home");
+        let cwd = temp_dir("lane_agent_binding_replay_cwd");
+        let store = WorkflowStore::new(&home, &cwd).unwrap();
+        store
+            .bind_lane_agent_once("lane-cockpit", "viden", "session-native", 10)
+            .unwrap();
 
-        let state = reduce_lane_events(std::slice::from_ref(&first)).unwrap();
-        let binding = state.agent_binding("lane-cockpit").unwrap();
+        let restarted = WorkflowStore::new(&home, &cwd).unwrap();
+        let bindings = restarted.load_lane_agent_bindings().unwrap();
+        let binding = bindings.get("lane-cockpit").unwrap();
         assert_eq!(binding.agent_id, "viden");
         assert_eq!(binding.session_id, "session-native");
 
-        let error = reduce_lane_events(&[first, conflicting]).unwrap_err();
+        let error = restarted
+            .bind_lane_agent_once("lane-cockpit", "codex-acp", "session-acp", 11)
+            .unwrap_err();
         assert!(error.contains("already bound"));
         assert!(error.contains("viden"));
         assert!(error.contains("codex-acp"));
+    }
+
+    #[test]
+    fn lane_agent_binding_preserves_the_public_lane_event_kind_surface() {
+        fn legacy_lane_event_name(kind: LaneEventKind) -> &'static str {
+            match kind {
+                LaneEventKind::Created { .. } => "created",
+                LaneEventKind::Replaced { .. } => "replaced",
+                LaneEventKind::StatusChanged { .. } => "status_changed",
+                LaneEventKind::Archived { .. } => "archived",
+                LaneEventKind::LegacyImported { .. } => "legacy_imported",
+            }
+        }
+
+        assert_eq!(
+            legacy_lane_event_name(LaneEventKind::Archived {
+                summary: "done".to_string(),
+            }),
+            "archived"
+        );
     }
 
     #[test]
@@ -839,12 +790,12 @@ mod tests {
 
         assert_eq!(repeated, first);
         assert!(error.contains("already bound"));
-        assert_eq!(store.load_lane_events().unwrap().len(), 1);
+        assert!(store.load_lane_events().unwrap().is_empty());
         assert_eq!(
             store
-                .load_lane_state()
+                .load_lane_agent_bindings()
                 .unwrap()
-                .agent_binding("lane-cockpit")
+                .get("lane-cockpit")
                 .unwrap()
                 .agent_id,
             "viden"
@@ -876,12 +827,12 @@ mod tests {
 
         assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
         assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
-        assert_eq!(store.load_lane_events().unwrap().len(), 1);
+        assert!(store.load_lane_events().unwrap().is_empty());
         assert!(
             store
-                .load_lane_state()
+                .load_lane_agent_bindings()
                 .unwrap()
-                .agent_binding("lane-race")
+                .get("lane-race")
                 .is_some()
         );
     }

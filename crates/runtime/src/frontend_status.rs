@@ -1,7 +1,6 @@
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -235,7 +234,8 @@ enum GitOutput {
 }
 
 fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration) -> GitOutput {
-    let mut child = match Command::new(program.as_os_str())
+    let mut command = Command::new(program.as_os_str());
+    command
         .arg("--no-optional-locks")
         .args(["-c", "core.fsmonitor=false"])
         .args(["-c", "core.untrackedCache=false"])
@@ -247,41 +247,34 @@ fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    configure_process_group(&mut command);
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => return GitOutput::Unavailable,
     };
     let Some(mut stdout) = child.stdout.take() else {
-        let _ = child.kill();
+        kill_process_tree(&mut child);
         let _ = child.wait();
         return GitOutput::Unavailable;
     };
-    let (sender, receiver) = mpsc::sync_channel(1);
     let reader = thread::spawn(move || {
         let mut bytes = Vec::with_capacity(MAX_GIT_OUTPUT_BYTES.min(8192));
-        let mut truncated = false;
         let mut chunk = [0_u8; 8192];
         loop {
             match stdout.read(&mut chunk) {
-                Ok(0) => break,
+                Ok(0) => return Some((bytes, false)),
                 Ok(count) => {
                     let remaining = MAX_GIT_OUTPUT_BYTES.saturating_sub(bytes.len());
                     let keep = remaining.min(count);
                     bytes.extend_from_slice(&chunk[..keep]);
-                    if keep < count {
-                        truncated = true;
-                        break;
+                    if keep < count || remaining == 0 {
+                        return Some((bytes, true));
                     }
                 }
-                Err(_) => {
-                    let _ = sender.send(None);
-                    return;
-                }
+                Err(_) => return None,
             }
         }
-        let _ = sender.send(Some((bytes, truncated)));
     });
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -289,29 +282,29 @@ fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration)
             Ok(Some(status)) => break Some(status),
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
             Ok(None) => {
-                let _ = child.kill();
+                kill_process_tree(&mut child);
                 let _ = child.wait();
                 break None;
             }
-            Err(_) => break None,
+            Err(_) => {
+                kill_process_tree(&mut child);
+                let _ = child.wait();
+                break None;
+            }
         }
     };
+    // Git may leave a descendant holding stdout after its leader exits. The
+    // isolated process group is retired before joining the bounded reader.
+    kill_process_tree(&mut child);
+    let _ = child.wait();
+    let read = match reader.join() {
+        Ok(Some(read)) => read,
+        Ok(None) | Err(_) => return GitOutput::Unavailable,
+    };
     let Some(status) = status else {
-        // A descendant can inherit stdout after the timed-out process is
-        // killed. Detach the reader instead of turning that pipe into an
-        // unbounded wait on the status path.
         return GitOutput::Truncated;
     };
-    let read = receiver
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .ok()
-        .flatten();
-    if read.is_some() {
-        let _ = reader.join();
-    }
-    let Some((bytes, truncated)) = read else {
-        return GitOutput::Truncated;
-    };
+    let (bytes, truncated) = read;
     if truncated {
         return GitOutput::Truncated;
     }
@@ -319,6 +312,33 @@ fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration)
         return GitOutput::Failed;
     }
     GitOutput::Complete(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let pgid = child.id() as libc::pid_t;
+    if pgid > 0 {
+        // Sampling is isolated from the caller's process group so descendants
+        // cannot retain capture handles beyond the deadline.
+        unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+}
+
+#[cfg(not(unix))]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = child.kill();
 }
 
 fn unavailable_source() -> WorkspaceSourceView {

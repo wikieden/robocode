@@ -113,6 +113,77 @@ esac
     assert_eq!(source.deleted, 0, "partial totals must not be published");
 }
 
+#[cfg(unix)]
+#[test]
+fn frontend_status_repeated_git_timeouts_leave_no_descendants_or_blocked_pipes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cwd = temp_dir("frontend_status_repeated_git_timeout");
+    let fake_git = cwd.join("fake-git");
+    let pid_log = cwd.join("descendant-pids");
+    fs::write(
+        &fake_git,
+        format!(
+            r#"#!/bin/sh
+case "$*" in
+  *"rev-parse --show-toplevel"*) printf '%s\n' "{cwd}" ;;
+  *"symbolic-ref --quiet --short HEAD"*) printf 'main\n' ;;
+  *"status --porcelain=v1"*)
+    sleep 30 &
+    printf '%s\n' "$!" >> "{pid_log}"
+    wait
+    ;;
+  *) printf '0 0\n' ;;
+esac
+"#,
+            cwd = cwd.display(),
+            pid_log = pid_log.display(),
+        ),
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&fake_git).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_git, permissions).unwrap();
+
+    let started = Instant::now();
+    for _ in 0..3 {
+        let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(1));
+        assert_eq!(source.status, WorkspaceSourceStatus::Truncated);
+    }
+    assert!(started.elapsed() < Duration::from_secs(5));
+
+    let pids = fs::read_to_string(&pid_log)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert!(
+        pids.len() >= 2,
+        "repeated timeout fixture did not reach the blocking Git phase often enough: {pids:?}"
+    );
+    let alive = pids
+        .iter()
+        .filter(|pid| {
+            std::process::Command::new("kill")
+                .args(["-0", pid.as_str()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for pid in &alive {
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", pid])
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    assert!(
+        alive.is_empty(),
+        "timed-out Git sampling leaked descendant processes holding stdout: {alive:?}"
+    );
+}
+
 #[test]
 fn frontend_status_git_totals_cover_all_rows_without_a_row_cap() {
     use std::os::unix::fs::PermissionsExt;
@@ -148,7 +219,7 @@ esac
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_git, permissions).unwrap();
 
-    let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(1));
+    let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(3));
 
     assert_eq!(source.status, WorkspaceSourceStatus::Ready);
     assert_eq!(source.ahead, 2);
@@ -714,6 +785,18 @@ fn frontend_status_worker_revalidates_a_binding_persisted_after_startup() {
             )
         })
     });
+    let reason = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                ..
+            }) if command_id == "cmd-revalidate-binding" => Some(reason),
+            _ => None,
+        })
+        .unwrap();
+    assert!(reason.contains("durable Lane-agent identity"));
+    assert!(!reason.contains("active agent session"));
     assert!(events.iter().all(|envelope| {
         !matches!(
             &envelope.event,
@@ -806,6 +889,30 @@ fn frontend_status_production_path_emits_only_executed_tool_facts_with_owner() {
         fs::read_to_string(cwd.join("generated.txt")).unwrap(),
         "generated\n"
     );
+    let file_order = change_events
+        .iter()
+        .filter(|envelope| envelope.owner == owner)
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallStarted { .. },
+                ..
+            }) => Some("started"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallFinished { .. },
+                ..
+            }) => Some("finished"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceChangeUpdated { .. },
+                ..
+            }) => Some("change"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        file_order,
+        vec!["started", "finished", "change"],
+        "structured facts must follow their tool lifecycle in the ordered journal"
+    );
 
     supervisor
         .send_command_from_owner(
@@ -841,6 +948,133 @@ fn frontend_status_production_path_emits_only_executed_tool_facts_with_owner() {
     assert_eq!(&check.owner, &owner);
     assert_eq!(check.command, "cargo check --help");
     assert_eq!(check.status, viden_types::CheckRunStatus::Passed);
+    let check_order = check_events
+        .iter()
+        .filter(|envelope| envelope.owner == owner)
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallStarted { .. },
+                ..
+            }) => Some("started"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallFinished { .. },
+                ..
+            }) => Some("finished"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CheckRunUpdated { .. },
+                ..
+            }) => Some("check"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(check_order, vec!["started", "finished", "check"]);
+}
+
+#[test]
+fn frontend_status_later_provider_failure_keeps_ordered_tool_and_change_facts() {
+    struct ToolThenFailProvider {
+        call: ToolCall,
+        request_count: usize,
+    }
+
+    impl viden_provider::ModelProvider for ToolThenFailProvider {
+        fn provider_name(&self) -> &str {
+            "tool-then-fail"
+        }
+
+        fn model(&self) -> &str {
+            "test-model"
+        }
+
+        fn set_model(&mut self, _model: String) {}
+
+        fn next_events(
+            &mut self,
+            _request: &viden_types::ModelRequest,
+        ) -> Result<Vec<viden_types::ModelEvent>, String> {
+            self.request_count += 1;
+            if self.request_count == 1 {
+                Ok(vec![viden_types::ModelEvent::ToolCall(self.call.clone())])
+            } else {
+                Err("provider failed after completed tool result".to_string())
+            }
+        }
+    }
+
+    let cwd = temp_dir("frontend_status_tool_then_provider_failure");
+    let home = temp_dir("frontend_status_tool_then_provider_failure_home");
+    let mut input = viden_types::ToolInput::new();
+    input.insert("path".to_string(), "survives-failure.txt".to_string());
+    input.insert("content".to_string(), "durable result\n".to_string());
+    let provider = Box::new(ToolThenFailProvider {
+        call: ToolCall {
+            id: "tool-before-provider-failure".to_string(),
+            name: "write_file".to_string(),
+            input,
+        },
+        request_count: 0,
+    });
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-tool-failure".to_string(),
+        project_id: "project-tool-failure".to_string(),
+        lane_id: Some("lane-tool-failure".to_string()),
+        session_id: Some("session-tool-failure".to_string()),
+        ..RuntimeOwner::default()
+    };
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-tool-then-provider-failure",
+            RuntimeCommand::SubmitUserInput {
+                content: "write, then encounter provider failure".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("provider failed after completed tool result")
+            )
+        })
+    });
+    let order = events
+        .iter()
+        .filter(|envelope| envelope.owner == owner)
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallStarted { .. },
+                ..
+            }) => Some("started"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallFinished { .. },
+                ..
+            }) => Some("finished"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceChangeUpdated { .. },
+                ..
+            }) => Some("change"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::Error { .. },
+                ..
+            }) => Some("error"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(order, vec!["started", "finished", "change", "error"]);
+    assert_eq!(
+        fs::read_to_string(cwd.join("survives-failure.txt")).unwrap(),
+        "durable result\n"
+    );
 }
 
 fn append_recent_runtime_fixture(home: &Path, root: &Path, session_id: &str, timestamp: u64) {
