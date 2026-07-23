@@ -67,3 +67,31 @@ DONE_WITH_CONCERNS
 ## Remaining Concerns
 
 - The required report file was written after the implementation commit so it could name the real implementation hash, then committed separately to leave the worktree clean. The behavior checkpoint remains `407f306707148e44b62a12a3db37cb4d765339c2`; the report-only commit is not part of the GUI runtime change.
+
+## Review Fix Evidence
+
+### Findings Addressed
+
+- HIGH: textarea navigation keys bubbled to the popover roving-focus handler and moved focus to Agent radios.
+- MEDIUM: ACP Agent buttons were appended to the popover root outside the `radiogroup` and before the heading.
+
+### Red Evidence
+
+- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts` failed before the fix with 2 failures:
+  - `keeps every Agent option inside the radiogroup after the heading` -> expected all ACP entries to be descendants of the radiogroup.
+  - `keeps textarea focus for navigation keys while editing the task` -> expected textarea focus to remain on ArrowUp/ArrowDown/Home/End.
+
+### Green Evidence
+
+- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts` -> 1 file passed, 9 tests passed.
+- `npm --prefix apps/gui test -- --run tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts tests/i18n_parity.spec.ts` -> 3 files passed, 69 tests passed.
+- `npm --prefix apps/gui test -- --run` -> 17 files passed, 243 tests passed.
+- `npm --prefix apps/gui run build` -> `tsc --noEmit && vite build` succeeded.
+- `cargo test -p viden-gui` -> all GUI Rust unit, integration, and doc tests passed.
+- `scripts/check-doc-pairs.sh apps/gui/README.md apps/gui/README.zh-CN.md` -> passed.
+- `git diff --check` -> passed.
+
+### Fix Summary
+
+- ACP entries now append to `.agent-menu-agents`, the same `role="radiogroup"` container as the built-in Viden Agent, which keeps heading -> group order correct.
+- The popover root still handles Escape globally, but ArrowUp/ArrowDown/Home/End roving behavior now only runs when the event target is an Agent selector button. Textarea editing keeps focus and still supports Escape plus Cmd/Ctrl+Enter outside IME composition.

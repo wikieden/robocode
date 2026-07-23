@@ -145,7 +145,7 @@ export function renderAgentMenu(
         : adapter.startability === "ready"
         ? translate(model.locale, "d1.agentMenu.ready", {})
         : adapter.diagnostics[0] ?? adapter.startability.replaceAll("_", " ");
-    menu.append(
+    agentGrid.append(
       item(
         adapter.displayName,
         status,
@@ -234,12 +234,16 @@ export function renderAgentMenu(
     target.focus();
   };
   menu.addEventListener("keydown", (event) => {
-    const items = enabledItems();
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "Escape") {
       event.preventDefault();
       close();
-    } else if (event.key === "ArrowDown") {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (!(target instanceof HTMLButtonElement) || !target.dataset.selectionKey) return;
+    const items = enabledItems();
+    const current = items.indexOf(target);
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       focusAt(current + 1);
     } else if (event.key === "ArrowUp") {

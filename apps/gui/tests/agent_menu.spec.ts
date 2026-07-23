@@ -83,6 +83,23 @@ describe("compact agent menu", () => {
     ).toEqual(["codex-acp", "claude-acp", "kiro-cli", "custom-acp", "custom-z"]);
   });
 
+  test("keeps every Agent option inside the radiogroup after the heading", () => {
+    const { controller } = setup();
+    const heading = controller.root.querySelector(".agent-menu-heading");
+    const group = controller.root.querySelector<HTMLElement>('[role="radiogroup"]');
+    expect(heading).not.toBeNull();
+    expect(group).not.toBeNull();
+
+    expect(
+      Array.from(controller.root.children).indexOf(heading as Element),
+    ).toBeLessThan(Array.from(controller.root.children).indexOf(group as Element));
+    expect(
+      Array.from(controller.root.querySelectorAll<HTMLElement>("[data-agent-id]")).every(
+        (agent) => agent.closest('[role="radiogroup"]') === group,
+      ),
+    ).toBe(true);
+  });
+
   test("disables every Agent when Core says a new Lane is ineligible", () => {
     const { controller } = setup({ ...MODEL, canCreateLane: false });
 
@@ -106,6 +123,17 @@ describe("compact agent menu", () => {
 
     expect(document.activeElement).toBe(anchor);
     expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  test("keeps textarea focus for navigation keys while editing the task", () => {
+    const { controller } = setup();
+    const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.focus();
+
+    for (const key of ["ArrowUp", "ArrowDown", "Home", "End"]) {
+      task.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      expect(document.activeElement).toBe(task);
+    }
   });
 
   test("selects only a Core-ready item", () => {
