@@ -40,6 +40,14 @@ function shellProjection(
       diagnostics: [],
     },
     selectedLaneId: null,
+    contextDock: {
+      source: null,
+      context: null,
+      laneAgent: null,
+      provider: null,
+      services: [],
+      checklist: [],
+    },
     lanes: [],
     environment: {
       cwd: "—",

@@ -1,19 +1,22 @@
 use serde::Serialize;
 use viden_core::{
     AgentLaneRecord, AgentRoute, AgentSessionStatus, AgentStartability, AgentTaskStatus,
-    ApprovalDefaultAction, ApprovalRisk, ApprovalScope, CredentialHandle, EventCursor, LaneStatus,
-    LocaleId, ProjectConfigPreview, ProjectProbe, ProviderHealthView, RuntimeSnapshotEnvelope,
-    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
+    ApprovalDefaultAction, ApprovalRisk, ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus,
+    CredentialHandle, EventCursor, LaneStatus, LocaleId, ProjectConfigPreview, ProjectProbe,
+    ProviderHealthView, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
+    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
+    WorkspaceSourceStatus,
 };
 
 use crate::d1::{
     D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentSessionInputProjection,
-    D1AgentSessionProjection, D1ApprovalProjection, D1CockpitProjection, D1ComposerProjection,
-    D1CostUsageProjection, D1CursorProjection, D1EnvironmentProjection, D1EvidenceProjection,
-    D1LaneProjection, D1LiveWorkProjection, D1QueuedInputProjection,
-    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1TaskProjection,
-    D1ToolProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
-    unavailable_features,
+    D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
+    D1ComposerProjection, D1ContextDockProjection, D1CostUsageProjection, D1CursorProjection,
+    D1EnvironmentProjection, D1EvidenceProjection, D1LaneAgentProjection, D1LaneProjection,
+    D1LiveWorkProjection, D1ProviderHealthProjection, D1QueuedInputProjection,
+    D1RuntimeServiceProjection, D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection,
+    D1TaskProjection, D1ToolProjection, D1TranscriptRowProjection,
+    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -496,6 +499,10 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == D1_OWNER_CAPABILITY);
+        let supports_context_dock = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == COCKPIT_CONTEXT_CAPABILITY);
         let busy = !view.assistant_stream.is_empty()
             || !view.active_tool_calls.is_empty()
             || !view.queued_inputs.is_empty()
@@ -575,9 +582,135 @@ impl RuntimeProjection {
             transcript.drain(..transcript.len() - 240);
         }
 
+        let context_dock = if supports_context_dock {
+            let exact_binding = (exact_owner_count == 1).then(|| {
+                view.lane_runtime_owners.iter().find(|binding| {
+                    selected_lane_id.as_deref().is_some_and(|lane_id| {
+                        binding.lane_id == lane_id
+                            && binding.owner.lane_id.as_deref() == Some(lane_id)
+                    })
+                })
+            });
+            let lane_agent = exact_binding
+                .flatten()
+                .map(|binding| D1LaneAgentProjection {
+                    lane_id: binding.lane_id.clone(),
+                    workspace_id: binding.owner.workspace_id.clone(),
+                    project_id: binding.owner.project_id.clone(),
+                    session_id: binding.owner.session_id.clone(),
+                    task_id: binding.owner.task_id.clone(),
+                    turn_id: binding.owner.turn_id.clone(),
+                });
+            let selected_lane_matches = |owner: &viden_core::RuntimeOwner| {
+                selected_lane_id
+                    .as_deref()
+                    .is_some_and(|lane_id| owner.lane_id.as_deref() == Some(lane_id))
+            };
+            let mut checklist = view
+                .workspace_changes
+                .iter()
+                .filter(|change| selected_lane_matches(&change.owner))
+                .map(|change| D1ChecklistItemProjection {
+                    id: change.id.clone(),
+                    kind: "workspace_change",
+                    label: change.path.clone(),
+                    status: workspace_change_kind(change.kind),
+                    command: None,
+                    path: Some(change.path.clone()),
+                    summary: None,
+                    failing_location: None,
+                    additions: Some(change.additions),
+                    deletions: Some(change.deletions),
+                })
+                .collect::<Vec<_>>();
+            checklist.extend(
+                view.check_runs
+                    .iter()
+                    .filter(|check| selected_lane_matches(&check.owner))
+                    .map(|check| D1ChecklistItemProjection {
+                        id: check.id.clone(),
+                        kind: "check_run",
+                        label: check.label.clone(),
+                        status: check_run_status(check.status),
+                        command: Some(check.command.clone()),
+                        path: None,
+                        summary: Some(check.summary.clone()),
+                        failing_location: check.failing_location.clone(),
+                        additions: None,
+                        deletions: None,
+                    }),
+            );
+            D1ContextDockProjection {
+                source: view
+                    .workspace_source
+                    .as_ref()
+                    .map(|source| D1WorkspaceSourceProjection {
+                        status: workspace_source_status(source.status),
+                        branch: source.branch.clone(),
+                        worktree: source.worktree.clone(),
+                        ahead: source.ahead,
+                        behind: source.behind,
+                        added: source.added,
+                        deleted: source.deleted,
+                        dirty: source.dirty,
+                    }),
+                // Core exposes the budget collection through RuntimeViewState,
+                // but its task scope type is not available through viden-core.
+                // Stay unavailable until the facade can prove selected-Lane scope.
+                context: None,
+                lane_agent,
+                provider: view
+                    .provider
+                    .as_ref()
+                    .map(|provider| D1ProviderHealthProjection {
+                        provider_id: provider.provider_id.clone(),
+                        model: provider.model.clone(),
+                        status: provider.status.clone(),
+                        request_count: provider.request_count,
+                        error_count: provider.error_count,
+                        last_latency_ms: provider.last_latency_ms,
+                        average_latency_ms: provider.average_latency_ms,
+                        tokens_per_second: provider.tokens_per_second,
+                    }),
+                services: view
+                    .runtime_services
+                    .iter()
+                    .map(|service| D1RuntimeServiceProjection {
+                        id: service.id.clone(),
+                        kind: runtime_service_kind(service.kind),
+                        label: service.label.clone(),
+                        status: runtime_service_status(service.status),
+                        detail_key: service.detail_key.clone(),
+                    })
+                    .collect(),
+                checklist,
+            }
+        } else {
+            D1ContextDockProjection {
+                source: None,
+                context: None,
+                lane_agent: None,
+                provider: None,
+                services: Vec::new(),
+                checklist: Vec::new(),
+            }
+        };
+        let recovery = if supports_owner && exact_owner_count > 1 {
+            // An ambiguous execution identity is not renderable. Enter the
+            // existing snapshot/replay recovery path instead of choosing one.
+            self.d6_recovery(
+                D6ConnectionState::Recovering,
+                Some("GUI-CORE-D1-OWNER-CARDINALITY"),
+                true,
+            )?
+        } else {
+            self.d6_recovery(D6ConnectionState::Live, None, true)?
+        };
+
         Some(D1CockpitProjection {
             preferences: self.preferences()?,
             selected_lane_id,
+            context_dock,
             lanes: view
                 .lanes
                 .iter()
@@ -734,7 +867,7 @@ impl RuntimeProjection {
                 can_submit_immediately: !busy,
             },
             permission_dock: self.permission_dock()?,
-            recovery: self.d6_recovery(D6ConnectionState::Live, None, true)?,
+            recovery,
             unavailable_features: unavailable_features(),
         })
     }
@@ -854,5 +987,50 @@ fn agent_session_status(status: AgentSessionStatus) -> &'static str {
         AgentSessionStatus::Completed => "completed",
         AgentSessionStatus::Failed => "failed",
         AgentSessionStatus::Cancelled => "cancelled",
+    }
+}
+
+fn workspace_source_status(status: WorkspaceSourceStatus) -> &'static str {
+    match status {
+        WorkspaceSourceStatus::Ready => "ready",
+        WorkspaceSourceStatus::Unavailable => "unavailable",
+        WorkspaceSourceStatus::Truncated => "truncated",
+    }
+}
+
+fn runtime_service_kind(kind: RuntimeServiceKind) -> &'static str {
+    match kind {
+        RuntimeServiceKind::Mcp => "mcp",
+        RuntimeServiceKind::Lsp => "lsp",
+    }
+}
+
+fn runtime_service_status(status: RuntimeServiceStatus) -> &'static str {
+    match status {
+        RuntimeServiceStatus::Connected => "connected",
+        RuntimeServiceStatus::Ready => "ready",
+        RuntimeServiceStatus::Degraded => "degraded",
+        RuntimeServiceStatus::Offline => "offline",
+        RuntimeServiceStatus::Unavailable => "unavailable",
+    }
+}
+
+fn workspace_change_kind(kind: WorkspaceChangeKind) -> &'static str {
+    match kind {
+        WorkspaceChangeKind::Added => "added",
+        WorkspaceChangeKind::Modified => "modified",
+        WorkspaceChangeKind::Deleted => "deleted",
+        WorkspaceChangeKind::Renamed => "renamed",
+        WorkspaceChangeKind::Untracked => "untracked",
+    }
+}
+
+fn check_run_status(status: CheckRunStatus) -> &'static str {
+    match status {
+        CheckRunStatus::Queued => "queued",
+        CheckRunStatus::Running => "running",
+        CheckRunStatus::Passed => "passed",
+        CheckRunStatus::Failed => "failed",
+        CheckRunStatus::Cancelled => "cancelled",
     }
 }

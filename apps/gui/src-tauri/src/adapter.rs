@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,7 +18,7 @@ use crate::d1::{
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
 use crate::{
-    D6ConnectionState, D6RecoveryProjection, D11IntakeProjection, PermissionChoice,
+    D6ConnectionState, D6RecoveryProjection, D6State, D11IntakeProjection, PermissionChoice,
     PermissionDockProjection, PermissionIntent, PermissionIntentResult,
     PermissionOutcomeProjection, RuntimeProjection,
 };
@@ -146,7 +146,7 @@ fn open_workspace_with_host(
     )?;
     // ProjectProbed completes the D11 request before the ordered eligibility
     // event that follows it, so drain the remaining facts into the projection.
-    adapter.poll_d11(Duration::ZERO)?;
+    adapter.poll_d11(Duration::from_millis(250))?;
     Ok(adapter)
 }
 
@@ -655,7 +655,12 @@ impl GuiCoreAdapter {
 
     pub fn d1_cockpit(&self, selected_lane_id: Option<&str>) -> Option<D1CockpitProjection> {
         let mut projection = self.projection.d1_cockpit(selected_lane_id)?;
-        projection.recovery = self.d6_recovery();
+        let transport_recovery = self.d6_recovery();
+        if self.connection != D6ConnectionState::Live
+            || projection.recovery.state != D6State::EventGap
+        {
+            projection.recovery = transport_recovery;
+        }
         Some(projection)
     }
 
@@ -761,7 +766,7 @@ impl GuiCoreAdapter {
         let mut received = false;
         for _ in 0..8 {
             let event = match self
-                .receive_event(event_timeout)
+                .receive_event_until(event_timeout)
                 .map_err(|error| error.to_string())?
             {
                 Some(event) => event,
@@ -1111,7 +1116,7 @@ impl GuiCoreAdapter {
         let mut received = false;
         let mut receive_failed = false;
         for _ in 0..8 {
-            let event = match self.receive_event(event_timeout) {
+            let event = match self.receive_event_until(event_timeout) {
                 Ok(Some(event)) => event,
                 Ok(None) => break,
                 Err(_) => {
@@ -1325,7 +1330,7 @@ impl GuiCoreAdapter {
         let mut received = false;
         for _ in 0..8 {
             let event = match self
-                .receive_event(event_timeout)
+                .receive_event_until(event_timeout)
                 .map_err(|error| error.to_string())?
             {
                 Some(event) => event,
@@ -1399,6 +1404,31 @@ impl GuiCoreAdapter {
             }
         };
         Ok(event)
+    }
+
+    fn receive_event_until(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<RuntimeEventEnvelope>, CoreClientError> {
+        if timeout.is_zero() {
+            return self.receive_event(timeout);
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(None);
+            }
+            if let Some(event) = self.receive_event(remaining)? {
+                return Ok(Some(event));
+            }
+            // StatefulCoreClient also returns None for duplicate events already
+            // covered by its confirmed snapshot. Keep waiting within the same
+            // deadline so those stale envelopes cannot hide a later fact.
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+        }
     }
 
     pub(crate) fn refresh_projection(&mut self) -> Result<(), CoreClientError> {

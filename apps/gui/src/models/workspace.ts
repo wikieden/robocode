@@ -64,6 +64,76 @@ export interface D6RecoveryProjection {
   actions: Array<{ kind: string; available: boolean; code: string }>;
 }
 
+export interface WorkspaceSourceProjection {
+  status: "ready" | "unavailable" | "truncated";
+  branch: string | null;
+  worktree: string | null;
+  ahead: number;
+  behind: number;
+  added: number;
+  deleted: number;
+  dirty: boolean;
+}
+
+export interface ContextUsageProjection {
+  budgetId: string;
+  usedTokens: number;
+  softTokenLimit: number;
+  hardTokenLimit: number;
+  remainingTokens: number;
+  exceeded: boolean;
+}
+
+export interface LaneAgentProjection {
+  laneId: string;
+  workspaceId: string;
+  projectId: string;
+  sessionId: string | null;
+  taskId: string | null;
+  turnId: string | null;
+}
+
+export interface ProviderHealthProjection {
+  providerId: string;
+  model: string;
+  status: string;
+  requestCount: number;
+  errorCount: number;
+  lastLatencyMs: number | null;
+  averageLatencyMs: number | null;
+  tokensPerSecond: number | null;
+}
+
+export interface RuntimeServiceProjection {
+  id: string;
+  kind: "mcp" | "lsp";
+  label: string;
+  status: "connected" | "ready" | "degraded" | "offline" | "unavailable";
+  detailKey: string | null;
+}
+
+export interface ChecklistItemProjection {
+  id: string;
+  kind: "workspace_change" | "check_run";
+  label: string;
+  status: string;
+  command: string | null;
+  path: string | null;
+  summary: string | null;
+  failingLocation: string | null;
+  additions: number | null;
+  deletions: number | null;
+}
+
+export interface ContextDockProjection {
+  source: WorkspaceSourceProjection | null;
+  context: ContextUsageProjection | null;
+  laneAgent: LaneAgentProjection | null;
+  provider: ProviderHealthProjection | null;
+  services: RuntimeServiceProjection[];
+  checklist: ChecklistItemProjection[];
+}
+
 export interface D1CockpitProjection {
   preferences: {
     locale: Locale;
@@ -74,6 +144,7 @@ export interface D1CockpitProjection {
     diagnostics: unknown[];
   };
   selectedLaneId: string | null;
+  contextDock: ContextDockProjection;
   lanes: Array<{
     id: string;
     role: string;

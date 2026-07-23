@@ -18,6 +18,10 @@ name = "architecture_boundary"
 path = "../tests/architecture_boundary.rs"
 
 [[test]]
+name = "fixture_parity"
+path = "../tests/fixture_parity.rs"
+
+[[test]]
 name = "d11_intake"
 path = "../tests/d11_intake.rs"
 

@@ -4,6 +4,89 @@ use crate::{D6RecoveryProjection, PermissionDockProjection, ResolvedPreferencesP
 
 pub const D1_OWNER_CAPABILITY: &str = "runtime.lane_owner_projection";
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct D1WorkspaceSourceProjection {
+    pub status: &'static str,
+    pub branch: Option<String>,
+    pub worktree: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub added: u32,
+    pub deleted: u32,
+    pub dirty: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1ContextUsageProjection {
+    pub budget_id: String,
+    pub used_tokens: u64,
+    pub soft_token_limit: u64,
+    pub hard_token_limit: u64,
+    pub remaining_tokens: u64,
+    pub exceeded: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1LaneAgentProjection {
+    pub lane_id: String,
+    pub workspace_id: String,
+    pub project_id: String,
+    pub session_id: Option<String>,
+    pub task_id: Option<String>,
+    pub turn_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1ProviderHealthProjection {
+    pub provider_id: String,
+    pub model: String,
+    pub status: String,
+    pub request_count: u64,
+    pub error_count: u64,
+    pub last_latency_ms: Option<u64>,
+    pub average_latency_ms: Option<u64>,
+    pub tokens_per_second: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1RuntimeServiceProjection {
+    pub id: String,
+    pub kind: &'static str,
+    pub label: String,
+    pub status: &'static str,
+    pub detail_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1ChecklistItemProjection {
+    pub id: String,
+    pub kind: &'static str,
+    pub label: String,
+    pub status: &'static str,
+    pub command: Option<String>,
+    pub path: Option<String>,
+    pub summary: Option<String>,
+    pub failing_location: Option<String>,
+    pub additions: Option<u32>,
+    pub deletions: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1ContextDockProjection {
+    pub source: Option<D1WorkspaceSourceProjection>,
+    pub context: Option<D1ContextUsageProjection>,
+    pub lane_agent: Option<D1LaneAgentProjection>,
+    pub provider: Option<D1ProviderHealthProjection>,
+    pub services: Vec<D1RuntimeServiceProjection>,
+    pub checklist: Vec<D1ChecklistItemProjection>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(
     tag = "type",
@@ -257,6 +340,7 @@ pub struct D1UnavailableFeatureProjection {
 pub struct D1CockpitProjection {
     pub preferences: ResolvedPreferencesProjection,
     pub selected_lane_id: Option<String>,
+    pub context_dock: D1ContextDockProjection,
     pub lanes: Vec<D1LaneProjection>,
     pub environment: D1EnvironmentProjection,
     pub live_work: D1LiveWorkProjection,

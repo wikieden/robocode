@@ -14,8 +14,10 @@ use std::time::Duration;
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
 pub use d1::{
     D1_OWNER_CAPABILITY, D1AgentSessionInputProjection, D1AgentSessionProjection,
-    D1CockpitProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
-    D1OutcomeProjection, D1StarterLaneReceiptProjection,
+    D1ChecklistItemProjection, D1CockpitProjection, D1ContextDockProjection,
+    D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
+    D1LaneAgentProjection, D1OutcomeProjection, D1ProviderHealthProjection,
+    D1RuntimeServiceProjection, D1StarterLaneReceiptProjection, D1WorkspaceSourceProjection,
 };
 pub use d4::{
     D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,

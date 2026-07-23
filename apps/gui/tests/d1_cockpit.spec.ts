@@ -56,6 +56,10 @@ describe("D1 canonical streaming cockpit", () => {
     document.documentElement.lang = "en";
   });
 
+  test("exposes the transport-safe Context Dock on the D1 model", () => {
+    expect(D1_PROJECTION.contextDock.laneAgent?.sessionId).toBe("session-lane-core");
+  });
+
   test("renders activity, Lane, transcript, composer, Environment, and Live Work regions", () => {
     const { root } = setup();
 

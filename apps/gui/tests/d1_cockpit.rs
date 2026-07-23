@@ -2,11 +2,12 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use viden_core::{
-    FRONTEND_SCHEMA_V1, LaneRuntimeOwnerBinding, QueuedInputView, RuntimeCommand, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
-    RuntimeWireEvent,
+    AgentLaneRecord, CheckRunStatus, CheckRunView, FRONTEND_SCHEMA_V1, LaneRuntimeOwnerBinding,
+    QueuedInputView, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, WorkspaceChangeKind,
+    WorkspaceChangeView,
 };
-use viden_gui::{D1Intent, GuiCoreAdapter};
+use viden_gui::{D1Intent, D6State, GuiCoreAdapter};
 
 mod support;
 use support::{TestCoreClient, TestOwner};
@@ -14,6 +15,8 @@ use support::{TestCoreClient, TestOwner};
 const D1_FIXTURE: &str = include_str!(
     "../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
 );
+const D1_MAIN_FIXTURE: &str =
+    include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json");
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -55,6 +58,17 @@ fn d1_view() -> RuntimeViewState {
         lane_id: "lane_d1_core".into(),
         owner: owner("lane_d1_core"),
     });
+    view
+}
+
+fn d1_main_view() -> RuntimeViewState {
+    let fixture: Fixture = serde_json::from_str(D1_MAIN_FIXTURE).expect("parse D1 main fixture");
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    for envelope in fixture.events {
+        if let RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+    }
     view
 }
 
@@ -105,6 +119,145 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
             .collect::<Vec<_>>(),
         vec!["diff", "apply", "audit", "recovery"]
     );
+}
+
+#[test]
+fn d1_cockpit_context_dock_enforces_zero_one_or_duplicate_lane_agent_cardinality() {
+    let mut zero = d1_main_view();
+    zero.lane_runtime_owners.clear();
+    let zero = connected(zero, Arc::new(Mutex::new(Vec::new())))
+        .d1_cockpit(Some("lane-d1-main"))
+        .expect("zero-owner projection");
+    assert!(zero.context_dock.lane_agent.is_none());
+
+    let one = connected(d1_main_view(), Arc::new(Mutex::new(Vec::new())))
+        .d1_cockpit(Some("lane-d1-main"))
+        .expect("one-owner projection");
+    let one = one.context_dock.lane_agent.expect("exact Lane Agent");
+    assert_eq!(one.lane_id, "lane-d1-main");
+    assert_eq!(one.session_id.as_deref(), Some("agent-session-d1-main"));
+
+    let mut duplicate = d1_main_view();
+    duplicate.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: "lane-d1-main".into(),
+        owner: RuntimeOwner {
+            session_id: Some("duplicate-session".into()),
+            turn_id: Some("duplicate-turn".into()),
+            ..duplicate.lane_runtime_owners[0].owner.clone()
+        },
+    });
+    let duplicate = connected(duplicate, Arc::new(Mutex::new(Vec::new())))
+        .d1_cockpit(Some("lane-d1-main"))
+        .expect("duplicate-owner recovery projection");
+    assert!(duplicate.context_dock.lane_agent.is_none());
+    assert_eq!(duplicate.recovery.state, D6State::EventGap);
+    assert_eq!(
+        duplicate.recovery.detail.as_deref(),
+        Some("GUI-CORE-D1-OWNER-CARDINALITY")
+    );
+}
+
+#[test]
+fn d1_cockpit_context_dock_switches_only_owner_scoped_facts_for_the_selected_lane() {
+    let mut view = d1_main_view();
+    let second_lane_id = "lane-review".to_string();
+    let second_task_id = "task-review".to_string();
+    let mut second_lane: AgentLaneRecord = view.lanes[0].clone();
+    second_lane.id = second_lane_id.clone();
+    second_lane.task_id = Some(second_task_id.clone());
+    second_lane.active_session_ids = vec!["session-review".into()];
+    view.lanes.push(second_lane);
+    let second_owner = RuntimeOwner {
+        workspace_id: "workspace-d1-main".into(),
+        project_id: "project-viden".into(),
+        lane_id: Some(second_lane_id.clone()),
+        session_id: Some("session-review".into()),
+        task_id: Some(second_task_id.clone()),
+        turn_id: Some("turn-review".into()),
+    };
+    view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: second_lane_id.clone(),
+        owner: second_owner.clone(),
+    });
+    view.workspace_changes.push(WorkspaceChangeView {
+        id: "change-review".into(),
+        owner: second_owner.clone(),
+        path: "apps/gui/src/review.ts".into(),
+        kind: WorkspaceChangeKind::Added,
+        patch: None,
+        additions: 7,
+        deletions: 0,
+    });
+    view.check_runs.push(CheckRunView {
+        id: "check-review".into(),
+        owner: second_owner,
+        label: "review check".into(),
+        command: "cargo test -p viden-gui".into(),
+        status: CheckRunStatus::Passed,
+        summary: "passed".into(),
+        failing_location: None,
+    });
+
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+    let first = adapter
+        .d1_cockpit(Some("lane-d1-main"))
+        .expect("first Lane");
+    assert_eq!(
+        first
+            .context_dock
+            .checklist
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["change-runtime-types", "check-viden-types"]
+    );
+
+    let second = adapter
+        .d1_cockpit(Some("lane-review"))
+        .expect("second Lane");
+    assert_eq!(
+        second
+            .context_dock
+            .lane_agent
+            .as_ref()
+            .and_then(|agent| agent.session_id.as_deref()),
+        Some("session-review")
+    );
+    assert!(second.context_dock.context.is_none());
+    assert_eq!(
+        second
+            .context_dock
+            .checklist
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["change-review", "check-review"]
+    );
+}
+
+#[test]
+fn d1_cockpit_context_dock_uses_typed_empty_states_and_never_parses_display_text() {
+    let mut view = d1_view();
+    view.workspace_source = None;
+    view.runtime_services.clear();
+    view.workspace_changes.clear();
+    view.check_runs.clear();
+    view.context_budgets.clear();
+    view.provider = None;
+    view.lane_runtime_owners.clear();
+    view.assistant_stream =
+        "branch main, provider connected, context 91%, tests passed, one Lane Agent".into();
+
+    let projection = connected(view, Arc::new(Mutex::new(Vec::new())))
+        .d1_cockpit(Some("lane_d1_core"))
+        .expect("typed empty projection");
+
+    assert!(projection.context_dock.source.is_none());
+    assert!(projection.context_dock.context.is_none());
+    assert!(projection.context_dock.lane_agent.is_none());
+    assert!(projection.context_dock.provider.is_none());
+    assert!(projection.context_dock.services.is_empty());
+    assert!(projection.context_dock.checklist.is_empty());
 }
 
 #[test]
