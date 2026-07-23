@@ -1,3 +1,17 @@
+.gperm.dock {
+  border-inline: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.gperm.dock .gperm-opts {
+  gap: var(--sp-2);
+}
+
+.gperm.dock .gperm-opt {
+  min-height: var(--sp-8);
+}
+
 .gperm-plan {
   margin: 0;
   padding: var(--sp-2);

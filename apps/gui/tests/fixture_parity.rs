@@ -123,6 +123,7 @@ fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
                     "command": null,
                     "path": "crates/types/src/runtime.rs",
                     "summary": null,
+                    "patch": null,
                     "failingLocation": null,
                     "additions": 3,
                     "deletions": 1
@@ -135,6 +136,7 @@ fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
                     "command": "cargo test -p viden-types",
                     "path": null,
                     "summary": "one assertion failed",
+                    "patch": null,
                     "failingLocation": "crates/types/src/tests.rs:2500",
                     "additions": null,
                     "deletions": null

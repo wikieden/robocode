@@ -1,4 +1,4 @@
-import type { Locale } from "../i18n/catalog";
+import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 import type {
   PermissionChoice,
   PermissionDockProjection,
@@ -20,41 +20,13 @@ export interface PermissionIntentResult {
   outcome: { state: "idle" | "pending" | "confirmed" | "rejected"; reason: string | null };
 }
 
-const COPY = {
-  en: {
-    region: "Permission required",
-    target: "Target",
-    reason: "Reason",
-    scope: "Scope",
-    policy: "Policy",
-    expires: "Expires",
-    defaultAction: "Default",
-    audit: "Audit",
-    plan: "Plan mode blocks mutating approval responses.",
-    once: "Allow once",
-    session: "Allow for session",
-    repo_allowlist: "Allow repo paths",
-    always: "Always allow",
-    edit: "Edit request",
-    deny: "Deny",
-  },
-  "zh-CN": {
-    region: "需要权限",
-    target: "目标",
-    reason: "原因",
-    scope: "范围",
-    policy: "策略",
-    expires: "过期时间",
-    defaultAction: "默认动作",
-    audit: "审计",
-    plan: "Plan 模式禁止变更型批准响应。",
-    once: "仅允许一次",
-    session: "本会话允许",
-    repo_allowlist: "允许仓库路径",
-    always: "始终允许",
-    edit: "编辑请求",
-    deny: "拒绝",
-  },
+const ACTION_COPY = {
+  once: "d1.permission.once",
+  session: "d1.permission.session",
+  repo_allowlist: "d1.permission.repoAllowlist",
+  always: "d1.permission.always",
+  edit: "d1.permission.edit",
+  deny: "d1.permission.deny",
 } as const;
 
 const SHORTCUTS: Partial<Record<PermissionChoice, string>> = {
@@ -64,6 +36,32 @@ const SHORTCUTS: Partial<Record<PermissionChoice, string>> = {
   edit: "E",
   deny: "N",
 };
+
+const RISK_COPY = {
+  low: "d1.risk.low",
+  medium: "d1.risk.medium",
+  high: "d1.risk.high",
+  critical: "d1.risk.critical",
+} as const;
+
+const TARGET_COPY = {
+  local: "d1.permission.target.local",
+  repo_path: "d1.permission.target.repoPath",
+} as const;
+
+const POLICY_COPY = {
+  "permission.command_not_allowlisted": "d1.permission.policy.commandNotAllowlisted",
+  "permission.requires_approval": "d1.permission.policy.requiresApproval",
+} as const;
+
+function localizedProtocol(
+  locale: Locale,
+  value: string,
+  copy: Partial<Record<string, MessageKey>>,
+): string {
+  const key = copy[value];
+  return key ? translate(locale, key, {}) : translate(locale, "d1.permission.unavailable", {});
+}
 
 export function renderPermissionDock(
   root: HTMLElement,
@@ -76,26 +74,21 @@ export function renderPermissionDock(
     root.replaceChildren();
     return;
   }
-  const copy = COPY[locale];
   const dock = document.createElement("section");
   dock.className = "gperm dock";
   dock.dataset.permissionDock = "true";
   dock.tabIndex = -1;
   dock.setAttribute("role", "region");
-  dock.setAttribute("aria-label", copy.region);
+  dock.setAttribute("aria-label", translate(locale, "d1.permission.region", {}));
 
   const heading = document.createElement("header");
   heading.className = "gperm-hd";
-  const cue = document.createElement("span");
-  cue.className = "ic";
-  cue.ariaHidden = "true";
-  cue.textContent = "!";
   const title = document.createElement("span");
   title.textContent = `${request.title} · ${request.toolName}`;
   const risk = document.createElement("span");
   risk.className = `risk ${["high", "critical"].includes(request.risk) ? "hi" : request.risk === "low" ? "lo" : "md"}`;
-  risk.textContent = request.risk.toUpperCase();
-  heading.append(cue, title, risk);
+  risk.textContent = localizedProtocol(locale, request.risk, RISK_COPY);
+  heading.append(title, risk);
 
   const facts = document.createElement("div");
   facts.className = "gperm-what";
@@ -108,9 +101,11 @@ export function renderPermissionDock(
   const scope = request.actions
     .filter((action) => action.available && action.kind !== "deny")
     .map((action) => {
-      if (action.kind === "session") return `${action.kind}(${action.sessionId ?? "—"})`;
-      if (action.kind === "repo_allowlist") return `${action.kind}(${action.paths.join(", ")})`;
-      return action.kind;
+      if (action.kind === "session") {
+        return `${translate(locale, ACTION_COPY[action.kind], {})}(${action.sessionId ?? translate(locale, "d1.permission.unavailable", {})})`;
+      }
+      if (action.kind === "repo_allowlist") return `${translate(locale, ACTION_COPY[action.kind], {})}(${action.paths.join(", ")})`;
+      return translate(locale, ACTION_COPY[action.kind], {});
     })
     .join(", ");
   const policyArgs = Object.keys(request.policyReasonArgs).length > 0
@@ -118,13 +113,13 @@ export function renderPermissionDock(
     : "";
   factText.textContent = [
     request.message,
-    `${copy.target}: ${request.target.kind} · ${request.target.display}${request.target.canonicalRef ? ` · ${request.target.canonicalRef}` : ""}`,
-    `${copy.reason}: ${request.reason ?? "—"}`,
-    `${copy.scope}: ${scope || "—"}`,
-    `${copy.policy}: ${request.policyReasonKey}${policyArgs}`,
-    `${copy.expires}: ${request.expiresAt}`,
-    `${copy.defaultAction}: ${request.defaultAction}`,
-    `${copy.audit}: ${request.auditId}`,
+    `${translate(locale, "d1.permission.target", {})}: ${localizedProtocol(locale, request.target.kind, TARGET_COPY)} · ${request.target.display}${request.target.canonicalRef ? ` · ${request.target.canonicalRef}` : ""}`,
+    `${translate(locale, "d1.permission.reason", {})}: ${request.reason ?? translate(locale, "d1.permission.unavailable", {})}`,
+    `${translate(locale, "d1.permission.scope", {})}: ${scope || translate(locale, "d1.permission.unavailable", {})}`,
+    `${translate(locale, "d1.permission.policy", {})}: ${localizedProtocol(locale, request.policyReasonKey, POLICY_COPY)}${policyArgs}`,
+    `${translate(locale, "d1.permission.expires", {})}: ${request.expiresAt}`,
+    `${translate(locale, "d1.permission.defaultAction", {})}: ${localizedProtocol(locale, request.defaultAction, ACTION_COPY)}`,
+    `${translate(locale, "d1.permission.audit", {})}: ${request.auditId}`,
   ].join(" · ");
   facts.append(factText);
 
@@ -132,7 +127,7 @@ export function renderPermissionDock(
     const alert = document.createElement("p");
     alert.className = "gperm-plan";
     alert.setAttribute("role", "alert");
-    alert.textContent = copy.plan;
+    alert.textContent = translate(locale, "d1.permission.plan", {});
     facts.append(alert);
   }
 
@@ -147,7 +142,7 @@ export function renderPermissionDock(
     actionButton.disabled = !action.available;
     const shortcut = SHORTCUTS[action.kind];
     if (shortcut) actionButton.setAttribute("aria-keyshortcuts", shortcut);
-    const label = copy[action.kind];
+    const label = translate(locale, ACTION_COPY[action.kind], {});
     actionButton.textContent = `${shortcut ? `${shortcut} · ` : ""}${label}${action.code ? ` · ${action.code}` : ""}`;
     actionButton.addEventListener("click", () => {
       if (!action.available) return;
@@ -162,7 +157,18 @@ export function renderPermissionDock(
     options.append(actionButton);
   }
   dock.addEventListener("keydown", (event) => {
-    const choice = event.key.toLowerCase() === "y" ? "once" : event.key.toLowerCase() === "n" ? "deny" : null;
+    const key = event.key.toLowerCase();
+    const choice = key === "y"
+      ? "once"
+      : key === "n"
+        ? "deny"
+        : key === "a" && event.shiftKey
+          ? "repo_allowlist"
+          : key === "a"
+            ? "session"
+            : key === "e"
+              ? "edit"
+              : null;
     if (!choice) return;
     const action = actionButtons.get(choice);
     if (!action || action.disabled) return;

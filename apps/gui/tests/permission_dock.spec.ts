@@ -80,13 +80,13 @@ describe("Permission Dock", () => {
     const dock = root.querySelector<HTMLElement>("[data-permission-dock]")!;
     expect(dock.classList.contains("gperm")).toBe(true);
     expect(dock.classList.contains("dock")).toBe(true);
-    expect(dock.textContent).toContain("HIGH");
-    expect(dock.textContent).toContain("repo_path");
+    expect(dock.textContent).toContain("High risk");
+    expect(dock.textContent).toContain("Repository path");
     expect(dock.textContent).toContain("/workspace/viden/target");
     expect(dock.textContent).toContain("recursive delete outside the allowlist");
     expect(dock.textContent).toContain("rm -rf target && cargo build --release");
     expect(dock.textContent).toContain("1700003600");
-    expect(dock.textContent).toContain("deny");
+    expect(dock.textContent).toContain("Default: Deny");
     expect(dock.textContent).toContain("audit-shell");
     expect(dock.getAttribute("role")).toBe("region");
   });
@@ -105,6 +105,24 @@ describe("Permission Dock", () => {
       expect(button.disabled).toBe(true);
       expect(button.textContent).toContain("GUI-CORE-003");
     }
+  });
+
+  test("uses the compact required action labels without changing typed choices", () => {
+    const { root } = setup();
+    expect(
+      ["once", "session", "always", "edit", "deny"].map(
+        (kind) =>
+          root
+            .querySelector<HTMLButtonElement>(`[data-permission-action="${kind}"]`)
+            ?.textContent,
+      ),
+    ).toEqual([
+      "Y · Once",
+      "A · Session",
+      "Always · GUI-CORE-003",
+      "E · Edit · GUI-CORE-003",
+      "N · Deny",
+    ]);
   });
 
   test("Plan mutation denial disables every approval response and transports nothing", () => {
@@ -139,5 +157,41 @@ describe("Permission Dock", () => {
     const first = root.querySelector<HTMLButtonElement>('[data-permission-action="once"]')!;
     expect(document.activeElement).toBe(first);
     expect(first.getAttribute("aria-keyshortcuts")).toBe("Y");
+  });
+
+  test("honors every advertised available permission shortcut", () => {
+    const { root, send } = setup();
+    const dock = root.querySelector<HTMLElement>("[data-permission-dock]")!;
+    dock.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    dock.dispatchEvent(new KeyboardEvent("keydown", { key: "A", shiftKey: true, bubbles: true }));
+    expect(send).toHaveBeenNthCalledWith(1, {
+      type: "respond", requestId: "approval-shell", choice: "session", feedback: null,
+    });
+    expect(send).toHaveBeenNthCalledWith(2, {
+      type: "respond", requestId: "approval-shell", choice: "repo_allowlist", feedback: null,
+    });
+  });
+
+  test("keeps all selected approval actions keyboard-addressable with their exact request id", () => {
+    const { root, send } = setup();
+    const dock = root.querySelector<HTMLElement>("[data-permission-dock]")!;
+
+    expect(
+      Array.from(dock.querySelectorAll<HTMLButtonElement>("[data-permission-action]"), (button) =>
+        button.dataset.permissionAction,
+      ),
+    ).toEqual(["once", "session", "repo_allowlist", "always", "edit", "deny"]);
+    dock.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    expect(send).toHaveBeenCalledWith({
+      type: "respond",
+      requestId: "approval-shell",
+      choice: "deny",
+      feedback: null,
+    });
+  });
+
+  test("does not render a permission request from a different selected Lane", () => {
+    const { root } = setup({ ...PROJECTION, request: null });
+    expect(root.querySelector("[data-permission-dock]")).toBeNull();
   });
 });

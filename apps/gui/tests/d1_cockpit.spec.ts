@@ -106,6 +106,53 @@ const RECOVERY_PROJECTION = {
   },
 };
 
+const CENTER_SEQUENCE_PROJECTION = {
+  ...PERMISSION_PROJECTION,
+  transcript: [
+    {
+      id: "user-refactor",
+      kind: "user",
+      content: "Refactor the config loader, then run focused tests.",
+    },
+    {
+      id: "assistant-plan",
+      kind: "assistant",
+      content: "I will update src/config.rs behind the approval gate.",
+    },
+  ],
+  contextDock: {
+    ...D1_PROJECTION.contextDock,
+    checklist: [
+      {
+        id: "change-config",
+        kind: "workspace_change" as const,
+        label: "src/config.rs",
+        status: "modified",
+        command: null,
+        path: "src/config.rs",
+        summary: null,
+        failingLocation: null,
+        additions: 1,
+        deletions: 1,
+        patch: "@@ src/config.rs 40-46 @@\n- let raw = fs::read_to_string(path).unwrap();\n+ let raw = fs::read_to_string(path)?;",
+      },
+      {
+        id: "check-config",
+        kind: "check_run" as const,
+        label: "cargo test -p viden-cli config_tests",
+        status: "failed",
+        command: "cargo test -p viden-cli config_tests",
+        path: null,
+        summary: "failed · 101",
+        failingLocation: "src/config.rs:42:15",
+        additions: null,
+        deletions: null,
+        patch: null,
+      },
+    ],
+  },
+};
+
 function shellLandmarks(root: HTMLElement): string[] {
   return Array.from(root.querySelectorAll<HTMLElement>("[data-shell-landmark]")).map(
     (landmark) => landmark.dataset.shellLandmark!,
@@ -137,6 +184,353 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector('[aria-label="Live Work"]')?.textContent).toContain("cargo");
     expect(root.querySelectorAll('[data-unavailable-feature]')).toHaveLength(4);
     expect(document.activeElement).toBe(root.querySelector("[data-composer]"));
+  });
+
+  test("renders the selected Lane work surface in typed center sequence with semantic landmarks", () => {
+    const { root, controller } = setup(CENTER_SEQUENCE_PROJECTION, { poll: false });
+    const sequence = root.querySelector<HTMLElement>("[data-center-sequence]");
+
+    expect(root.querySelector("[data-lane-work-surface]")?.getAttribute("aria-label")).toBe(
+      "Lane work surface",
+    );
+    expect(
+      Array.from(sequence?.querySelectorAll<HTMLElement>("[data-center-step]") ?? []).map(
+        (element) => element.dataset.centerStep,
+      ),
+    ).toEqual(["user", "assistant", "workspace-change", "check-run", "live-work"]);
+    expect(sequence?.querySelector('[data-transcript-row="user"]')?.textContent).toContain(
+      "Refactor the config loader",
+    );
+    expect(sequence?.querySelector('[data-workspace-change="change-config"]')?.textContent).toContain(
+      "let raw = fs::read_to_string(path)?;",
+    );
+    expect(sequence?.querySelector('[data-check-run="check-config"]')?.textContent).toContain(
+      "src/config.rs:42:15",
+    );
+    expect(sequence?.querySelector("[data-live-work-bar]")?.getAttribute("role")).toBe("status");
+    expect(root.querySelector("[data-permission-dock]")).not.toBeNull();
+    expect(root.querySelector("[data-composer-region] [data-composer]")).not.toBeNull();
+    controller.dispose();
+  });
+
+  test("renders localized typed empty states when a change patch or check result is absent", () => {
+    const { root, controller } = setup(
+      {
+        ...CENTER_SEQUENCE_PROJECTION,
+        contextDock: {
+          ...CENTER_SEQUENCE_PROJECTION.contextDock,
+          checklist: CENTER_SEQUENCE_PROJECTION.contextDock.checklist.map((item) =>
+            item.kind === "workspace_change"
+              ? { ...item, patch: null, additions: null, deletions: null }
+              : { ...item, command: null, summary: "", failingLocation: null },
+          ),
+        },
+      },
+      { poll: false },
+    );
+
+    expect(root.querySelector('[data-typed-empty="workspace-change-patch"]')?.textContent).toBe(
+      "No typed patch is available.",
+    );
+    expect(root.querySelector('[data-typed-empty="check-run-result"]')?.textContent).toBe(
+      "No typed check result is available.",
+    );
+    expect(root.querySelector('[data-typed-empty="check-run-command"]')?.textContent).toBe(
+      "No typed check command is available.",
+    );
+    expect(root.querySelector(".d1-work-card-meta")).toBeNull();
+    controller.dispose();
+  });
+
+  test("bounds typed checklist cards and every live-work collection", () => {
+    const checklist = Array.from({ length: 30 }, (_, index) => ({
+      ...CENTER_SEQUENCE_PROJECTION.contextDock.checklist[0]!,
+      id: `change-${index}`,
+      label: `src/${index}.ts`,
+    }));
+    const workItems = Array.from({ length: 30 }, (_, index) => ({
+      id: `task-${index}`,
+      title: `Task ${index}`,
+      status: "running",
+      progress: index,
+    }));
+    const { root, controller } = setup(
+      {
+        ...CENTER_SEQUENCE_PROJECTION,
+        contextDock: { ...CENTER_SEQUENCE_PROJECTION.contextDock, checklist },
+        liveWork: {
+          tasks: workItems,
+          tools: Array.from({ length: 30 }, (_, index) => ({
+            id: `tool-${index}`,
+            name: "shell",
+            inputPreview: `command ${index}`,
+            state: "running",
+          })),
+          approvals: Array.from({ length: 30 }, (_, index) => ({
+            id: `approval-${index}`,
+            title: `Approval ${index}`,
+            risk: "high",
+          })),
+          queuedInputs: Array.from({ length: 30 }, (_, index) => ({
+            id: `queued-${index}`,
+            contentPreview: `queued ${index}`,
+          })),
+          evidence: Array.from({ length: 30 }, (_, index) => ({
+            id: `evidence-${index}`,
+            kind: "test",
+            summary: `evidence ${index}`,
+            path: null,
+          })),
+        },
+      },
+      { poll: false },
+    );
+
+    expect(root.querySelectorAll(".d1-work-card")).toHaveLength(24);
+    expect(root.querySelector("[data-live-work-primary]")?.textContent).toBe("Task 0");
+    expect(root.querySelector("[data-live-work-secondary]")?.textContent).toContain("Running");
+    expect(root.querySelector("[data-live-work-secondary]")?.textContent).not.toContain("Approval 0");
+    expect(root.querySelector("[data-live-work-secondary]")?.textContent).not.toContain("queued 0");
+    expect(root.querySelector("[data-live-work-secondary]")?.textContent).not.toContain("Task 24");
+    expect(root.querySelectorAll(".d1-right .d1-work-item")).toHaveLength(24);
+    controller.dispose();
+  });
+
+  test("keeps the composer editable but blocks mutation when the selected Lane has no sole owner", () => {
+    const { root, send, controller } = setup(
+      {
+        ...D1_PROJECTION,
+        contextDock: { ...D1_PROJECTION.contextDock, laneAgent: null },
+      },
+      { poll: false },
+    );
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    expect(composer.disabled).toBe(false);
+    composer.value = "keep this draft";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(root.querySelector("[data-mutation-blocked]")?.textContent).toBe(
+      "The selected Lane has no sole Core execution owner.",
+    );
+    expect(root.querySelector("[data-cancel-turn]")).toBeNull();
+    controller.dispose();
+  });
+
+  test("blocks duplicate ACP sessions instead of selecting the first session", () => {
+    const duplicateSessions = ["acp-one", "acp-two"].map((sessionId) => ({
+      sessionId,
+      laneId: "lane-core",
+      agentId: "codex-acp",
+      model: null,
+      status: "running",
+      task: "review",
+      diagnostic: null,
+    }));
+    const { root, send, controller } = setup(
+      { ...D1_PROJECTION, agentSessions: duplicateSessions },
+      { poll: false },
+    );
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.value = "do not guess";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(root.querySelector("[data-mutation-blocked]")?.textContent).toBe(
+      "The selected Lane has duplicate Agent sessions; recover from Core state.",
+    );
+    controller.dispose();
+  });
+
+  test("keeps a removed selected Lane stale instead of retargeting a follow-up or cancel", () => {
+    const reviewLane = { ...D1_PROJECTION.lanes[0]!, id: "lane-review", role: "reviewer" };
+    const { root, send, controller } = setup(
+      { ...D1_PROJECTION, lanes: [D1_PROJECTION.lanes[0]!, reviewLane] },
+      { poll: false },
+    );
+    controller.applyProjection({
+      ...D1_PROJECTION,
+      selectedLaneId: "lane-core",
+      lanes: [reviewLane],
+      contextDock: { ...D1_PROJECTION.contextDock, laneAgent: null },
+    });
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.value = "never retarget";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(root.querySelector("[data-mutation-blocked]")?.textContent).toBe(
+      "The selected Lane is no longer available in Core state.",
+    );
+    expect(root.querySelector('[data-lane-id="lane-review"]')?.getAttribute("aria-current")).toBe(
+      "false",
+    );
+    expect(root.querySelector("[data-cancel-turn]")).toBeNull();
+    controller.dispose();
+  });
+
+  test("cross-checks the sole ACP session against the authoritative owner session", () => {
+    const { root, send, controller } = setup(
+      {
+        ...D1_PROJECTION,
+        contextDock: {
+          ...D1_PROJECTION.contextDock,
+          laneAgent: { ...D1_PROJECTION.contextDock.laneAgent!, sessionId: "owner-session" },
+        },
+        agentSessions: [
+          {
+            sessionId: "other-session",
+            laneId: "lane-core",
+            agentId: "codex-acp",
+            model: null,
+            status: "running",
+            task: "review",
+            diagnostic: null,
+          },
+        ],
+      },
+      { poll: false },
+    );
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.value = "never guess session";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(root.querySelector("[data-mutation-blocked]")?.textContent).toBe(
+      "The selected Lane session does not match its Core owner.",
+    );
+    controller.dispose();
+  });
+
+  test("queues a busy ACP follow-up through the selected Lane owner instead of sending ACP input", () => {
+    const { root, send, controller } = setup(
+      {
+        ...D1_PROJECTION,
+        contextDock: {
+          ...D1_PROJECTION.contextDock,
+          laneAgent: { ...D1_PROJECTION.contextDock.laneAgent!, sessionId: "acp-owner" },
+        },
+        agentSessions: [
+          {
+            sessionId: "acp-owner",
+            laneId: "lane-core",
+            agentId: "codex-acp",
+            model: null,
+            status: "running",
+            task: "review",
+            diagnostic: null,
+          },
+        ],
+        composer: { ...D1_PROJECTION.composer, busy: true, canSubmitImmediately: false },
+      },
+      { poll: false },
+    );
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.value = "queue this ACP follow-up";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(send).toHaveBeenCalledWith({
+      type: "submit",
+      laneId: "lane-core",
+      content: "queue this ACP follow-up",
+    });
+    controller.dispose();
+  });
+
+  test("renders typed unavailable transcript roles rather than inventing user or assistant rows", () => {
+    const { root, controller } = setup(
+      {
+        ...D1_PROJECTION,
+        transcript: [{ id: "lane-output", kind: "lane_output", content: "typed lane output" }],
+        unavailableFeatures: [
+          {
+            id: "transcript_user",
+            available: false,
+            code: "GUI-CORE-009",
+            message: "Typed user prompt rows are unavailable.",
+          },
+          {
+            id: "transcript_assistant",
+            available: false,
+            code: "GUI-CORE-009",
+            message: "Owner-scoped assistant rows are unavailable.",
+          },
+        ],
+      },
+      { poll: false },
+    );
+
+    expect(root.querySelector('[data-typed-empty="transcript-user"]')?.textContent).toBe(
+      "Typed user prompt rows are unavailable.",
+    );
+    expect(root.querySelector('[data-typed-empty="transcript-assistant"]')?.textContent).toBe(
+      "Owner-scoped assistant rows are unavailable.",
+    );
+    expect(root.querySelector('[data-transcript-row="user"]')).toBeNull();
+    expect(root.querySelector('[data-transcript-row="assistant"]')).toBeNull();
+    controller.dispose();
+  });
+
+  test("puts localized unavailable user and assistant placeholders before selected-Lane output", () => {
+    const { root, controller } = setup(
+      {
+        ...D1_PROJECTION,
+        preferences: { ...D1_PROJECTION.preferences, locale: "zh-CN" },
+        transcript: [{ id: "lane-output", kind: "lane_output", content: "已类型化输出" }],
+        unavailableFeatures: [
+          {
+            id: "transcript_user",
+            available: false,
+            code: "GUI-CORE-009",
+            message: "ignored source message",
+          },
+          {
+            id: "transcript_assistant",
+            available: false,
+            code: "GUI-CORE-009",
+            message: "ignored source message",
+          },
+        ],
+      },
+      { poll: false },
+    );
+    const sequence = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-center-sequence] [data-center-step]"),
+      (element) => element.dataset.centerStep,
+    );
+    expect(sequence.slice(0, 2)).toEqual(["user", "assistant"]);
+    expect(root.querySelector('[data-typed-empty="transcript-user"]')?.textContent).toBe(
+      "已类型化的用户提示行不可用。",
+    );
+    expect(root.querySelector('[data-typed-empty="transcript-assistant"]')?.textContent).toBe(
+      "按 Owner 范围限定的助手行不可用。",
+    );
+    controller.dispose();
+  });
+
+  test("clears old Lane transcript rows while waiting for the selected Lane projection", () => {
+    const reviewLane = { ...D1_PROJECTION.lanes[0]!, id: "lane-review", role: "reviewer" };
+    const { root, controller } = setup(
+      { ...D1_PROJECTION, lanes: [D1_PROJECTION.lanes[0]!, reviewLane] },
+      { poll: false },
+    );
+    root.querySelector<HTMLButtonElement>('[data-lane-id="lane-review"]')?.click();
+
+    expect(root.querySelector('[data-row-id="stream"]')).toBeNull();
+    expect(root.querySelector(".d1-work-card")).toBeNull();
+    expect(root.querySelector("[data-live-work-bar]")).toBeNull();
+    expect(root.querySelector("[data-context-dock-waiting]")?.textContent).toBe(
+      "Waiting for the selected Lane context.",
+    );
+    expect(root.querySelector('[data-typed-empty="transcript-switching"]')?.textContent).toBe(
+      "Waiting for the selected Lane transcript.",
+    );
+    controller.dispose();
   });
 
   test("keeps the canonical D1 activity rail destinations in design order", () => {
@@ -363,6 +757,29 @@ describe("D1 canonical streaming cockpit", () => {
     });
   });
 
+  test("renders a visible Send action that uses the same exact-owner queue path", () => {
+    const { root, send, controller } = setup({
+      ...D1_PROJECTION,
+      composer: { ...D1_PROJECTION.composer, busy: true, canSubmitImmediately: false },
+    });
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.value = "queue from visible Send";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    const submit = root.querySelector<HTMLButtonElement>("[data-composer-send]")!;
+    expect(submit.textContent).toBe("Send");
+    expect(submit.disabled).toBe(false);
+    submit.click();
+
+    expect(send).toHaveBeenCalledWith({
+      type: "submit",
+      laneId: "lane-core",
+      content: "queue from visible Send",
+    });
+    expect(root.querySelector("[data-cancel-turn]")).not.toBeNull();
+    controller.dispose();
+  });
+
   test("restores the sole ACP Agent as the Lane conversation", () => {
     const session = {
       sessionId: "acp-restored",
@@ -375,6 +792,11 @@ describe("D1 canonical streaming cockpit", () => {
     };
     const { root, send } = setup({
       ...D1_PROJECTION,
+      contextDock: {
+        ...D1_PROJECTION.contextDock,
+        laneAgent: { ...D1_PROJECTION.contextDock.laneAgent!, sessionId: "acp-restored" },
+      },
+      composer: { ...D1_PROJECTION.composer, busy: false, canSubmitImmediately: true },
       agentSessions: [session],
     });
     const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
@@ -384,6 +806,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     expect(send).toHaveBeenCalledWith({
       type: "send_agent_session_input",
+      laneId: "lane-core",
       sessionId: "acp-restored",
       content: "continue",
     });
@@ -740,6 +1163,19 @@ describe("D1 canonical streaming cockpit", () => {
       id: "lane-acp",
       branch: "codex/lane-acp",
     };
+    const laneContextDock = {
+      ...D1_PROJECTION.contextDock,
+      laneAgent: {
+        ...D1_PROJECTION.contextDock.laneAgent!,
+        laneId: "lane-acp",
+        sessionId: "acp-1",
+      },
+    };
+    const idleComposer = {
+      ...D1_PROJECTION.composer,
+      busy: false,
+      canSubmitImmediately: true,
+    };
     const session = {
       sessionId: "acp-1",
       laneId: "lane-acp",
@@ -760,6 +1196,7 @@ describe("D1 canonical streaming cockpit", () => {
                 selectedLaneId: "lane-acp",
                 lanes: [lane],
                 starterLanePreviews: [preview],
+                contextDock: laneContextDock,
               }
             : intent.type === "start_agent_session" ||
                 intent.type === "send_agent_session_input"
@@ -769,6 +1206,8 @@ describe("D1 canonical streaming cockpit", () => {
                   lanes: [lane],
                   starterLanePreviews: [preview],
                   agentSessions: [session],
+                  contextDock: laneContextDock,
+                  composer: idleComposer,
                 }
               : initial;
       return {
@@ -827,13 +1266,18 @@ describe("D1 canonical streaming cockpit", () => {
     await vi.waitFor(() => {
       expect(sent.at(-1)).toEqual({
         type: "send_agent_session_input",
+        laneId: "lane-acp",
         sessionId: "acp-1",
         content: "continue",
       });
     });
     root.querySelector<HTMLButtonElement>("[data-cancel-turn]")?.click();
     await vi.waitFor(() => {
-      expect(sent.at(-1)).toEqual({ type: "cancel_agent_session", sessionId: "acp-1" });
+      expect(sent.at(-1)).toEqual({
+        type: "cancel_agent_session",
+        laneId: "lane-acp",
+        sessionId: "acp-1",
+      });
     });
   });
 
@@ -1204,6 +1648,7 @@ describe("D1 canonical streaming cockpit", () => {
 
     expect(send).toHaveBeenCalledWith({
       type: "retry_agent_session",
+      laneId: "lane-core",
       sessionId: "acp-failed",
     });
   });

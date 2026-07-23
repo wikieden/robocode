@@ -71,6 +71,7 @@ pub struct D1ChecklistItemProjection {
     pub command: Option<String>,
     pub path: Option<String>,
     pub summary: Option<String>,
+    pub patch: Option<String>,
     pub failing_location: Option<String>,
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
@@ -122,13 +123,16 @@ pub enum D1Intent {
         task: String,
     },
     SendAgentSessionInput {
+        lane_id: String,
         session_id: String,
         content: String,
     },
     RetryAgentSession {
+        lane_id: String,
         session_id: String,
     },
     CancelAgentSession {
+        lane_id: String,
         session_id: String,
     },
 }
@@ -392,6 +396,24 @@ pub(crate) fn unavailable_features() -> Vec<D1UnavailableFeatureProjection> {
             available: false,
             code: "GUI-CORE-003",
             message: "Typed recovery actions are unavailable.",
+        },
+        D1UnavailableFeatureProjection {
+            id: "transcript_user",
+            available: false,
+            code: "GUI-CORE-009",
+            message: "Typed user prompt rows are unavailable.",
+        },
+        D1UnavailableFeatureProjection {
+            id: "transcript_assistant",
+            available: false,
+            code: "GUI-CORE-009",
+            message: "Owner-scoped assistant rows are unavailable.",
+        },
+        D1UnavailableFeatureProjection {
+            id: "live_work_scope",
+            available: false,
+            code: "GUI-CORE-010",
+            message: "Owner-scoped live-work facts are unavailable.",
         },
     ]
 }

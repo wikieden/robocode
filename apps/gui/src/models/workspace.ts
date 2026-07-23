@@ -120,6 +120,8 @@ export interface ChecklistItemProjection {
   command: string | null;
   path: string | null;
   summary: string | null;
+  /** Typed WorkspaceChange patch; absent facts must render as unavailable. */
+  patch?: string | null;
   failingLocation: string | null;
   additions: number | null;
   deletions: number | null;

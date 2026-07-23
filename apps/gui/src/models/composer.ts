@@ -19,6 +19,6 @@ export type D1Intent =
       model: string | null;
       task: string;
     }
-  | { type: "send_agent_session_input"; sessionId: string; content: string }
-  | { type: "retry_agent_session"; sessionId: string }
-  | { type: "cancel_agent_session"; sessionId: string };
+  | { type: "send_agent_session_input"; laneId: string; sessionId: string; content: string }
+  | { type: "retry_agent_session"; laneId: string; sessionId: string }
+  | { type: "cancel_agent_session"; laneId: string; sessionId: string };

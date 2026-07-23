@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en" data-skin="aurora" data-mode="dark" data-density="regular">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden D1 Task 6 QA</title>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      import "../../src/ui/tokens.css";
+      import "../../src/ui/theme.css";
+      import "../../src/ui/window_chrome.css";
+      import { renderD1Cockpit } from "../../src/screens/d1_cockpit.ts";
+      import { D1_PROJECTION } from "../../tests/support/d1_projection.ts";
+
+      const busy = new URLSearchParams(window.location.search).get("busy") !== "0";
+      const projection = {
+        ...D1_PROJECTION,
+        transcript: [
+          {
+            id: "user-refactor",
+            kind: "user",
+            content:
+              "Refactor the config loader, then run focused tests. Keep the change narrow and show me the diff before applying.",
+          },
+          {
+            id: "assistant-plan",
+            kind: "assistant",
+            content:
+              "Tests are staged. Found a parser edge case — I will update src/config.rs behind an approval gate, then rerun the suite.",
+          },
+        ],
+        contextDock: {
+          ...D1_PROJECTION.contextDock,
+          checklist: [
+            {
+              id: "change-config",
+              kind: "workspace_change",
+              label: "src/config.rs",
+              status: "modified",
+              command: null,
+              path: "src/config.rs",
+              summary: null,
+              failingLocation: null,
+              additions: 1,
+              deletions: 1,
+              patch:
+                "@@ src/config.rs 40-46 @@\n- let raw = fs::read_to_string(path).unwrap();\n+ let raw = fs::read_to_string(path)?;",
+            },
+            {
+              id: "check-config",
+              kind: "check_run",
+              label: "cargo test -p viden-cli config_tests",
+              status: "failed",
+              command: "cargo test -p viden-cli config_tests",
+              path: null,
+              summary: "failed · 101",
+              failingLocation: "src/config.rs:42:15",
+              additions: null,
+              deletions: null,
+              patch: null,
+            },
+          ],
+        },
+        liveWork: {
+          ...D1_PROJECTION.liveWork,
+          tasks: [
+            {
+              id: "task-core",
+              title: "codex patching failing test",
+              status: "testing",
+              progress: 64,
+            },
+          ],
+        },
+        composer: {
+          editable: true,
+          busy,
+          canCancel: true,
+          canSubmitImmediately: !busy,
+        },
+        permissionDock: {
+          workMode: "build",
+          permissionLevel: "ask",
+          request: {
+            id: "permission-shell-high-risk",
+            toolName: "shell command",
+            title: "Permission request",
+            message: "codex requests a recursive delete before the release build.",
+            inputPreview: "rm -rf target/ && cargo build --release",
+            isMutating: true,
+            reason: "target/ is outside this Lane's allowlist",
+            risk: "high",
+            target: {
+              kind: "repo_path",
+              display: "target/",
+              canonicalRef: "repo://target",
+            },
+            policyReasonKey: "permission.command_not_allowlisted",
+            policyReasonArgs: {},
+            expiresAt: 0,
+            defaultAction: "deny",
+            auditId: "audit-shell-task-6",
+            blockedByPlan: false,
+            actions: [
+              { kind: "once", available: true, sessionId: null, paths: [], code: null },
+              {
+                kind: "session",
+                available: true,
+                sessionId: "session-lane-core",
+                paths: [],
+                code: null,
+              },
+              { kind: "always", available: true, sessionId: null, paths: [], code: null },
+              { kind: "edit", available: true, sessionId: null, paths: [], code: null },
+              { kind: "deny", available: true, sessionId: null, paths: [], code: null },
+            ],
+          },
+        },
+      };
+      const events = [];
+      const record = (event) => {
+        events.push(event);
+        document.body.dataset.qaEvents = JSON.stringify(events);
+      };
+      const result = {
+        projection,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+      renderD1Cockpit(
+        document.querySelector("#app"),
+        projection,
+        async (intent) => {
+          record({ channel: busy ? "queued" : "immediate", intent });
+          return result;
+        },
+        async () => result,
+        async (intent) => {
+          record({ channel: "approval", intent });
+          return undefined;
+        },
+        undefined,
+        { onCreateLane: () => undefined, poll: false },
+      );
+    </script>
+  </body>
+</html>

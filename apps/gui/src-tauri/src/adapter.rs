@@ -1023,13 +1023,14 @@ impl GuiCoreAdapter {
                 )
             }
             D1Intent::SendAgentSessionInput {
+                lane_id,
                 session_id,
                 content,
             } => {
                 if content.trim().is_empty() {
                     return Err("ACP input is empty".to_string());
                 }
-                let session = self.exact_agent_session(&session_id)?;
+                let session = self.exact_agent_session(&lane_id, &session_id)?;
                 (
                     session.owner.clone(),
                     RuntimeCommand::SendAgentSessionInput {
@@ -1041,8 +1042,11 @@ impl GuiCoreAdapter {
                     PendingD1Kind::SendAgentSessionInput { session_id },
                 )
             }
-            D1Intent::RetryAgentSession { session_id } => {
-                let session = self.exact_agent_session(&session_id)?;
+            D1Intent::RetryAgentSession {
+                lane_id,
+                session_id,
+            } => {
+                let session = self.exact_agent_session(&lane_id, &session_id)?;
                 if !matches!(
                     session.status,
                     AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
@@ -1057,8 +1061,11 @@ impl GuiCoreAdapter {
                     PendingD1Kind::RetryAgentSession { session_id },
                 )
             }
-            D1Intent::CancelAgentSession { session_id } => {
-                let session = self.exact_agent_session(&session_id)?;
+            D1Intent::CancelAgentSession {
+                lane_id,
+                session_id,
+            } => {
+                let session = self.exact_agent_session(&lane_id, &session_id)?;
                 (
                     session.owner.clone(),
                     RuntimeCommand::CancelAgentSession {
@@ -1190,25 +1197,15 @@ impl GuiCoreAdapter {
     }
 
     fn exact_runtime_owner(&self, lane_id: &str) -> Result<RuntimeOwner, String> {
-        let owners = self
-            .projection
-            .view()
-            .into_iter()
-            .flat_map(|view| view.lane_runtime_owners.iter())
-            .filter(|binding| {
-                binding.lane_id == lane_id && binding.owner.lane_id.as_deref() == Some(lane_id)
-            })
-            .map(|binding| binding.owner.clone())
-            .collect::<Vec<_>>();
-        match owners.as_slice() {
-            [owner] => Ok(owner.clone()),
-            _ => Err(format!(
-                "Lane `{lane_id}` does not have one exact Core runtime owner"
-            )),
-        }
+        self.exact_lane_owner(lane_id, "runtime")
     }
 
     fn exact_submit_owner(&self, lane_id: &str) -> Result<RuntimeOwner, String> {
+        self.exact_lane_owner(lane_id, "submit")
+    }
+
+    /// Raw same-Lane binding cardinality is authoritative; malformed duplicates block all routing.
+    fn exact_lane_owner(&self, lane_id: &str, purpose: &str) -> Result<RuntimeOwner, String> {
         let view = self
             .projection
             .view()
@@ -1216,48 +1213,44 @@ impl GuiCoreAdapter {
         let runtime = view
             .lane_runtime_owners
             .iter()
-            .filter(|binding| {
-                binding.lane_id == lane_id && binding.owner.lane_id.as_deref() == Some(lane_id)
-            })
-            .map(|binding| binding.owner.clone())
+            .filter(|binding| binding.lane_id == lane_id)
             .collect::<Vec<_>>();
         match runtime.as_slice() {
-            [owner] => return Ok(owner.clone()),
-            [] => {}
-            _ => {
-                return Err(format!(
-                    "Lane `{lane_id}` does not have one exact Core submit owner"
-                ));
+            [binding] if binding.owner.lane_id.as_deref() == Some(lane_id) => {
+                return Ok(binding.owner.clone());
             }
-        }
-        let receipts = view
-            .starter_lane_receipts
-            .iter()
-            .filter(|receipt| {
-                receipt.lane.id == lane_id && receipt.owner.lane_id.as_deref() == Some(lane_id)
-            })
-            .map(|receipt| receipt.owner.clone())
-            .collect::<Vec<_>>();
-        match receipts.as_slice() {
-            [owner] => Ok(owner.clone()),
             _ => Err(format!(
-                "Lane `{lane_id}` does not have one exact Core submit owner"
+                "Lane `{lane_id}` does not have one exact Core {purpose} owner"
             )),
         }
     }
 
     fn exact_agent_session(
         &self,
+        lane_id: &str,
         session_id: &str,
     ) -> Result<&viden_core::AgentSessionView, String> {
-        self.projection
+        let owner = self.exact_lane_owner(lane_id, "ACP")?;
+        let view = self
+            .projection
             .view()
-            .and_then(|view| {
-                view.agent_sessions
-                    .iter()
-                    .find(|session| session.session_id == session_id)
-            })
-            .ok_or_else(|| format!("Core has no ACP session `{session_id}`"))
+            .expect("exact owner requires a Core view");
+        let sessions = view
+            .agent_sessions
+            .iter()
+            .filter(|session| session.lane_id == lane_id && session.session_id == session_id)
+            .collect::<Vec<_>>();
+        let [session] = sessions.as_slice() else {
+            return Err(format!(
+                "Core has no unique ACP session `{session_id}` for Lane `{lane_id}`"
+            ));
+        };
+        if session.owner != owner {
+            return Err(format!(
+                "ACP session `{session_id}` does not match the exact Core owner for Lane `{lane_id}`"
+            ));
+        }
+        Ok(session)
     }
 
     pub fn send_d11_intent(&mut self, command_id: &str, intent: D11Intent) -> Result<(), String> {
@@ -1691,9 +1684,10 @@ mod tests {
                 Duration::from_millis(250),
             )
             .expect("request starter Lane creation through live Core");
-        let request_id = create
-            .projection
-            .permission_dock
+        let _ = create;
+        let request_id = adapter
+            .permission_dock()
+            .expect("global permission projection")
             .request
             .expect("Core requests approval before creating a worktree")
             .id;

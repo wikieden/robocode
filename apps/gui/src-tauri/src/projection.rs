@@ -9,13 +9,11 @@ use viden_core::{
 };
 
 use crate::d1::{
-    D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentSessionInputProjection,
-    D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
-    D1ComposerProjection, D1ContextDockProjection, D1CostUsageProjection, D1CursorProjection,
-    D1EnvironmentProjection, D1EvidenceProjection, D1LaneAgentProjection, D1LaneProjection,
-    D1LiveWorkProjection, D1ProviderHealthProjection, D1QueuedInputProjection,
-    D1RuntimeServiceProjection, D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection,
-    D1TaskProjection, D1ToolProjection, D1TranscriptRowProjection,
+    D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentSessionProjection, D1ApprovalProjection,
+    D1ChecklistItemProjection, D1CockpitProjection, D1ComposerProjection, D1ContextDockProjection,
+    D1CostUsageProjection, D1CursorProjection, D1EnvironmentProjection, D1LaneAgentProjection,
+    D1LaneProjection, D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
+    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1TranscriptRowProjection,
     D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::{
@@ -171,92 +169,116 @@ impl RuntimeProjection {
     }
 
     pub fn permission_dock(&self) -> Option<PermissionDockProjection> {
+        self.permission_dock_matching(|_| true)
+    }
+
+    fn permission_dock_for_owner(
+        &self,
+        owner: &viden_core::RuntimeOwner,
+    ) -> Option<PermissionDockProjection> {
+        self.permission_dock_matching(|approval| approval.owner == *owner)
+    }
+
+    fn empty_permission_dock(&self) -> Option<PermissionDockProjection> {
+        self.permission_dock_matching(|_| false)
+    }
+
+    fn permission_dock_matching(
+        &self,
+        matches_owner: impl Fn(&viden_core::ApprovalRequestView) -> bool,
+    ) -> Option<PermissionDockProjection> {
         let view = self.view()?;
-        let request = view.pending_approvals.last().map(|approval| {
-            let blocked_by_plan = approval.is_mutating && view.snapshot.work_mode == WorkMode::Plan;
-            let mut actions = approval
-                .allowed_scopes
-                .iter()
-                .map(|scope| match scope {
-                    ApprovalScope::Once => PermissionActionProjection {
-                        kind: "once".to_string(),
+        let request = view
+            .pending_approvals
+            .iter()
+            .rev()
+            .find(|approval| matches_owner(approval))
+            .map(|approval| {
+                let blocked_by_plan =
+                    approval.is_mutating && view.snapshot.work_mode == WorkMode::Plan;
+                let mut actions = approval
+                    .allowed_scopes
+                    .iter()
+                    .map(|scope| match scope {
+                        ApprovalScope::Once => PermissionActionProjection {
+                            kind: "once".to_string(),
+                            available: !blocked_by_plan,
+                            session_id: None,
+                            paths: Vec::new(),
+                            code: None,
+                        },
+                        ApprovalScope::Session { session_id } => PermissionActionProjection {
+                            kind: "session".to_string(),
+                            available: !blocked_by_plan,
+                            session_id: Some(session_id.clone()),
+                            paths: Vec::new(),
+                            code: None,
+                        },
+                        ApprovalScope::RepoAllowlist { paths } => PermissionActionProjection {
+                            kind: "repo_allowlist".to_string(),
+                            available: !blocked_by_plan,
+                            session_id: None,
+                            paths: paths.clone(),
+                            code: None,
+                        },
+                    })
+                    .collect::<Vec<_>>();
+                // The design names Always/Edit, but schema 1 has no corresponding
+                // decision variants. Keep them visible and fail closed.
+                actions.extend([
+                    PermissionActionProjection {
+                        kind: "always".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-003"),
+                    },
+                    PermissionActionProjection {
+                        kind: "edit".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-003"),
+                    },
+                    PermissionActionProjection {
+                        kind: "deny".to_string(),
                         available: !blocked_by_plan,
                         session_id: None,
                         paths: Vec::new(),
                         code: None,
                     },
-                    ApprovalScope::Session { session_id } => PermissionActionProjection {
-                        kind: "session".to_string(),
-                        available: !blocked_by_plan,
-                        session_id: Some(session_id.clone()),
-                        paths: Vec::new(),
-                        code: None,
+                ]);
+                PermissionRequestProjection {
+                    id: approval.id.clone(),
+                    tool_name: approval.tool_name.clone(),
+                    title: approval.title.clone(),
+                    message: approval.message.clone(),
+                    input_preview: approval.input_preview.clone(),
+                    is_mutating: approval.is_mutating,
+                    reason: approval.reason.clone(),
+                    risk: match approval.risk {
+                        ApprovalRisk::Low => "low",
+                        ApprovalRisk::Medium => "medium",
+                        ApprovalRisk::High => "high",
+                        ApprovalRisk::Critical => "critical",
+                    }
+                    .to_string(),
+                    target: PermissionTargetProjection {
+                        kind: approval.target.kind.clone(),
+                        display: approval.target.display.clone(),
+                        canonical_ref: approval.target.canonical_ref.clone(),
                     },
-                    ApprovalScope::RepoAllowlist { paths } => PermissionActionProjection {
-                        kind: "repo_allowlist".to_string(),
-                        available: !blocked_by_plan,
-                        session_id: None,
-                        paths: paths.clone(),
-                        code: None,
+                    policy_reason_key: approval.policy_reason_key.clone(),
+                    policy_reason_args: approval.policy_reason_args.clone(),
+                    expires_at: approval.expires_at,
+                    default_action: match approval.default_action {
+                        ApprovalDefaultAction::Deny => "deny",
                     },
-                })
-                .collect::<Vec<_>>();
-            // The design names Always/Edit, but schema 1 has no corresponding
-            // decision variants. Keep them visible and fail closed.
-            actions.extend([
-                PermissionActionProjection {
-                    kind: "always".to_string(),
-                    available: false,
-                    session_id: None,
-                    paths: Vec::new(),
-                    code: Some("GUI-CORE-003"),
-                },
-                PermissionActionProjection {
-                    kind: "edit".to_string(),
-                    available: false,
-                    session_id: None,
-                    paths: Vec::new(),
-                    code: Some("GUI-CORE-003"),
-                },
-                PermissionActionProjection {
-                    kind: "deny".to_string(),
-                    available: !blocked_by_plan,
-                    session_id: None,
-                    paths: Vec::new(),
-                    code: None,
-                },
-            ]);
-            PermissionRequestProjection {
-                id: approval.id.clone(),
-                tool_name: approval.tool_name.clone(),
-                title: approval.title.clone(),
-                message: approval.message.clone(),
-                input_preview: approval.input_preview.clone(),
-                is_mutating: approval.is_mutating,
-                reason: approval.reason.clone(),
-                risk: match approval.risk {
-                    ApprovalRisk::Low => "low",
-                    ApprovalRisk::Medium => "medium",
-                    ApprovalRisk::High => "high",
-                    ApprovalRisk::Critical => "critical",
+                    audit_id: approval.audit_id.clone(),
+                    blocked_by_plan,
+                    actions,
                 }
-                .to_string(),
-                target: PermissionTargetProjection {
-                    kind: approval.target.kind.clone(),
-                    display: approval.target.display.clone(),
-                    canonical_ref: approval.target.canonical_ref.clone(),
-                },
-                policy_reason_key: approval.policy_reason_key.clone(),
-                policy_reason_args: approval.policy_reason_args.clone(),
-                expires_at: approval.expires_at,
-                default_action: match approval.default_action {
-                    ApprovalDefaultAction::Deny => "deny",
-                },
-                audit_id: approval.audit_id.clone(),
-                blocked_by_plan,
-                actions,
-            }
-        });
+            });
         Some(PermissionDockProjection {
             work_mode: view.snapshot.work_mode.cli_name().to_string(),
             permission_level: view.snapshot.permission_level.cli_name().to_string(),
@@ -480,21 +502,21 @@ impl RuntimeProjection {
     pub fn d1_cockpit(&self, requested_lane_id: Option<&str>) -> Option<D1CockpitProjection> {
         let confirmed = self.confirmed.as_ref()?;
         let view = &confirmed.view;
+        // Preserve an explicit selection even when its Lane disappears: choosing another
+        // Lane would silently retarget a subsequent mutation.
         let selected_lane_id = requested_lane_id
-            .filter(|lane_id| view.lanes.iter().any(|lane| lane.id == *lane_id))
             .map(str::to_string)
             .or_else(|| view.lanes.first().map(|lane| lane.id.clone()));
         let selected_lane = selected_lane_id
             .as_deref()
             .and_then(|lane_id| view.lanes.iter().find(|lane| lane.id == lane_id));
-        let exact_owner_count = selected_lane_id.as_deref().map_or(0, |lane_id| {
-            view.lane_runtime_owners
-                .iter()
-                .filter(|binding| {
-                    binding.lane_id == lane_id && binding.owner.lane_id.as_deref() == Some(lane_id)
-                })
-                .count()
-        });
+        let exact_owner_count = selected_lane
+            .and_then(|_| selected_lane_id.as_deref())
+            .map_or(0, |lane_id| exact_owner_count(view, lane_id));
+        let exact_binding = selected_lane
+            .and_then(|_| selected_lane_id.as_deref())
+            .and_then(|lane_id| exact_owner_binding(view, lane_id));
+        let selected_owner = exact_binding.map(|binding| &binding.owner);
         let supports_owner = confirmed
             .capabilities
             .iter()
@@ -503,15 +525,9 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == COCKPIT_CONTEXT_CAPABILITY);
-        let busy = !view.assistant_stream.is_empty()
-            || !view.active_tool_calls.is_empty()
-            || !view.queued_inputs.is_empty()
-            || view.tasks.iter().any(|task| task.is_active())
-            || selected_lane_id.as_deref().is_some_and(|lane_id| {
-                view.pending_approvals
-                    .iter()
-                    .any(|approval| approval.owner.lane_id.as_deref() == Some(lane_id))
-            });
+        // `RuntimeOwner.turn_id` is the owner-scoped Core fact that proves an active turn.
+        // Do not infer queueing from broad Lane lifecycle states.
+        let busy = selected_owner.is_some_and(|owner| owner.turn_id.is_some());
 
         let provider_id = view
             .provider
@@ -530,82 +546,40 @@ impl RuntimeProjection {
             .and_then(|cost| cost.cost_micro_usd);
 
         let mut transcript = Vec::new();
-        transcript.extend(
-            view.lane_outputs
-                .iter()
-                .enumerate()
-                .map(|(ordinal, output)| D1TranscriptRowProjection {
-                    // Core does not expose a lane-output identity yet. This ordinal only
-                    // disambiguates rows inside one projection; it is not durable identity.
-                    id: format!(
-                        "lane-output-{}-{}-{ordinal}",
-                        output.lane_id,
-                        output.timestamp.unwrap_or(0)
-                    ),
-                    kind: "lane_output",
-                    content: output.content.clone(),
-                }),
-        );
-        transcript.extend(
-            view.active_tool_calls
-                .iter()
-                .map(|tool| D1TranscriptRowProjection {
-                    id: format!("tool-{}", tool.tool_call_id),
-                    kind: "tool",
-                    content: format!("{} · {}", tool.name, tool.input_preview),
-                }),
-        );
-        transcript.extend(
-            view.latest_evidence
-                .iter()
-                .map(|evidence| D1TranscriptRowProjection {
-                    id: format!("evidence-{}", evidence.id),
-                    kind: "evidence",
-                    content: evidence.summary.clone(),
-                }),
-        );
-        transcript.extend(view.errors.iter().enumerate().map(|(index, error)| {
-            D1TranscriptRowProjection {
-                id: format!("error-{index}"),
-                kind: "error",
-                content: error.message.clone(),
-            }
-        }));
-        if !view.assistant_stream.is_empty() {
-            transcript.push(D1TranscriptRowProjection {
-                id: "assistant-stream".to_string(),
-                kind: "assistant_stream",
-                content: view.assistant_stream.clone(),
-            });
+        if exact_binding.is_some() {
+            transcript.extend(
+                view.lane_outputs
+                    .iter()
+                    .filter(|output| selected_lane_id.as_deref() == Some(output.lane_id.as_str()))
+                    .enumerate()
+                    .map(|(ordinal, output)| D1TranscriptRowProjection {
+                        // Core does not expose a lane-output identity yet. This ordinal only
+                        // disambiguates rows inside one projection; it is not durable identity.
+                        id: format!(
+                            "lane-output-{}-{}-{ordinal}",
+                            output.lane_id,
+                            output.timestamp.unwrap_or(0)
+                        ),
+                        kind: "lane_output",
+                        content: output.content.clone(),
+                    }),
+            );
         }
         if transcript.len() > 240 {
             transcript.drain(..transcript.len() - 240);
         }
 
         let context_dock = if supports_context_dock {
-            let exact_binding = (exact_owner_count == 1).then(|| {
-                view.lane_runtime_owners.iter().find(|binding| {
-                    selected_lane_id.as_deref().is_some_and(|lane_id| {
-                        binding.lane_id == lane_id
-                            && binding.owner.lane_id.as_deref() == Some(lane_id)
-                    })
-                })
+            let lane_agent = exact_binding.map(|binding| D1LaneAgentProjection {
+                lane_id: binding.lane_id.clone(),
+                workspace_id: binding.owner.workspace_id.clone(),
+                project_id: binding.owner.project_id.clone(),
+                session_id: binding.owner.session_id.clone(),
+                task_id: binding.owner.task_id.clone(),
+                turn_id: binding.owner.turn_id.clone(),
             });
-            let lane_agent = exact_binding
-                .flatten()
-                .map(|binding| D1LaneAgentProjection {
-                    lane_id: binding.lane_id.clone(),
-                    workspace_id: binding.owner.workspace_id.clone(),
-                    project_id: binding.owner.project_id.clone(),
-                    session_id: binding.owner.session_id.clone(),
-                    task_id: binding.owner.task_id.clone(),
-                    turn_id: binding.owner.turn_id.clone(),
-                });
-            let selected_lane_matches = |owner: &viden_core::RuntimeOwner| {
-                selected_lane_id
-                    .as_deref()
-                    .is_some_and(|lane_id| owner.lane_id.as_deref() == Some(lane_id))
-            };
+            let selected_lane_matches =
+                |owner: &viden_core::RuntimeOwner| selected_owner == Some(owner);
             let mut checklist = view
                 .workspace_changes
                 .iter()
@@ -618,6 +592,7 @@ impl RuntimeProjection {
                     command: None,
                     path: Some(change.path.clone()),
                     summary: None,
+                    patch: change.patch.clone(),
                     failing_location: None,
                     additions: Some(change.additions),
                     deletions: Some(change.deletions),
@@ -635,6 +610,7 @@ impl RuntimeProjection {
                         command: Some(check.command.clone()),
                         path: None,
                         summary: Some(check.summary.clone()),
+                        patch: None,
                         failing_location: check.failing_location.clone(),
                         additions: None,
                         deletions: None,
@@ -732,53 +708,22 @@ impl RuntimeProjection {
                 cost_micro_usd,
             },
             live_work: D1LiveWorkProjection {
-                tasks: view
-                    .tasks
-                    .iter()
-                    .map(|task| D1TaskProjection {
-                        id: task.id.clone(),
-                        title: task.title.clone(),
-                        status: task.status.as_str().to_string(),
-                        progress: task.progress,
-                    })
-                    .collect(),
-                tools: view
-                    .active_tool_calls
-                    .iter()
-                    .map(|tool| D1ToolProjection {
-                        id: tool.tool_call_id.clone(),
-                        name: tool.name.clone(),
-                        input_preview: tool.input_preview.clone(),
-                        state: "running",
-                    })
-                    .collect(),
+                // These collections have no RuntimeOwner in frontend-contract-v1. Do not
+                // project global work into the selected Lane until Core supplies ownership.
+                tasks: Vec::new(),
+                tools: Vec::new(),
                 approvals: view
                     .pending_approvals
                     .iter()
+                    .filter(|approval| selected_owner == Some(&approval.owner))
                     .map(|approval| D1ApprovalProjection {
                         id: approval.id.clone(),
                         title: approval.title.clone(),
                         risk: format!("{:?}", approval.risk).to_lowercase(),
                     })
                     .collect(),
-                queued_inputs: view
-                    .queued_inputs
-                    .iter()
-                    .map(|input| D1QueuedInputProjection {
-                        id: input.id.clone(),
-                        content_preview: input.content_preview.clone(),
-                    })
-                    .collect(),
-                evidence: view
-                    .latest_evidence
-                    .iter()
-                    .map(|evidence| D1EvidenceProjection {
-                        id: evidence.id.clone(),
-                        kind: evidence.kind.clone(),
-                        summary: evidence.summary.clone(),
-                        path: evidence.path.clone(),
-                    })
-                    .collect(),
+                queued_inputs: Vec::new(),
+                evidence: Vec::new(),
             },
             transcript,
             workspace_eligibility: view.workspace_eligibility.as_ref().map(|eligibility| {
@@ -822,6 +767,7 @@ impl RuntimeProjection {
             agent_sessions: view
                 .agent_sessions
                 .iter()
+                .filter(|session| selected_owner == Some(&session.owner))
                 .map(|session| D1AgentSessionProjection {
                     session_id: session.session_id.clone(),
                     lane_id: session.lane_id.clone(),
@@ -832,14 +778,9 @@ impl RuntimeProjection {
                     diagnostic: session.diagnostic.clone(),
                 })
                 .collect(),
-            agent_session_inputs: view
-                .agent_session_inputs
-                .iter()
-                .map(|input| D1AgentSessionInputProjection {
-                    session_id: input.session_id.clone(),
-                    input_id: input.input_id.clone(),
-                })
-                .collect(),
+            // Session-input views do not carry a RuntimeOwner. Exclude them rather
+            // than associating a global history entry with the selected Lane.
+            agent_session_inputs: Vec::new(),
             cost_usage: view
                 .cost_usage
                 .iter()
@@ -863,14 +804,38 @@ impl RuntimeProjection {
                 busy,
                 can_cancel: supports_owner
                     && selected_lane.is_some_and(|lane| lane.is_active())
-                    && exact_owner_count == 1,
+                    && exact_binding.is_some(),
                 can_submit_immediately: !busy,
             },
-            permission_dock: self.permission_dock()?,
+            permission_dock: match selected_owner {
+                Some(owner) => self.permission_dock_for_owner(owner)?,
+                None => self.empty_permission_dock()?,
+            },
             recovery,
             unavailable_features: unavailable_features(),
         })
     }
+}
+
+/// A GUI mutation may use an owner only when Core publishes exactly one binding for that Lane.
+fn exact_owner_binding<'a>(
+    view: &'a RuntimeViewState,
+    lane_id: &str,
+) -> Option<&'a viden_core::LaneRuntimeOwnerBinding> {
+    let mut bindings = view
+        .lane_runtime_owners
+        .iter()
+        .filter(|binding| binding.lane_id == lane_id);
+    let binding = bindings.next()?;
+    (bindings.next().is_none() && binding.owner.lane_id.as_deref() == Some(lane_id))
+        .then_some(binding)
+}
+
+fn exact_owner_count(view: &RuntimeViewState, lane_id: &str) -> usize {
+    view.lane_runtime_owners
+        .iter()
+        .filter(|binding| binding.lane_id == lane_id)
+        .count()
 }
 
 fn project_projection(probe: &ProjectProbe) -> D11ProjectProjection {

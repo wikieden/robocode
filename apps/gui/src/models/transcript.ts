@@ -39,6 +39,14 @@ export class BoundedTranscript {
     }
   }
 
+  reset(rows: readonly D1TranscriptRow[]): void {
+    this.rows = [];
+    this.followLatest = true;
+    this.anchor = null;
+    this.newOutputCount = 0;
+    this.replace(rows);
+  }
+
   setFollowLatest(followLatest: boolean, anchor?: string): void {
     this.followLatest = followLatest;
     if (followLatest) {

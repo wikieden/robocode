@@ -7,7 +7,7 @@ import {
   type AgentMenuSelection,
 } from "../components/agent_menu";
 import { renderCockpitTopbar } from "../components/cockpit_topbar";
-import { shouldSubmitComposer } from "../components/composer";
+import { shouldRouteComposerMutation, shouldSubmitComposer } from "../components/composer";
 import { renderContextDock } from "../components/context_dock";
 import { renderLaneRail } from "../components/lane_rail";
 import { renderLaneWorkSurface } from "../components/lane_work_surface";
@@ -15,7 +15,9 @@ import {
   renderPermissionDock,
   type PermissionIntent,
 } from "../components/permission_dock";
-import { transcriptAtBottom } from "../components/transcript";
+import { appendTranscriptRows, transcriptAtBottom } from "../components/transcript";
+import { appendTypedWorkCards } from "../components/tool_row";
+import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
 import { renderLaneTaskPrompt } from "../components/lane_task_prompt";
 import type { D1Intent } from "../models/composer";
@@ -64,11 +66,39 @@ function conversationForLane(
   projection: D1CockpitProjection,
   laneId: string | null,
 ): FocusedConversation | null {
-  if (!laneId) return null;
-  const session = projection.agentSessions.find((candidate) => candidate.laneId === laneId);
+  if (!laneId || projection.contextDock.laneAgent?.laneId !== laneId) return null;
+  const sessions = projection.agentSessions.filter((candidate) => candidate.laneId === laneId);
+  if (sessions.length > 1) return null;
+  const session = sessions[0];
+  if (session && session.sessionId !== projection.contextDock.laneAgent.sessionId) return null;
   return session
     ? { kind: "acp", laneId, sessionId: session.sessionId }
     : { kind: "native", laneId };
+}
+
+function composerMutationBlockReason(
+  projection: D1CockpitProjection,
+  laneId: string | null,
+):
+  | "d1.mutation.noOwner"
+  | "d1.mutation.duplicateSession"
+  | "d1.mutation.ownerMismatch"
+  | "d1.mutation.staleLane"
+  | null {
+  if (!laneId || !projection.lanes.some((lane) => lane.id === laneId)) {
+    return "d1.mutation.staleLane";
+  }
+  if (projection.contextDock.laneAgent?.laneId !== laneId) {
+    return "d1.mutation.noOwner";
+  }
+  const sessions = projection.agentSessions.filter((session) => session.laneId === laneId);
+  if (sessions.length > 1) {
+    return "d1.mutation.duplicateSession";
+  }
+  if (sessions[0] && sessions[0].sessionId !== projection.contextDock.laneAgent.sessionId) {
+    return "d1.mutation.ownerMismatch";
+  }
+  return null;
 }
 
 function button(label: string, marker?: string): HTMLButtonElement {
@@ -78,6 +108,27 @@ function button(label: string, marker?: string): HTMLButtonElement {
   element.textContent = label;
   if (marker) element.dataset[marker] = "true";
   return element;
+}
+
+function appendUnavailableTranscriptRows(
+  root: HTMLElement,
+  unavailableFeatures: D1CockpitProjection["unavailableFeatures"],
+  locale: D1CockpitProjection["preferences"]["locale"],
+): void {
+  for (const kind of ["user", "assistant"] as const) {
+    const feature = unavailableFeatures.find((candidate) => candidate.id === `transcript_${kind}`);
+    if (!feature) continue;
+    const placeholder = document.createElement("article");
+    placeholder.dataset.centerStep = kind;
+    placeholder.dataset.typedEmpty = `transcript-${kind}`;
+    placeholder.textContent = translate(
+      locale,
+      kind === "user" ? "d1.transcript.userUnavailable" : "d1.transcript.assistantUnavailable",
+      {},
+    );
+    placeholder.title = feature.code;
+    root.append(placeholder);
+  }
 }
 
 export function renderD1Cockpit(
@@ -92,6 +143,7 @@ export function renderD1Cockpit(
   let projection = initial;
   let selectedLaneId = initial.selectedLaneId;
   let focusedConversation = conversationForLane(initial, initial.selectedLaneId);
+  let transcriptLaneId = initial.selectedLaneId;
   let projectionKey = JSON.stringify(initial);
   let locale = initial.preferences.locale;
   let draft = "";
@@ -155,13 +207,15 @@ export function renderD1Cockpit(
       const nextKey = JSON.stringify(next);
       if (nextKey === projectionKey) return;
       projection = next;
-      if (!selectedLaneId || !next.lanes.some((lane) => lane.id === selectedLaneId)) {
-        selectedLaneId = next.selectedLaneId ?? next.lanes[0]?.id ?? null;
-      }
+      if (!selectedLaneId) selectedLaneId = next.selectedLaneId;
       focusedConversation = conversationForLane(next, selectedLaneId);
       projectionKey = nextKey;
       locale = next.preferences.locale;
-      transcript.replace(next.transcript);
+      if (next.selectedLaneId === selectedLaneId) {
+        if (transcriptLaneId !== selectedLaneId) transcript.reset(next.transcript);
+        else transcript.replace(next.transcript);
+        transcriptLaneId = selectedLaneId;
+      }
       render(false);
       queueMicrotask(maybeResumeLaneStart);
     },
@@ -182,17 +236,15 @@ export function renderD1Cockpit(
       const projectionChanged = nextKey !== projectionKey;
       if (projectionChanged) {
         projection = result.projection;
-        if (
-          !selectedLaneId ||
-          !result.projection.lanes.some((lane) => lane.id === selectedLaneId)
-        ) {
-          selectedLaneId =
-            result.projection.selectedLaneId ?? result.projection.lanes[0]?.id ?? null;
-        }
+        if (!selectedLaneId) selectedLaneId = result.projection.selectedLaneId;
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
         projectionKey = nextKey;
         locale = result.projection.preferences.locale;
-        transcript.replace(result.projection.transcript);
+        if (result.projection.selectedLaneId === selectedLaneId) {
+          if (transcriptLaneId !== selectedLaneId) transcript.reset(result.projection.transcript);
+          else transcript.replace(result.projection.transcript);
+          transcriptLaneId = selectedLaneId;
+        }
       }
       const discoveryChanged = observeAgentDiscoveryResult(result);
       if (
@@ -269,6 +321,38 @@ export function renderD1Cockpit(
 
   const sendIntent = (intent: D1Intent, onRejected?: () => void): void => {
     void sendAndWait(intent, onRejected);
+  };
+
+  const submitComposer = (content: string): void => {
+    const mutationBlock = composerMutationBlockReason(projection, selectedLaneId);
+    if (!shouldRouteComposerMutation(content, mutationBlock)) {
+      if (mutationBlock) {
+        errorMessage = translate(locale, mutationBlock, {});
+        render(true);
+      }
+      return;
+    }
+    if (!selectedLaneId) return;
+    submittedDraft = content;
+    errorMessage = null;
+    const route = conversationForLane(projection, selectedLaneId);
+    if (route?.kind === "acp" && !projection.composer.busy) {
+      sendIntent(
+        {
+          type: "send_agent_session_input",
+          laneId: route.laneId,
+          sessionId: route.sessionId,
+          content,
+        },
+        () => {
+          draft = content;
+        },
+      );
+      return;
+    }
+    sendIntent({ type: "submit", laneId: selectedLaneId, content }, () => {
+      draft = content;
+    });
   };
 
   const startLane = async (task: string, agentId: string | null): Promise<void> => {
@@ -552,13 +636,15 @@ export function renderD1Cockpit(
       },
       onSelectLane: (laneId) => {
         selectedLaneId = laneId;
+        transcriptLaneId = null;
+        transcript.reset([]);
         focusedConversation = conversationForLane(projection, laneId);
         render(false);
       },
       onRetryAgent: (sessionId, laneId) => {
         selectedLaneId = laneId;
         focusedConversation = conversationForLane(projection, laneId);
-        sendIntent({ type: "retry_agent_session", sessionId });
+        sendIntent({ type: "retry_agent_session", laneId, sessionId });
       },
     });
     const workSurface = document.createElement("section");
@@ -577,26 +663,30 @@ export function renderD1Cockpit(
     } else {
       const transcriptRegion = document.createElement("section");
       transcriptRegion.className = "d1-transcript";
+      transcriptRegion.dataset.centerSequence = "true";
       transcriptRegion.setAttribute("aria-label", translate(locale, "d1.transcript", {}));
       transcriptRegion.setAttribute("role", "log");
       transcriptRegion.setAttribute("aria-live", "polite");
       transcriptRegion.setAttribute("aria-relevant", "additions text");
       transcriptRegion.setAttribute("aria-busy", String(projection.composer.busy));
       transcriptRegion.tabIndex = 0;
-      const visibleRows = transcript.visible(transcriptRegion.clientHeight || 720, 36);
-      for (const row of visibleRows) {
-        const article = document.createElement("article");
-        article.className = "d1-row";
-        article.dataset.rowId = row.id;
-        article.dataset.kind = row.kind;
-        const kind = document.createElement("span");
-        kind.className = "d1-row-kind";
-        kind.textContent = row.kind.replaceAll("_", " ");
-        const content = document.createElement("pre");
-        content.textContent = row.content;
-        article.append(kind, content);
-        transcriptRegion.append(article);
+      const projectionMatchesSelectedLane = projection.selectedLaneId === selectedLaneId;
+      const visibleRows = projectionMatchesSelectedLane
+        ? transcript.visible(transcriptRegion.clientHeight || 720, 36)
+        : [];
+      appendUnavailableTranscriptRows(transcriptRegion, projection.unavailableFeatures, locale);
+      appendTranscriptRows(transcriptRegion, visibleRows);
+      if (projectionMatchesSelectedLane) {
+        appendTypedWorkCards(transcriptRegion, projection.contextDock.checklist, locale);
       }
+      if (!projectionMatchesSelectedLane) {
+        const switching = document.createElement("p");
+        switching.dataset.typedEmpty = "transcript-switching";
+        switching.textContent = translate(locale, "d1.transcript.switching", {});
+        transcriptRegion.append(switching);
+      }
+      const liveWork = projectionMatchesSelectedLane ? renderLiveWorkBar(projection, locale) : null;
+      if (liveWork) transcriptRegion.append(liveWork);
       const streamState = document.createElement("div");
       streamState.className = "d1-stream-state";
       streamState.setAttribute("role", "status");
@@ -627,7 +717,8 @@ export function renderD1Cockpit(
 
     const permissionHost = document.createElement("div");
     permissionHost.className = "d1-permission-host";
-    if (projection.permissionDock.request) {
+    const projectionMatchesSelectedLane = projection.selectedLaneId === selectedLaneId;
+    if (projectionMatchesSelectedLane && projection.permissionDock.request) {
       renderPermissionDock(
         permissionHost,
         projection.permissionDock,
@@ -661,29 +752,14 @@ export function renderD1Cockpit(
     composer.addEventListener("keydown", (event) => {
       if (!shouldSubmitComposer(event, composing)) return;
       event.preventDefault();
-      const content = composer.value;
-      if (!selectedLaneId || !content.trim()) return;
-      submittedDraft = content;
-      errorMessage = null;
-      if (focusedConversation?.kind === "acp") {
-        sendIntent(
-          {
-            type: "send_agent_session_input",
-            sessionId: focusedConversation.sessionId,
-            content,
-          },
-          () => {
-            draft = content;
-          },
-        );
-      } else {
-        sendIntent({ type: "submit", laneId: selectedLaneId, content }, () => {
-          draft = content;
-        });
-      }
+      submitComposer(composer.value);
     });
     composerLabel.append(composer);
     composerRegion.append(composerLabel);
+    const submit = button(translate(locale, "d1.composer.send", {}), "composerSend");
+    submit.disabled = composer.disabled;
+    submit.addEventListener("click", () => submitComposer(composer.value));
+    composerRegion.append(submit);
     const focusedAcpSessionId =
       focusedConversation?.kind === "acp" ? focusedConversation.sessionId : null;
     const focusedAcp = focusedAcpSessionId
@@ -694,13 +770,20 @@ export function renderD1Cockpit(
     const canCancelAcp = focusedAcp
       ? ["starting", "running", "waiting_approval"].includes(focusedAcp.status)
       : false;
-    if ((projection.composer.canCancel && selectedLaneId) || canCancelAcp) {
+    const mutationBlock = composerMutationBlockReason(projection, selectedLaneId);
+    if (!mutationBlock && ((projection.composer.canCancel && selectedLaneId) || canCancelAcp)) {
       const cancel = button(translate(locale, "d1.cancel", {}), "cancelTurn");
       cancel.addEventListener("click", () => {
-        if (focusedConversation?.kind === "acp") {
+        const commandBlock = composerMutationBlockReason(projection, selectedLaneId);
+        const route = conversationForLane(projection, selectedLaneId);
+        if (commandBlock) {
+          errorMessage = translate(locale, commandBlock, {});
+          render(false);
+        } else if (route?.kind === "acp") {
           sendIntent({
             type: "cancel_agent_session",
-            sessionId: focusedConversation.sessionId,
+            laneId: route.laneId,
+            sessionId: route.sessionId,
           });
         } else if (selectedLaneId) {
           sendIntent({ type: "cancel", laneId: selectedLaneId });
@@ -715,13 +798,21 @@ export function renderD1Cockpit(
       rejection.textContent = errorMessage;
       composerRegion.append(rejection);
     }
+    if (mutationBlock) {
+      const blocked = document.createElement("p");
+      blocked.dataset.mutationBlocked = "true";
+      blocked.setAttribute("role", "status");
+      blocked.textContent = translate(locale, mutationBlock, {});
+      composerRegion.append(blocked);
+    }
     const main = renderLaneWorkSurface({
       work: workSurface,
       permission: permissionHost,
       composer: composerRegion,
       showWelcome,
+      ariaLabel: translate(locale, "d1.workSurface", {}),
     });
-    const right = renderContextDock(projection, locale);
+    const right = renderContextDock(projection, locale, projectionMatchesSelectedLane);
     right.dataset.drawerOpen = String(contextDrawerOpen);
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
     topbar.contextDrawerToggle.addEventListener("click", () => {

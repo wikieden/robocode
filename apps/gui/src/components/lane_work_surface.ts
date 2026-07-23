@@ -3,6 +3,7 @@ export interface LaneWorkSurfaceParts {
   permission: HTMLElement;
   composer: HTMLElement;
   showWelcome: boolean;
+  ariaLabel?: string;
 }
 
 /**
@@ -15,6 +16,7 @@ export function renderLaneWorkSurface(parts: LaneWorkSurfaceParts): HTMLElement 
   surface.dataset.shellLandmark = "lane-work-surface";
   surface.dataset.cockpitRole = "work";
   surface.dataset.laneWorkSurface = "true";
+  surface.setAttribute("aria-label", parts.ariaLabel ?? "");
   if (parts.showWelcome) surface.classList.add("d1-main-welcome");
 
   parts.work.dataset.workSurface = "true";

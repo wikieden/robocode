@@ -1,8 +1,7 @@
 import { translate, type Locale } from "../i18n/catalog";
 import type { D1CockpitProjection } from "../models/workspace";
 import { environmentValues } from "./environment";
-import { approvalRowText, taskRowText } from "./live_work";
-import { toolRowText } from "./tool_row";
+import { boundedLiveWorkEntries } from "./live_work";
 
 function definition(list: HTMLDListElement, label: string, value: string): void {
   const term = document.createElement("dt");
@@ -15,6 +14,7 @@ function definition(list: HTMLDListElement, label: string, value: string): void 
 export function renderContextDock(
   projection: D1CockpitProjection,
   locale: Locale,
+  matchesSelectedLane = true,
 ): HTMLElement {
   const dock = document.createElement("aside");
   dock.id = "d1-context-dock";
@@ -23,6 +23,13 @@ export function renderContextDock(
   dock.dataset.cockpitRole = "context";
   dock.dataset.contextDock = "true";
   dock.dataset.drawerOpen = "false";
+  if (!matchesSelectedLane) {
+    const waiting = document.createElement("p");
+    waiting.dataset.contextDockWaiting = "true";
+    waiting.textContent = translate(locale, "d1.context.switching", {});
+    dock.append(waiting);
+    return dock;
+  }
 
   const environment = document.createElement("section");
   environment.setAttribute("aria-label", translate(locale, "d1.environment", {}));
@@ -47,18 +54,7 @@ export function renderContextDock(
   const workTitle = document.createElement("h2");
   workTitle.textContent = translate(locale, "d1.liveWork", {});
   liveWork.append(workTitle);
-  const rows = [
-    ...projection.liveWork.tasks.map(taskRowText),
-    ...projection.liveWork.tools.map(toolRowText),
-    ...projection.liveWork.approvals.map(approvalRowText),
-    ...projection.liveWork.queuedInputs.map(
-      (input) => `${translate(locale, "d1.queued", {})} · ${input.contentPreview}`,
-    ),
-    ...projection.liveWork.evidence.map(
-      (evidence) => `${evidence.kind} · ${evidence.summary}`,
-    ),
-  ];
-  for (const text of rows) {
+  for (const { text } of boundedLiveWorkEntries(projection, locale)) {
     const item = document.createElement("div");
     item.className = "d1-work-item";
     item.textContent = text;
@@ -70,7 +66,7 @@ export function renderContextDock(
     item.dataset.unavailableFeature = unavailable.id;
     item.setAttribute("aria-disabled", "true");
     item.textContent = `${translate(locale, "d1.unavailable", {})} · ${unavailable.id} · ${unavailable.code}`;
-    item.title = unavailable.message;
+    item.title = unavailable.code;
     liveWork.append(item);
   }
   dock.append(environment, liveWork);
