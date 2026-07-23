@@ -93,7 +93,16 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
   return svg;
 }
 
-export function renderActivityRail(locale: Locale): HTMLElement {
+export interface ActivityRailOptions {
+  lanesAvailable: boolean;
+  lanesOpen: boolean;
+  onToggleLanes: () => void;
+}
+
+export function renderActivityRail(
+  locale: Locale,
+  options: ActivityRailOptions,
+): HTMLElement {
   const activity = document.createElement("nav");
   activity.className = "act d1-activity";
   activity.dataset.shellLandmark = "activity-rail";
@@ -109,6 +118,19 @@ export function renderActivityRail(locale: Locale): HTMLElement {
     if (activityItem.key === "d1.activity.work") {
       item.classList.add("on");
       item.setAttribute("aria-current", "page");
+    } else if (activityItem.key === "d1.activity.lanes") {
+      item.dataset.lanesToggle = "true";
+      item.disabled = !options.lanesAvailable;
+      if (options.lanesAvailable) {
+        item.setAttribute("aria-controls", "d1-lane-rail");
+        item.setAttribute("aria-expanded", String(options.lanesOpen));
+        item.addEventListener("click", options.onToggleLanes);
+        item.addEventListener("keydown", (event) => {
+          if (!["Enter", " "].includes(event.key)) return;
+          event.preventDefault();
+          item.click();
+        });
+      }
     } else {
       item.disabled = true;
     }

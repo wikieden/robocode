@@ -158,6 +158,40 @@ describe("D1 canonical streaming cockpit", () => {
     ]);
   });
 
+  test("opens and dismisses the floating Lane rail from its keyboard-operable activity control", () => {
+    const { root } = setup();
+    const toggle = root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!;
+
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute("aria-controls")).toBe("d1-lane-rail");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
+
+    toggle.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    const openedRail = root.querySelector<HTMLElement>("#d1-lane-rail")!;
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(openedRail.dataset.open).toBe("true");
+    expect(document.activeElement).toBe(openedRail.querySelector("[data-create-lane]"));
+
+    openedRail.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
+    expect(document.activeElement).toBe(root.querySelector("[data-lanes-toggle]"));
+
+    root
+      .querySelector<HTMLButtonElement>("[data-lanes-toggle]")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+  });
+
   test.each([
     ["no workspace", EMPTY_PROJECTION, { onOpenProject: vi.fn(), poll: false }],
     ["zero Lane", EMPTY_PROJECTION, { onCreateLane: vi.fn(), poll: false }],

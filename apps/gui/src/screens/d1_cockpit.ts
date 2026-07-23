@@ -104,6 +104,8 @@ export function renderD1Cockpit(
   let submittedDraft: string | null = null;
   let errorMessage: string | null = null;
   let contextDrawerOpen = false;
+  let laneRailOpen = false;
+  let laneRailFocusTarget: "rail" | "toggle" | null = null;
   let menuController: AgentMenuController | null = null;
   let agentMenuOpen = false;
   let pendingAgentSelection: AgentMenuSelection | null = null;
@@ -525,14 +527,28 @@ export function renderD1Cockpit(
     body.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
     if (showWelcome) body.classList.add("d1-body-welcome");
 
-    const activity = renderActivityRail(locale);
+    const activity = renderActivityRail(locale, {
+      lanesAvailable: !showWelcome,
+      lanesOpen: laneRailOpen,
+      onToggleLanes: () => {
+        laneRailOpen = !laneRailOpen;
+        laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
+        render(false);
+      },
+    });
     const lanes = renderLaneRail({
       projection,
       locale,
+      open: laneRailOpen,
       selectedLaneId,
       onCreateLane: () => {
         if (options.onCreateLane) options.onCreateLane();
         else void openAgentMenu();
+      },
+      onDismiss: () => {
+        laneRailOpen = false;
+        laneRailFocusTarget = "toggle";
+        render(false);
       },
       onSelectLane: (laneId) => {
         selectedLaneId = laneId;
@@ -732,7 +748,14 @@ export function renderD1Cockpit(
 
     if (agentMenuOpen) queueMicrotask(mountAgentMenu);
 
-    if (focusComposer || restoreComposerFocus) {
+    if (laneRailFocusTarget) {
+      const focusTarget =
+        laneRailFocusTarget === "rail"
+          ? root.querySelector<HTMLElement>("#d1-lane-rail [data-create-lane]")
+          : root.querySelector<HTMLElement>("[data-lanes-toggle]");
+      laneRailFocusTarget = null;
+      focusTarget?.focus();
+    } else if (focusComposer || restoreComposerFocus) {
       const nextComposer = root.querySelector<HTMLTextAreaElement>("[data-composer]");
       nextComposer?.focus();
       nextComposer?.setSelectionRange(selectionStart, selectionEnd);

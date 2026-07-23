@@ -14,8 +14,10 @@ export function adjacentLaneId(
 export interface LaneRailOptions {
   projection: D1CockpitProjection;
   locale: Locale;
+  open: boolean;
   selectedLaneId: string | null;
   onCreateLane: () => void;
+  onDismiss: () => void;
   onSelectLane: (laneId: string) => void;
   onRetryAgent: (sessionId: string, laneId: string) => void;
 }
@@ -31,10 +33,18 @@ function railButton(label = ""): HTMLButtonElement {
 export function renderLaneRail(options: LaneRailOptions): HTMLElement {
   const { projection, locale, selectedLaneId } = options;
   const lanes = document.createElement("nav");
+  lanes.id = "d1-lane-rail";
   lanes.className = "side d1-lanes";
+  lanes.dataset.open = String(options.open);
   lanes.dataset.shellLandmark = "lane-rail";
   lanes.dataset.cockpitRole = "lanes";
   lanes.setAttribute("aria-label", translate(locale, "d1.lanes", {}));
+  lanes.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !options.open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    options.onDismiss();
+  });
 
   const laneTitle = document.createElement("h2");
   laneTitle.textContent = translate(locale, "d1.lanes", {});

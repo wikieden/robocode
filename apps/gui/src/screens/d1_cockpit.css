@@ -143,7 +143,8 @@
 
 .d1-activity:hover + .d1-lanes,
 .d1-lanes:hover,
-.d1-lanes:focus-within {
+.d1-lanes:focus-within,
+.d1-lanes[data-open="true"] {
   opacity: 1;
   transform: translateX(0);
   visibility: visible;
