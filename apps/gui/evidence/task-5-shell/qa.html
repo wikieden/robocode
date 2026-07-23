@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" data-skin="aurora" data-mode="dark" data-density="regular">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden D1 Task 5 QA</title>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      import "../../src/ui/tokens.css";
+      import "../../src/ui/theme.css";
+      import "../../src/ui/window_chrome.css";
+      import { renderD1Cockpit } from "../../src/screens/d1_cockpit.ts";
+      import { D1_PROJECTION } from "../../tests/support/d1_projection.ts";
+
+      const projection = {
+        ...D1_PROJECTION,
+        permissionDock: {
+          workMode: "build",
+          permissionLevel: "ask",
+          request: {
+            id: "permission-shell",
+            toolName: "shell",
+            title: "Permission request",
+            message: "Run the focused GUI checks after applying the config-loader patch.",
+            inputPreview: "npm --prefix apps/gui test -- --run tests/d1_cockpit.spec.ts",
+            isMutating: true,
+            reason: "The command is outside the current allowlist.",
+            risk: "high",
+            target: { kind: "local", display: "viden", canonicalRef: null },
+            policyReasonKey: "permission.command_not_allowlisted",
+            policyReasonArgs: {},
+            expiresAt: 0,
+            defaultAction: "deny",
+            auditId: "audit-shell",
+            blockedByPlan: false,
+            actions: [
+              {
+                kind: "once",
+                available: true,
+                sessionId: null,
+                paths: [],
+                code: null,
+              },
+              {
+                kind: "session",
+                available: true,
+                sessionId: "session-lane-core",
+                paths: [],
+                code: null,
+              },
+              {
+                kind: "deny",
+                available: true,
+                sessionId: null,
+                paths: [],
+                code: null,
+              },
+            ],
+          },
+        },
+      };
+      const result = {
+        projection,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+      renderD1Cockpit(
+        document.querySelector("#app"),
+        projection,
+        async () => result,
+        async () => result,
+        async () => undefined,
+        undefined,
+        { onCreateLane: () => undefined, poll: false },
+      );
+    </script>
+  </body>
+</html>

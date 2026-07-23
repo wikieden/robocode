@@ -1,20 +1,20 @@
 import { translate } from "../i18n/catalog";
-import { D1_ACTIVITY_ITEMS } from "../components/activity_rail";
+import { renderActivityRail } from "../components/activity_rail";
 import {
   orderedAgentAdapters,
   renderAgentMenu,
   type AgentMenuController,
   type AgentMenuSelection,
 } from "../components/agent_menu";
+import { renderCockpitTopbar } from "../components/cockpit_topbar";
 import { shouldSubmitComposer } from "../components/composer";
-import { environmentValues } from "../components/environment";
-import { adjacentLaneId } from "../components/lane_rail";
-import { approvalRowText, taskRowText } from "../components/live_work";
+import { renderContextDock } from "../components/context_dock";
+import { renderLaneRail } from "../components/lane_rail";
+import { renderLaneWorkSurface } from "../components/lane_work_surface";
 import {
   renderPermissionDock,
   type PermissionIntent,
 } from "../components/permission_dock";
-import { toolRowText } from "../components/tool_row";
 import { transcriptAtBottom } from "../components/transcript";
 import { renderWelcomeCenter } from "../components/welcome_center";
 import { renderLaneTaskPrompt } from "../components/lane_task_prompt";
@@ -80,14 +80,6 @@ function button(label: string, marker?: string): HTMLButtonElement {
   return element;
 }
 
-function definition(list: HTMLDListElement, label: string, value: string): void {
-  const term = document.createElement("dt");
-  term.textContent = label;
-  const detail = document.createElement("dd");
-  detail.textContent = value;
-  list.append(term, detail);
-}
-
 export function renderD1Cockpit(
   root: HTMLElement,
   initial: D1CockpitProjection,
@@ -111,6 +103,7 @@ export function renderD1Cockpit(
   let pendingCommandId: string | null = null;
   let submittedDraft: string | null = null;
   let errorMessage: string | null = null;
+  let contextDrawerOpen = false;
   let menuController: AgentMenuController | null = null;
   let agentMenuOpen = false;
   let pendingAgentSelection: AgentMenuSelection | null = null;
@@ -147,6 +140,11 @@ export function renderD1Cockpit(
     root.querySelector<HTMLButtonElement>("[data-open-project]")?.click();
   };
   window.addEventListener("keydown", handleWindowKeydown);
+  const handleWindowResize = (): void => {
+    const grid = root.querySelector<HTMLElement>("[data-cockpit-grid]");
+    if (grid) grid.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
+  };
+  window.addEventListener("resize", handleWindowResize);
 
   const controller: D1Controller = {
     transcript,
@@ -212,6 +210,7 @@ export function renderD1Cockpit(
       menuController?.close();
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       window.removeEventListener("keydown", handleWindowKeydown);
+      window.removeEventListener("resize", handleWindowResize);
     },
   };
 
@@ -516,114 +515,36 @@ export function renderD1Cockpit(
     const showWelcome = shouldShowWelcome();
     if (showWelcome) frame.dataset.d1State = "welcome";
 
-    const titlebar = document.createElement("header");
-    titlebar.className = "vbar d1-titlebar";
-    titlebar.dataset.tauriDragRegion = "true";
-    const title = document.createElement("h1");
-    title.textContent = translate(locale, showWelcome ? "d1.welcome.windowTitle" : "d1.title", {});
-    title.dataset.tauriDragRegion = "true";
-    const context = document.createElement("p");
-    context.textContent = showWelcome
-      ? translate(locale, "d1.welcome.noProject", {})
-      : `${projection.environment.cwd} · ${projection.environment.model}`;
-    context.dataset.tauriDragRegion = "true";
-    titlebar.append(title, context);
+    frame.dataset.nativeWindowShell = "true";
+    const topbar = renderCockpitTopbar(projection, locale, showWelcome);
+    const titlebar = topbar.element;
 
     const body = document.createElement("div");
     body.className = "d1-body";
+    body.dataset.cockpitGrid = "true";
+    body.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
     if (showWelcome) body.classList.add("d1-body-welcome");
 
-    const activity = document.createElement("nav");
-    activity.className = "d1-activity";
-    activity.setAttribute("aria-label", translate(locale, "d1.activity", {}));
-    for (const activityItem of D1_ACTIVITY_ITEMS) {
-      const item = button("");
-      const icon = document.createElement("span");
-      icon.className = "d1-activity-icon";
-      icon.ariaHidden = "true";
-      icon.textContent = activityItem.icon;
-      item.append(icon);
-      item.title = translate(locale, activityItem.key, {});
-      item.setAttribute("aria-label", translate(locale, activityItem.key, {}));
-      if (activityItem.key === "d1.activity.work") {
-        item.setAttribute("aria-current", "page");
-      } else {
-        item.disabled = true;
-      }
-      activity.append(item);
-    }
-
-    const lanes = document.createElement("nav");
-    lanes.className = "d1-lanes";
-    lanes.setAttribute("aria-label", translate(locale, "d1.lanes", {}));
-    const laneTitle = document.createElement("h2");
-    laneTitle.textContent = translate(locale, "d1.lanes", {});
-    lanes.append(laneTitle);
-    const createLane = button(translate(locale, "d1.lane.create", {}), "createLane");
-    createLane.classList.add("d1-create-lane");
-    createLane.setAttribute("aria-haspopup", "menu");
-    createLane.setAttribute("aria-expanded", "false");
-    createLane.addEventListener("click", () => {
-      if (options.onCreateLane) options.onCreateLane();
-      else void openAgentMenu();
-    });
-    lanes.append(createLane);
-    projection.lanes.forEach((lane, index) => {
-      const boundSession = projection.agentSessions.find(
-        (candidate) => candidate.laneId === lane.id,
-      );
-      const item = button("");
-      item.className = "d1-lane";
-      item.dataset.laneId = lane.id;
-      item.dataset.laneAgentId = boundSession?.agentId ?? "viden";
-      item.setAttribute("aria-current", String(lane.id === selectedLaneId));
-      item.innerHTML = `<span class="d1-lane-status" data-status="${lane.status}"></span><span><strong></strong><small></small></span>`;
-      item.querySelector("strong")!.textContent = lane.id;
-      item.querySelector("small")!.textContent = boundSession
-        ? `${boundSession.agentId} · ${boundSession.status}`
-        : `Viden · ${lane.status}`;
-      item.addEventListener("keydown", (event) => {
-        if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-        event.preventDefault();
-        const target = adjacentLaneId(
-          projection.lanes.map((candidate) => candidate.id),
-          index,
-          event.key === "ArrowDown" ? "next" : "previous",
-        );
-        if (target) {
-          Array.from(root.querySelectorAll<HTMLElement>("[data-lane-id]"))
-            .find((candidate) => candidate.dataset.laneId === target)
-            ?.focus();
-        }
-      });
-      item.addEventListener("click", () => {
-        selectedLaneId = lane.id;
-        focusedConversation = conversationForLane(projection, lane.id);
+    const activity = renderActivityRail(locale);
+    const lanes = renderLaneRail({
+      projection,
+      locale,
+      selectedLaneId,
+      onCreateLane: () => {
+        if (options.onCreateLane) options.onCreateLane();
+        else void openAgentMenu();
+      },
+      onSelectLane: (laneId) => {
+        selectedLaneId = laneId;
+        focusedConversation = conversationForLane(projection, laneId);
         render(false);
-      });
-      lanes.append(item);
-      if (
-        boundSession &&
-        ["failed", "cancelled"].includes(boundSession.status)
-      ) {
-        const retry = button(translate(locale, "d1.session.retry", {}));
-        retry.className = "d1-lane-agent-retry";
-        retry.dataset.retryLaneAgent = lane.id;
-        retry.addEventListener("click", () => {
-          selectedLaneId = lane.id;
-          focusedConversation = conversationForLane(projection, lane.id);
-          sendIntent({
-            type: "retry_agent_session",
-            sessionId: boundSession.sessionId,
-          });
-        });
-        lanes.append(retry);
-      }
+      },
+      onRetryAgent: (sessionId, laneId) => {
+        selectedLaneId = laneId;
+        focusedConversation = conversationForLane(projection, laneId);
+        sendIntent({ type: "retry_agent_session", sessionId });
+      },
     });
-
-    const main = document.createElement("main");
-    main.className = "d1-main";
-    if (showWelcome) main.classList.add("d1-main-welcome");
     const workSurface = document.createElement("section");
     workSurface.className = "d1-work-surface";
     const showRecovery = !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state);
@@ -778,77 +699,23 @@ export function renderD1Cockpit(
       rejection.textContent = errorMessage;
       composerRegion.append(rejection);
     }
-    main.append(workSurface);
-    if (!showWelcome) {
-      if (projection.permissionDock.request) main.append(permissionHost);
-      main.append(composerRegion);
-    }
-
-    const right = document.createElement("aside");
-    right.className = "d1-right";
-    const environment = document.createElement("section");
-    environment.setAttribute("aria-label", translate(locale, "d1.environment", {}));
-    const environmentTitle = document.createElement("h2");
-    environmentTitle.textContent = translate(locale, "d1.environment", {});
-    const environmentFacts = document.createElement("dl");
-    const environmentLabels = [
-      translate(locale, "d1.environment.provider", {}),
-      translate(locale, "d1.environment.model", {}),
-      translate(locale, "d1.environment.mode", {}),
-      translate(locale, "d1.environment.permission", {}),
-      translate(locale, "d1.environment.tokens", {}),
-      translate(locale, "d1.environment.cost", {}),
-    ];
-    environmentValues(projection.environment).forEach((value, index) => {
-      definition(environmentFacts, environmentLabels[index]!, value);
+    const main = renderLaneWorkSurface({
+      work: workSurface,
+      permission: permissionHost,
+      composer: composerRegion,
+      showWelcome,
     });
-    environment.append(environmentTitle, environmentFacts);
-
-    const liveWork = document.createElement("section");
-    liveWork.setAttribute("aria-label", translate(locale, "d1.liveWork", {}));
-    const workTitle = document.createElement("h2");
-    workTitle.textContent = translate(locale, "d1.liveWork", {});
-    liveWork.append(workTitle);
-    for (const task of projection.liveWork.tasks) {
-      const item = document.createElement("div");
-      item.className = "d1-work-item";
-      item.textContent = taskRowText(task);
-      liveWork.append(item);
-    }
-    for (const tool of projection.liveWork.tools) {
-      const item = document.createElement("div");
-      item.className = "d1-work-item";
-      item.textContent = toolRowText(tool);
-      liveWork.append(item);
-    }
-    for (const approval of projection.liveWork.approvals) {
-      const item = document.createElement("div");
-      item.className = "d1-work-item warning";
-      item.textContent = approvalRowText(approval);
-      liveWork.append(item);
-    }
-    for (const input of projection.liveWork.queuedInputs) {
-      const item = document.createElement("div");
-      item.className = "d1-work-item";
-      item.textContent = `${translate(locale, "d1.queued", {})} · ${input.contentPreview}`;
-      liveWork.append(item);
-    }
-    for (const evidence of projection.liveWork.evidence) {
-      const item = document.createElement("div");
-      item.className = "d1-work-item";
-      item.textContent = `${evidence.kind} · ${evidence.summary}`;
-      liveWork.append(item);
-    }
-    for (const unavailable of projection.unavailableFeatures) {
-      const item = document.createElement("div");
-      item.className = "d1-unavailable";
-      item.dataset.unavailableFeature = unavailable.id;
-      item.setAttribute("aria-disabled", "true");
-      item.textContent = `${translate(locale, "d1.unavailable", {})} · ${unavailable.id} · ${unavailable.code}`;
-      item.title = unavailable.message;
-      liveWork.append(item);
-    }
-    right.append(environment, liveWork);
+    const right = renderContextDock(projection, locale);
+    right.dataset.drawerOpen = String(contextDrawerOpen);
+    topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
+    topbar.contextDrawerToggle.addEventListener("click", () => {
+      contextDrawerOpen = !contextDrawerOpen;
+      right.dataset.drawerOpen = String(contextDrawerOpen);
+      topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
+      topbar.contextDrawerToggle.classList.toggle("on", contextDrawerOpen);
+      if (contextDrawerOpen) right.focus();
+    });
+    right.tabIndex = -1;
 
     if (showWelcome) {
       body.append(activity, main);
@@ -856,7 +723,9 @@ export function renderD1Cockpit(
       body.append(activity, lanes, main, right);
     }
     const status = document.createElement("footer");
-    status.className = "d1-status";
+    status.className = "statusbar d1-status";
+    status.dataset.shellLandmark = "statusbar";
+    status.dataset.statusbar = "true";
     status.textContent = `${projection.environment.workMode} · ${projection.environment.permissionLevel} · ${projection.preferences.skin}/${projection.preferences.mode}`;
     frame.append(titlebar, body, status);
     root.replaceChildren(frame);

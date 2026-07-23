@@ -51,6 +51,67 @@ const EMPTY_PROJECTION = {
   },
 };
 
+const PERMISSION_PROJECTION = {
+  ...D1_PROJECTION,
+  permissionDock: {
+    workMode: "build",
+    permissionLevel: "ask",
+    request: {
+      id: "permission-shell",
+      toolName: "shell",
+      title: "Permission request",
+      message: "Run the focused GUI test.",
+      inputPreview: "npm --prefix apps/gui test",
+      isMutating: true,
+      reason: "The command is outside the current allowlist.",
+      risk: "high",
+      target: { kind: "local", display: "viden", canonicalRef: null },
+      policyReasonKey: "permission.command_not_allowlisted",
+      policyReasonArgs: {},
+      expiresAt: 0,
+      defaultAction: "deny",
+      auditId: "audit-shell",
+      blockedByPlan: false,
+      actions: [
+        {
+          kind: "once" as const,
+          available: true,
+          sessionId: null,
+          paths: [],
+          code: null,
+        },
+        {
+          kind: "deny" as const,
+          available: true,
+          sessionId: null,
+          paths: [],
+          code: null,
+        },
+      ],
+    },
+  },
+};
+
+const RECOVERY_PROJECTION = {
+  ...D1_PROJECTION,
+  recovery: {
+    ...D1_PROJECTION.recovery,
+    connection: "disconnected" as const,
+    state: "disconnected" as const,
+    detail: "Core connection was interrupted.",
+    hint: "Reconnect to restore the ordered event stream.",
+    recoverable: true,
+    businessSuccessBlocked: true,
+    actions: [{ kind: "reconnect", available: true, code: "GUI-D6-RECONNECT" }],
+  },
+};
+
+function shellLandmarks(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("[data-shell-landmark]")).map(
+    (landmark) => landmark.dataset.shellLandmark!,
+  );
+}
+
 describe("D1 canonical streaming cockpit", () => {
   beforeEach(() => {
     document.documentElement.lang = "en";
@@ -76,6 +137,113 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector('[aria-label="Live Work"]')?.textContent).toContain("cargo");
     expect(root.querySelectorAll('[data-unavailable-feature]')).toHaveLength(4);
     expect(document.activeElement).toBe(root.querySelector("[data-composer]"));
+  });
+
+  test("keeps the canonical D1 activity rail destinations in design order", () => {
+    const { root } = setup();
+    const activity = root.querySelector('nav[aria-label="Activity"]')!;
+
+    expect(
+      Array.from(activity.querySelectorAll("button"), (button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual([
+      "Workspace",
+      "Search",
+      "Lanes",
+      "Source control",
+      "Evidence",
+      "Diagnostics",
+      "Inbox",
+    ]);
+  });
+
+  test.each([
+    ["no workspace", EMPTY_PROJECTION, { onOpenProject: vi.fn(), poll: false }],
+    ["zero Lane", EMPTY_PROJECTION, { onCreateLane: vi.fn(), poll: false }],
+    ["active Lane", D1_PROJECTION, { poll: false }],
+    ["pending approval", PERMISSION_PROJECTION, { poll: false }],
+    ["typed recovery", RECOVERY_PROJECTION, { poll: false }],
+  ])("pins the persistent D1 landmark order in %s", (_label, projection, options) => {
+    const { root, controller } = setup(projection, options);
+
+    expect(shellLandmarks(root)).toEqual(
+      expect.arrayContaining(["topbar", "activity-rail", "lane-work-surface", "statusbar"]),
+    );
+    expect(
+      shellLandmarks(root).indexOf("topbar"),
+    ).toBeLessThan(shellLandmarks(root).indexOf("activity-rail"));
+    expect(
+      shellLandmarks(root).indexOf("activity-rail"),
+    ).toBeLessThan(shellLandmarks(root).indexOf("lane-work-surface"));
+    expect(
+      shellLandmarks(root).indexOf("lane-work-surface"),
+    ).toBeLessThan(shellLandmarks(root).indexOf("statusbar"));
+    controller.dispose();
+  });
+
+  test.each([
+    ["zero Lane", EMPTY_PROJECTION],
+    ["active Lane", D1_PROJECTION],
+    ["pending approval", PERMISSION_PROJECTION],
+    ["typed recovery", RECOVERY_PROJECTION],
+  ])("keeps work, permission, composer, and status regions structurally separate in %s", (
+    _label,
+    projection,
+  ) => {
+    const { root, controller } = setup(projection, {
+      onCreateLane: vi.fn(),
+      poll: false,
+    });
+    const surface = root.querySelector<HTMLElement>("[data-lane-work-surface]");
+
+    expect(surface?.querySelector("[data-work-surface]")).not.toBeNull();
+    expect(surface?.querySelector("[data-permission-region]")).not.toBeNull();
+    expect(surface?.querySelector("[data-composer-region]")).not.toBeNull();
+    expect(surface?.querySelector("[data-permission-region] [data-composer]")).toBeNull();
+    expect(root.querySelector("[data-statusbar]")).not.toBeNull();
+    controller.dispose();
+  });
+
+  test.each([
+    [1440, "desktop"],
+    [1280, "desktop"],
+    [960, "narrow"],
+  ])("publishes non-overlapping cockpit grid roles at %ipx", (width, layout) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    const { root, controller } = setup(D1_PROJECTION, { poll: false });
+    const body = root.querySelector<HTMLElement>("[data-cockpit-grid]");
+
+    expect(body?.dataset.cockpitLayout).toBe(layout);
+    expect(
+      Array.from(body?.children ?? []).map(
+        (child) => (child as HTMLElement).dataset.cockpitRole,
+      ),
+    ).toEqual(["activity", "lanes", "work", "context"]);
+    expect(root.querySelector("[data-native-window-shell]")).not.toBeNull();
+    expect(root.querySelector("[data-browser-page-frame]")).toBeNull();
+    controller.dispose();
+  });
+
+  test("keeps Context Dock facts in a keyboard-focusable narrow-width drawer", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 960 });
+    const { root, controller } = setup(D1_PROJECTION, { poll: false });
+    const toggle = root.querySelector<HTMLButtonElement>("[data-context-drawer-toggle]");
+    const dock = root.querySelector<HTMLElement>("[data-context-dock]");
+
+    expect(toggle?.type).toBe("button");
+    expect(toggle?.getAttribute("aria-controls")).toBe(dock?.id);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(dock?.textContent).toContain("deepseek");
+    toggle?.focus();
+    expect(document.activeElement).toBe(toggle);
+    toggle?.click();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(dock?.dataset.drawerOpen).toBe("true");
+    toggle?.click();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(dock?.dataset.drawerOpen).toBe("false");
+    controller.dispose();
   });
 
   test("turns the empty D1 workspace into a branded welcome center with only real entry points", () => {

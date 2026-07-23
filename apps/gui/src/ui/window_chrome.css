@@ -7,6 +7,14 @@ body,
   background: var(--bg-void);
 }
 
+html {
+  color-scheme: dark;
+}
+
+body {
+  overflow: hidden;
+}
+
 /* The native macOS controls remain available while the web chrome owns the
  * title-bar surface. Removing the prototype frame prevents a second border
  * and rounded shell from appearing inside the real desktop window. */
