@@ -1,0 +1,19 @@
+.gperm-plan {
+  margin: 0;
+  padding: var(--sp-2);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+}
+
+.gperm-opt:disabled {
+  color: var(--fg-faint);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.gperm-opt:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}

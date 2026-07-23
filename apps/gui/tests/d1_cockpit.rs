@@ -1,0 +1,477 @@
+use std::sync::{Arc, Mutex};
+
+use serde::Deserialize;
+use viden_core::{
+    FRONTEND_SCHEMA_V1, LaneRuntimeOwnerBinding, QueuedInputView, RuntimeCommand, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
+    RuntimeWireEvent,
+};
+use viden_gui::{D1Intent, GuiCoreAdapter};
+
+mod support;
+use support::{TestCoreClient, TestOwner};
+
+const D1_FIXTURE: &str = include_str!(
+    "../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
+);
+
+#[derive(Deserialize)]
+struct Fixture {
+    initial_snapshot: RuntimeSnapshot,
+    events: Vec<RuntimeEventEnvelope>,
+}
+
+fn owner(lane_id: &str) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "workspace_contract_v1".into(),
+        project_id: "project_viden".into(),
+        lane_id: Some(lane_id.into()),
+        session_id: Some("session_lane_d1_core".into()),
+        task_id: Some("task_d1_core".into()),
+        turn_id: Some("turn_d1_core".into()),
+    }
+}
+
+fn test_owner(owner: &RuntimeOwner) -> TestOwner {
+    TestOwner {
+        workspace_id: owner.workspace_id.clone(),
+        project_id: owner.project_id.clone(),
+        lane_id: owner.lane_id.clone(),
+        session_id: owner.session_id.clone(),
+        task_id: owner.task_id.clone(),
+        turn_id: owner.turn_id.clone(),
+    }
+}
+
+fn d1_view() -> RuntimeViewState {
+    let fixture: Fixture = serde_json::from_str(D1_FIXTURE).expect("parse D1 fixture");
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    for envelope in fixture.events {
+        if let RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+    }
+    view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: "lane_d1_core".into(),
+        owner: owner("lane_d1_core"),
+    });
+    view
+}
+
+fn connected(
+    view: RuntimeViewState,
+    sent: Arc<Mutex<Vec<viden_core::RuntimeCommandEnvelope>>>,
+) -> GuiCoreAdapter {
+    let mut adapter = GuiCoreAdapter::new(Box::new(TestCoreClient::new(view, sent)));
+    adapter.connect().expect("connect D1 client");
+    adapter
+}
+
+#[test]
+fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let adapter = connected(d1_view(), sent);
+
+    let projection = adapter
+        .d1_cockpit(Some("lane_d1_core"))
+        .expect("D1 projection");
+
+    assert_eq!(projection.selected_lane_id.as_deref(), Some("lane_d1_core"));
+    assert_eq!(projection.lanes.len(), 1);
+    assert_eq!(projection.lanes[0].status, "running");
+    assert_eq!(projection.environment.cwd, "workspace/viden");
+    assert_eq!(projection.environment.provider_id, "deepseek");
+    assert_eq!(projection.environment.model, "deepseek-v4-flash");
+    assert_eq!(projection.live_work.tasks.len(), 1);
+    assert_eq!(projection.live_work.evidence.len(), 2);
+    assert!(projection.composer.editable);
+    assert!(projection.composer.can_cancel);
+    assert!(!projection.composer.can_submit_immediately);
+    assert_eq!(
+        projection.transcript.last().unwrap().kind,
+        "assistant_stream"
+    );
+    assert_eq!(projection.preferences.locale, "zh-CN");
+
+    for feature in &projection.unavailable_features {
+        assert!(!feature.available);
+        assert!(feature.code.starts_with("GUI-CORE-"));
+    }
+    assert_eq!(
+        projection
+            .unavailable_features
+            .iter()
+            .map(|feature| feature.id)
+            .collect::<Vec<_>>(),
+        vec!["diff", "apply", "audit", "recovery"]
+    );
+}
+
+#[test]
+fn enter_queues_with_the_exact_core_owner_while_lane_is_busy() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(d1_view(), Arc::clone(&sent));
+
+    adapter
+        .send_d1_intent(
+            "queue-d1",
+            D1Intent::Submit {
+                lane_id: "lane_d1_core".into(),
+                content: "继续验证".into(),
+            },
+        )
+        .expect("queue follow-up");
+
+    let sent = sent.lock().expect("sent lock");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].schema_version, FRONTEND_SCHEMA_V1);
+    assert_eq!(sent[0].owner, owner("lane_d1_core"));
+    assert!(matches!(
+        &sent[0].command,
+        RuntimeCommand::QueueFollowUp { content } if content == "继续验证"
+    ));
+}
+
+#[test]
+fn cancel_uses_one_exact_active_binding_and_never_falls_back() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(d1_view(), Arc::clone(&sent));
+
+    adapter
+        .send_d1_intent(
+            "cancel-d1",
+            D1Intent::Cancel {
+                lane_id: "lane_d1_core".into(),
+            },
+        )
+        .expect("cancel exact owner");
+    assert_eq!(
+        sent.lock().expect("sent lock")[0].owner,
+        owner("lane_d1_core")
+    );
+
+    let mut missing = d1_view();
+    missing.lane_runtime_owners.clear();
+    let missing_sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(missing, Arc::clone(&missing_sent));
+    let error = adapter
+        .send_d1_intent(
+            "cancel-missing",
+            D1Intent::Cancel {
+                lane_id: "lane_d1_core".into(),
+            },
+        )
+        .expect_err("missing owner must fail closed");
+    assert!(error.contains("exact Core runtime owner"));
+    assert!(missing_sent.lock().expect("missing sent lock").is_empty());
+
+    let mut ambiguous = d1_view();
+    ambiguous.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: "lane_d1_core".into(),
+        owner: RuntimeOwner {
+            turn_id: Some("other-turn".into()),
+            ..owner("lane_d1_core")
+        },
+    });
+    let ambiguous_sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(ambiguous, Arc::clone(&ambiguous_sent));
+    assert!(
+        adapter
+            .send_d1_intent(
+                "cancel-ambiguous",
+                D1Intent::Cancel {
+                    lane_id: "lane_d1_core".into(),
+                },
+            )
+            .expect_err("ambiguous owner must fail closed")
+            .contains("exact Core runtime owner")
+    );
+    assert!(
+        ambiguous_sent
+            .lock()
+            .expect("ambiguous sent lock")
+            .is_empty()
+    );
+}
+
+#[test]
+fn cancel_rejects_inactive_or_owner_mismatched_lanes_without_transport() {
+    let mut inactive = d1_view();
+    inactive.lanes[0].status = viden_core::LaneStatus::Done;
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(inactive, Arc::clone(&sent));
+    assert!(
+        adapter
+            .send_d1_intent(
+                "cancel-inactive",
+                D1Intent::Cancel {
+                    lane_id: "lane_d1_core".into(),
+                },
+            )
+            .expect_err("inactive Lane must fail closed")
+            .contains("active")
+    );
+    assert!(sent.lock().expect("sent lock").is_empty());
+
+    let mut mismatch = d1_view();
+    mismatch.lane_runtime_owners[0].owner.lane_id = Some("other-lane".into());
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let adapter = connected(mismatch, sent);
+    let projection = adapter
+        .d1_cockpit(Some("lane_d1_core"))
+        .expect("projection");
+    assert!(!projection.composer.can_cancel);
+}
+
+#[test]
+fn d1_wire_is_camel_case_and_intents_are_closed() {
+    let intent: D1Intent = serde_json::from_value(serde_json::json!({
+        "type": "submit",
+        "laneId": "lane_d1_core",
+        "content": "next"
+    }))
+    .expect("D1 intent wire");
+    assert!(matches!(intent, D1Intent::Submit { lane_id, .. } if lane_id == "lane_d1_core"));
+
+    let adapter = connected(d1_view(), Arc::new(Mutex::new(Vec::new())));
+    let wire = serde_json::to_value(adapter.d1_cockpit(Some("lane_d1_core")).unwrap())
+        .expect("serialize D1");
+    assert_eq!(wire["selectedLaneId"], "lane_d1_core");
+    assert!(wire["liveWork"].is_object());
+    assert!(wire["unavailableFeatures"].is_array());
+}
+
+#[test]
+fn d1_default_lane_intent_sends_core_generated_preview_command() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(d1_view(), Arc::clone(&sent));
+
+    adapter
+        .send_d1_intent(
+            "preview-default",
+            D1Intent::PreviewDefaultLane {
+                preset: "coder".into(),
+            },
+        )
+        .expect("preview default Lane");
+
+    assert!(matches!(
+        sent.lock().expect("sent")[0].command,
+        RuntimeCommand::PreviewDefaultStarterLane {
+            preset: viden_core::StarterLanePreset::Coder
+        }
+    ));
+}
+
+#[test]
+fn d1_acp_follow_up_preserves_exact_session_and_owner() {
+    let mut view = d1_view();
+    let session_owner = RuntimeOwner {
+        session_id: Some("acp-1".into()),
+        turn_id: Some("acp-turn-1".into()),
+        ..owner("lane_d1_core")
+    };
+    view.agent_sessions.push(viden_core::AgentSessionView {
+        session_id: "acp-1".into(),
+        lane_id: "lane_d1_core".into(),
+        agent_id: "codex-acp".into(),
+        model: None,
+        status: viden_core::AgentSessionStatus::Running,
+        owner: session_owner.clone(),
+        task: "review".into(),
+        diagnostic: None,
+    });
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(view, Arc::clone(&sent));
+
+    adapter
+        .send_d1_intent(
+            "acp-input",
+            D1Intent::SendAgentSessionInput {
+                session_id: "acp-1".into(),
+                content: "continue".into(),
+            },
+        )
+        .expect("send ACP follow-up");
+
+    let sent = sent.lock().expect("sent");
+    assert_eq!(sent[0].owner, session_owner);
+    assert!(matches!(
+        &sent[0].command,
+        RuntimeCommand::SendAgentSessionInput { input }
+            if input.session_id == "acp-1" && input.content == "continue"
+    ));
+}
+
+#[test]
+fn d1_projects_core_eligibility_and_truthful_acp_startability() {
+    let mut view = d1_view();
+    view.workspace_eligibility = Some(viden_core::WorkspaceEligibility {
+        is_git_repository: true,
+        has_head: true,
+        can_create_lane: true,
+        diagnostic: None,
+    });
+    view.agent_adapters.push(viden_core::AgentAdapterView {
+        agent_id: "codex-acp".into(),
+        display_name: "Codex".into(),
+        route: viden_core::AgentRoute::Acp,
+        source: viden_core::AgentAdapterSource::Registry,
+        availability: viden_core::AgentAvailability::Available,
+        auth_state: viden_core::AgentAuthState::Ready,
+        startability: viden_core::AgentStartability::AuthenticationRequired,
+        capabilities: Vec::new(),
+        models: Vec::new(),
+        diagnostics: vec!["sign in".into()],
+    });
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+
+    let projection = adapter.d1_cockpit(Some("lane_d1_core")).unwrap();
+
+    assert!(
+        projection
+            .workspace_eligibility
+            .is_some_and(|eligibility| eligibility.can_create_lane)
+    );
+    assert_eq!(
+        projection.agent_adapters[0].startability,
+        "authentication_required"
+    );
+    assert_eq!(projection.agent_adapters[0].diagnostics, vec!["sign in"]);
+}
+
+#[test]
+fn accepted_queue_stays_pending_until_the_matching_ordered_business_fact() {
+    let runtime_owner = owner("lane_d1_core");
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(d1_view(), Arc::clone(&sent)).with_owned_event(
+        test_owner(&runtime_owner),
+        RuntimeEventKind::CommandAccepted {
+            command_id: "queue-pending".into(),
+            command: RuntimeCommand::QueueFollowUp {
+                content: "keep this draft".into(),
+            },
+        },
+    );
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect D1 client");
+
+    let result = adapter
+        .send_d1_intent_and_wait(
+            "queue-pending",
+            D1Intent::Submit {
+                lane_id: "lane_d1_core".into(),
+                content: "keep this draft".into(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect("accepted queue remains pending");
+
+    assert_eq!(result.pending_command_id.as_deref(), Some("queue-pending"));
+    assert_eq!(result.outcome.state, "pending");
+}
+
+#[test]
+fn accepted_queue_confirms_only_after_same_owner_input_queued() {
+    let runtime_owner = owner("lane_d1_core");
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(d1_view(), Arc::clone(&sent))
+        .with_owned_event(
+            test_owner(&runtime_owner),
+            RuntimeEventKind::CommandAccepted {
+                command_id: "queue-confirmed".into(),
+                command: RuntimeCommand::QueueFollowUp {
+                    content: "confirmed input".into(),
+                },
+            },
+        )
+        .with_owned_event(
+            test_owner(&runtime_owner),
+            RuntimeEventKind::InputQueued {
+                input: QueuedInputView {
+                    id: "queued-1".into(),
+                    content_preview: "confirmed input".into(),
+                    created_at: Some(1),
+                },
+            },
+        );
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect D1 client");
+
+    let result = adapter
+        .send_d1_intent_and_wait(
+            "queue-confirmed",
+            D1Intent::Submit {
+                lane_id: "lane_d1_core".into(),
+                content: "confirmed input".into(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect("matching Core fact confirms queue");
+
+    assert_eq!(result.pending_command_id, None);
+    assert_eq!(result.outcome.state, "confirmed");
+}
+
+#[test]
+fn exact_command_rejection_finishes_pending_with_the_core_reason() {
+    let runtime_owner = owner("lane_d1_core");
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(d1_view(), Arc::clone(&sent)).with_owned_event(
+        test_owner(&runtime_owner),
+        RuntimeEventKind::CommandRejected {
+            command_id: "queue-rejected".into(),
+            reason: "Core denied the queue".into(),
+        },
+    );
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect D1 client");
+
+    let result = adapter
+        .send_d1_intent_and_wait(
+            "queue-rejected",
+            D1Intent::Submit {
+                lane_id: "lane_d1_core".into(),
+                content: "do not clear me".into(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect("Core rejection is an ordered result");
+
+    assert_eq!(result.pending_command_id, None);
+    assert_eq!(result.outcome.state, "rejected");
+    assert_eq!(
+        result.outcome.reason.as_deref(),
+        Some("Core denied the queue")
+    );
+}
+
+#[test]
+fn same_timestamp_lane_outputs_receive_distinct_projection_row_ids() {
+    let mut view = d1_view();
+    for (sequence, content) in [(100, "first"), (101, "second")] {
+        let mut event = RuntimeEvent::new(
+            sequence,
+            RuntimeEventKind::LaneOutputAppended {
+                lane_id: "lane_d1_core".into(),
+                stream: "stdout".into(),
+                content: content.into(),
+            },
+        );
+        event.timestamp = Some(42);
+        view.apply_event(&event);
+    }
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+
+    let projection = adapter.d1_cockpit(Some("lane_d1_core")).unwrap();
+    let rows = projection
+        .transcript
+        .iter()
+        .filter(|row| row.kind == "lane_output")
+        .collect::<Vec<_>>();
+
+    assert_eq!(rows.len(), 2);
+    assert_ne!(rows[0].id, rows[1].id);
+    assert_eq!(rows[0].content, "first");
+    assert_eq!(rows[1].content, "second");
+}
