@@ -429,7 +429,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert!(release_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!release_manifest.contains("runtime.workspace_facts"));
     assert!(release_manifest.contains(
-        "contract_implementation_checkpoint = \"1717efc635f8e5bbf0c824ee98ac0e265a83c8e4\""
+        "contract_implementation_checkpoint = \"4b72228eb1f4e12b494d8d1a8e989e011293e513\""
     ));
     assert!(release_manifest.contains(
         "payload_sha256 = \"78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5\""
