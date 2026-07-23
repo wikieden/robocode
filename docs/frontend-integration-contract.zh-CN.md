@@ -422,8 +422,10 @@ Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
 每个需要 approval 的 tool 只能有一组实时 request/resolution pair。在 multi-tool
 turn 中，前一个 tool 的 `ToolCallStarted`、`ToolCallFinished` 和 structured facts
 必须在下一个 `ApprovalRequested` 前发出；下一个 `ToolCallStarted` 必须位于其
-`ApprovalResolved` 和 permission decision 持久化之后。如果 permission decision
-无法持久化，Core 直接发出 `Error`，不能留下 active tool call。
+`ApprovalResolved` 和 permission decision 持久化之后。同步 command result
+同样保留逐 tool 顺序，不会把全部 approval pair 集中到第一个 tool completion。
+如果 permission decision 无法持久化，Core 会先终结 authoritative provider 和
+tool task，再发出 `Error`，且不能留下 active tool call。
 
 ## UI 偏好与设计入口契约
 

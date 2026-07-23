@@ -12,8 +12,8 @@ use viden_permissions::PermissionEngine;
 use viden_provider::ModelRequestControl;
 use viden_tools::ToolExecutionContext;
 use viden_types::{
-    AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount, CostEstimate,
-    CostUsageOutcome, CostUsageRecord, Message, ModelEvent, ModelRequest, ModelUsage,
+    AgentTaskRecord, AgentTaskStatus, ApprovalResponse, ContextBundleRecord, CostAmount,
+    CostEstimate, CostUsageOutcome, CostUsageRecord, Message, ModelEvent, ModelRequest, ModelUsage,
     PermissionDecision, PermissionLogEntry, Role, TokenUsage, ToolCall, ToolResult,
     TranscriptEntry, fresh_id, now_timestamp,
 };
@@ -24,6 +24,7 @@ use crate::CostAttribution;
 struct EngineTurnProgress {
     engine_events: Vec<EngineEvent>,
     ordered_runtime_facts: Vec<crate::OrderedRuntimeFact>,
+    ordered_approval_boundaries: Vec<crate::OrderedApprovalBoundary>,
 }
 
 impl EngineTurnProgress {
@@ -33,6 +34,7 @@ impl EngineTurnProgress {
             completed: crate::EngineTurnOutput {
                 engine_events: self.engine_events.clone(),
                 ordered_runtime_facts: self.ordered_runtime_facts.clone(),
+                ordered_approval_boundaries: self.ordered_approval_boundaries.clone(),
             },
         })
     }
@@ -43,6 +45,7 @@ impl EngineTurnProgress {
             completed: crate::EngineTurnOutput {
                 engine_events: self.engine_events.clone(),
                 ordered_runtime_facts: self.ordered_runtime_facts.clone(),
+                ordered_approval_boundaries: self.ordered_approval_boundaries.clone(),
             },
         }
     }
@@ -51,6 +54,7 @@ impl EngineTurnProgress {
         crate::EngineTurnOutput {
             engine_events: self.engine_events,
             ordered_runtime_facts: self.ordered_runtime_facts,
+            ordered_approval_boundaries: self.ordered_approval_boundaries,
         }
     }
 
@@ -58,6 +62,7 @@ impl EngineTurnProgress {
         crate::EngineTurnOutput {
             engine_events: std::mem::take(&mut self.engine_events),
             ordered_runtime_facts: std::mem::take(&mut self.ordered_runtime_facts),
+            ordered_approval_boundaries: std::mem::take(&mut self.ordered_approval_boundaries),
         }
     }
 }
@@ -105,6 +110,20 @@ fn record_started_tool(progress: &mut EngineTurnProgress, call: &ToolCall, encod
         "{} {}",
         call.name, encoded_input
     )));
+}
+
+fn terminalize_tool_task_after_audit_failure(
+    engine: &mut SessionEngine,
+    task: &mut AgentTaskRecord,
+    tool_name: &str,
+    message: &str,
+) {
+    task.status = AgentTaskStatus::Failed;
+    task.activity = format!("permission audit persistence failed for `{tool_name}`");
+    task.progress = 100;
+    task.result = Some(message.to_string());
+    task.updated_at = Some(now_millis());
+    engine.upsert_agent_task(task.clone());
 }
 
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
@@ -249,6 +268,7 @@ impl SessionEngine {
                 .map(|engine_events| crate::EngineTurnOutput {
                     engine_events,
                     ordered_runtime_facts: Vec::new(),
+                    ordered_approval_boundaries: Vec::new(),
                 });
         }
 
@@ -424,12 +444,21 @@ impl SessionEngine {
                         provider_task.progress = provider_task.progress.max(75);
                         provider_task.updated_at = Some(now_millis());
                         self.upsert_agent_task(provider_task.clone());
-                        let _ = self.handle_tool_call(
+                        if let Err(failure) = self.handle_tool_call(
                             call,
                             approver,
                             &mut progress,
                             on_approval_boundary,
-                        )?;
+                        ) {
+                            provider_task.status = AgentTaskStatus::Failed;
+                            provider_task.activity =
+                                "provider turn stopped after tool failure".to_string();
+                            provider_task.progress = 100;
+                            provider_task.updated_at = Some(now_millis());
+                            provider_task.result = Some(failure.message.clone());
+                            self.upsert_agent_task(provider_task);
+                            return Err(failure);
+                        }
                     }
                     ModelEvent::Usage(_) => {}
                     ModelEvent::Done => {}
@@ -506,6 +535,7 @@ impl SessionEngine {
             task.updated_at = Some(now_millis());
             self.upsert_agent_task(task.clone());
             let prompt = PermissionEngine::prompt_for(&call.name, ask, &call.input);
+            let capture_ordered_approval = on_approval_boundary.is_none();
             // Publish every completed prefix before the supervisor opens the
             // next live approval boundary.
             if let Some(on_approval_boundary) = on_approval_boundary.as_deref_mut() {
@@ -516,7 +546,16 @@ impl SessionEngine {
                     on_approval_boundary(completed);
                 }
             }
-            let approval = approver(prompt);
+            let approval = approver(prompt.clone());
+            if capture_ordered_approval {
+                progress
+                    .ordered_approval_boundaries
+                    .push(crate::OrderedApprovalBoundary {
+                        before_engine_event_index: progress.engine_events.len(),
+                        prompt,
+                        decision: approval.decision.clone(),
+                    });
+            }
             decision = self
                 .permissions
                 .apply_approval(approval, ask, &tool_spec, &call.input);
@@ -524,7 +563,7 @@ impl SessionEngine {
 
         match decision {
             PermissionDecision::Allow(allow) => {
-                progress.carry(self.store_entry(TranscriptEntry::Permission {
+                if let Err(message) = self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
@@ -532,7 +571,12 @@ impl SessionEngine {
                         reason: format!("{:?}", allow.decision_reason),
                         message: allow.accept_feedback.clone(),
                     },
-                }))?;
+                }) {
+                    terminalize_tool_task_after_audit_failure(
+                        self, &mut task, &call.name, &message,
+                    );
+                    return Err(progress.fail(message));
+                }
                 // Frontend-active lifetime starts only after the permission
                 // decision is durable, so an append failure cannot orphan it.
                 record_started_tool(progress, &call, &encoded_input);
@@ -601,7 +645,7 @@ impl SessionEngine {
             }
             PermissionDecision::Deny(deny) => {
                 let reason = format!("{:?}", deny.decision_reason);
-                progress.carry(self.store_entry(TranscriptEntry::Permission {
+                if let Err(message) = self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
@@ -609,7 +653,12 @@ impl SessionEngine {
                         reason: reason.clone(),
                         message: Some(deny.message.clone()),
                     },
-                }))?;
+                }) {
+                    terminalize_tool_task_after_audit_failure(
+                        self, &mut task, &call.name, &message,
+                    );
+                    return Err(progress.fail(message));
+                }
                 record_started_tool(progress, &call, &encoded_input);
                 task.status = AgentTaskStatus::Cancelled;
                 task.activity = format!("denied `{}`", call.name);

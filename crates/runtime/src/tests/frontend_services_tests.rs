@@ -13,12 +13,12 @@ use std::time::{Duration, Instant};
 use viden_config::CliOverrides;
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, ApprovalResponse, EventCursor, LocaleId, Message, RecentWorkQuery,
-    ReplayRequest, Role, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState, RuntimeWireEvent,
-    SessionMetaEntry, StarterLanePreset, StarterLanePreviewInvalidationReason, StarterLaneRequest,
-    ToolCall, ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
-    UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
+    AgentDagTaskSpec, AgentRole, AgentTaskKind, ApprovalResponse, EventCursor, LocaleId, Message,
+    RecentWorkQuery, ReplayRequest, Role, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState,
+    RuntimeWireEvent, SessionMetaEntry, StarterLanePreset, StarterLanePreviewInvalidationReason,
+    StarterLaneRequest, ToolCall, ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::lane_runtime::{
@@ -1328,14 +1328,55 @@ fn frontend_status_permission_persistence_failure_has_no_orphan_tool_call() {
         vec!["requested", "resolved", "error"]
     );
     assert_eq!(approval_event_counts(&events, &owner), (1, 1));
+    let error_index = events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { .. },
+                    ..
+                })
+            )
+        })
+        .unwrap();
+    let terminal_task_indices = events
+        .iter()
+        .enumerate()
+        .filter_map(|(index, envelope)| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::TaskUpdated { task },
+                ..
+            }) if matches!(
+                task.kind,
+                AgentTaskKind::Provider | AgentTaskKind::Tool | AgentTaskKind::Shell
+            ) && !task.is_active() =>
+            {
+                Some(index)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     assert!(
-        supervisor
-            .snapshot_envelope()
-            .unwrap()
-            .view
-            .active_tool_calls
-            .is_empty(),
+        terminal_task_indices.len() >= 2
+            && terminal_task_indices
+                .iter()
+                .all(|index| *index < error_index),
+        "provider and tool task terminal facts must precede the error"
+    );
+    let view = supervisor.snapshot_envelope().unwrap().view;
+    assert!(
+        view.active_tool_calls.is_empty(),
         "a failed permission transcript append must not leave an active tool call"
+    );
+    assert!(
+        view.tasks.iter().all(|task| {
+            !matches!(
+                task.kind,
+                AgentTaskKind::Provider | AgentTaskKind::Tool | AgentTaskKind::Shell
+            ) || !task.is_active()
+        }),
+        "a failed permission transcript append must terminalize provider and tool tasks"
     );
     assert!(!cwd.join("permission-persistence-1.txt").exists());
 }

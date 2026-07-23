@@ -60,11 +60,12 @@ use viden_tools::ToolRegistry;
 #[cfg(test)]
 use viden_types::PermissionRule;
 use viden_types::{
-    AgentDagRecord, AgentTaskRecord, ConflictBounce, ContextBundleRecord, ContractRecord,
-    CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord, MemoryEntry,
-    MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, RuntimeEvent, RuntimeSnapshot, SessionMetaEntry, TaskRecord,
-    TranscriptEntry, UiPreferences, WorkMode, now_timestamp,
+    AgentDagRecord, AgentTaskRecord, ApprovalDecision, ConflictBounce, ContextBundleRecord,
+    ContractRecord, CostScope, CostUsageRecord, DependencyRecord, EvidenceView, HandoffRecord,
+    MemoryEntry, MergeGateRecord, Message, ModelUsage, PermissionLevel, PermissionMode,
+    PermissionPrompt, ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, RuntimeEvent,
+    RuntimeSnapshot, SessionMetaEntry, TaskRecord, TranscriptEntry, UiPreferences, WorkMode,
+    now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -79,10 +80,20 @@ struct OrderedRuntimeFact {
     event: RuntimeEvent,
 }
 
+#[derive(Debug, Clone)]
+struct OrderedApprovalBoundary {
+    // Direct command conversion replays this pair immediately before the
+    // matching tool event; streaming publishes the live pair instead.
+    before_engine_event_index: usize,
+    prompt: PermissionPrompt,
+    decision: ApprovalDecision,
+}
+
 #[derive(Debug, Clone, Default)]
 struct EngineTurnOutput {
     engine_events: Vec<EngineEvent>,
     ordered_runtime_facts: Vec<OrderedRuntimeFact>,
+    ordered_approval_boundaries: Vec<OrderedApprovalBoundary>,
 }
 
 #[derive(Debug, Clone)]

@@ -193,7 +193,7 @@ impl SessionEngine {
     }
 
     pub fn runtime_events_for_engine_events(&self, events: &[EngineEvent]) -> Vec<RuntimeEvent> {
-        Self::runtime_events_for_engine_output(self.runtime_state_events(), events, &[], None)
+        Self::runtime_events_for_engine_output(self.runtime_state_events(), events, &[], &[], None)
     }
 
     fn runtime_events_for_turn_output(
@@ -204,6 +204,7 @@ impl SessionEngine {
             self.runtime_state_events(),
             &output.engine_events,
             &output.ordered_runtime_facts,
+            &output.ordered_approval_boundaries,
             None,
         )
     }
@@ -212,11 +213,17 @@ impl SessionEngine {
         mut out: Vec<RuntimeEvent>,
         events: &[EngineEvent],
         ordered_runtime_facts: &[crate::OrderedRuntimeFact],
+        ordered_approval_boundaries: &[crate::OrderedApprovalBoundary],
         identity_sequence_base: Option<u64>,
     ) -> Vec<RuntimeEvent> {
         let mut last_tool: Option<(ToolCallId, String)> = None;
 
         for (engine_event_index, event) in events.iter().enumerate() {
+            append_ordered_approval_boundaries(
+                &mut out,
+                ordered_approval_boundaries,
+                engine_event_index,
+            );
             let sequence = next_sequence(&out);
             let identity_sequence = identity_sequence_base
                 .map(|base| {
@@ -323,6 +330,7 @@ impl SessionEngine {
                 out.push(fact);
             }
         }
+        append_ordered_approval_boundaries(&mut out, ordered_approval_boundaries, events.len());
 
         out
     }
@@ -341,6 +349,7 @@ impl SessionEngine {
             },
             &output.engine_events,
             &output.ordered_runtime_facts,
+            &output.ordered_approval_boundaries,
             Some(identity_sequence_base),
         )
     }
@@ -1440,45 +1449,11 @@ impl SessionEngine {
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
-        let mut approval_events = Vec::new();
-        let mut approval_counter = 0_u64;
-        let mut capturing_approver = |prompt: PermissionPrompt| {
-            approval_counter += 1;
-            let request_id = format!("approval-{approval_counter}");
-            approval_events.push(RuntimeEvent::new(
-                approval_counter,
-                RuntimeEventKind::ApprovalRequested {
-                    approval: approval_request_view(&request_id, &prompt),
-                },
-            ));
-            let response = approver(prompt);
-            let decision = response.decision.clone();
-            approval_events.push(RuntimeEvent::new(
-                approval_counter + 1,
-                RuntimeEventKind::ApprovalResolved {
-                    request_id,
-                    decision,
-                    owner: RuntimeOwner::default(),
-                    audit_id: fresh_id("audit"),
-                },
-            ));
-            response
-        };
-        match self.process_engine_turn_with_approval_and_control(
-            input,
-            &mut capturing_approver,
-            control,
-        ) {
-            Ok(output) => Ok(merge_approval_events(
-                self.runtime_events_for_turn_output(&output),
-                approval_events,
-            )),
+        match self.process_engine_turn_with_approval_and_control(input, approver, control) {
+            Ok(output) => Ok(self.runtime_events_for_turn_output(&output)),
             Err(failure) => Err(crate::RuntimeInputFailure {
                 message: failure.message,
-                completed_events: merge_approval_events(
-                    self.runtime_events_for_turn_output(&failure.completed),
-                    approval_events,
-                ),
+                completed_events: self.runtime_events_for_turn_output(&failure.completed),
             }),
         }
     }
@@ -1501,6 +1476,7 @@ impl SessionEngine {
                 Vec::new(),
                 &output.engine_events,
                 &output.ordered_runtime_facts,
+                &output.ordered_approval_boundaries,
                 Some(identity_sequence_base),
             );
             identity_sequence_base = identity_sequence_base.saturating_add(event_count);
@@ -1538,46 +1514,16 @@ impl SessionEngine {
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
-        let mut approval_events = Vec::new();
-        let mut approval_counter = 0_u64;
-        let mut capturing_approver = |prompt: PermissionPrompt| {
-            approval_counter += 1;
-            let request_id = format!("approval-{approval_counter}");
-            approval_events.push(RuntimeEvent::new(
-                approval_counter,
-                RuntimeEventKind::ApprovalRequested {
-                    approval: approval_request_view(&request_id, &prompt),
-                },
-            ));
-            let response = approver(prompt);
-            let decision = response.decision.clone();
-            approval_events.push(RuntimeEvent::new(
-                approval_counter + 1,
-                RuntimeEventKind::ApprovalResolved {
-                    request_id,
-                    decision,
-                    owner: RuntimeOwner::default(),
-                    audit_id: fresh_id("audit"),
-                },
-            ));
-            response
-        };
         match self.process_engine_turn_with_built_context_bundle_and_control(
             input,
-            &mut capturing_approver,
+            approver,
             control,
             built_context_bundle,
         ) {
-            Ok(output) => Ok(merge_approval_events(
-                self.runtime_events_for_turn_output(&output),
-                approval_events,
-            )),
+            Ok(output) => Ok(self.runtime_events_for_turn_output(&output)),
             Err(failure) => Err(crate::RuntimeInputFailure {
                 message: failure.message,
-                completed_events: merge_approval_events(
-                    self.runtime_events_for_turn_output(&failure.completed),
-                    approval_events,
-                ),
+                completed_events: self.runtime_events_for_turn_output(&failure.completed),
             }),
         }
     }
@@ -1601,6 +1547,7 @@ impl SessionEngine {
                 Vec::new(),
                 &output.engine_events,
                 &output.ordered_runtime_facts,
+                &output.ordered_approval_boundaries,
                 Some(identity_sequence_base),
             );
             identity_sequence_base = identity_sequence_base.saturating_add(event_count);
@@ -6332,6 +6279,35 @@ fn append_resequenced(target: &mut Vec<RuntimeEvent>, source: Vec<RuntimeEvent>)
     }
 }
 
+fn append_ordered_approval_boundaries(
+    target: &mut Vec<RuntimeEvent>,
+    boundaries: &[crate::OrderedApprovalBoundary],
+    before_engine_event_index: usize,
+) {
+    for (boundary_index, boundary) in boundaries
+        .iter()
+        .enumerate()
+        .filter(|(_, boundary)| boundary.before_engine_event_index == before_engine_event_index)
+    {
+        let request_id = format!("approval-{}", boundary_index + 1);
+        target.push(RuntimeEvent::new(
+            next_sequence(target),
+            RuntimeEventKind::ApprovalRequested {
+                approval: approval_request_view(&request_id, &boundary.prompt),
+            },
+        ));
+        target.push(RuntimeEvent::new(
+            next_sequence(target),
+            RuntimeEventKind::ApprovalResolved {
+                request_id,
+                decision: boundary.decision.clone(),
+                owner: RuntimeOwner::default(),
+                audit_id: fresh_id("audit"),
+            },
+        ));
+    }
+}
+
 fn runtime_owner_matches_validator_lane(actor: &RuntimeOwner, validator: &RuntimeOwner) -> bool {
     actor.workspace_id == validator.workspace_id
         && actor.project_id == validator.project_id
@@ -6359,31 +6335,6 @@ fn validate_reject_actor(
     Err(format!(
         "{action} actor is not authorized for the merge gate"
     ))
-}
-
-fn merge_approval_events(
-    runtime_events: Vec<RuntimeEvent>,
-    approval_events: Vec<RuntimeEvent>,
-) -> Vec<RuntimeEvent> {
-    if approval_events.is_empty() {
-        return runtime_events;
-    }
-
-    let mut merged = Vec::with_capacity(runtime_events.len() + approval_events.len());
-    let mut approvals = Some(approval_events);
-    for event in runtime_events {
-        if approvals.is_some()
-            && matches!(event.kind, RuntimeEventKind::ToolCallFinished { .. })
-            && let Some(approval_events) = approvals.take()
-        {
-            append_resequenced(&mut merged, approval_events);
-        }
-        append_resequenced(&mut merged, vec![event]);
-    }
-    if let Some(approval_events) = approvals {
-        append_resequenced(&mut merged, approval_events);
-    }
-    merged
 }
 
 pub(crate) fn provider_health_view(

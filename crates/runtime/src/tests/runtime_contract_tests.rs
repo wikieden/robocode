@@ -899,6 +899,19 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
     }));
 }
 
+fn approval_tool_event_order(events: &[RuntimeEvent]) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { .. } => Some("requested"),
+            RuntimeEventKind::ApprovalResolved { .. } => Some("resolved"),
+            RuntimeEventKind::ToolCallStarted { .. } => Some("started"),
+            RuntimeEventKind::ToolCallFinished { .. } => Some("finished"),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn runtime_command_bus_non_streaming_turn_keeps_both_approved_tools() {
     let cwd = temp_dir("runtime_command_two_approved_tools_cwd");
@@ -938,18 +951,91 @@ fn runtime_command_bus_non_streaming_turn_keeps_both_approved_tools() {
         .unwrap();
 
     assert_eq!(
-        events
-            .iter()
-            .filter(|event| matches!(event.kind, RuntimeEventKind::ToolCallStarted { .. }))
-            .count(),
-        2
+        approval_tool_event_order(&events),
+        vec![
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+        ]
     );
+}
+
+#[test]
+fn runtime_command_bus_non_streaming_agent_task_preserves_approval_boundaries() {
+    let cwd = temp_dir("runtime_command_agent_two_approved_tools_cwd");
+    let home = temp_dir("runtime_command_agent_two_approved_tools_home");
+    let mut first = ToolInput::new();
+    first.insert("path".to_string(), "agent-first.txt".to_string());
+    first.insert("content".to_string(), "first\n".to_string());
+    let mut second = ToolInput::new();
+    second.insert("path".to_string(), "agent-second.txt".to_string());
+    second.insert("content".to_string(), "second\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_agent_first_approved".to_string(),
+                name: "write_file".to_string(),
+                input: first,
+            }),
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_agent_second_approved".to_string(),
+                name: "write_file".to_string(),
+                input: second,
+            }),
+        ],
+        vec![ModelEvent::Done],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    engine
+        .handle_runtime_command(
+            "cmd_agent_two_approved_tools_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "run two approved tools".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_agent_two_approved_tools".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Run approved tools".to_string(),
+                    objective: "Run two approval-gated tools in order".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: Vec::new(),
+                    permission_policy: "full_access".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_agent_two_approved_tools",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_agent_two_approved_tools".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
     assert_eq!(
-        events
-            .iter()
-            .filter(|event| matches!(event.kind, RuntimeEventKind::ToolCallFinished { .. }))
-            .count(),
-        2
+        approval_tool_event_order(&events),
+        vec![
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+        ]
     );
 }
 

@@ -474,8 +474,11 @@ Each approval-gated tool has exactly one live request/resolution pair. In a
 multi-tool turn, the previous tool's `ToolCallStarted`, `ToolCallFinished`, and
 structured facts are published before the next `ApprovalRequested`; the next
 `ToolCallStarted` follows its `ApprovalResolved` and durable permission
-decision. If that permission decision cannot be persisted, Core emits `Error`
-without opening an active tool call.
+decision. Synchronous command results preserve the same per-tool ordering
+instead of collecting approval pairs at the first tool completion. If that
+permission decision cannot be persisted, Core terminalizes the authoritative
+provider and tool tasks before it emits `Error`, without opening an active tool
+call.
 
 ## UI Preference And Design Entry Contract
 
