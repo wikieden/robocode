@@ -139,8 +139,8 @@ response filtering 和 multi-agent coordination 做成可复用 extension。
 
 | Agent | 当前最佳路径 | 说明 |
 | --- | --- | --- |
-| Claude | 当前 registry 数据中的 ACP Registry package `@agentclientprotocol/claude-agent-acp@0.56.0`。 | agent 拥有 auth/billing/model 行为。Viden 不能假设 Viden 的 Anthropic provider key 配置会自动作用于它。 |
-| Codex | 当前 registry 数据中的 ACP Registry package `@agentclientprotocol/codex-acp@1.1.0`。 | agent 拥有 Codex/OpenAI auth 和 native config。Viden 仍要传递安全 proxy/env，并把权限接入 runtime。 |
+| Claude | ACP Registry package `@agentclientprotocol/claude-agent-acp@0.60.0`；已于 2026-07-21 对照官方 registry snapshot 验证。 | agent 拥有 auth/billing/model 行为。Viden 不能假设 Viden 的 Anthropic provider key 配置会自动作用于它。 |
+| Codex | ACP Registry package `@agentclientprotocol/codex-acp@1.1.4`；已于 2026-07-21 对照官方 registry snapshot 验证。 | agent 拥有 Codex/OpenAI auth 和 native config。Viden 仍要传递安全 proxy/env，并把权限接入 runtime。 |
 | Kiro CLI | 官方 local ACP command `kiro-cli acp`；同时支持通过 `kiro-cli acp --agent <name>` 选择 agent configuration。 | Kiro 官方支持基于 stdio JSON-RPC 的 ACP，并给出 Zed custom-agent 配置方式。当前 ACP Registry 数据没有 Kiro 条目，因此 Viden 首版应作为 local-command agent source 支持；后续若 registry metadata 出现，再切到 registry source。 |
 
 ## Kiro 专属 Adapter 要求
@@ -255,16 +255,23 @@ flowchart LR
   <mode-id>` 发送 `session/set_mode`，以及用 `--model <model-id>` 通过 ACP
   `session/set_config_option` 写入 `model` config；legacy `session/set_model`
   已保留为兼容 request builder。
-- `runtime` 可以通过 `/agent run acp --async <agent-id> <task>` 启动后台
-  descriptor-backed ACP session，把它记录为 tracked agent job，写出 JSONL/result
-  artifacts，持久化已投影的 runtime events，并通过 `/agent cancel <id>` 停止。
+- typed client 使用 `QueryAgentAdapters`、`ProbeAgentAdapter`、
+  `StartAgentSession` 和 `CancelAgentSession`；安全 adapter/session view 不暴露原始
+  process 参数、环境变量引用或 agent-native 认证数据。
+- `/agent run acp --async <agent-id> <task>` 保留为兼容入口，但
+  `RuntimeSupervisor` 会把它归一化为 `StartAgentSession`。直接 engine 路径会拒绝
+  async ACP，因为该路径无法拥有审批、取消与 replay identity。
 - ACP 后台取消现在会在 live ACP session 可用时优先请求协议层
   `session/cancel`，把请求写入 wire log；如果外部 agent 没有及时停止，再使用有界
   process termination 作为 fallback。
-- `runtime` 已把 ACP `session/request_permission` 转换为 Viden
-  `PermissionPrompt` approval，并按 allow/reject 结果回写选中的 ACP option。
-- `runtime` 已把 tracked ACP session jobs 投影到 `RuntimeViewState`，作为
-  `AgentTask` records 暴露，所以 TUI/GUI 可以通过和一方 runtime task 相同的状态流消费。
+- `RuntimeSupervisor` 会把前台和异步 ACP 的 `session/request_permission` 都转换为
+  与内置 work 相同的 owner-scoped `ApprovalRequested` 队列。批准、拒绝、过期和取消
+  各自只解析一个 stable request ID，且只恢复对应 session。
+- `runtime` 会把 tracked ACP jobs 投影成 typed `AgentSessionView` facts，同时保留
+  legacy-compatible `AgentTask` records。Job metadata 会保存 owner 与终态，因此 Core
+  重启后无需解析展示文本即可重建 session view。旧 stdio 与审批 channel 无法安全重连，
+  因此被中断的 running 或 waiting-approval job 会先通过有界 process termination
+  取消，再恢复成可恢复的 failed session，而不是误导性的 live `Running` 行。
 - `runtime` 已把 ACP `session/update` / `session/notification` payloads 投影成
   可复用 `RuntimeEvent` records，覆盖 assistant delta、tool call start/finish
   和 turn-end evidence。

@@ -1,0 +1,308 @@
+{
+  "fixture_id": "d1-main-cockpit",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.events",
+    "runtime.lane_owner_projection",
+    "runtime.cockpit_context_v1"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "fallback",
+    "model_label": "test-local",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "runtime workspace facts",
+    "loaded_config_files": [],
+    "startup_overrides": [],
+    "ui_preferences": {
+      "locale": "en",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "system",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 1 },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000101,
+        "kind": {
+          "type": "workspace_source_updated",
+          "payload": {
+            "source": {
+              "status": "ready",
+              "branch": "codex/d1-cockpit-core",
+              "worktree": ".worktrees/d1-cockpit-core",
+              "ahead": 1,
+              "behind": 0,
+              "added": 3,
+              "deleted": 1,
+              "dirty": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 2 },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000102,
+        "kind": {
+          "type": "runtime_service_health_updated",
+          "payload": {
+            "service": {
+              "id": "codegraph",
+              "kind": "mcp",
+              "label": "codegraph",
+              "status": "connected",
+              "detail_key": "service.connected"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 3 },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000103,
+        "kind": {
+          "type": "runtime_service_health_updated",
+          "payload": {
+            "service": {
+              "id": "rust-analyzer",
+              "kind": "lsp",
+              "label": "rust-analyzer",
+              "status": "ready",
+              "detail_key": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 4 },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000104,
+        "kind": {
+          "type": "workspace_change_updated",
+          "payload": {
+            "change": {
+              "id": "change-runtime-types",
+              "owner": {
+                "workspace_id": "workspace-d1-main",
+                "project_id": "project-viden",
+                "lane_id": "lane-d1-main",
+                "session_id": "agent-session-d1-main",
+                "task_id": "task-d1-main",
+                "turn_id": "turn-d1-main"
+              },
+              "path": "crates/types/src/runtime.rs",
+              "kind": "modified",
+              "patch": null,
+              "additions": 3,
+              "deletions": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 5 },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000105,
+        "kind": {
+          "type": "check_run_updated",
+          "payload": {
+            "check": {
+              "id": "check-viden-types",
+              "owner": {
+                "workspace_id": "workspace-d1-main",
+                "project_id": "project-viden",
+                "lane_id": "lane-d1-main",
+                "session_id": "agent-session-d1-main",
+                "task_id": "task-d1-main",
+                "turn_id": "turn-d1-main"
+              },
+              "label": "viden-types",
+              "command": "cargo test -p viden-types",
+              "status": "failed",
+              "summary": "one assertion failed",
+              "failing_location": "crates/types/src/tests.rs:2500"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 6 },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000106,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane-d1-main",
+              "task_id": "task-d1-main",
+              "role": "coder",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": ".worktrees/d1-cockpit-core",
+              "branch": "codex/d1-cockpit-core",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": ["agent-session-d1-main"],
+              "summary": "D1 main Lane",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 7 },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700000107,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane-d1-main",
+              "owner": {
+                "workspace_id": "workspace-d1-main",
+                "project_id": "project-viden",
+                "lane_id": "lane-d1-main",
+                "session_id": "agent-session-d1-main",
+                "task_id": "task-d1-main",
+                "turn_id": "turn-d1-main"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-d1-main",
+        "project_id": "project-viden",
+        "lane_id": "lane-d1-main",
+        "session_id": "agent-session-d1-main",
+        "task_id": "task-d1-main",
+        "turn_id": "turn-d1-main"
+      },
+      "cursor": { "stream_id": "fixture:d1-main-cockpit", "sequence": 8 },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700000108,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "agent-session-d1-main",
+              "lane_id": "lane-d1-main",
+              "agent_id": "viden-agent",
+              "model": "test-local",
+              "status": "running",
+              "owner": {
+                "workspace_id": "workspace-d1-main",
+                "project_id": "project-viden",
+                "lane_id": "lane-d1-main",
+                "session_id": "agent-session-d1-main",
+                "task_id": "task-d1-main",
+                "turn_id": "turn-d1-main"
+              },
+              "task": "type layer contract",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:d1-main-cockpit",
+    "sequence": 8
+  },
+  "expected_view_sha256": "5792199adff1883c0dc9dbe91991d9a6c7cd08b81bb475174b1f1929c923fe27"
+}

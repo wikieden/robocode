@@ -308,3 +308,43 @@ fn git_worktree_add_list_and_remove_work() {
         .unwrap();
     assert!(!worktree_path.exists());
 }
+
+#[test]
+fn git_worktree_tools_reject_path_traversal_through_lane_effects() {
+    let cwd = git_repo_with_tracked_file("git_worktree_path_traversal_repo");
+    let ctx = ToolExecutionContext {
+        cwd: cwd.clone(),
+        semantic: None,
+    };
+    let registry = ToolRegistry::builtin();
+
+    let mut add_input = ToolInput::new();
+    add_input.insert("path".into(), "../escape".into());
+    add_input.insert("branch".into(), "feature/escape".into());
+    add_input.insert("create".into(), "true".into());
+    let err = registry
+        .execute(
+            &ToolCall {
+                id: "tool_git_worktree_add_escape".into(),
+                name: "git_worktree_add".into(),
+                input: add_input,
+            },
+            &ctx,
+        )
+        .unwrap_err();
+    assert!(err.contains("unsafe worktree path"));
+
+    let mut remove_input = ToolInput::new();
+    remove_input.insert("path".into(), "../escape".into());
+    let err = registry
+        .execute(
+            &ToolCall {
+                id: "tool_git_worktree_remove_escape".into(),
+                name: "git_worktree_remove".into(),
+                input: remove_input,
+            },
+            &ctx,
+        )
+        .unwrap_err();
+    assert!(err.contains("unsafe worktree path"));
+}

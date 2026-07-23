@@ -7,3 +7,6 @@ authors.workspace = true
 
 [dependencies]
 viden-types = { path = "../types" }
+
+[dev-dependencies]
+serde_json = "1"

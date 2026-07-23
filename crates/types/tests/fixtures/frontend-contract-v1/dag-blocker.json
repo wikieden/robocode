@@ -1,0 +1,174 @@
+{
+  "fixture_id": "dag-blocker",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_dag",
+    "runtime.events",
+    "runtime.snapshot",
+    "runtime.typed_tasks"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_dag-blocker",
+        "task_id": null,
+        "turn_id": "turn_dag-blocker"
+      },
+      "cursor": {
+        "stream_id": "fixture:dag-blocker",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "agent_dag_updated",
+          "payload": {
+            "dag": {
+              "dag_id": "dag_blocker",
+              "goal": "freeze frontend contract v1",
+              "status": "blocked",
+              "tasks": [
+                {
+                  "task_id": "task_blocked",
+                  "role": "coder",
+                  "title": "resolve blocker",
+                  "objective": "recover dependency",
+                  "dependencies": [
+                    "task_dependency"
+                  ],
+                  "workspace": ".worktrees/v3-core-runtime",
+                  "file_scope": [
+                    "crates/core"
+                  ],
+                  "context_bundle_id": "ctx_bundle_contract",
+                  "required_evidence": [
+                    "test_result"
+                  ],
+                  "permission_policy": "ask_before_mutation"
+                }
+              ],
+              "created_at": 1700000000,
+              "updated_at": 1700000030
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_dag-blocker",
+        "task_id": null,
+        "turn_id": "turn_dag-blocker"
+      },
+      "cursor": {
+        "stream_id": "fixture:dag-blocker",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_blocked",
+              "parent_id": null,
+              "agent": "coder",
+              "kind": "agent",
+              "transport": "terminal",
+              "title": "task_blocked title",
+              "status": "blocked",
+              "activity": "dependency missing",
+              "summary": "task_blocked summary",
+              "progress": 40,
+              "started_at": 1700000000,
+              "updated_at": 1700000040,
+              "workspace": ".worktrees/v3-core-runtime",
+              "evidence": [
+                "evidence_task_blocked"
+              ],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": "resume_task_blocked",
+              "pid": null,
+              "next_action": {
+                "label": "Retry blocker",
+                "command": "retry",
+                "reason": "blocked dependency recovered"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_dag-blocker",
+        "task_id": null,
+        "turn_id": "turn_dag-blocker"
+      },
+      "cursor": {
+        "stream_id": "fixture:dag-blocker",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "error",
+          "payload": {
+            "error": {
+              "message": "blocked by task_dependency_missing",
+              "recoverable": true,
+              "hint": "retry after resolving contract request"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:dag-blocker",
+    "sequence": 3
+  },
+  "expected_view_sha256": "a496d331e42f730d41565afe58a3308bf38a7b7e3b92e0279d198e9c407e7719"
+}

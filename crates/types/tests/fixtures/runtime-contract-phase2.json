@@ -124,7 +124,27 @@
           "message": "Shell command requires approval",
           "input_preview": "cargo test --workspace --quiet",
           "is_mutating": false,
-          "reason": "permission level is ask"
+          "reason": "permission level is ask",
+          "owner": {
+            "workspace_id": "workspace_fixture",
+            "project_id": "project_fixture",
+            "lane_id": "lane_fixture",
+            "session_id": "session_fixture",
+            "task_id": "task_fixture",
+            "turn_id": "turn_fixture"
+          },
+          "risk": "medium",
+          "target": {
+            "kind": "shell",
+            "display": "cargo test --workspace --quiet",
+            "canonical_ref": null
+          },
+          "allowed_scopes": ["once"],
+          "policy_reason_key": "permission.requires_approval",
+          "policy_reason_args": {},
+          "expires_at": 1306,
+          "default_action": "deny",
+          "audit_id": "audit_runtime_1"
         }
       }
     }
@@ -148,7 +168,20 @@
       "type": "approval_resolved",
       "payload": {
         "request_id": "approval_runtime_1",
-        "approved": true
+        "decision": {
+          "allow": {
+            "scope": "once"
+          }
+        },
+        "owner": {
+          "workspace_id": "workspace_fixture",
+          "project_id": "project_fixture",
+          "lane_id": "lane_fixture",
+          "session_id": "session_fixture",
+          "task_id": "task_fixture",
+          "turn_id": "turn_fixture"
+        },
+        "audit_id": "audit_runtime_1"
       }
     }
   },

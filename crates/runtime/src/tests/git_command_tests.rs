@@ -61,10 +61,7 @@ fn git_status_command_uses_tool_runtime() {
     let mut approvals = 0usize;
     let mut approver = |_prompt| {
         approvals += 1;
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let events = engine
         .process_input_with_approval("/git status", &mut approver)
@@ -87,10 +84,7 @@ fn git_diff_command_uses_structured_view_sections() {
 
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let events = engine
         .process_input_with_approval("/git diff", &mut approver)
         .unwrap();
@@ -115,10 +109,7 @@ fn latest_diff_command_uses_structured_view_sections() {
 
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .process_input_with_approval("/git diff", &mut approver)
         .unwrap();
@@ -147,10 +138,7 @@ fn git_switch_requests_approval() {
     let mut approvals = 0usize;
     let mut approver = |_prompt| {
         approvals += 1;
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let events = engine
         .process_input_with_approval("/git switch feature/demo --create", &mut approver)
@@ -173,10 +161,7 @@ fn git_add_requests_approval_and_stages_file() {
     let mut approvals = 0usize;
     let mut approver = |_prompt| {
         approvals += 1;
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let events = engine
         .process_input_with_approval("/git add demo.txt", &mut approver)
@@ -208,10 +193,7 @@ fn git_restore_requests_approval_and_reverts_file() {
     let mut approvals = 0usize;
     let mut approver = |_prompt| {
         approvals += 1;
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let events = engine
         .process_input_with_approval("/git restore demo.txt", &mut approver)
@@ -237,10 +219,7 @@ fn git_stash_push_requests_approval_and_list_is_visible() {
     let approvals = Cell::new(0usize);
     let mut approver = |_prompt| {
         approvals.set(approvals.get() + 1);
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     engine
         .process_input_with_approval("/git stash push -m save-work", &mut approver)
@@ -276,10 +255,7 @@ fn git_worktree_add_requests_approval_and_creates_checkout() {
     let mut approvals = 0usize;
     let mut approver = |_prompt| {
         approvals += 1;
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let command = format!(
         "/git worktree add {} feature/worktree --create",

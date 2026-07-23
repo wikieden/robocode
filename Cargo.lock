@@ -463,10 +463,15 @@ dependencies = [
 
 [[package]]
 name = "viden-core"
-version = "0.1.30"
+version = "0.3.5"
 dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "viden-config",
  "viden-provider",
  "viden-runtime",
+ "viden-session",
  "viden-types",
 ]
 
@@ -526,6 +531,7 @@ dependencies = [
 name = "viden-runtime"
 version = "0.1.30"
 dependencies = [
+ "libc",
  "serde_json",
  "sha2",
  "viden-config",
@@ -539,12 +545,14 @@ dependencies = [
  "viden-tools",
  "viden-types",
  "viden-workflows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "viden-session"
 version = "0.1.30"
 dependencies = [
+ "serde_json",
  "viden-types",
 ]
 
@@ -571,14 +579,18 @@ version = "0.1.30"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "viden-workflows"
 version = "0.1.30"
 dependencies = [
+ "fs2",
+ "libc",
  "serde",
  "serde_json",
+ "sha2",
  "viden-session",
  "viden-types",
 ]

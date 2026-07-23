@@ -57,10 +57,7 @@ fn deepseek_live_development_scenario_creates_and_runs_program() {
     engine
         .seed_context_benchmark_history_for_test("deepseek-live-context-benchmark")
         .expect("seed benchmark history");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let prompt = r#"Real development smoke test in this disposable workspace.
 Create `math_tools.py` with an `add(a, b)` function that returns `a + b`.
 Create `test_math_tools.py` that imports `add`, asserts `add(2, 3) == 5`, and prints `viden-dev-scenario-ok`.

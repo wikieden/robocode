@@ -1,13 +1,23 @@
 use crate::{
-    AgentDagRecord, AgentDagTaskSpec, AgentLaneRecord, AgentTaskId, AgentTaskRecord,
-    ApprovalResponse, ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord,
-    ContextHandleRecord, ContextItemRecord, ContextQualityRecord, ContextReductionRecord,
-    ContextRetrievalRecord, ContextScope, ContextViewRecord, CostLedgerTotals, CostUsageRecord,
-    EvidenceCanonicalizationRecord, EvidenceId, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, ProviderCacheObservationRecord, RuntimeSnapshot, ToolCallId, WorkMode,
+    AgentAdapterView, AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord,
+    AgentSessionInput, AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId,
+    AgentTaskRecord, ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk,
+    ApprovalScope, ApprovalTarget, CheckRunView, ConflictBounce, ContextBudgetRecord,
+    ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord,
+    ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord, ContextScope,
+    ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord,
+    CredentialHandle, DependencyRecord, DependencyState, EvidenceCanonicalizationRecord,
+    EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord,
+    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner,
+    RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
+    TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
+    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceEligibility, WorkspaceSourceView,
     now_timestamp,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 
@@ -18,6 +28,53 @@ const RUNTIME_VIEW_COLLECTION_LIMIT: usize = 50;
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuntimeCommand {
+    QueryAgentAdapters,
+    ProbeAgentAdapter {
+        agent_id: String,
+    },
+    StartAgentSession {
+        request: AgentSessionRequest,
+    },
+    SendAgentSessionInput {
+        input: AgentSessionInput,
+    },
+    RetryAgentSession {
+        session_id: SessionId,
+    },
+    CancelAgentSession {
+        session_id: String,
+    },
+    ProbeProject,
+    PreviewProjectConfig {
+        contents: String,
+    },
+    ConfirmProjectConfig {
+        preview_id: String,
+        content_sha256: String,
+    },
+    StoreCredentialHandle {
+        provider_id: String,
+        backend_id: String,
+        credential_request_id: String,
+    },
+    SetUiPreferences {
+        patch: UiPreferencePatch,
+    },
+    ResetUiPreferences,
+    QueryRecentWork {
+        query: RecentWorkQuery,
+    },
+    PreviewStarterLane {
+        request: StarterLaneRequest,
+    },
+    PreviewDefaultStarterLane {
+        preset: StarterLanePreset,
+    },
+    CreateStarterLane {
+        request: StarterLaneRequest,
+        preview_id: String,
+        content_sha256: String,
+    },
     SubmitUserInput {
         content: String,
     },
@@ -53,6 +110,57 @@ pub enum RuntimeCommand {
         provider_id: String,
         model: String,
     },
+    CreateLane {
+        lane: AgentLaneRecord,
+    },
+    StartLane {
+        lane_id: crate::AgentLaneId,
+        command: String,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+        output_log: Option<String>,
+    },
+    StopLane {
+        lane_id: crate::AgentLaneId,
+    },
+    AttachLane {
+        lane_id: crate::AgentLaneId,
+    },
+    DetachLane {
+        lane_id: crate::AgentLaneId,
+    },
+    SendLaneInput {
+        lane_id: crate::AgentLaneId,
+        input: String,
+    },
+    AcceptLaneOutput {
+        lane_id: crate::AgentLaneId,
+        summary: String,
+    },
+    ReviseLaneOutput {
+        lane_id: crate::AgentLaneId,
+        feedback: String,
+    },
+    DiscardLaneOutput {
+        lane_id: crate::AgentLaneId,
+        reason: String,
+    },
+    ApplyLaneChanges {
+        lane_id: crate::AgentLaneId,
+        unified_diff: String,
+    },
+    ResolveLaneConflict {
+        lane_id: crate::AgentLaneId,
+        unified_diff: String,
+    },
+    ArchiveLane {
+        lane_id: crate::AgentLaneId,
+        summary: String,
+    },
+    CleanupLane {
+        lane_id: crate::AgentLaneId,
+        force: bool,
+    },
     StartAgentDag {
         goal: String,
         tasks: Vec<AgentDagTaskSpec>,
@@ -63,12 +171,50 @@ pub enum RuntimeCommand {
     CancelAgentTask {
         task_id: AgentTaskId,
     },
+    CreateHandoff {
+        handoff_id: String,
+        task_id: AgentTaskId,
+        from_lane_id: crate::AgentLaneId,
+        to_lane_id: crate::AgentLaneId,
+        owner: RuntimeOwner,
+        summary: String,
+        acceptance: HandoffAcceptance,
+    },
+    RequestReview {
+        review_id: String,
+        gate_id: MergeGateId,
+        requester_lane_id: crate::AgentLaneId,
+        reviewer_lane_id: crate::AgentLaneId,
+        owner: RuntimeOwner,
+        evidence_ids: Vec<EvidenceId>,
+    },
+    ConfirmContract {
+        contract_id: String,
+        task_id: AgentTaskId,
+        owner: RuntimeOwner,
+        summary: String,
+        decision: ContractDecision,
+    },
+    SetDependency {
+        dependency_id: String,
+        task_id: AgentTaskId,
+        depends_on_task_id: AgentTaskId,
+        owner: RuntimeOwner,
+        state: DependencyState,
+        reason: String,
+    },
     AcceptMergeGate {
         gate_id: MergeGateId,
+        #[serde(default)]
+        actor: RuntimeOwner,
+        #[serde(default)]
+        reviewed_evidence: Vec<ReviewedEvidenceBinding>,
         decision: Option<String>,
     },
     RejectMergeGate {
         gate_id: MergeGateId,
+        #[serde(default)]
+        actor: RuntimeOwner,
         reason: String,
     },
     RecordAgentEvidence {
@@ -84,20 +230,48 @@ pub enum RuntimeCommand {
     AcceptAgentArtifact {
         gate_id: MergeGateId,
         evidence_id: EvidenceId,
+        #[serde(default)]
+        actor: RuntimeOwner,
+        #[serde(default)]
+        source_hash: String,
         decision: Option<String>,
     },
     RejectAgentArtifact {
         gate_id: MergeGateId,
         evidence_id: EvidenceId,
+        #[serde(default)]
+        actor: RuntimeOwner,
         reason: String,
     },
     MergeAgentPatch {
         gate_id: MergeGateId,
+        #[serde(default)]
+        actor: RuntimeOwner,
         decision: Option<String>,
+    },
+    RevalidateMergeConflict {
+        gate_id: MergeGateId,
+        bounce_id: String,
+        actor: RuntimeOwner,
+        evidence: ReviewedEvidenceBinding,
+    },
+    BounceMergeConflict {
+        gate_id: MergeGateId,
+        original_lane_id: crate::AgentLaneId,
+        owner: RuntimeOwner,
+        reason: String,
+    },
+    RevertAppliedChange {
+        gate_id: MergeGateId,
+        owner: RuntimeOwner,
+        reason: String,
     },
     RetrieveContext {
         handle_id: String,
         reason: String,
+    },
+    LoadTranscriptPage {
+        request: TranscriptPageRequest,
     },
 }
 
@@ -112,6 +286,15 @@ pub struct CommandAction {
     pub destructive: bool,
 }
 
+/// Exact live worker identity exposed to frontend clients for owner-scoped
+/// controls. The owner is copied from the worker handle and is never inferred
+/// from durable Lane or display state.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneRuntimeOwnerBinding {
+    pub lane_id: AgentLaneId,
+    pub owner: RuntimeOwner,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ApprovalRequestView {
     pub id: String,
@@ -121,6 +304,40 @@ pub struct ApprovalRequestView {
     pub input_preview: String,
     pub is_mutating: bool,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub owner: RuntimeOwner,
+    #[serde(default = "default_approval_risk")]
+    pub risk: ApprovalRisk,
+    #[serde(default = "default_approval_target")]
+    pub target: ApprovalTarget,
+    #[serde(default)]
+    pub allowed_scopes: Vec<ApprovalScope>,
+    #[serde(default)]
+    pub policy_reason_key: String,
+    #[serde(default)]
+    pub policy_reason_args: BTreeMap<String, String>,
+    #[serde(default)]
+    pub expires_at: u64,
+    #[serde(default = "default_approval_action")]
+    pub default_action: ApprovalDefaultAction,
+    #[serde(default)]
+    pub audit_id: String,
+}
+
+fn default_approval_risk() -> ApprovalRisk {
+    ApprovalRisk::Medium
+}
+
+fn default_approval_target() -> ApprovalTarget {
+    ApprovalTarget {
+        kind: String::new(),
+        display: String::new(),
+        canonical_ref: None,
+    }
+}
+
+fn default_approval_action() -> ApprovalDefaultAction {
+    ApprovalDefaultAction::Deny
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -243,6 +460,8 @@ pub struct ProviderHealthView {
     pub last_latency_ms: Option<u64>,
     pub average_latency_ms: Option<u64>,
     pub tokens_per_second: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<CredentialHandle>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -271,6 +490,30 @@ pub struct QueuedInputView {
     pub id: String,
     pub content_preview: String,
     pub created_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneOutputView {
+    pub lane_id: crate::AgentLaneId,
+    pub stream: String,
+    pub content: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneConflictView {
+    pub lane_id: crate::AgentLaneId,
+    pub summary: String,
+    pub paths: Vec<String>,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneRecoveryView {
+    pub lane_id: crate::AgentLaneId,
+    pub reason: String,
+    pub next_action: String,
+    pub timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -304,6 +547,76 @@ impl RuntimeEvent {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RuntimeEventKind {
+    AgentAdaptersLoaded {
+        adapters: Vec<AgentAdapterView>,
+    },
+    AgentAdapterProbed {
+        adapter: AgentAdapterView,
+    },
+    AgentSessionStarted {
+        session: AgentSessionView,
+    },
+    AgentSessionUpdated {
+        session: AgentSessionView,
+    },
+    AgentSessionCompleted {
+        session: AgentSessionView,
+    },
+    AgentSessionFailed {
+        session: AgentSessionView,
+    },
+    AgentSessionInputAccepted {
+        session_id: SessionId,
+        input_id: String,
+    },
+    WorkspaceEligibilityUpdated {
+        eligibility: WorkspaceEligibility,
+    },
+    ProjectProbed {
+        probe: ProjectProbe,
+    },
+    ProjectConfigPreviewed {
+        preview: ProjectConfigPreview,
+    },
+    ProjectConfigConfirmed {
+        preview: ProjectConfigPreview,
+    },
+    CredentialHandleStored {
+        handle: CredentialHandle,
+    },
+    UiPreferencesUpdated {
+        resolved: ResolvedUiPreferences,
+        persisted: Option<UiPreferences>,
+        diagnostics: Vec<UiPreferenceDiagnostic>,
+    },
+    RecentWorkLoaded {
+        projects: Vec<RecentProjectSummary>,
+        sessions: Vec<RecentSessionSummary>,
+        diagnostics: Vec<String>,
+    },
+    WorkspaceSourceUpdated {
+        source: WorkspaceSourceView,
+    },
+    RuntimeServiceHealthUpdated {
+        service: RuntimeServiceHealthView,
+    },
+    WorkspaceChangeUpdated {
+        change: WorkspaceChangeView,
+    },
+    CheckRunUpdated {
+        check: CheckRunView,
+    },
+    StarterLanePreviewed {
+        preview: StarterLanePreview,
+    },
+    StarterLaneCreated {
+        receipt: StarterLaneReceipt,
+    },
+    StarterLanePreviewInvalidated {
+        owner: RuntimeOwner,
+        preview_id: String,
+        reason: StarterLanePreviewInvalidationReason,
+    },
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
@@ -329,15 +642,24 @@ pub enum RuntimeEventKind {
     },
     ApprovalResolved {
         request_id: String,
-        approved: bool,
+        decision: ApprovalDecision,
+        owner: RuntimeOwner,
+        audit_id: String,
     },
     CommandAccepted {
+        command_id: String,
+        command: RuntimeCommand,
+    },
+    LaneCommandAccepted {
         command_id: String,
         command: RuntimeCommand,
     },
     CommandRejected {
         command_id: String,
         reason: String,
+    },
+    TranscriptPageLoaded {
+        page: Box<TranscriptPage>,
     },
     InputQueued {
         input: QueuedInputView,
@@ -353,6 +675,24 @@ pub enum RuntimeEventKind {
     },
     LaneUpdated {
         lane: AgentLaneRecord,
+    },
+    LaneRuntimeOwnerBound {
+        binding: LaneRuntimeOwnerBinding,
+    },
+    LaneOutputAppended {
+        lane_id: crate::AgentLaneId,
+        stream: String,
+        content: String,
+    },
+    LaneConflictDetected {
+        lane_id: crate::AgentLaneId,
+        summary: String,
+        paths: Vec<String>,
+    },
+    LaneRecoveryRequired {
+        lane_id: crate::AgentLaneId,
+        reason: String,
+        next_action: String,
     },
     EvidenceRecorded {
         evidence: EvidenceView,
@@ -402,6 +742,24 @@ pub enum RuntimeEventKind {
     MergeGateUpdated {
         gate: MergeGateRecord,
     },
+    HandoffUpdated {
+        handoff: HandoffRecord,
+    },
+    ReviewRequestUpdated {
+        review: ReviewRequestRecord,
+    },
+    ContractUpdated {
+        contract: ContractRecord,
+    },
+    DependencyUpdated {
+        dependency: DependencyRecord,
+    },
+    MergeConflictBounced {
+        conflict: ConflictBounce,
+    },
+    RevertRecorded {
+        revert: RevertRecord,
+    },
     ProviderHealthUpdated {
         provider: ProviderHealthView,
     },
@@ -416,12 +774,58 @@ pub enum RuntimeEventKind {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeViewState {
     pub snapshot: RuntimeSnapshot,
+    // The live reducer mirrors this projection for in-process consumers. The
+    // frozen v1 wire view continues to carry the same fact in `snapshot`.
+    #[serde(skip)]
+    pub ui_preferences: ResolvedUiPreferences,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_adapters: Vec<AgentAdapterView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_sessions: Vec<AgentSessionView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_session_inputs: Vec<AgentSessionInputView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_projects: Vec<RecentProjectSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_sessions: Vec<RecentSessionSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_work_diagnostics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_source: Option<WorkspaceSourceView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_services: Vec<RuntimeServiceHealthView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_changes: Vec<WorkspaceChangeView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub check_runs: Vec<CheckRunView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starter_lane_previews: Vec<StarterLanePreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starter_lane_receipts: Vec<StarterLaneReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_probe: Option<ProjectProbe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_eligibility: Option<WorkspaceEligibility>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_config_preview: Option<ProjectConfigPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_project_config: Option<ProjectConfigPreview>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub credential_handles: Vec<CredentialHandle>,
     pub pending_approvals: Vec<ApprovalRequestView>,
     pub queued_inputs: Vec<QueuedInputView>,
     pub active_tool_calls: Vec<ToolCallView>,
     pub tasks: Vec<AgentTaskRecord>,
     pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_runtime_owners: Vec<LaneRuntimeOwnerBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_outputs: Vec<LaneOutputView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_conflicts: Vec<LaneConflictView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_recoveries: Vec<LaneRecoveryView>,
     pub latest_evidence: Vec<EvidenceView>,
     pub assistant_stream: String,
     pub context: Option<ContextBundleRecord>,
@@ -454,20 +858,55 @@ pub struct RuntimeViewState {
     pub provider: Option<ProviderHealthView>,
     pub token_cost: Option<TokenCostView>,
     pub merge_gates: Vec<MergeGateRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handoffs: Vec<HandoffRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review_requests: Vec<ReviewRequestRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contracts: Vec<ContractRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<DependencyRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflict_bounces: Vec<ConflictBounce>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reverts: Vec<RevertRecord>,
     pub errors: Vec<RuntimeErrorView>,
     pub last_command: Option<RuntimeCommandReceipt>,
 }
 
 impl RuntimeViewState {
     pub fn new(snapshot: RuntimeSnapshot) -> Self {
+        let ui_preferences = snapshot.ui_preferences.clone();
         Self {
             snapshot,
+            ui_preferences,
+            agent_adapters: Vec::new(),
+            agent_sessions: Vec::new(),
+            agent_session_inputs: Vec::new(),
+            recent_projects: Vec::new(),
+            recent_sessions: Vec::new(),
+            recent_work_diagnostics: Vec::new(),
+            workspace_source: None,
+            runtime_services: Vec::new(),
+            workspace_changes: Vec::new(),
+            check_runs: Vec::new(),
+            starter_lane_previews: Vec::new(),
+            starter_lane_receipts: Vec::new(),
+            project_probe: None,
+            workspace_eligibility: None,
+            project_config_preview: None,
+            confirmed_project_config: None,
+            credential_handles: Vec::new(),
             pending_approvals: Vec::new(),
             queued_inputs: Vec::new(),
             active_tool_calls: Vec::new(),
             tasks: Vec::new(),
             agent_dags: Vec::new(),
             lanes: Vec::new(),
+            lane_runtime_owners: Vec::new(),
+            lane_outputs: Vec::new(),
+            lane_conflicts: Vec::new(),
+            lane_recoveries: Vec::new(),
             latest_evidence: Vec::new(),
             assistant_stream: String::new(),
             context: None,
@@ -487,6 +926,12 @@ impl RuntimeViewState {
             provider: None,
             token_cost: None,
             merge_gates: Vec::new(),
+            handoffs: Vec::new(),
+            review_requests: Vec::new(),
+            contracts: Vec::new(),
+            dependencies: Vec::new(),
+            conflict_bounces: Vec::new(),
+            reverts: Vec::new(),
             errors: Vec::new(),
             last_command: None,
         }
@@ -494,8 +939,141 @@ impl RuntimeViewState {
 
     pub fn apply_event(&mut self, event: &RuntimeEvent) {
         match &event.kind {
+            RuntimeEventKind::AgentAdaptersLoaded { adapters } => {
+                self.agent_adapters = adapters.clone();
+                cap_vec(&mut self.agent_adapters);
+            }
+            RuntimeEventKind::AgentAdapterProbed { adapter } => {
+                upsert_by_id(&mut self.agent_adapters, adapter.clone(), |existing| {
+                    existing.agent_id == adapter.agent_id
+                });
+                cap_vec(&mut self.agent_adapters);
+            }
+            RuntimeEventKind::AgentSessionStarted { session }
+            | RuntimeEventKind::AgentSessionUpdated { session }
+            | RuntimeEventKind::AgentSessionCompleted { session }
+            | RuntimeEventKind::AgentSessionFailed { session } => {
+                let existing_session = self
+                    .agent_sessions
+                    .iter()
+                    .find(|existing| existing.session_id == session.session_id);
+                let lane_is_unbound = self
+                    .agent_sessions
+                    .iter()
+                    .all(|existing| existing.lane_id != session.lane_id);
+                // A Lane's first session identity is authoritative during replay.
+                // Later sessions cannot silently join or replace that projection.
+                if existing_session.is_some_and(|existing| existing.owner == session.owner)
+                    || (existing_session.is_none() && lane_is_unbound)
+                {
+                    upsert_by_id(&mut self.agent_sessions, session.clone(), |existing| {
+                        existing.session_id == session.session_id
+                    });
+                    cap_vec(&mut self.agent_sessions);
+                }
+            }
+            RuntimeEventKind::AgentSessionInputAccepted {
+                session_id,
+                input_id,
+            } => {
+                upsert_by_id(
+                    &mut self.agent_session_inputs,
+                    AgentSessionInputView {
+                        session_id: session_id.clone(),
+                        input_id: input_id.clone(),
+                    },
+                    |existing| existing.input_id == *input_id,
+                );
+                cap_vec(&mut self.agent_session_inputs);
+            }
+            RuntimeEventKind::WorkspaceEligibilityUpdated { eligibility } => {
+                self.workspace_eligibility = Some(eligibility.clone());
+            }
+            RuntimeEventKind::ProjectProbed { probe } => {
+                self.project_probe = Some(probe.clone());
+            }
+            RuntimeEventKind::ProjectConfigPreviewed { preview } => {
+                self.project_config_preview = Some(preview.clone());
+            }
+            RuntimeEventKind::ProjectConfigConfirmed { preview } => {
+                self.confirmed_project_config = Some(preview.clone());
+                self.project_config_preview = None;
+            }
+            RuntimeEventKind::CredentialHandleStored { handle } => {
+                upsert_by_id(&mut self.credential_handles, handle.clone(), |existing| {
+                    existing.provider_id == handle.provider_id
+                        && existing.backend_id == handle.backend_id
+                });
+            }
+            RuntimeEventKind::UiPreferencesUpdated { resolved, .. } => {
+                self.ui_preferences = resolved.clone();
+                self.snapshot.ui_preferences = resolved.clone();
+            }
+            RuntimeEventKind::RecentWorkLoaded {
+                projects,
+                sessions,
+                diagnostics,
+            } => {
+                self.recent_projects = projects.clone();
+                self.recent_sessions = sessions.clone();
+                self.recent_work_diagnostics = diagnostics.clone();
+            }
+            RuntimeEventKind::WorkspaceSourceUpdated { source } => {
+                self.workspace_source = Some(source.clone());
+            }
+            RuntimeEventKind::RuntimeServiceHealthUpdated { service } => {
+                upsert_by_id(&mut self.runtime_services, service.clone(), |existing| {
+                    existing.kind == service.kind && existing.id == service.id
+                });
+                cap_vec(&mut self.runtime_services);
+            }
+            RuntimeEventKind::WorkspaceChangeUpdated { change } => {
+                upsert_by_id(&mut self.workspace_changes, change.clone(), |existing| {
+                    existing.owner == change.owner && existing.id == change.id
+                });
+                cap_vec(&mut self.workspace_changes);
+            }
+            RuntimeEventKind::CheckRunUpdated { check } => {
+                upsert_by_id(&mut self.check_runs, check.clone(), |existing| {
+                    existing.owner == check.owner && existing.id == check.id
+                });
+                cap_vec(&mut self.check_runs);
+            }
+            RuntimeEventKind::StarterLanePreviewed { preview } => {
+                upsert_by_id(
+                    &mut self.starter_lane_previews,
+                    preview.clone(),
+                    |existing| {
+                        existing.owner == preview.owner && existing.preview_id == preview.preview_id
+                    },
+                );
+                cap_vec(&mut self.starter_lane_previews);
+            }
+            RuntimeEventKind::StarterLaneCreated { receipt } => {
+                self.starter_lane_previews.retain(|preview| {
+                    preview.preview_id != receipt.preview_id || preview.owner != receipt.owner
+                });
+                upsert_by_id(
+                    &mut self.starter_lane_receipts,
+                    receipt.clone(),
+                    |existing| {
+                        existing.owner == receipt.owner && existing.preview_id == receipt.preview_id
+                    },
+                );
+                cap_vec(&mut self.starter_lane_receipts);
+                upsert_by_id(&mut self.lanes, receipt.lane.clone(), |existing| {
+                    existing.id == receipt.lane.id
+                });
+            }
+            RuntimeEventKind::StarterLanePreviewInvalidated {
+                owner, preview_id, ..
+            } => {
+                self.starter_lane_previews
+                    .retain(|preview| preview.owner != *owner || preview.preview_id != *preview_id);
+            }
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();
+                self.ui_preferences = snapshot.ui_preferences.clone();
             }
             RuntimeEventKind::AssistantDelta { content, .. } => {
                 self.assistant_stream.push_str(content);
@@ -538,6 +1116,10 @@ impl RuntimeViewState {
             RuntimeEventKind::CommandAccepted {
                 command_id,
                 command,
+            }
+            | RuntimeEventKind::LaneCommandAccepted {
+                command_id,
+                command,
             } => {
                 self.last_command = Some(RuntimeCommandReceipt {
                     command_id: command_id.clone(),
@@ -551,6 +1133,10 @@ impl RuntimeViewState {
                     recoverable: true,
                     hint: None,
                 });
+            }
+            RuntimeEventKind::TranscriptPageLoaded { .. } => {
+                // Transcript pages are transient fetch results. They do not
+                // mutate the long-lived runtime projection.
             }
             RuntimeEventKind::InputQueued { input } => {
                 upsert_by_id(&mut self.queued_inputs, input.clone(), |existing| {
@@ -574,6 +1160,92 @@ impl RuntimeViewState {
                 upsert_by_id(&mut self.lanes, lane.clone(), |existing| {
                     existing.id == lane.id
                 });
+                if matches!(
+                    lane.status,
+                    LaneStatus::Done
+                        | LaneStatus::Failed
+                        | LaneStatus::Cancelled
+                        | LaneStatus::Archived
+                ) {
+                    self.lane_runtime_owners
+                        .retain(|binding| binding.lane_id != lane.id);
+                }
+            }
+            RuntimeEventKind::LaneRuntimeOwnerBound { binding } => {
+                // A mismatched payload is untrusted protocol input. Never
+                // normalize it into an authority the Core did not publish.
+                // A Lane's first valid execution owner is authoritative for
+                // the view lifetime. Exact replay is already idempotent, and
+                // a later owner/session cannot replace the existing binding.
+                let lane_is_terminal = self
+                    .lanes
+                    .iter()
+                    .find(|lane| lane.id == binding.lane_id)
+                    .is_some_and(|lane| {
+                        matches!(
+                            lane.status,
+                            LaneStatus::Done
+                                | LaneStatus::Failed
+                                | LaneStatus::Cancelled
+                                | LaneStatus::Archived
+                        )
+                    });
+                if binding.owner.lane_id.as_ref() == Some(&binding.lane_id)
+                    && !lane_is_terminal
+                    && self
+                        .lane_runtime_owners
+                        .iter()
+                        .all(|existing| existing.lane_id != binding.lane_id)
+                {
+                    self.lane_runtime_owners.push(binding.clone());
+                }
+            }
+            RuntimeEventKind::LaneOutputAppended {
+                lane_id,
+                stream,
+                content,
+            } => {
+                self.lane_outputs.push(LaneOutputView {
+                    lane_id: lane_id.clone(),
+                    stream: stream.clone(),
+                    content: content.clone(),
+                    timestamp: event.timestamp,
+                });
+                cap_vec(&mut self.lane_outputs);
+            }
+            RuntimeEventKind::LaneConflictDetected {
+                lane_id,
+                summary,
+                paths,
+            } => {
+                upsert_by_id(
+                    &mut self.lane_conflicts,
+                    LaneConflictView {
+                        lane_id: lane_id.clone(),
+                        summary: summary.clone(),
+                        paths: paths.clone(),
+                        timestamp: event.timestamp,
+                    },
+                    |existing| existing.lane_id == *lane_id,
+                );
+                cap_vec(&mut self.lane_conflicts);
+            }
+            RuntimeEventKind::LaneRecoveryRequired {
+                lane_id,
+                reason,
+                next_action,
+            } => {
+                upsert_by_id(
+                    &mut self.lane_recoveries,
+                    LaneRecoveryView {
+                        lane_id: lane_id.clone(),
+                        reason: reason.clone(),
+                        next_action: next_action.clone(),
+                        timestamp: event.timestamp,
+                    },
+                    |existing| existing.lane_id == *lane_id,
+                );
+                cap_vec(&mut self.lane_recoveries);
             }
             RuntimeEventKind::EvidenceRecorded { evidence } => {
                 upsert_by_id(&mut self.latest_evidence, evidence.clone(), |existing| {
@@ -690,6 +1362,36 @@ impl RuntimeViewState {
             RuntimeEventKind::MergeGateUpdated { gate } => {
                 upsert_by_id(&mut self.merge_gates, gate.clone(), |existing| {
                     existing.gate_id == gate.gate_id
+                });
+            }
+            RuntimeEventKind::HandoffUpdated { handoff } => {
+                upsert_by_id(&mut self.handoffs, handoff.clone(), |existing| {
+                    existing.handoff_id == handoff.handoff_id
+                });
+            }
+            RuntimeEventKind::ReviewRequestUpdated { review } => {
+                upsert_by_id(&mut self.review_requests, review.clone(), |existing| {
+                    existing.review_id == review.review_id
+                });
+            }
+            RuntimeEventKind::ContractUpdated { contract } => {
+                upsert_by_id(&mut self.contracts, contract.clone(), |existing| {
+                    existing.contract_id == contract.contract_id
+                });
+            }
+            RuntimeEventKind::DependencyUpdated { dependency } => {
+                upsert_by_id(&mut self.dependencies, dependency.clone(), |existing| {
+                    existing.dependency_id == dependency.dependency_id
+                });
+            }
+            RuntimeEventKind::MergeConflictBounced { conflict } => {
+                upsert_by_id(&mut self.conflict_bounces, conflict.clone(), |existing| {
+                    existing.bounce_id == conflict.bounce_id
+                });
+            }
+            RuntimeEventKind::RevertRecorded { revert } => {
+                upsert_by_id(&mut self.reverts, revert.clone(), |existing| {
+                    existing.revert_id == revert.revert_id
                 });
             }
             RuntimeEventKind::ProviderHealthUpdated { provider } => {

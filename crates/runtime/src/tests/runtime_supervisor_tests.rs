@@ -8,22 +8,28 @@ use std::{fs, path::Path};
 use viden_lsp::{LspRuntime, LspServerConfig, LspServerRegistry};
 use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, ContextBundleRecord,
-    MergeGateStatus, ModelEvent, ModelRequest, PermissionBehavior, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
-    ToolCall, ToolInput, WorkMode,
+    AgentDagTaskSpec, AgentRole, AgentSessionRequest, AgentSessionStatus, AgentTaskStatus,
+    ApprovalDecision, ApprovalResponse, ApprovalScope, ContextBundleRecord, EventCursor,
+    FRONTEND_SCHEMA_V1, MergeGateStatus, ModelEvent, ModelRequest, PermissionBehavior,
+    PermissionLevel, PermissionMode, PermissionRule, PermissionRuleSource, PermissionRuleValue,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind,
+    RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
 use crate::{
     RuntimeSupervisor, SessionEngine,
     runtime_contract::{set_retrieve_context_publish_test_hook, set_retrieve_context_test_hook},
+    runtime_supervisor::{
+        set_before_context_resume_enqueue_hook, set_before_permission_control_hook,
+    },
 };
 
 use super::{SequenceProvider, temp_dir};
 
 static CUSTOM_ACP_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static RETRIEVE_CONTEXT_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static PERMISSION_CONTROL_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn assert_no_project_side_channel_events(events: &[viden_workflows::stores::WorkflowAgentEvent]) {
     let forbidden = [
@@ -179,6 +185,175 @@ impl ModelProvider for RecordingProvider {
 }
 
 #[test]
+fn runtime_supervisor_envelopes_are_contiguous_owned_and_replayable_before_visibility() {
+    let cwd = temp_dir("runtime_supervisor_envelope_cwd");
+    let home = temp_dir("runtime_supervisor_envelope_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("envelope");
+
+    supervisor
+        .send_command_envelope(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "client-envelope".to_string(),
+            command_id: "cmd-envelope".to_string(),
+            owner: owner.clone(),
+            command: RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        })
+        .unwrap();
+
+    let first = loop {
+        let envelope = supervisor
+            .recv_event_envelope_timeout(Duration::from_secs(2))
+            .expect("first owner-scoped event envelope");
+        if envelope.owner == owner {
+            break envelope;
+        }
+    };
+    assert_eq!(first.owner, owner);
+    assert_eq!(
+        match &first.event {
+            RuntimeWireEvent::Known(event) => event.sequence,
+            RuntimeWireEvent::Unknown { .. } => 0,
+        },
+        first.cursor.sequence
+    );
+
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: EventCursor {
+                stream_id: first.cursor.stream_id.clone(),
+                sequence: 0,
+            },
+            limit: 10,
+        })
+        .unwrap();
+    assert!(replay.events.contains(&first));
+
+    let second = loop {
+        let envelope = supervisor
+            .recv_event_envelope_timeout(Duration::from_secs(2))
+            .expect("second owner-scoped event envelope");
+        if envelope.owner == owner {
+            break envelope;
+        }
+    };
+    assert_eq!(second.owner, owner);
+    assert_eq!(second.cursor.sequence, first.cursor.sequence + 1);
+    assert_eq!(
+        match &second.event {
+            RuntimeWireEvent::Known(event) => event.sequence,
+            RuntimeWireEvent::Unknown { .. } => 0,
+        },
+        second.cursor.sequence
+    );
+}
+
+#[test]
+fn runtime_supervisor_snapshot_pairs_transient_live_view_with_exact_cursor() {
+    let cwd = temp_dir("runtime_supervisor_snapshot_boundary_cwd");
+    let home = temp_dir("runtime_supervisor_snapshot_boundary_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command("cmd-no-active", RuntimeCommand::CancelActiveTurn)
+        .unwrap();
+    let event = loop {
+        let envelope = supervisor
+            .recv_event_envelope_timeout(Duration::from_secs(2))
+            .expect("transient command rejection");
+        if matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, .. },
+                ..
+            }) if command_id == "cmd-no-active"
+        ) {
+            break envelope;
+        }
+    };
+    assert!(matches!(
+        &event.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::CommandRejected { command_id, .. },
+            ..
+        }) if command_id == "cmd-no-active"
+    ));
+
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(snapshot.cursor, event.cursor);
+    assert!(snapshot.view.errors.iter().any(|error| {
+        error
+            .message
+            .contains("command cmd-no-active rejected: no active turn to cancel")
+    }));
+}
+
+#[test]
+fn runtime_supervisor_transcript_page_query_does_not_advance_event_journal() {
+    let cwd = temp_dir("runtime_supervisor_transcript_page_cwd");
+    let home = temp_dir("runtime_supervisor_transcript_page_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let session_id = engine.session_id().to_string();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let before = supervisor.snapshot_envelope().unwrap();
+
+    let page = supervisor
+        .load_transcript_page(TranscriptPageRequest {
+            session_id: session_id.clone(),
+            before: None,
+            limit: 20,
+        })
+        .unwrap();
+    let after = supervisor.snapshot_envelope().unwrap();
+
+    assert_eq!(after.cursor, before.cursor);
+    assert!(
+        page.rows
+            .iter()
+            .all(|row| row.cursor.session_id == session_id)
+    );
+}
+
+#[test]
+fn runtime_supervisor_transport_receive_distinguishes_timeout_from_stopped_worker() {
+    let cwd = temp_dir("runtime_supervisor_receive_disconnect_cwd");
+    let home = temp_dir("runtime_supervisor_receive_disconnect_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    while supervisor
+        .recv_event_envelope(Duration::from_millis(1))
+        .unwrap()
+        .is_some()
+    {}
+    assert_eq!(
+        supervisor
+            .recv_event_envelope(Duration::from_millis(1))
+            .unwrap(),
+        None
+    );
+
+    supervisor.stop_worker_for_test();
+    let error = supervisor
+        .recv_event_envelope(Duration::from_millis(1))
+        .unwrap_err();
+    assert!(error.contains("event stream stopped"));
+    assert_eq!(
+        supervisor.recv_event_envelope_timeout(Duration::from_millis(1)),
+        None,
+        "legacy callers retain Option semantics"
+    );
+}
+
+#[test]
 fn runtime_supervisor_cancels_active_provider_turn_and_keeps_worker_alive() {
     let cwd = temp_dir("runtime_supervisor_cancel_cwd");
     let home = temp_dir("runtime_supervisor_cancel_home");
@@ -260,10 +435,7 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
     let home = temp_dir("runtime_supervisor_context_retrieve_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -313,6 +485,13 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
         .unwrap();
 
     let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let queued_follow_up = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::InputQueued { input }
+                    if input.content_preview.contains("queued while retrieval is blocked")
+            )
+        });
         let accepted_follow_up = events.iter().any(|event| {
             matches!(
                 &event.kind,
@@ -333,7 +512,7 @@ fn runtime_supervisor_keeps_input_responsive_during_context_retrieval() {
                 RuntimeEventKind::Error { error } if error.message.contains("Model request cancelled")
             )
         });
-        accepted_follow_up && accepted_cancel && cancelled
+        queued_follow_up && accepted_follow_up && accepted_cancel && cancelled
     });
     set_retrieve_context_test_hook(None);
 
@@ -405,10 +584,7 @@ fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
             "cmd_retrieve_approval",
             RuntimeCommand::RespondToApproval {
                 request_id: request_id.clone(),
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -434,7 +610,8 @@ fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
                 request_id: resolved,
-                approved: true
+                decision: ApprovalDecision::Allow { .. },
+                ..
             } if resolved == &request_id
         )
     }));
@@ -455,10 +632,7 @@ fn runtime_supervisor_retrieve_context_waits_for_ask_approval_before_reading() {
             "cmd_retrieve_approval_again",
             RuntimeCommand::RespondToApproval {
                 request_id,
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -518,10 +692,7 @@ fn runtime_supervisor_retrieve_context_ask_denial_does_not_read() {
             "cmd_retrieve_denial",
             RuntimeCommand::RespondToApproval {
                 request_id: request_id.clone(),
-                response: ApprovalResponse {
-                    approved: false,
-                    feedback: Some("no".to_string()),
-                },
+                response: ApprovalResponse::deny(Some("no".to_string())),
             },
         )
         .unwrap();
@@ -547,7 +718,8 @@ fn runtime_supervisor_retrieve_context_ask_denial_does_not_read() {
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
                 request_id: resolved,
-                approved: false
+                decision: ApprovalDecision::Deny,
+                ..
             } if resolved == &request_id
         )
     }));
@@ -997,10 +1169,7 @@ fn runtime_supervisor_pending_retrieval_approval_reserves_owner_until_resolution
             "cmd_approve_pending_retrieve",
             RuntimeCommand::RespondToApproval {
                 request_id,
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -1054,10 +1223,7 @@ fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
             "cmd_deny_pending_retrieve",
             RuntimeCommand::RespondToApproval {
                 request_id: approval_id(&deny_request_events),
-                response: ApprovalResponse {
-                    approved: false,
-                    feedback: Some("deny".to_string()),
-                },
+                response: ApprovalResponse::deny(Some("deny".to_string())),
             },
         )
         .unwrap();
@@ -1074,7 +1240,7 @@ fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
         matches!(
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
-                approved: false,
+                decision: ApprovalDecision::Deny,
                 ..
             }
         )
@@ -1145,7 +1311,7 @@ fn runtime_supervisor_pending_retrieval_deny_and_cancel_release_active_owner() {
         matches!(
             &event.kind,
             RuntimeEventKind::ApprovalResolved {
-                approved: false,
+                decision: ApprovalDecision::Deny,
                 ..
             }
         )
@@ -1440,7 +1606,7 @@ fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
             matches!(
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
-                    if task.id == "task_planner" && task.status == "cancelled"
+                    if task.id == "task_planner" && task.status == AgentTaskStatus::Cancelled
             )
         })
     });
@@ -1461,7 +1627,7 @@ fn runtime_supervisor_cancels_active_agent_task_and_keeps_worker_alive() {
         matches!(
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
-                if task.id == "task_planner" && task.status == "cancelled"
+                if task.id == "task_planner" && task.status == AgentTaskStatus::Cancelled
         )
     }));
 
@@ -1540,7 +1706,8 @@ fn runtime_supervisor_streams_async_acp_runtime_events_live() {
     let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
     supervisor
-        .send_command(
+        .send_command_from_owner(
+            owner_for_lane("lane-compat-acp"),
             "cmd_acp_async",
             RuntimeCommand::SubmitUserInput {
                 content: "/agent run acp --async custom-acp stream live".to_string(),
@@ -1575,6 +1742,1089 @@ fn runtime_supervisor_streams_async_acp_runtime_events_live() {
                 if content == "supervisor live delta"
         )
     }));
+}
+
+#[test]
+fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_home");
+    let script = cwd.join("mock-typed-acp.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-typed-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-typed-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"typed session output\"}}}'",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write typed ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-typed-acp");
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_typed_acp_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-typed-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "run the typed ACP lifecycle".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session }
+                    if session.status == AgentSessionStatus::Completed
+            )
+        })
+    });
+    let session = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionCompleted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("completed typed ACP session");
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-other-owner"),
+            "cmd_typed_acp_follow_up_wrong_owner",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "must not run".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let owner_rejection = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_follow_up_wrong_owner"
+                        && reason == "agent_session_owner_mismatch"
+            )
+        })
+    });
+    assert!(owner_rejection.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                if session_id == &session.session_id
+        )
+    }));
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_follow_up",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "continue the same ACP session".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let follow_up = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        let accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == &session.session_id
+            )
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        accepted && completed
+    });
+    assert!(follow_up.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_typed_acp_follow_up"
+        )
+    }));
+    let follow_up_log = fs::read_dir(cwd.join(".viden/agents"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .find(|contents| contents.contains("session/load"))
+        .expect("follow-up ACP log uses session/load");
+    assert!(follow_up_log.contains("remote-typed-session"));
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_retry",
+            RuntimeCommand::RetryAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let retry = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        let accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_typed_acp_retry"
+            )
+        });
+        let input_accepted = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == &session.session_id
+            )
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        accepted && input_accepted && completed
+    });
+    assert!(
+        retry
+            .iter()
+            .all(|event| { !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }) })
+    );
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    let accepted = events.iter().position(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_typed_acp_start"
+        )
+    });
+    let started = events
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }));
+    let completed = events
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }));
+    assert!(accepted < started && started < completed);
+
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert_eq!(snapshot.view.agent_sessions.len(), 1);
+    assert_eq!(snapshot.view.agent_session_inputs.len(), 2);
+    assert_eq!(
+        snapshot.view.agent_sessions[0].status,
+        AgentSessionStatus::Completed
+    );
+    let replay = supervisor
+        .replay_events(ReplayRequest {
+            after: EventCursor {
+                stream_id: snapshot.cursor.stream_id.clone(),
+                sequence: 0,
+            },
+            limit: 128,
+        })
+        .unwrap();
+    assert!(replay.events.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::AgentSessionCompleted { .. },
+                ..
+            })
+        )
+    }));
+    drop(supervisor);
+    let restarted = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let restarted_view = restarted.runtime_view_state();
+    assert!(restarted_view.agent_sessions.iter().any(|session| {
+        session.agent_id == "custom-acp"
+            && session.status == AgentSessionStatus::Completed
+            && session.owner.lane_id.as_deref() == Some("lane-typed-acp")
+    }));
+    assert_eq!(restarted_view.agent_session_inputs.len(), 2);
+}
+
+#[test]
+fn runtime_supervisor_rejects_typed_agent_session_lane_mismatch_before_spawn() {
+    let cwd = temp_dir("runtime_supervisor_typed_acp_owner_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_owner_home");
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-owner"),
+            "cmd_typed_acp_wrong_lane",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-other".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "must not spawn".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_wrong_lane"
+                        && reason.contains("lane")
+                        && reason.contains("owner")
+            )
+        })
+    });
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+    );
+    assert!(!cwd.join(".viden/agents").exists());
+
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-owner"),
+            "cmd_typed_acp_unknown",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-owner".to_string(),
+                    agent_id: "unknown-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "must not spawn".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let unknown = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_unknown"
+                        && reason.contains("Unknown ACP agent")
+            )
+        })
+    });
+    assert!(unknown.iter().all(|event| !matches!(
+        event.kind,
+        RuntimeEventKind::CommandAccepted { .. } | RuntimeEventKind::AgentSessionStarted { .. }
+    )));
+    assert!(!cwd.join(".viden/agents").exists());
+}
+
+#[test]
+fn runtime_supervisor_rejects_typed_agent_spawn_in_plan_or_read_only_mode() {
+    for (scenario, control) in [
+        (
+            "plan",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+        (
+            "read_only",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_home"));
+        let engine = SessionEngine::new_with_home(
+            &cwd,
+            Box::new(SequenceProvider::new(Vec::new())),
+            Some(home),
+        )
+        .unwrap();
+        let supervisor = RuntimeSupervisor::start(engine);
+        supervisor
+            .send_command(format!("cmd_{scenario}_control"), control)
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::SnapshotUpdated { snapshot }
+                        if snapshot.work_mode == WorkMode::Plan
+                            || snapshot.permission_level == PermissionLevel::ReadOnly
+                )
+            })
+        });
+        supervisor
+            .send_command_from_owner(
+                owner_for_lane("lane-blocked-acp"),
+                format!("cmd_{scenario}_agent_start"),
+                RuntimeCommand::StartAgentSession {
+                    request: AgentSessionRequest {
+                        lane_id: "lane-blocked-acp".to_string(),
+                        agent_id: "claude-acp".to_string(),
+                        model: None,
+                        load_session_id: None,
+                        task: "must not create artifacts or spawn".to_string(),
+                    },
+                },
+            )
+            .unwrap();
+        let rejected = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == &format!("cmd_{scenario}_agent_start")
+                            && reason.contains("requires Build mode")
+                )
+            })
+        });
+        assert!(rejected.iter().all(|event| !matches!(
+            event.kind,
+            RuntimeEventKind::CommandAccepted { .. } | RuntimeEventKind::AgentSessionStarted { .. }
+        )));
+        assert!(!cwd.join(".viden/agents").exists());
+    }
+}
+
+#[test]
+fn runtime_supervisor_scopes_typed_agent_session_cancel_and_keeps_it_idempotent() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_cancel_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_cancel_home");
+    let script = cwd.join("mock-typed-acp-cancel.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-cancel-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-cancel-session\",\"toolCall\":{\"toolCallId\":\"tool_cancel\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+            "read approval",
+            "case \"$approval\" in *'\"optionId\":\"reject\"'*) ;; *) exit 5 ;; esac",
+            "sleep 5",
+        ]
+        .join("\n"),
+    )
+    .expect("write cancellable ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-cancel-acp"),
+            "cmd_typed_acp_cancel_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-cancel-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait until cancelled".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+            && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+
+    supervisor
+        .send_command_from_owner(
+            RuntimeOwner {
+                lane_id: Some("lane-other".to_string()),
+                ..session.owner.clone()
+            },
+            "cmd_typed_acp_cancel_wrong_owner",
+            RuntimeCommand::CancelAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let wrong_owner = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_typed_acp_cancel_wrong_owner"
+                        && reason.contains("owner mismatch")
+            )
+        })
+    });
+    assert!(wrong_owner.iter().all(|event| !matches!(
+        &event.kind,
+        RuntimeEventKind::AgentSessionUpdated { session }
+            if session.status == AgentSessionStatus::Cancelled
+    )));
+
+    let mut cancel_events = Vec::new();
+    for command_id in ["cmd_typed_acp_cancel", "cmd_typed_acp_cancel_again"] {
+        supervisor
+            .send_command_from_owner(
+                session.owner.clone(),
+                command_id,
+                RuntimeCommand::CancelAgentSession {
+                    session_id: session.session_id.clone(),
+                },
+            )
+            .unwrap();
+        let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandAccepted { command_id: accepted, .. }
+                        if accepted == command_id
+                )
+            })
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id: accepted, .. }
+                    if accepted == command_id
+            )
+        }));
+        cancel_events.extend(events);
+    }
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert_eq!(
+        supervisor.snapshot_envelope().unwrap().view.agent_sessions[0].status,
+        AgentSessionStatus::Cancelled
+    );
+    assert_eq!(
+        cancel_events
+            .iter()
+            .filter(|event| matches!(
+                event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    decision: ApprovalDecision::Deny,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn runtime_supervisor_bridges_typed_acp_permission_to_owner_approval() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_approval_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_approval_home");
+    let script = cwd.join("mock-typed-acp-approval.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-approval-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-approval-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-approval-session\",\"toolCall\":{\"toolCallId\":\"tool_approval\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"deny\",\"kind\":\"reject_once\",\"name\":\"Deny\"},{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}]}}'",
+            "read approval",
+            "case \"$approval\" in *'\"id\":9'*'\"optionId\":\"allow\"'*) ;; *) exit 5 ;; esac",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-approval-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write approval ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-approval-acp"),
+            "cmd_typed_acp_approval_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-approval-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "request an edit".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let pending = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+            && events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionUpdated { session }
+                        if session.status == AgentSessionStatus::WaitingApproval
+                )
+            })
+    });
+    let approval = pending
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+            _ => None,
+        })
+        .expect("owner-scoped ACP approval");
+    assert_eq!(approval.owner.lane_id.as_deref(), Some("lane-approval-acp"));
+    supervisor
+        .send_command_from_owner(
+            approval.owner.clone(),
+            "cmd_typed_acp_approval_allow",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: ApprovalResponse::allow_once(Some("approved in client".to_string())),
+            },
+        )
+        .unwrap();
+    let resumed = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved { request_id, .. }
+                    if request_id == &approval.id
+            )
+        }) && events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert!(
+        resumed
+            .iter()
+            .any(|event| { matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }) })
+    );
+    let log = fs::read_to_string(
+        cwd.join(".viden/agents")
+            .read_dir()
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with("agent-session_")
+                            && name.ends_with(".jsonl")
+                            && !name.contains("runtime-events")
+                    })
+            })
+            .expect("typed ACP log"),
+    )
+    .unwrap();
+    assert!(log.contains(r#"optionId\":\"allow"#));
+    assert!(!log.contains("background ACP jobs reject permission requests"));
+}
+
+#[test]
+fn restart_stops_orphaned_waiting_acp_before_publishing_recovery_state() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_restart_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_restart_home");
+    let script = cwd.join("mock-typed-acp-restart.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "trap '' TERM",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-restart-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-restart-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-restart-session\",\"toolCall\":{\"toolCallId\":\"tool_restart\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+            "read _approval",
+            "sleep 5",
+        ]
+        .join("\n"),
+    )
+    .expect("write restart ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home.clone()),
+    )
+    .unwrap();
+    let original = RuntimeSupervisor::start(engine);
+    original
+        .send_command_from_owner(
+            owner_for_lane("lane-restart-acp"),
+            "cmd_restart_acp_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-restart-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait across restart".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let pending = collect_events_until(&original, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = pending
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started restart session");
+    let job_log = fs::read_to_string(cwd.join(".viden/agents/codex-jobs.jsonl")).unwrap();
+    let pid = job_log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|record| record["id"] == session.session_id)
+        .filter_map(|record| record["pid"].as_u64())
+        .next_back()
+        .expect("tracked ACP pid") as u32;
+
+    let replacement_engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let recovered = replacement_engine.runtime_view_state();
+    assert!(recovered.agent_sessions.iter().any(|restored| {
+        restored.session_id == session.session_id
+            && restored.status == AgentSessionStatus::Failed
+            && restored
+                .diagnostic
+                .as_deref()
+                .is_some_and(|diagnostic| diagnostic.contains("approval was pending"))
+    }));
+    assert!(
+        cwd.join(format!(".viden/agents/{}.cancel", session.session_id))
+            .exists()
+    );
+    // The original in-process supervisor owns the pending approval receiver;
+    // dropping it models the old Core process exiting and lets its monitor reap
+    // the already-terminated child.
+    drop(original);
+    wait_until(|| {
+        !std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    });
+
+    let replacement = RuntimeSupervisor::start(replacement_engine);
+    replacement
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_restart_acp_cancel_recovered",
+            RuntimeCommand::CancelAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let cancel = collect_events_until(&replacement, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_restart_acp_cancel_recovered"
+            )
+        })
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert!(
+        cancel
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }))
+    );
+}
+
+#[test]
+fn typed_acp_approval_pauses_only_its_owner_while_another_lane_streams() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_parallel_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_parallel_home");
+    let script = cwd.join("mock-typed-acp-parallel.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-parallel-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-parallel-session\"}}'",
+            "read prompt",
+            "case \"$prompt\" in",
+            "  *'need approval'*)",
+            "    printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-parallel-session\",\"toolCall\":{\"toolCallId\":\"tool_parallel\",\"title\":\"Edit file\",\"kind\":\"edit\"},\"options\":[{\"optionId\":\"deny\",\"kind\":\"reject_once\",\"name\":\"Deny\"},{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}]}}'",
+            "    read approval",
+            "    case \"$approval\" in *'\"optionId\":\"allow\"'*) ;; *) exit 5 ;; esac",
+            "    ;;",
+            "  *)",
+            "    printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-parallel-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"other lane still streams\"}}}'",
+            "    ;;",
+            "esac",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-parallel-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write parallel ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let start = |lane: &str, command_id: &str, task: &str| {
+        supervisor
+            .send_command_from_owner(
+                owner_for_lane(lane),
+                command_id,
+                RuntimeCommand::StartAgentSession {
+                    request: AgentSessionRequest {
+                        lane_id: lane.to_string(),
+                        agent_id: "custom-acp".to_string(),
+                        model: None,
+                        load_session_id: None,
+                        task: task.to_string(),
+                    },
+                },
+            )
+            .unwrap();
+    };
+    start("lane-waiting-acp", "cmd_parallel_waiting", "need approval");
+    let waiting = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let approval = waiting
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    start(
+        "lane-waiting-acp",
+        "cmd_parallel_same_lane",
+        "must be rejected",
+    );
+    let same_lane = collect_events_until(&supervisor, Duration::from_secs(1), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_parallel_same_lane"
+                        && reason.contains("durable Lane-agent identity")
+                        && !reason.contains("active agent session")
+            )
+        })
+    });
+    assert!(same_lane.iter().all(|event| !matches!(
+        &event.kind,
+        RuntimeEventKind::AgentSessionStarted { session }
+            if session.task == "must be rejected"
+    )));
+
+    start(
+        "lane-streaming-acp",
+        "cmd_parallel_streaming",
+        "stream without approval",
+    );
+    let streaming = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AssistantDelta { content, .. }
+                    if content == "other lane still streams"
+            )
+        })
+    });
+    assert!(streaming.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::AssistantDelta { content, .. }
+                if content == "other lane still streams"
+        )
+    }));
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .agent_sessions
+            .iter()
+            .any(|session| {
+                session.owner == approval.owner
+                    && session.status == AgentSessionStatus::WaitingApproval
+            })
+    );
+
+    supervisor
+        .send_command_from_owner(
+            approval.owner.clone(),
+            "cmd_parallel_approval",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let completed = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session }
+                    if session.owner == approval.owner
+            )
+        })
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert_eq!(
+        completed
+            .iter()
+            .filter(|event| matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved { request_id, .. }
+                    if request_id == &approval.id
+            ))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn typed_acp_denial_and_expiry_each_resolve_one_stable_request() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let fixture_root = temp_dir("runtime_supervisor_typed_acp_negative_fixture");
+    let script = fixture_root.join("mock-typed-acp-negative-approval.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-negative-acp\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-negative-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"remote-negative-session\",\"toolCall\":{\"toolCallId\":\"tool_negative\",\"title\":\"Run command\",\"kind\":\"terminal\"},\"options\":[{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"},{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}]}}'",
+            "read approval",
+            "case \"$approval\" in *'\"optionId\":\"reject\"'*) ;; *) exit 5 ;; esac",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-negative-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+        ]
+        .join("\n"),
+    )
+    .expect("write negative approval ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    for (scenario, respond) in [("deny", true), ("expire", false)] {
+        let cwd = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_typed_acp_{scenario}_home"));
+        let engine = SessionEngine::new_with_home(
+            &cwd,
+            Box::new(SequenceProvider::new(Vec::new())),
+            Some(home),
+        )
+        .unwrap();
+        let supervisor = RuntimeSupervisor::start_with_approval_ttl_for_test(engine, 1);
+        let lane = format!("lane-{scenario}-acp");
+        supervisor
+            .send_command_from_owner(
+                owner_for_lane(&lane),
+                format!("cmd_{scenario}_start"),
+                RuntimeCommand::StartAgentSession {
+                    request: AgentSessionRequest {
+                        lane_id: lane,
+                        agent_id: "custom-acp".to_string(),
+                        model: None,
+                        load_session_id: None,
+                        task: format!("{scenario} the request"),
+                    },
+                },
+            )
+            .unwrap();
+        let pending = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+        let approval = pending
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+                _ => None,
+            })
+            .unwrap();
+        if respond {
+            supervisor
+                .send_command_from_owner(
+                    approval.owner.clone(),
+                    format!("cmd_{scenario}_respond"),
+                    RuntimeCommand::RespondToApproval {
+                        request_id: approval.id.clone(),
+                        response: ApprovalResponse::deny(Some("operator denied".to_string())),
+                    },
+                )
+                .unwrap();
+        }
+        let resolved = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id,
+                        decision: ApprovalDecision::Deny,
+                        ..
+                    } if request_id == &approval.id
+                )
+            }) && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+        });
+        assert_eq!(
+            resolved
+                .iter()
+                .filter(|event| matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id, .. }
+                        if request_id == &approval.id
+                ))
+                .count(),
+            1,
+            "{scenario} must resolve exactly one stable approval"
+        );
+    }
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
 }
 
 #[test]
@@ -1620,10 +2870,7 @@ fn runtime_supervisor_resolves_tool_approval_without_tui_coupling() {
             "cmd_approval",
             RuntimeCommand::RespondToApproval {
                 request_id,
-                response: ApprovalResponse {
-                    approved: true,
-                    feedback: None,
-                },
+                response: ApprovalResponse::allow_once(None),
             },
         )
         .unwrap();
@@ -1647,7 +2894,10 @@ fn runtime_supervisor_resolves_tool_approval_without_tui_coupling() {
     assert!(events.iter().any(|event| {
         matches!(
             &event.kind,
-            RuntimeEventKind::ApprovalResolved { approved: true, .. }
+            RuntimeEventKind::ApprovalResolved {
+                decision: ApprovalDecision::Allow { .. },
+                ..
+            }
         )
     }));
     assert!(events.iter().any(|event| {
@@ -1660,6 +2910,1379 @@ fn runtime_supervisor_resolves_tool_approval_without_tui_coupling() {
             } if evidence.summary.contains("approved")
         )
     }));
+}
+
+#[test]
+fn runtime_supervisor_approval_request_and_resolution_share_owner_and_audit_id() {
+    let cwd = temp_dir("runtime_supervisor_approval_audit_cwd");
+    let home = temp_dir("runtime_supervisor_approval_audit_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf audit".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_audit".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-a");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_audit",
+            RuntimeCommand::SubmitUserInput {
+                content: "run audited command".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_approval_audit",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == request_id
+                    && approval.audit_id == audit_id
+                    && approval.owner == owner
+                    && approval.expires_at > 0
+                    && approval.allowed_scopes.contains(&ApprovalScope::Once)
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once
+                },
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_drop_joins_pending_approval_timer_and_worker() {
+    let cwd = temp_dir("runtime_supervisor_drop_join_cwd");
+    let home = temp_dir("runtime_supervisor_drop_join_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf pending".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_pending_drop".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_pending_drop",
+            RuntimeCommand::SubmitUserInput {
+                content: "run pending command".to_string(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let started = Instant::now();
+    drop(supervisor);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "supervisor drop left a worker or approval timer detached"
+    );
+}
+
+#[test]
+fn runtime_supervisor_approval_wrong_owner_is_rejected_without_resolving_pending_request() {
+    let cwd = temp_dir("runtime_supervisor_approval_owner_cwd");
+    let home = temp_dir("runtime_supervisor_approval_owner_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf owned".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_owner".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner_a = owner_for_lane("lane-a");
+    let owner_b = owner_for_lane("lane-b");
+
+    supervisor
+        .send_command_from_owner(
+            owner_a.clone(),
+            "cmd_input_owner",
+            RuntimeCommand::SubmitUserInput {
+                content: "run owned command".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner_b,
+            "cmd_wrong_owner",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == "cmd_wrong_owner" && reason.contains("owner mismatch")
+                )
+            })
+        },
+    ));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved { request_id: resolved, .. } if resolved == &request_id
+        )
+    }));
+
+    supervisor
+        .send_command_from_owner(
+            owner_a,
+            "cmd_right_owner",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+}
+
+#[test]
+fn runtime_supervisor_approval_expiry_auto_denies_without_entering_effect() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_context_expired_deny",
+        "expired body must not be read",
+    );
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let read_started = Arc::new(AtomicBool::new(false));
+    let read_started_for_hook = Arc::clone(&read_started);
+    set_retrieve_context_test_hook(Some(Arc::new(move |_control| {
+        read_started_for_hook.store(true, Ordering::SeqCst);
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-expired");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_retrieve_expired",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate expired".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    supervisor.expire_pending_approvals_for_test(u64::MAX);
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+    set_retrieve_context_test_hook(None);
+
+    assert!(!read_started.load(Ordering::SeqCst));
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Deny,
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_approval_production_timer_auto_denies_pending_tool() {
+    let cwd = temp_dir("runtime_supervisor_approval_timer_cwd");
+    let home = temp_dir("runtime_supervisor_approval_timer_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf should-not-run".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_timer".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start_with_approval_ttl_for_test(engine, 0);
+    let owner = owner_for_lane("lane-timer");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_timer",
+            RuntimeCommand::SubmitUserInput {
+                content: "run command that expires".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    decision: ApprovalDecision::Deny,
+                    ..
+                }
+            )
+        })
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Deny,
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
+        )
+    }));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished { success: true, .. }
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_permission_downgrade_precedes_pending_tool_allow() {
+    let cwd = temp_dir("runtime_supervisor_permission_epoch_cwd");
+    let home = temp_dir("runtime_supervisor_permission_epoch_home");
+    let output = cwd.join("should-not-run.txt");
+    let mut input = ToolInput::new();
+    input.insert(
+        "command".to_string(),
+        format!("printf blocked > {}", output.display()),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_permission_epoch".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-permission-epoch");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_permission_epoch",
+            RuntimeCommand::SubmitUserInput {
+                content: "run one mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&requested);
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_read_only_before_tool_allow",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_allow_after_read_only",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id: resolved,
+                    decision: ApprovalDecision::Deny,
+                    ..
+                } if resolved == &request_id
+            )
+        })
+    });
+
+    assert!(
+        !output.exists(),
+        "permission downgrade must prevent tool mutation"
+    );
+    assert!(events.iter().all(|event| {
+        !matches!(
+            event.kind,
+            RuntimeEventKind::ToolCallFinished { success: true, .. }
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_failed_permission_control_still_terminally_stales_real_tool_approval() {
+    let _guard = PERMISSION_CONTROL_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+    let cwd = temp_dir("runtime_supervisor_failed_control_real_approval_cwd");
+    let home = temp_dir("runtime_supervisor_failed_control_real_approval_home");
+    let output = cwd.join("retriggered-tool.txt");
+    let tool_turn = |id: &str| {
+        let mut input = ToolInput::new();
+        input.insert(
+            "command".to_string(),
+            format!("printf allowed > {}", output.display()),
+        );
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: id.to_string(),
+                name: "shell".to_string(),
+                input,
+            }),
+            ModelEvent::Done,
+        ]
+    };
+    let provider = Box::new(SequenceProvider::new(vec![
+        tool_turn("tool-before-failed-control"),
+        vec![ModelEvent::Done],
+        tool_turn("tool-after-retrigger"),
+        vec![ModelEvent::Done],
+    ]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-failed-control-real-approval");
+    set_before_permission_control_hook(Some(Arc::new(|command_id, engine| {
+        if command_id == "failed_permission_control" {
+            engine.fail_after_transcript_appends_for_test(0);
+        }
+    })));
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "input_before_failed_control",
+            RuntimeCommand::SubmitUserInput {
+                content: "request a mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let stale_request_id = approval_id(&requested);
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "failed_permission_control",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        )
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "allow_stale_after_failed_control",
+            RuntimeCommand::RespondToApproval {
+                request_id: stale_request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let first_events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        let stale_denied = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id,
+                    decision: ApprovalDecision::Deny,
+                    ..
+                } if request_id == &stale_request_id
+            )
+        });
+        let control_failed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::Error { error }
+                    if error.message.contains("injected transcript append failure")
+            )
+        });
+        stale_denied && control_failed
+    });
+    set_before_permission_control_hook(None);
+
+    assert!(first_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id,
+                decision: ApprovalDecision::Deny,
+                ..
+            } if request_id == &stale_request_id
+        )
+    }));
+    assert!(!output.exists(), "the stale AllowOnce must have no effect");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "input_after_failed_control",
+            RuntimeCommand::SubmitUserInput {
+                content: "retrigger the mutating tool".to_string(),
+            },
+        )
+        .unwrap();
+    let retriggered = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let new_request_id = approval_id(&retriggered);
+    assert_ne!(new_request_id, stale_request_id);
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "allow_retriggered_tool",
+            RuntimeCommand::RespondToApproval {
+                request_id: new_request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved {
+                    request_id,
+                    decision: ApprovalDecision::Allow { .. },
+                    ..
+                } if request_id == &new_request_id
+            )
+        }) && output.exists()
+    });
+    assert!(output.exists(), "only the retriggered approval may execute");
+}
+
+#[test]
+fn runtime_supervisor_permission_reservations_interleave_without_reuse_or_leak() {
+    let _guard = PERMISSION_CONTROL_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+    struct Case {
+        name: &'static str,
+        failures: &'static [&'static str],
+        controls: Vec<(&'static str, RuntimeCommand)>,
+        expected_applied_epoch: u64,
+        expected_level: PermissionLevel,
+    }
+
+    let cases = [
+        Case {
+            name: "fail-e1-success-e2",
+            failures: &["matrix-fail-e1-success-e2-e1"],
+            controls: vec![
+                (
+                    "matrix-fail-e1-success-e2-e1",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Auto,
+                    },
+                ),
+                (
+                    "matrix-fail-e1-success-e2-e2",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Ask,
+                    },
+                ),
+            ],
+            expected_applied_epoch: 2,
+            expected_level: PermissionLevel::Ask,
+        },
+        Case {
+            name: "success-e1-fail-e2-success-e3",
+            failures: &["matrix-success-e1-fail-e2-success-e3-e2"],
+            controls: vec![
+                (
+                    "matrix-success-e1-fail-e2-success-e3-e1",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Auto,
+                    },
+                ),
+                (
+                    "matrix-success-e1-fail-e2-success-e3-e2",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::ReadOnly,
+                    },
+                ),
+                (
+                    "matrix-success-e1-fail-e2-success-e3-e3",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Ask,
+                    },
+                ),
+            ],
+            expected_applied_epoch: 3,
+            expected_level: PermissionLevel::Ask,
+        },
+        Case {
+            name: "fail-e1-fail-e2",
+            failures: &["matrix-fail-e1-fail-e2-e1", "matrix-fail-e1-fail-e2-e2"],
+            controls: vec![
+                (
+                    "matrix-fail-e1-fail-e2-e1",
+                    RuntimeCommand::SetPermissionLevel {
+                        level: PermissionLevel::Auto,
+                    },
+                ),
+                (
+                    "matrix-fail-e1-fail-e2-e2",
+                    RuntimeCommand::SetWorkMode {
+                        mode: WorkMode::Plan,
+                    },
+                ),
+            ],
+            expected_applied_epoch: 0,
+            expected_level: PermissionLevel::Ask,
+        },
+    ];
+
+    for case in cases {
+        let cwd = temp_dir(&format!("runtime_supervisor_{}_cwd", case.name));
+        let home = temp_dir(&format!("runtime_supervisor_{}_home", case.name));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let supervisor = RuntimeSupervisor::start(engine);
+        let first_id = case.controls[0].0;
+        let failures = case.failures;
+        let (entered_sender, entered_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let release_receiver = Arc::new(Mutex::new(release_receiver));
+        set_before_permission_control_hook(Some(Arc::new(move |command_id, engine| {
+            if failures.contains(&command_id) {
+                engine.fail_after_transcript_appends_for_test(0);
+            }
+            if command_id == first_id {
+                let _ = entered_sender.send(());
+                let _ = release_receiver.lock().unwrap().recv();
+            }
+        })));
+
+        for (index, (command_id, command)) in case.controls.iter().cloned().enumerate() {
+            supervisor
+                .send_command(command_id, command)
+                .unwrap_or_else(|error| panic!("{} control {index}: {error}", case.name));
+            if index == 0 {
+                entered_receiver
+                    .recv_timeout(Duration::from_secs(2))
+                    .unwrap_or_else(|_| panic!("{} first reservation did not pause", case.name));
+            }
+        }
+        let reservation_count = case.controls.len() as u64;
+        let (_, ordinary_epoch, next_epoch, submitted, _, _) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(ordinary_epoch, reservation_count, "{}", case.name);
+        assert_eq!(next_epoch, reservation_count, "{}", case.name);
+        assert_eq!(
+            submitted,
+            (1..=reservation_count).collect::<Vec<_>>(),
+            "{}",
+            case.name
+        );
+        release_sender.send(()).unwrap();
+
+        let success_ids = case
+            .controls
+            .iter()
+            .map(|(command_id, _)| *command_id)
+            .filter(|command_id| !case.failures.contains(command_id))
+            .collect::<Vec<_>>();
+        let expected_failures = case.failures.len();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            let failures = events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        &event.kind,
+                        RuntimeEventKind::Error { error }
+                            if error.message.contains("injected transcript append failure")
+                    )
+                })
+                .count();
+            let successes = success_ids.iter().all(|expected| {
+                events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        RuntimeEventKind::CommandAccepted { command_id, .. }
+                            if command_id == expected
+                    )
+                })
+            });
+            failures == expected_failures && successes
+        });
+        set_before_permission_control_hook(None);
+
+        let (applied_epoch, ordinary_epoch, next_epoch, submitted, work_mode, level) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(applied_epoch, case.expected_applied_epoch, "{}", case.name);
+        assert_eq!(ordinary_epoch, reservation_count, "{}", case.name);
+        assert_eq!(next_epoch, reservation_count, "{}", case.name);
+        assert!(submitted.is_empty(), "{} leaked {submitted:?}", case.name);
+        assert_eq!(work_mode, WorkMode::Build, "{}", case.name);
+        assert_eq!(level, case.expected_level, "{}", case.name);
+        let snapshot = supervisor.snapshot_envelope().unwrap().snapshot;
+        assert_eq!(snapshot.work_mode, work_mode, "{}", case.name);
+        assert_eq!(snapshot.permission_level, level, "{}", case.name);
+        assert_eq!(
+            supervisor
+                .lane_permission_template_snapshot_for_test()
+                .unwrap(),
+            (snapshot.permission_mode, applied_epoch),
+            "{} lane permissions diverged from the applied supervisor state",
+            case.name
+        );
+
+        let next_command_id = format!("matrix-{}-next-reservation", case.name);
+        let next_command_id_for_hook = next_command_id.clone();
+        let (next_entered_sender, next_entered_receiver) = std::sync::mpsc::channel();
+        let (next_release_sender, next_release_receiver) = std::sync::mpsc::channel();
+        let next_release_receiver = Arc::new(Mutex::new(next_release_receiver));
+        set_before_permission_control_hook(Some(Arc::new(move |command_id, _engine| {
+            if command_id == next_command_id_for_hook {
+                let _ = next_entered_sender.send(());
+                let _ = next_release_receiver.lock().unwrap().recv();
+            }
+        })));
+        supervisor
+            .send_command(
+                next_command_id.clone(),
+                RuntimeCommand::SetPermissionLevel { level },
+            )
+            .unwrap();
+        next_entered_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_else(|_| panic!("{} next reservation did not pause", case.name));
+        let expected_next_epoch = reservation_count + 1;
+        let (_, ordinary_epoch, next_epoch, submitted, _, _) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(ordinary_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(next_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(submitted, vec![expected_next_epoch], "{}", case.name);
+        next_release_sender.send(()).unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandAccepted { command_id, .. }
+                        if command_id == &next_command_id
+                )
+            })
+        });
+        set_before_permission_control_hook(None);
+        let (applied_epoch, ordinary_epoch, next_epoch, submitted, _, _) =
+            supervisor.permission_control_state_for_test();
+        assert_eq!(applied_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(ordinary_epoch, expected_next_epoch, "{}", case.name);
+        assert_eq!(next_epoch, expected_next_epoch, "{}", case.name);
+        assert!(submitted.is_empty(), "{} leaked {submitted:?}", case.name);
+    }
+}
+
+#[test]
+fn runtime_supervisor_rejects_tool_approval_after_permission_epoch_round_trip() {
+    for (case, downgrade, restore) in [
+        (
+            "permission",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::ReadOnly,
+            },
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        ),
+        (
+            "work_mode",
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Build,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_supervisor_{case}_epoch_cwd"));
+        let home = temp_dir(&format!("runtime_supervisor_{case}_epoch_home"));
+        let output = cwd.join("should-not-run.txt");
+        let mut input = ToolInput::new();
+        input.insert(
+            "command".to_string(),
+            format!("printf blocked > {}", output.display()),
+        );
+        let provider = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: format!("tool_shell_{case}_epoch"),
+                name: "shell".to_string(),
+                input,
+            }),
+            ModelEvent::Done,
+        ]]));
+        let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+        let supervisor = RuntimeSupervisor::start(engine);
+        let owner = owner_for_lane(&format!("lane-{case}-epoch"));
+
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("cmd_input_{case}_epoch"),
+                RuntimeCommand::SubmitUserInput {
+                    content: "run one mutating tool".to_string(),
+                },
+            )
+            .unwrap();
+        let requested = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+        });
+        let request_id = approval_id(&requested);
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("cmd_{case}_downgrade"), downgrade)
+            .unwrap();
+        supervisor
+            .send_command_from_owner(owner.clone(), format!("cmd_{case}_restore"), restore)
+            .unwrap();
+        supervisor
+            .send_command_from_owner(
+                owner,
+                format!("cmd_{case}_allow_stale"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: ApprovalDecision::Deny,
+                        ..
+                    } if resolved == &request_id
+                )
+            })
+        });
+
+        assert!(
+            !output.exists(),
+            "{case} epoch round trip must invalidate the stale approval"
+        );
+    }
+}
+
+#[test]
+fn runtime_supervisor_approval_cancel_pending_tool_resolves_once_with_stored_identity() {
+    let cwd = temp_dir("runtime_supervisor_approval_cancel_tool_cwd");
+    let home = temp_dir("runtime_supervisor_approval_cancel_tool_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf should-not-run".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_cancel".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-cancel-tool");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_cancel_tool",
+            RuntimeCommand::SubmitUserInput {
+                content: "run command then cancel approval".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_cancel_tool",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+    events.extend(collect_events_for(&supervisor, Duration::from_millis(150)));
+
+    assert_eq!(
+        approval_resolved_count(&events, &request_id),
+        1,
+        "cancel should emit exactly one approval resolution: {events:#?}"
+    );
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Deny,
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
+        )
+    }));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished { success: true, .. }
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_approval_cancel_pending_context_resolves_once_without_reading() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_approval_cancel_context_cwd",
+        "cancelled context body",
+    );
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let read_started = Arc::new(AtomicBool::new(false));
+    let read_started_for_hook = Arc::clone(&read_started);
+    set_retrieve_context_test_hook(Some(Arc::new(move |_control| {
+        read_started_for_hook.store(true, Ordering::SeqCst);
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-cancel-context");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_retrieve_cancel_context",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate then cancel".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let (request_id, audit_id) = approval_identity(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_cancel_context",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+    events.extend(collect_events_for(&supervisor, Duration::from_millis(150)));
+    set_retrieve_context_test_hook(None);
+
+    assert!(!read_started.load(Ordering::SeqCst));
+    assert_eq!(approval_resolved_count(&events, &request_id), 1);
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Deny,
+                audit_id: resolved_audit,
+                owner: resolved_owner,
+            } if resolved == &request_id && resolved_audit == &audit_id && resolved_owner == &owner
+        )
+    }));
+}
+
+#[test]
+fn runtime_supervisor_approval_wrong_owner_cancel_does_not_resolve_pending_tool() {
+    let cwd = temp_dir("runtime_supervisor_approval_wrong_cancel_cwd");
+    let home = temp_dir("runtime_supervisor_approval_wrong_cancel_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf should-not-run".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_wrong_cancel".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-cancel-owner");
+    let wrong_owner = owner_for_lane("lane-cancel-other");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_wrong_cancel",
+            RuntimeCommand::SubmitUserInput {
+                content: "run command then wrong owner cancel".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command_from_owner(
+            wrong_owner,
+            "cmd_wrong_owner_cancel",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id, reason }
+                        if command_id == "cmd_wrong_owner_cancel" && reason.contains("owner mismatch")
+                )
+            })
+        },
+    ));
+    assert_eq!(approval_resolved_count(&events, &request_id), 0);
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_correct_owner_cancel",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+    assert_eq!(approval_resolved_count(&events, &request_id), 1);
+}
+
+#[test]
+fn runtime_supervisor_approval_cancel_after_context_allow_does_not_re_deny_or_read() {
+    let _guard = RETRIEVE_CONTEXT_HOOK_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("retrieve context hook lock");
+    let (mut engine, handle_id) = supervisor_engine_with_context(
+        "runtime_supervisor_approval_cancel_after_allow_cwd",
+        "cancel after allow body must not be read",
+    );
+    engine.add_permission_rule_for_test(context_read_rule(PermissionBehavior::Ask));
+    let read_started = Arc::new(AtomicBool::new(false));
+    let read_started_for_hook = Arc::clone(&read_started);
+    set_retrieve_context_test_hook(Some(Arc::new(move |_control| {
+        read_started_for_hook.store(true, Ordering::SeqCst);
+    })));
+    let hook_entered = Arc::new(AtomicBool::new(false));
+    let hook_entered_for_hook = Arc::clone(&hook_entered);
+    set_before_context_resume_enqueue_hook(Some(Arc::new(move |control| {
+        hook_entered_for_hook.store(true, Ordering::SeqCst);
+        control.cancel();
+    })));
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-cancel-after-allow");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_retrieve_cancel_after_allow",
+            RuntimeCommand::RetrieveContext {
+                handle_id,
+                reason: "hydrate then cancel after allow".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let request_id = approval_id(&events);
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_allow_context_before_cancel",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id: resolved,
+                        decision: ApprovalDecision::Allow { .. },
+                        ..
+                    } if resolved == &request_id
+                )
+            })
+        },
+    ));
+    events.extend(collect_events_for(&supervisor, Duration::from_millis(250)));
+    set_before_context_resume_enqueue_hook(None);
+    set_retrieve_context_test_hook(None);
+
+    assert_eq!(approval_resolved_count(&events, &request_id), 1);
+    assert!(events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once
+                },
+                ..
+            } if resolved == &request_id
+        )
+    }));
+    assert!(events.iter().all(|event| {
+        !matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved {
+                request_id: resolved,
+                decision: ApprovalDecision::Deny,
+                ..
+            } if resolved == &request_id
+        )
+    }));
+    assert!(hook_entered.load(Ordering::SeqCst));
+    assert!(!read_started.load(Ordering::SeqCst));
+}
+
+#[test]
+fn runtime_supervisor_approval_rejects_unadvertised_or_wrong_scopes_without_resolving() {
+    let cwd = temp_dir("runtime_supervisor_approval_scope_cwd");
+    let home = temp_dir("runtime_supervisor_approval_scope_home");
+    let mut input = ToolInput::new();
+    input.insert("command".to_string(), "printf scoped".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_shell_scope".to_string(),
+            name: "shell".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-scope");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_input_scope",
+            RuntimeCommand::SubmitUserInput {
+                content: "run scoped command".to_string(),
+            },
+        )
+        .unwrap();
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalRequested { approval }
+                    if approval.allowed_scopes.contains(&ApprovalScope::Once)
+                        && approval.allowed_scopes.contains(&ApprovalScope::Session {
+                            session_id: "session-lane-scope".to_string()
+                        })
+                        && !approval.allowed_scopes.iter().any(|scope| matches!(
+                            scope,
+                            ApprovalScope::RepoAllowlist { .. }
+                        ))
+            )
+        })
+    });
+    let request_id = approval_id(&events);
+
+    for (command_id, scope) in [
+        (
+            "cmd_wrong_session_scope",
+            ApprovalScope::Session {
+                session_id: "session-other".to_string(),
+            },
+        ),
+        (
+            "cmd_repo_scope",
+            ApprovalScope::RepoAllowlist {
+                paths: vec!["src/lib.rs".to_string()],
+            },
+        ),
+    ] {
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                command_id,
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse {
+                        decision: ApprovalDecision::Allow { scope },
+                        feedback: None,
+                    },
+                },
+            )
+            .unwrap();
+        events.extend(collect_events_until(
+            &supervisor,
+            Duration::from_secs(2),
+            |events| {
+                events.iter().any(|event| {
+                    matches!(
+                        &event.kind,
+                        RuntimeEventKind::CommandRejected { command_id: rejected, reason }
+                            if rejected == command_id && reason.contains("scope is not allowed")
+                    )
+                })
+            },
+        ));
+    }
+    assert_eq!(approval_resolved_count(&events, &request_id), 0);
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_allowed_scope",
+            RuntimeCommand::RespondToApproval {
+                request_id: request_id.clone(),
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_events_until(
+        &supervisor,
+        Duration::from_secs(2),
+        |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                        if resolved == &request_id
+                )
+            })
+        },
+    ));
+    assert_eq!(approval_resolved_count(&events, &request_id), 1);
+}
+
+#[test]
+fn runtime_supervisor_approval_advertises_repo_allowlist_for_candidate_paths() {
+    let cwd = temp_dir("runtime_supervisor_approval_repo_scope_cwd");
+    let home = temp_dir("runtime_supervisor_approval_repo_scope_home");
+    let mut input = ToolInput::new();
+    input.insert("path".to_string(), "src/lib.rs".to_string());
+    input.insert("content".to_string(), "updated".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::ToolCall(ToolCall {
+            id: "tool_write_repo_scope".to_string(),
+            name: "write_file".to_string(),
+            input,
+        }),
+        ModelEvent::Done,
+    ]]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-repo-scope");
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_input_repo_scope",
+            RuntimeCommand::SubmitUserInput {
+                content: "write path with repo scope".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalRequested { approval }
+                    if approval.target.canonical_ref.as_deref() == Some("src/lib.rs")
+                        && approval.allowed_scopes.contains(&ApprovalScope::RepoAllowlist {
+                            paths: vec!["src/lib.rs".to_string()]
+                        })
+            )
+        })
+    });
+
+    assert!(!approval_id(&events).is_empty());
 }
 
 #[test]
@@ -1742,7 +4365,7 @@ fn runtime_supervisor_starts_agent_dag_without_provider_turn() {
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
                 if task.id == "task_coder"
-                    && task.agent == "coder"
+                    && task.role == AgentRole::Coder
                     && task.parent_id.as_deref() == Some("task_planner")
         )
     }));
@@ -1810,7 +4433,7 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_planner"
-                        && task.status == "done"
+                        && task.status == AgentTaskStatus::Done
                         && task.result.as_deref().is_some_and(|result| {
                             result.contains("Plan: split runtime")
                         })
@@ -1819,9 +4442,9 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
             matches!(
                 &event.kind,
                 RuntimeEventKind::EvidenceRecorded { evidence }
-                    if evidence.kind == "plan"
-                        && evidence.summary.contains("canonical plan evidence")
-                        && evidence.canonical.is_some()
+                    if evidence.kind == "task_summary"
+                        && evidence.summary.contains("Plan: split runtime")
+                        && evidence.canonical.is_none()
             )
         }) && events.iter().any(|event| {
             matches!(
@@ -1836,7 +4459,7 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.task_id == "task_planner"
-                        && !gate.status.is_open()
+                        && gate.status == MergeGateStatus::CollectingEvidence
                         && gate.evidence_ids.iter().any(|id| id.contains("task_planner"))
             )
         })
@@ -1861,7 +4484,7 @@ fn runtime_supervisor_runs_agent_task_through_provider_and_merge_gate() {
             &event.kind,
             RuntimeEventKind::TaskUpdated { task }
                 if task.id == "task_planner"
-                    && task.status == AgentTaskStatus::Done.as_str()
+                    && task.status == AgentTaskStatus::Done
                     && task.result.as_deref().is_some_and(|result| {
                         result.contains("Plan: split runtime")
                     })
@@ -2009,10 +4632,7 @@ fn agent_task_provider_request_uses_final_role_context_bundle() {
     let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(1_000, 8_000);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let _ = engine
         .handle_runtime_command(
@@ -2097,10 +4717,7 @@ fn reviewer_agent_task_provider_request_uses_review_role_context() {
     let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(1_000, 8_000);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2160,10 +4777,7 @@ fn agent_task_context_overflow_retry_preserves_role_scoped_bundle() {
         vec!["context_overflow: current request exceeded provider context".to_string()],
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2238,10 +4852,7 @@ fn agent_task_hard_context_limit_rejects_before_provider_request() {
     let provider = Box::new(RecordingProvider::success(Arc::clone(&requests)));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(10, 20);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let _ = engine
         .handle_runtime_command(
@@ -2975,16 +5586,16 @@ fn runtime_supervisor_applies_extended_agent_role_policy_matrix_to_tools() {
                     },
                     AgentDagTaskSpec {
                         task_id: "task_external_policy".to_string(),
-                        role: AgentRole::External,
-                        title: "External matrix".to_string(),
-                        objective: "Keep external agents read-only until explicitly promoted"
+                        role: AgentRole::Researcher,
+                        title: "Research matrix".to_string(),
+                        objective: "Keep research work read-only until explicitly promoted"
                             .to_string(),
                         dependencies: Vec::new(),
                         workspace: None,
                         file_scope: vec!["docs".to_string()],
                         context_bundle_id: None,
-                        required_evidence: vec!["external_report".to_string()],
-                        permission_policy: "external_agent".to_string(),
+                        required_evidence: vec!["research".to_string()],
+                        permission_policy: "read_only".to_string(),
                     },
                 ],
             },
@@ -3095,21 +5706,27 @@ fn runtime_supervisor_applies_extended_agent_role_policy_matrix_to_tools() {
         )
         .unwrap();
     let external_events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
-        events
-            .iter()
-            .filter(|event| {
-                matches!(
-                    &event.kind,
-                    RuntimeEventKind::ToolCallFinished {
-                        success: false,
-                        evidence: Some(evidence),
-                        ..
-                    } if evidence.summary.contains("reason: RuleDeny")
-                )
-            })
-            .count()
-            >= 2
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::TaskUpdated { task }
+                    if task.id == "task_external_policy" && task.status == AgentTaskStatus::Done
+            )
+        })
     });
+    // Plan mode's stable denial contract is structured permission evidence;
+    // do not make this policy assertion depend on ToolCallFinished projection.
+    for tool_name in ["write_file", "shell"] {
+        assert!(external_events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::EvidenceRecorded { evidence }
+                    if evidence.summary.contains("Summary: decision=deny")
+                        && evidence.summary.contains(&format!("tool: {tool_name}"))
+                        && evidence.summary.contains("reason: PlanMode")
+            )
+        }));
+    }
     assert!(
         !external_events
             .iter()
@@ -3277,7 +5894,10 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -3320,16 +5940,50 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_planner"
-                        && !gate.status.is_open()
+                        && gate.status == MergeGateStatus::CollectingEvidence
+            )
+        })
+    });
+    let planner_owner = RuntimeOwner {
+        workspace_id: "workspace-1".to_string(),
+        project_id: "project-1".to_string(),
+        lane_id: Some("lane-planner".to_string()),
+        session_id: Some("session-planner".to_string()),
+        task_id: Some("task_planner".to_string()),
+        turn_id: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            planner_owner.clone(),
+            "cmd_handoff_planner_gate",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-planner-gate".to_string(),
+                task_id: "task_planner".to_string(),
+                from_lane_id: "lane-seed".to_string(),
+                to_lane_id: "lane-planner".to_string(),
+                owner: planner_owner.clone(),
+                summary: "planner owns merge gate decisions".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_planner" && gate.owner == planner_owner
             )
         })
     });
 
     supervisor
-        .send_command(
+        .send_command_from_owner(
+            planner_owner.clone(),
             "cmd_reject_gate",
             RuntimeCommand::RejectMergeGate {
                 gate_id: "gate-task_planner".to_string(),
+                actor: planner_owner,
                 reason: "needs reviewer evidence".to_string(),
             },
         )
@@ -3365,6 +6019,8 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
             "cmd_accept_gate",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_planner".to_string(),
+                actor: RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some("accepted after review".to_string()),
             },
         )
@@ -3373,14 +6029,13 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
-                    if gate.gate_id == "gate-task_planner"
-                        && gate.status == MergeGateStatus::Accepted
-                        && gate.decision.as_deref() == Some("accepted after review")
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_accept_gate"
+                        && reason.contains("cannot be accepted")
             )
         })
     });
-    assert!(accepted.iter().any(|event| {
+    assert!(!accepted.iter().any(|event| {
         matches!(
             &event.kind,
             RuntimeEventKind::CommandAccepted { command_id, .. }
@@ -3405,20 +6060,201 @@ fn runtime_supervisor_accepts_and_rejects_merge_gate_decisions() {
                     kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
                 })
     }));
-    assert!(agent_events.iter().any(|event| {
-        event.event_type == "runtime_projection_batch"
-            && event.task_id.as_deref() == Some("task_planner")
-            && event
-                .payload
-                .get("command_id")
-                .is_some_and(|id| id == "cmd_accept_gate")
-            && event
-                .payload
-                .get("runtime_event_kinds")
-                .is_some_and(|kinds| {
-                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
-                })
+    assert!(!agent_events.iter().any(|event| {
+        event
+            .payload
+            .get("command_id")
+            .is_some_and(|id| id == "cmd_accept_gate")
     }));
+}
+
+#[test]
+fn runtime_supervisor_rejects_invalid_trust_mutations_before_approval() {
+    let cwd = temp_dir("runtime_supervisor_invalid_trust_preflight_cwd");
+    let home = temp_dir("runtime_supervisor_invalid_trust_preflight_home");
+    let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_invalid_trust_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "Validate trust mutation preflight".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_preflight".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Preflight task".to_string(),
+                    objective: "exercise trust command validation".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: vec!["src".to_string()],
+                    context_bundle_id: None,
+                    required_evidence: vec!["patch".to_string()],
+                    permission_policy: "scoped_mutation".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentDagUpdated { .. }))
+    });
+    supervisor
+        .send_command(
+            "cmd_invalid_trust_start",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_preflight".to_string(),
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_preflight"
+            )
+        })
+    });
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-1".to_string(),
+        project_id: "project-1".to_string(),
+        lane_id: Some("lane-preflight".to_string()),
+        session_id: Some("session-preflight".to_string()),
+        task_id: Some("task_preflight".to_string()),
+        turn_id: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_invalid_trust_owner",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-preflight-owner".to_string(),
+                task_id: "task_preflight".to_string(),
+                from_lane_id: "lane-seed".to_string(),
+                to_lane_id: "lane-preflight".to_string(),
+                owner: owner.clone(),
+                summary: "assign gate owner before invalid preflight checks".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_preflight" && gate.owner == owner
+            )
+        })
+    });
+    supervisor
+        .send_command(
+            "cmd_invalid_trust_ask",
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Ask,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_invalid_trust_ask"
+            )
+        })
+    });
+    let _ = collect_events_for(&supervisor, Duration::from_millis(150));
+    let before = supervisor.snapshot_envelope().unwrap().snapshot;
+
+    let cases = vec![
+        (
+            "cmd_invalid_handoff_same_lane",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-same-lane".to_string(),
+                task_id: "task_preflight".to_string(),
+                from_lane_id: "lane-preflight".to_string(),
+                to_lane_id: "lane-preflight".to_string(),
+                owner: owner.clone(),
+                summary: "same lane should not reach permission".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+            "distinct source and destination",
+        ),
+        (
+            "cmd_invalid_review_empty_evidence",
+            RuntimeCommand::RequestReview {
+                review_id: "review-empty-evidence".to_string(),
+                gate_id: "gate-task_preflight".to_string(),
+                requester_lane_id: "lane-preflight".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner.clone(),
+                evidence_ids: Vec::new(),
+            },
+            "canonical evidence bindings",
+        ),
+        (
+            "cmd_invalid_reject_empty_reason",
+            RuntimeCommand::RejectMergeGate {
+                gate_id: "gate-task_preflight".to_string(),
+                actor: owner.clone(),
+                reason: "   ".to_string(),
+            },
+            "merge gate decision",
+        ),
+        (
+            "cmd_invalid_merge_empty_decision",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_preflight".to_string(),
+                actor: owner.clone(),
+                decision: Some("".to_string()),
+            },
+            "patch merge decision",
+        ),
+        (
+            "cmd_invalid_revert_unmerged",
+            RuntimeCommand::RevertAppliedChange {
+                gate_id: "gate-task_preflight".to_string(),
+                owner: owner.clone(),
+                reason: "revert unmerged gate".to_string(),
+            },
+            "no applied change to revert",
+        ),
+    ];
+
+    for (command_id, command, expected_reason) in cases {
+        supervisor
+            .send_command_from_owner(owner.clone(), command_id, command)
+            .unwrap();
+        let events = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { command_id: rejected, reason }
+                        if rejected == command_id && reason.contains(expected_reason)
+                )
+            })
+        });
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. })),
+            "{command_id} must reject before permission approval: {events:#?}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event.kind, RuntimeEventKind::SnapshotUpdated { .. })),
+            "{command_id} must not mutate runtime snapshot: {events:#?}"
+        );
+        assert_eq!(supervisor.snapshot_envelope().unwrap().snapshot, before);
+    }
 }
 
 #[test]
@@ -3474,7 +6310,7 @@ fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_unknown_evidence"
-                        && gate.status == MergeGateStatus::Accepted
+                        && gate.status == MergeGateStatus::CollectingEvidence
             )
         })
     });
@@ -3485,6 +6321,8 @@ fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
             RuntimeCommand::AcceptAgentArtifact {
                 gate_id: "gate-task_unknown_evidence".to_string(),
                 evidence_id: "manual-test_result".to_string(),
+                actor: RuntimeOwner::default(),
+                source_hash: String::new(),
                 decision: Some("unknown evidence should not count".to_string()),
             },
         )
@@ -3504,7 +6342,7 @@ fn runtime_supervisor_rejects_unknown_agent_artifact_evidence() {
             &event.kind,
             RuntimeEventKind::CommandRejected { command_id, reason }
                 if command_id == "cmd_accept_unknown_evidence"
-                    && reason.contains("does not exist")
+                    && reason.contains("single exact gate evidence")
         )
     }));
     assert!(!events.iter().any(|event| {
@@ -3522,7 +6360,10 @@ fn runtime_supervisor_reduces_merge_gate_from_required_evidence_kinds() {
     let cwd = temp_dir("runtime_supervisor_evidence_reducer_cwd");
     let home = temp_dir("runtime_supervisor_evidence_reducer_home");
     let provider = Box::new(SequenceProvider::new(Vec::new()));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -3659,7 +6500,10 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -3702,8 +6546,40 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 &event.kind,
                     RuntimeEventKind::MergeGateUpdated { gate }
                         if gate.gate_id == "gate-task_coder"
-                        && gate.status == MergeGateStatus::Accepted
-                        && gate.evidence_ids.iter().any(|id| id == "evidence-task_coder-patch")
+                        && gate.status == MergeGateStatus::CollectingEvidence
+                        && gate.evidence_ids.iter().any(|id| id == "evidence-task_coder-task_summary")
+            )
+        })
+    });
+    let coder_owner = RuntimeOwner {
+        workspace_id: "workspace-1".to_string(),
+        project_id: "project-1".to_string(),
+        lane_id: Some("lane-coder".to_string()),
+        session_id: Some("session-coder".to_string()),
+        task_id: Some("task_coder".to_string()),
+        turn_id: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            coder_owner.clone(),
+            "cmd_handoff_coder_gate",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-coder-gate".to_string(),
+                task_id: "task_coder".to_string(),
+                from_lane_id: "lane-seed".to_string(),
+                to_lane_id: "lane-coder".to_string(),
+                owner: coder_owner.clone(),
+                summary: "coder owns artifact gate decisions".to_string(),
+                acceptance: viden_types::HandoffAcceptance::Accepted,
+            },
+        )
+        .unwrap();
+    let _ = collect_events_until(&supervisor, Duration::from_secs(2), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::MergeGateUpdated { gate }
+                    if gate.gate_id == "gate-task_coder" && gate.owner == coder_owner
             )
         })
     });
@@ -3729,10 +6605,10 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                     &event.kind,
                     RuntimeEventKind::MergeGateUpdated { gate }
                         if gate.gate_id == "gate-task_coder"
-                            && gate.status == MergeGateStatus::Accepted
+                            && gate.status == MergeGateStatus::CollectingEvidence
                             && gate.evidence_ids
                                 == vec![
-                                    "evidence-task_coder-patch".to_string(),
+                                    "evidence-task_coder-task_summary".to_string(),
                                     "manual-test_result".to_string()
                                 ]
                 )
@@ -3759,6 +6635,8 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
             RuntimeCommand::AcceptAgentArtifact {
                 gate_id: "gate-task_coder".to_string(),
                 evidence_id: "manual-test_result".to_string(),
+                actor: RuntimeOwner::default(),
+                source_hash: String::new(),
                 decision: Some("focused tests passed".to_string()),
             },
         )
@@ -3769,7 +6647,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 &event.kind,
                 RuntimeEventKind::CommandRejected { command_id, reason }
                     if command_id == "cmd_accept_test_artifact"
-                        && reason.contains("missing_canonical")
+                        && reason.contains("single exact gate evidence")
             )
         })
     });
@@ -3790,11 +6668,13 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
     }));
 
     supervisor
-        .send_command(
+        .send_command_from_owner(
+            coder_owner.clone(),
             "cmd_reject_artifact",
             RuntimeCommand::RejectAgentArtifact {
                 gate_id: "gate-task_coder".to_string(),
                 evidence_id: "manual-test_result".to_string(),
+                actor: coder_owner,
                 reason: "test output was from the wrong package".to_string(),
             },
         )
@@ -3840,7 +6720,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder"
-                        && gate.status == MergeGateStatus::Accepted
+                        && gate.status == MergeGateStatus::CollectingEvidence
             )
         })
     });
@@ -3850,6 +6730,7 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
             "cmd_merge_patch",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_coder".to_string(),
+                actor: RuntimeOwner::default(),
                 decision: Some("merge accepted patch".to_string()),
             },
         )
@@ -3858,22 +6739,13 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
-                    if gate.gate_id == "gate-task_coder"
-                        && gate.status == MergeGateStatus::Merged
-                        && gate.decision.as_deref() == Some("merge accepted patch")
-            )
-        }) && events.iter().any(|event| {
-            matches!(
-                &event.kind,
-                RuntimeEventKind::TaskUpdated { task }
-                    if task.id == "task_coder"
-                        && task.status == AgentTaskStatus::Applied.as_str()
-                        && task.decision.as_deref() == Some("merge accepted patch")
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_merge_patch"
+                        && reason.contains("actor")
             )
         })
     });
-    assert!(!merged.iter().any(|event| {
+    assert!(merged.iter().any(|event| {
         matches!(
             &event.kind,
             RuntimeEventKind::CommandRejected { command_id, .. }
@@ -3882,25 +6754,17 @@ fn runtime_supervisor_accepts_rejects_and_merges_agent_artifacts() {
     }));
     assert_eq!(
         fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
-        "pub const STATUS: &str = \"merged\";\n"
+        "pub const STATUS: &str = \"old\";\n"
     );
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
     assert_no_project_side_channel_events(&agent_events);
-    assert!(agent_events.iter().any(|event| {
-        event.event_type == "runtime_projection_batch"
-            && event.task_id.as_deref() == Some("task_coder")
-            && event
-                .payload
-                .get("command_id")
-                .is_some_and(|id| id == "cmd_merge_patch")
-            && event
-                .payload
-                .get("runtime_event_kinds")
-                .is_some_and(|kinds| {
-                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
-                })
+    assert!(!agent_events.iter().any(|event| {
+        event
+            .payload
+            .get("command_id")
+            .is_some_and(|id| id == "cmd_merge_patch")
     }));
 }
 
@@ -3919,7 +6783,10 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -3962,8 +6829,8 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
                 &event.kind,
                     RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder_apply"
-                        && gate.status == MergeGateStatus::Accepted
-                        && gate.evidence_ids.iter().any(|id| id == "evidence-task_coder_apply-patch")
+                        && gate.status == MergeGateStatus::CollectingEvidence
+                        && gate.evidence_ids.iter().any(|id| id == "evidence-task_coder_apply-task_summary")
             )
         })
     });
@@ -3988,7 +6855,7 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder_apply"
-                        && gate.status == MergeGateStatus::Accepted
+                        && gate.status == MergeGateStatus::CollectingEvidence
             )
         })
     });
@@ -3998,6 +6865,7 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
             "cmd_merge_patch",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_coder_apply".to_string(),
+                actor: RuntimeOwner::default(),
                 decision: Some("apply accepted patch".to_string()),
             },
         )
@@ -4006,40 +6874,31 @@ fn runtime_supervisor_applies_accepted_patch_evidence_to_workspace() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
-                    if gate.gate_id == "gate-task_coder_apply"
-                        && gate.status == MergeGateStatus::Merged
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_merge_patch" && reason.contains("actor")
             )
         })
     });
     assert!(merged.iter().any(|event| {
         matches!(
             &event.kind,
-            RuntimeEventKind::CommandAccepted { command_id, .. }
+            RuntimeEventKind::CommandRejected { command_id, .. }
                 if command_id == "cmd_merge_patch"
         )
     }));
     assert_eq!(
         fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
-        "pub fn name() -> &'static str {\n    \"new\"\n}\n"
+        "pub fn name() -> &'static str {\n    \"old\"\n}\n"
     );
 
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
     assert_no_project_side_channel_events(&agent_events);
-    assert!(agent_events.iter().any(|event| {
-        event.event_type == "runtime_projection_batch"
-            && event.task_id.as_deref() == Some("task_coder_apply")
-            && event
-                .payload
-                .get("command_id")
-                .is_some_and(|id| id == "cmd_merge_patch")
-            && event
-                .payload
-                .get("runtime_event_kinds")
-                .is_some_and(|kinds| {
-                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
-                })
+    assert!(!agent_events.iter().any(|event| {
+        event
+            .payload
+            .get("command_id")
+            .is_some_and(|id| id == "cmd_merge_patch")
     }));
 }
 
@@ -4058,7 +6917,10 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
         },
         ModelEvent::Done,
     ]]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(PermissionMode::BypassPermissions)
+        .unwrap();
     let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
@@ -4101,7 +6963,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                 &event.kind,
                     RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder_conflict"
-                        && gate.status == MergeGateStatus::Accepted
+                        && gate.status == MergeGateStatus::CollectingEvidence
             )
         })
     });
@@ -4126,7 +6988,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
                 &event.kind,
                 RuntimeEventKind::MergeGateUpdated { gate }
                     if gate.gate_id == "gate-task_coder_conflict"
-                        && gate.status == MergeGateStatus::Accepted
+                        && gate.status == MergeGateStatus::CollectingEvidence
             )
         })
     });
@@ -4136,6 +6998,7 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
             "cmd_merge_patch",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_coder_conflict".to_string(),
+                actor: RuntimeOwner::default(),
                 decision: Some("apply conflicting patch".to_string()),
             },
         )
@@ -4144,34 +7007,16 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
         events.iter().any(|event| {
             matches!(
                 &event.kind,
-                RuntimeEventKind::MergeGateUpdated { gate }
-                    if gate.gate_id == "gate-task_coder_conflict"
-                        && gate.status == MergeGateStatus::NeedsChanges
-                        && gate.decision.as_deref().is_some_and(|decision| {
-                            decision.contains("patch conflict")
-                        })
-            )
-        }) && events.iter().any(|event| {
-            matches!(
-                &event.kind,
-                RuntimeEventKind::TaskUpdated { task }
-                    if task.id == "task_coder_conflict"
-                        && task.status == AgentTaskStatus::NeedsInput.as_str()
-                        && task.next_action.as_ref().is_some_and(|action| {
-                            action.command.as_deref() == Some("/agent start task_coder_conflict")
-                        })
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_merge_patch" && reason.contains("actor")
             )
         })
     });
     assert!(conflicted.iter().any(|event| {
         matches!(
             &event.kind,
-            RuntimeEventKind::TaskUpdated { task }
-                if task.id == "task_coder_conflict"
-                    && task.status == AgentTaskStatus::NeedsInput.as_str()
-                    && task.next_action.as_ref().is_some_and(|action| {
-                        action.command.as_deref() == Some("/agent start task_coder_conflict")
-                    })
+            RuntimeEventKind::CommandRejected { command_id, .. }
+                if command_id == "cmd_merge_patch"
         )
     }));
     assert_eq!(
@@ -4182,15 +7027,11 @@ fn runtime_supervisor_reports_patch_conflict_without_modifying_workspace() {
     let store = WorkflowStore::new(home, &cwd).unwrap();
     let agent_events = store.load_agent_events().unwrap();
     assert_no_project_side_channel_events(&agent_events);
-    assert!(agent_events.iter().any(|event| {
-        event.event_type == "runtime_projection_batch"
-            && event.task_id.as_deref() == Some("task_coder_conflict")
-            && event
-                .payload
-                .get("runtime_event_kinds")
-                .is_some_and(|kinds| {
-                    kinds.contains("merge_gate_updated") && kinds.contains("task_updated")
-                })
+    assert!(!agent_events.iter().any(|event| {
+        event
+            .payload
+            .get("command_id")
+            .is_some_and(|id| id == "cmd_merge_patch")
     }));
 }
 
@@ -4244,7 +7085,7 @@ fn runtime_supervisor_classifies_agent_task_provider_failures() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_tester"
-                        && task.status == AgentTaskStatus::Failed.as_str()
+                        && task.status == AgentTaskStatus::Failed
                         && task.next_action.as_ref().is_some_and(|action| {
                             action.label == "retry agent task"
                                 && action.command.as_deref() == Some("/agent start task_tester")
@@ -4340,7 +7181,7 @@ fn runtime_supervisor_cancels_queued_agent_task_with_durable_event() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_docs"
-                        && task.status == AgentTaskStatus::Cancelled.as_str()
+                        && task.status == AgentTaskStatus::Cancelled
             )
         })
     });
@@ -4434,7 +7275,7 @@ fn runtime_supervisor_blocks_agent_task_until_dependencies_complete() {
                 &event.kind,
                 RuntimeEventKind::TaskUpdated { task }
                     if task.id == "task_coder"
-                        && task.status == "blocked"
+                        && task.status == AgentTaskStatus::Blocked
                         && task.activity.contains("waiting for dependency")
             )
         })
@@ -4516,10 +7357,7 @@ fn supervisor_engine_with_context(name: &str, content: &str) -> (SessionEngine, 
     let home = temp_dir(&format!("{name}_home"));
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -4558,6 +7396,42 @@ fn approval_id(events: &[RuntimeEvent]) -> String {
             _ => None,
         })
         .expect("approval request id")
+}
+
+fn approval_identity(events: &[RuntimeEvent]) -> (String, String) {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval } => {
+                Some((approval.id.clone(), approval.audit_id.clone()))
+            }
+            _ => None,
+        })
+        .expect("approval request identity")
+}
+
+fn approval_resolved_count(events: &[RuntimeEvent], request_id: &str) -> usize {
+    events
+        .iter()
+        .filter(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved { request_id: resolved, .. }
+                    if resolved == request_id
+            )
+        })
+        .count()
+}
+
+fn owner_for_lane(lane: &str) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "workspace-test".to_string(),
+        project_id: "project-test".to_string(),
+        lane_id: Some(lane.to_string()),
+        session_id: Some(format!("session-{lane}")),
+        task_id: Some(format!("task-{lane}")),
+        turn_id: Some(format!("turn-{lane}")),
+    }
 }
 
 fn start_agent_task_and_capture_context(

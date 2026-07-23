@@ -1,9 +1,10 @@
 use std::path::{Component, Path, PathBuf};
 
 use viden_types::{
-    AdditionalWorkingDirectory, ApprovalResponse, PermissionAllowDecision, PermissionAskDecision,
-    PermissionBehavior, PermissionDecision, PermissionDecisionReason, PermissionDenyDecision,
-    PermissionMode, PermissionPrompt, PermissionRule, PermissionRuleSource, ToolInput, ToolSpec,
+    AdditionalWorkingDirectory, ApprovalDecision, ApprovalResponse, ApprovalScope,
+    PermissionAllowDecision, PermissionAskDecision, PermissionBehavior, PermissionDecision,
+    PermissionDecisionReason, PermissionDenyDecision, PermissionMode, PermissionPrompt,
+    PermissionRule, PermissionRuleSource, PermissionRuleValue, ToolInput, ToolSpec,
 };
 
 #[derive(Debug, Clone)]
@@ -173,45 +174,140 @@ impl PermissionEngine {
             tool_name: tool_name.to_string(),
             message: decision.message.clone(),
             input_preview: render_prompt_input(input),
+            candidate_paths: candidate_paths(input),
         }
     }
 
     pub fn apply_approval(
-        &self,
+        &mut self,
         response: ApprovalResponse,
         decision: &PermissionAskDecision,
+        tool: &ToolSpec,
+        input: &ToolInput,
     ) -> PermissionDecision {
-        if response.approved {
-            PermissionDecision::Allow(PermissionAllowDecision {
-                updated_input: decision.updated_input.clone(),
-                user_modified: false,
-                decision_reason: decision.decision_reason.clone(),
-                accept_feedback: response.feedback,
-            })
-        } else {
-            PermissionDecision::Deny(PermissionDenyDecision {
-                message: "User denied the permission request".to_string(),
-                decision_reason: decision
-                    .decision_reason
-                    .clone()
-                    .unwrap_or(PermissionDecisionReason::RequiresApproval),
-            })
+        if matches!(self.context.mode, PermissionMode::Plan) && tool.is_mutating {
+            return PermissionDecision::Deny(PermissionDenyDecision {
+                message: format!("{} is blocked while plan mode is active", tool.name),
+                decision_reason: PermissionDecisionReason::PlanMode,
+            });
         }
+
+        match response.decision {
+            ApprovalDecision::Allow { scope } => {
+                match scope {
+                    ApprovalScope::Once => {}
+                    ApprovalScope::Session { .. } => {
+                        self.install_allow_rule(tool, input, None);
+                    }
+                    ApprovalScope::RepoAllowlist { paths } => {
+                        if paths.is_empty() {
+                            return deny_approval(decision);
+                        }
+                        let normalized_paths = match self.normalize_repo_allowlist_paths(&paths) {
+                            Some(paths) => paths,
+                            None => return deny_approval(decision),
+                        };
+                        let current_paths = extract_paths(input)
+                            .into_iter()
+                            .map(|path| normalize_path(&self.cwd, &path))
+                            .collect::<Vec<_>>();
+                        if current_paths.is_empty()
+                            || !current_paths
+                                .iter()
+                                .all(|path| normalized_paths.iter().any(|allowed| allowed == path))
+                        {
+                            return deny_approval(decision);
+                        }
+                        for path in normalized_paths {
+                            self.install_allow_rule(
+                                tool,
+                                input,
+                                Some(exact_path_rule_content(&path)),
+                            );
+                        }
+                    }
+                }
+                PermissionDecision::Allow(PermissionAllowDecision {
+                    updated_input: decision.updated_input.clone(),
+                    user_modified: false,
+                    decision_reason: decision.decision_reason.clone(),
+                    accept_feedback: response.feedback,
+                })
+            }
+            ApprovalDecision::Deny => deny_approval(decision),
+        }
+    }
+
+    fn normalize_repo_allowlist_paths(&self, paths: &[String]) -> Option<Vec<PathBuf>> {
+        let mut normalized = Vec::new();
+        for path in paths {
+            let resolved = normalize_path(&self.cwd, path);
+            if !self.is_normalized_path_in_scope(&resolved) {
+                return None;
+            }
+            if !normalized.contains(&resolved) {
+                normalized.push(resolved);
+            }
+        }
+        Some(normalized)
+    }
+
+    fn install_allow_rule(
+        &mut self,
+        tool: &ToolSpec,
+        input: &ToolInput,
+        content_override: Option<String>,
+    ) {
+        self.context.allow_rules.push(PermissionRule {
+            source: PermissionRuleSource::Session,
+            rule_behavior: PermissionBehavior::Allow,
+            rule_value: PermissionRuleValue {
+                tool_name: tool.name.clone(),
+                rule_content: Some(
+                    content_override.unwrap_or_else(|| viden_types::encode_tool_input(input)),
+                ),
+            },
+        });
     }
 
     fn matches_rule(&self, rules: &[PermissionRule], tool: &ToolSpec, input: &ToolInput) -> bool {
         let rendered = viden_types::encode_tool_input(input);
-        rules.iter().any(|rule| {
-            rule.rule_value.tool_name == tool.name
-                && match &rule.rule_value.rule_content {
-                    Some(expected) => rendered.contains(expected),
-                    None => true,
+        let mut exact_paths = Vec::new();
+        let mut matched_non_path_rule = false;
+        for rule in rules
+            .iter()
+            .filter(|rule| rule.rule_value.tool_name == tool.name)
+        {
+            match &rule.rule_value.rule_content {
+                Some(expected) if expected.starts_with(EXACT_PATH_RULE_PREFIX) => {
+                    exact_paths.push(PathBuf::from(
+                        expected.trim_start_matches(EXACT_PATH_RULE_PREFIX),
+                    ));
                 }
-        })
+                Some(expected) if rendered.contains(expected) => matched_non_path_rule = true,
+                None => matched_non_path_rule = true,
+                Some(_) => {}
+            }
+        }
+        if matched_non_path_rule {
+            return true;
+        }
+        let current_paths = extract_paths(input)
+            .into_iter()
+            .map(|path| normalize_path(&self.cwd, &path))
+            .collect::<Vec<_>>();
+        !current_paths.is_empty()
+            && current_paths
+                .iter()
+                .all(|path| exact_paths.iter().any(|allowed| allowed == path))
     }
 
     fn is_path_in_scope(&self, raw: &str) -> bool {
         let resolved = normalize_path(&self.cwd, raw);
+        self.is_normalized_path_in_scope(&resolved)
+    }
+
+    fn is_normalized_path_in_scope(&self, resolved: &Path) -> bool {
         if resolved.starts_with(&self.cwd) {
             return true;
         }
@@ -221,6 +317,18 @@ impl PermissionEngine {
             .map(|directory| normalize_path(&self.cwd, &directory.path))
             .any(|directory| resolved.starts_with(directory))
     }
+}
+
+const EXACT_PATH_RULE_PREFIX: &str = "path_exact:";
+
+fn deny_approval(decision: &PermissionAskDecision) -> PermissionDecision {
+    PermissionDecision::Deny(PermissionDenyDecision {
+        message: "User denied the permission request".to_string(),
+        decision_reason: decision
+            .decision_reason
+            .clone()
+            .unwrap_or(PermissionDecisionReason::RequiresApproval),
+    })
 }
 
 fn render_prompt_input(input: &ToolInput) -> String {
@@ -239,6 +347,11 @@ fn extract_paths(input: &ToolInput) -> Vec<String> {
         .iter()
         .filter_map(|key| input.get(*key).cloned())
         .collect()
+}
+
+// Keep path candidates structural so approval UIs do not scrape display text.
+fn candidate_paths(input: &ToolInput) -> Vec<String> {
+    extract_paths(input)
 }
 
 fn normalize_path(cwd: &Path, raw: &str) -> PathBuf {
@@ -261,10 +374,17 @@ fn normalize_path(cwd: &Path, raw: &str) -> PathBuf {
     normalized
 }
 
+fn exact_path_rule_content(path: &Path) -> String {
+    format!("{EXACT_PATH_RULE_PREFIX}{}", path.display())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viden_types::{PermissionRuleValue, ToolInput, ToolSpec};
+    use viden_types::{
+        ApprovalDecision, ApprovalResponse, ApprovalScope, PermissionRuleValue, SessionId,
+        ToolInput, ToolSpec,
+    };
 
     fn tool(name: &str, is_mutating: bool) -> ToolSpec {
         ToolSpec {
@@ -357,5 +477,296 @@ mod tests {
             prompt.input_preview,
             "  content: print('Hello')\n  path: hello.py"
         );
+        assert_eq!(prompt.candidate_paths, vec!["hello.py"]);
+    }
+
+    #[test]
+    fn approval_scope_once_allows_current_effect_without_persisting_rule() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", true);
+        let mut input = ToolInput::new();
+        input.insert("command".into(), "cargo test".into());
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &input) else {
+            panic!("shell should require approval before the once response");
+        };
+
+        let decision =
+            engine.apply_approval(ApprovalResponse::allow_once(None), &ask, &tool, &input);
+
+        assert!(matches!(decision, PermissionDecision::Allow(_)));
+        assert!(engine.context_snapshot().allow_rules.is_empty());
+        assert!(matches!(
+            engine.decide(&tool, &input),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn approval_scope_session_installs_allow_rule_before_followup_decision() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", true);
+        let mut input = ToolInput::new();
+        input.insert("command".into(), "cargo test".into());
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &input) else {
+            panic!("shell should require approval before the session response");
+        };
+        let session_id: SessionId = "session-a".into();
+
+        let decision = engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Session { session_id },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &input,
+        );
+
+        assert!(matches!(decision, PermissionDecision::Allow(_)));
+        assert_eq!(engine.context_snapshot().allow_rules.len(), 1);
+        assert!(matches!(
+            engine.decide(&tool, &input),
+            PermissionDecision::Allow(_)
+        ));
+    }
+
+    #[test]
+    fn approval_scope_repo_allowlist_installs_explicit_paths_and_rejects_empty_lists() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("write_file", true);
+        let scoped = input("src/lib.rs");
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &scoped) else {
+            panic!("write_file should require approval before the repo allowlist response");
+        };
+
+        let allow = engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist {
+                        paths: vec!["src/lib.rs".into()],
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &scoped,
+        );
+
+        assert!(matches!(allow, PermissionDecision::Allow(_)));
+        assert!(matches!(
+            engine.decide(&tool, &scoped),
+            PermissionDecision::Allow(_)
+        ));
+
+        let unscoped = input("src/other.rs");
+        assert!(matches!(
+            engine.decide(&tool, &unscoped),
+            PermissionDecision::Ask(_)
+        ));
+
+        let mut empty_engine = PermissionEngine::new("/tmp/project");
+        let PermissionDecision::Ask(empty_ask) = empty_engine.decide(&tool, &scoped) else {
+            panic!("write_file should require approval before empty allowlist response");
+        };
+        let empty = empty_engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist { paths: Vec::new() },
+                },
+                feedback: None,
+            },
+            &empty_ask,
+            &tool,
+            &scoped,
+        );
+        assert!(matches!(empty, PermissionDecision::Deny(_)));
+        assert!(empty_engine.context_snapshot().allow_rules.is_empty());
+    }
+
+    #[test]
+    fn approval_scope_repo_allowlist_uses_normalized_exact_path_matching() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("write_file", true);
+        let scoped = input("./src/../src/lib.rs");
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &scoped) else {
+            panic!("write_file should require approval before repo allowlist response");
+        };
+
+        let allow = engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist {
+                        paths: vec!["src/lib.rs".into()],
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &scoped,
+        );
+        assert!(matches!(allow, PermissionDecision::Allow(_)));
+
+        assert!(matches!(
+            engine.decide(&tool, &input("src/lib.rs")),
+            PermissionDecision::Allow(_)
+        ));
+        assert!(matches!(
+            engine.decide(&tool, &input("src/lib.rs.bak")),
+            PermissionDecision::Ask(_)
+        ));
+
+        let mut unrelated = ToolInput::new();
+        unrelated.insert("path".to_string(), "src/other.rs".to_string());
+        unrelated.insert("content".to_string(), "src/lib.rs".to_string());
+        assert!(matches!(
+            engine.decide(&tool, &unrelated),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn approval_scope_repo_allowlist_requires_all_current_paths_to_match_exact_rules() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("move_file", true);
+        let mut move_input = ToolInput::new();
+        move_input.insert("from".to_string(), "src/from.rs".to_string());
+        move_input.insert("to".to_string(), "src/to.rs".to_string());
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &move_input) else {
+            panic!("move_file should require approval before repo allowlist response");
+        };
+
+        let allow = engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist {
+                        paths: vec!["src/from.rs".into(), "src/to.rs".into()],
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &move_input,
+        );
+        assert!(matches!(allow, PermissionDecision::Allow(_)));
+
+        assert!(matches!(
+            engine.decide(&tool, &move_input),
+            PermissionDecision::Allow(_)
+        ));
+
+        let mut partial = ToolInput::new();
+        partial.insert("from".to_string(), "src/from.rs".to_string());
+        partial.insert("to".to_string(), "src/other.rs".to_string());
+        assert!(matches!(
+            engine.decide(&tool, &partial),
+            PermissionDecision::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn approval_scope_repo_allowlist_rejects_out_of_scope_and_supports_additional_dirs() {
+        let tool = tool("write_file", true);
+        let scoped = input("src/lib.rs");
+        let mut denied_engine = PermissionEngine::new("/tmp/project");
+        let PermissionDecision::Ask(ask) = denied_engine.decide(&tool, &scoped) else {
+            panic!("write_file should require approval before repo allowlist response");
+        };
+        let denied = denied_engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist {
+                        paths: vec!["/tmp/outside.rs".into()],
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &scoped,
+        );
+        assert!(matches!(denied, PermissionDecision::Deny(_)));
+        assert!(denied_engine.context_snapshot().allow_rules.is_empty());
+
+        let mut additional_engine = PermissionEngine::new("/tmp/project");
+        additional_engine.add_directory("/tmp/shared", PermissionRuleSource::Session);
+        let additional_input = input("/tmp/shared/file.rs");
+        let PermissionDecision::Ask(additional_ask) =
+            additional_engine.decide(&tool, &additional_input)
+        else {
+            panic!("additional-dir write should require approval before allowlist response");
+        };
+        let allow = additional_engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::RepoAllowlist {
+                        paths: vec!["/tmp/shared/./file.rs".into()],
+                    },
+                },
+                feedback: None,
+            },
+            &additional_ask,
+            &tool,
+            &additional_input,
+        );
+        assert!(matches!(allow, PermissionDecision::Allow(_)));
+        assert!(matches!(
+            additional_engine.decide(&tool, &additional_input),
+            PermissionDecision::Allow(_)
+        ));
+    }
+
+    #[test]
+    fn approval_scope_explicit_deny_installs_no_allow_rule() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", true);
+        let mut input = ToolInput::new();
+        input.insert("command".into(), "cargo test".into());
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &input) else {
+            panic!("shell should require approval before the deny response");
+        };
+
+        let decision = engine.apply_approval(ApprovalResponse::deny(None), &ask, &tool, &input);
+
+        assert!(matches!(decision, PermissionDecision::Deny(_)));
+        assert!(engine.context_snapshot().allow_rules.is_empty());
+    }
+
+    #[test]
+    fn approval_scope_plan_mode_denies_approval_without_installing_rule() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("write_file", true);
+        let scoped = input("src/lib.rs");
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &scoped) else {
+            panic!("write_file should require approval before plan-mode response");
+        };
+        engine.set_mode(PermissionMode::Plan);
+
+        let decision = engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Session {
+                        session_id: "session-a".to_string(),
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &scoped,
+        );
+
+        assert!(matches!(
+            decision,
+            PermissionDecision::Deny(PermissionDenyDecision {
+                decision_reason: PermissionDecisionReason::PlanMode,
+                ..
+            })
+        ));
+        assert!(engine.context_snapshot().allow_rules.is_empty());
     }
 }
