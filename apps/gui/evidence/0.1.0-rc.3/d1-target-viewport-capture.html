@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden D1 rc.3 target viewport capture</title>
+    <style>
+      html,
+      body {
+        width: var(--capture-width, 5140px);
+        height: var(--capture-height, 2650px);
+        margin: 0;
+        overflow: hidden;
+        background: #05090f;
+      }
+
+      iframe {
+        display: block;
+        width: var(--capture-width, 5140px);
+        height: var(--capture-height, 2650px);
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe
+      id="target"
+      title="D1 exact target viewport"
+      src="d1-canonical-qa.html"
+      data-viewport="5140x2650"
+    ></iframe>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const width = Number.parseInt(params.get("width") || "5140", 10);
+      const height = Number.parseInt(params.get("height") || "2650", 10);
+      const safeWidth = Number.isFinite(width) && width > 0 ? width : 5140;
+      const safeHeight = Number.isFinite(height) && height > 0 ? height : 2650;
+      document.documentElement.style.setProperty("--capture-width", `${safeWidth}px`);
+      document.documentElement.style.setProperty("--capture-height", `${safeHeight}px`);
+      const source = params.get("source") === "design" ? "d1-design-reference.html" : "d1-canonical-qa.html";
+      const passthrough = new URLSearchParams();
+      for (const key of ["mode", "locale", "density", "drawer", "contextScroll"]) {
+        if (params.has(key)) {
+          passthrough.set(key, params.get(key));
+        }
+      }
+      const query = passthrough.toString();
+      const frame = document.querySelector("#target");
+      frame.src = query ? `${source}?${query}` : source;
+      document.body.dataset.source = source;
+      document.body.dataset.viewport = `${safeWidth}x${safeHeight}`;
+    </script>
+  </body>
+</html>

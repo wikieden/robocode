@@ -1,0 +1,57 @@
+.agent-menu {
+  position: absolute;
+  z-index: 20;
+  inset-inline-start: var(--sp-3);
+  width: min(22rem, calc(100vw - var(--sp-6)));
+  padding: var(--sp-2);
+  color: var(--fg-primary);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-active);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.agent-menu-section {
+  padding: var(--sp-2);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.agent-menu-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--fg-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  text-align: start;
+}
+
+.agent-menu-item small,
+.agent-menu-empty {
+  color: var(--fg-muted);
+}
+
+.agent-menu-item:focus-visible {
+  color: var(--accent-bright);
+  background: var(--bg-sel);
+  border-color: var(--accent-bright);
+  outline: none;
+}
+
+.agent-menu-item[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+.agent-menu-empty {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-menu { animation: none; }
+}
