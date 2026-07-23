@@ -900,6 +900,60 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
 }
 
 #[test]
+fn runtime_command_bus_non_streaming_turn_keeps_both_approved_tools() {
+    let cwd = temp_dir("runtime_command_two_approved_tools_cwd");
+    let home = temp_dir("runtime_command_two_approved_tools_home");
+    let mut first = ToolInput::new();
+    first.insert("path".to_string(), "first.txt".to_string());
+    first.insert("content".to_string(), "first\n".to_string());
+    let mut second = ToolInput::new();
+    second.insert("path".to_string(), "second.txt".to_string());
+    second.insert("content".to_string(), "second\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_first_approved".to_string(),
+                name: "write_file".to_string(),
+                input: first,
+            }),
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_second_approved".to_string(),
+                name: "write_file".to_string(),
+                input: second,
+            }),
+        ],
+        vec![ModelEvent::Done],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_two_approved_tools",
+            RuntimeCommand::SubmitUserInput {
+                content: "run two approved tools".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.kind, RuntimeEventKind::ToolCallStarted { .. }))
+            .count(),
+        2
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event.kind, RuntimeEventKind::ToolCallFinished { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn runtime_command_bus_queues_follow_up_input() {
     let cwd = temp_dir("runtime_command_queue_cwd");
     let home = temp_dir("runtime_command_queue_home");

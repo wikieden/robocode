@@ -182,7 +182,10 @@ flowchart LR
   `ContextUpdated`, `MergeGateUpdated`, `HandoffUpdated`,
   `ReviewRequestUpdated`, `ContractUpdated`, `DependencyUpdated`,
   `MergeConflictBounced`, and `RevertRecorded` upsert their records by id.
-- `ApprovalRequested` and `ApprovalResolved` maintain pending approvals.
+- `ApprovalRequested` and `ApprovalResolved` maintain pending approvals. For
+  supervised provider turns, the supervisor's live pair is the single
+  authoritative publication; buffered turn output never repeats a synthetic
+  pair.
 - `InputQueued` and `InputDequeued` maintain follow-up input state.
 - `ProviderHealthUpdated`, `TokenCostUpdated`, and `Error` update side panels
   without blocking composer input.
@@ -466,6 +469,13 @@ Frontends must show:
 
 Frontends must not call the underlying tool after approval. They send
 `RespondToApproval`; the runtime resumes or denies execution.
+
+Each approval-gated tool has exactly one live request/resolution pair. In a
+multi-tool turn, the previous tool's `ToolCallStarted`, `ToolCallFinished`, and
+structured facts are published before the next `ApprovalRequested`; the next
+`ToolCallStarted` follows its `ApprovalResolved` and durable permission
+decision. If that permission decision cannot be persisted, Core emits `Error`
+without opening an active tool call.
 
 ## UI Preference And Design Entry Contract
 

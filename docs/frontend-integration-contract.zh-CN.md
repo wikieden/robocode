@@ -171,7 +171,9 @@ flowchart LR
   `ContextUpdated`、`MergeGateUpdated`、`HandoffUpdated`、
   `ReviewRequestUpdated`、`ContractUpdated`、`DependencyUpdated`、
   `MergeConflictBounced` 和 `RevertRecorded` 按 id upsert records。
-- `ApprovalRequested` 和 `ApprovalResolved` 维护 pending approvals。
+- `ApprovalRequested` 和 `ApprovalResolved` 维护 pending approvals。对于受
+  supervisor 管理的 provider turn，supervisor 实时发出的 pair 是唯一权威来源；
+  buffered turn output 不得重复 synthetic pair。
 - `InputQueued` 和 `InputDequeued` 维护 follow-up input state。
 - `ProviderHealthUpdated`、`TokenCostUpdated` 和 `Error` 更新侧栏或状态区，不能阻塞
   composer input。
@@ -416,6 +418,12 @@ Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
 
 前端不能在用户 approval 后直接调用底层 tool。只能发送 `RespondToApproval`；runtime
 负责继续或拒绝执行。
+
+每个需要 approval 的 tool 只能有一组实时 request/resolution pair。在 multi-tool
+turn 中，前一个 tool 的 `ToolCallStarted`、`ToolCallFinished` 和 structured facts
+必须在下一个 `ApprovalRequested` 前发出；下一个 `ToolCallStarted` 必须位于其
+`ApprovalResolved` 和 permission decision 持久化之后。如果 permission decision
+无法持久化，Core 直接发出 `Error`，不能留下 active tool call。
 
 ## UI 偏好与设计入口契约
 

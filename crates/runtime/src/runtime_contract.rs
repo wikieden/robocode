@@ -193,33 +193,44 @@ impl SessionEngine {
     }
 
     pub fn runtime_events_for_engine_events(&self, events: &[EngineEvent]) -> Vec<RuntimeEvent> {
-        self.runtime_events_for_engine_output(events, &[])
+        Self::runtime_events_for_engine_output(self.runtime_state_events(), events, &[], None)
     }
 
     fn runtime_events_for_turn_output(
         &self,
         output: &crate::EngineTurnOutput,
     ) -> Vec<RuntimeEvent> {
-        self.runtime_events_for_engine_output(&output.engine_events, &output.ordered_runtime_facts)
+        Self::runtime_events_for_engine_output(
+            self.runtime_state_events(),
+            &output.engine_events,
+            &output.ordered_runtime_facts,
+            None,
+        )
     }
 
     fn runtime_events_for_engine_output(
-        &self,
+        mut out: Vec<RuntimeEvent>,
         events: &[EngineEvent],
         ordered_runtime_facts: &[crate::OrderedRuntimeFact],
+        identity_sequence_base: Option<u64>,
     ) -> Vec<RuntimeEvent> {
-        let mut out = self.runtime_state_events();
         let mut last_tool: Option<(ToolCallId, String)> = None;
 
         for (engine_event_index, event) in events.iter().enumerate() {
             let sequence = next_sequence(&out);
+            let identity_sequence = identity_sequence_base
+                .map(|base| {
+                    base.saturating_add(engine_event_index as u64)
+                        .saturating_add(1)
+                })
+                .unwrap_or(sequence);
             match event {
                 EngineEvent::System(text) => {
                     out.push(RuntimeEvent::new(
                         sequence,
                         RuntimeEventKind::EvidenceRecorded {
                             evidence: EvidenceView {
-                                id: format!("system-{sequence}"),
+                                id: format!("system-{identity_sequence}"),
                                 kind: "system".to_string(),
                                 summary: truncate_for_preview(text, 500),
                                 path: None,
@@ -235,7 +246,7 @@ impl SessionEngine {
                     out.push(RuntimeEvent::new(
                         sequence,
                         RuntimeEventKind::AssistantDelta {
-                            message_id: format!("assistant-{sequence}"),
+                            message_id: format!("assistant-{identity_sequence}"),
                             task_id: None,
                             content: content.clone(),
                         },
@@ -243,7 +254,7 @@ impl SessionEngine {
                 }
                 EngineEvent::ToolCall(text) => {
                     let (name, input_preview) = parse_legacy_tool_call(text);
-                    let tool_call_id = format!("tool-event-{sequence}");
+                    let tool_call_id = format!("tool-event-{identity_sequence}");
                     last_tool = Some((tool_call_id.clone(), name.clone()));
                     out.push(RuntimeEvent::new(
                         sequence,
@@ -259,9 +270,12 @@ impl SessionEngine {
                     success,
                     exit_code,
                 } => {
-                    let (tool_call_id, name) = last_tool
-                        .take()
-                        .unwrap_or_else(|| (format!("tool-event-{sequence}"), "tool".to_string()));
+                    let (tool_call_id, name) = last_tool.take().unwrap_or_else(|| {
+                        (
+                            format!("tool-event-{identity_sequence}"),
+                            "tool".to_string(),
+                        )
+                    });
                     out.push(RuntimeEvent::new(
                         sequence,
                         RuntimeEventKind::ToolCallFinished {
@@ -270,7 +284,7 @@ impl SessionEngine {
                             success: *success,
                             exit_code: *exit_code,
                             evidence: Some(EvidenceView {
-                                id: format!("tool-result-{sequence}"),
+                                id: format!("tool-result-{identity_sequence}"),
                                 kind: "tool_result".to_string(),
                                 summary: truncate_for_preview(output, 500),
                                 path: None,
@@ -287,7 +301,7 @@ impl SessionEngine {
                         sequence,
                         RuntimeEventKind::EvidenceRecorded {
                             evidence: EvidenceView {
-                                id: format!("command-{sequence}"),
+                                id: format!("command-{identity_sequence}"),
                                 kind: "command".to_string(),
                                 summary: truncate_for_preview(text, 500),
                                 path: None,
@@ -311,6 +325,24 @@ impl SessionEngine {
         }
 
         out
+    }
+
+    fn runtime_events_for_streaming_output(
+        &self,
+        output: &crate::EngineTurnOutput,
+        identity_sequence_base: u64,
+        include_runtime_state: bool,
+    ) -> Vec<RuntimeEvent> {
+        Self::runtime_events_for_engine_output(
+            if include_runtime_state {
+                self.runtime_state_events()
+            } else {
+                Vec::new()
+            },
+            &output.engine_events,
+            &output.ordered_runtime_facts,
+            Some(identity_sequence_base),
+        )
     }
 
     pub fn handle_runtime_command<F>(
@@ -1451,6 +1483,51 @@ impl SessionEngine {
         }
     }
 
+    pub(crate) fn process_runtime_turn_streaming_with_approval_and_control<F, E>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        emit_completed: &mut E,
+    ) -> Result<Vec<RuntimeEvent>, crate::RuntimeInputFailure>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+        E: FnMut(Vec<RuntimeEvent>) + ?Sized,
+    {
+        let mut identity_sequence_base = 0_u64;
+        let mut on_approval_boundary = |output: crate::EngineTurnOutput| {
+            let event_count = output.engine_events.len() as u64;
+            let events = Self::runtime_events_for_engine_output(
+                Vec::new(),
+                &output.engine_events,
+                &output.ordered_runtime_facts,
+                Some(identity_sequence_base),
+            );
+            identity_sequence_base = identity_sequence_base.saturating_add(event_count);
+            if !events.is_empty() {
+                emit_completed(events);
+            }
+        };
+        match self.process_engine_turn_streaming_with_approval_and_control(
+            input,
+            approver,
+            control,
+            &mut on_approval_boundary,
+        ) {
+            Ok(output) => {
+                Ok(self.runtime_events_for_streaming_output(&output, identity_sequence_base, true))
+            }
+            Err(failure) => Err(crate::RuntimeInputFailure {
+                message: failure.message,
+                completed_events: self.runtime_events_for_streaming_output(
+                    &failure.completed,
+                    identity_sequence_base,
+                    true,
+                ),
+            }),
+        }
+    }
+
     pub(crate) fn process_runtime_turn_with_built_context_bundle_and_control<F>(
         &mut self,
         input: &str,
@@ -1500,6 +1577,53 @@ impl SessionEngine {
                 completed_events: merge_approval_events(
                     self.runtime_events_for_turn_output(&failure.completed),
                     approval_events,
+                ),
+            }),
+        }
+    }
+
+    pub(crate) fn process_runtime_turn_streaming_with_built_context_bundle_and_control<F, E>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        built_context_bundle: crate::context_bundle::BuiltContextBundle,
+        emit_completed: &mut E,
+    ) -> Result<Vec<RuntimeEvent>, crate::RuntimeInputFailure>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+        E: FnMut(Vec<RuntimeEvent>) + ?Sized,
+    {
+        let mut identity_sequence_base = 0_u64;
+        let mut on_approval_boundary = |output: crate::EngineTurnOutput| {
+            let event_count = output.engine_events.len() as u64;
+            let events = Self::runtime_events_for_engine_output(
+                Vec::new(),
+                &output.engine_events,
+                &output.ordered_runtime_facts,
+                Some(identity_sequence_base),
+            );
+            identity_sequence_base = identity_sequence_base.saturating_add(event_count);
+            if !events.is_empty() {
+                emit_completed(events);
+            }
+        };
+        match self.process_engine_turn_streaming_with_built_context_bundle_and_control(
+            input,
+            approver,
+            control,
+            built_context_bundle,
+            &mut on_approval_boundary,
+        ) {
+            Ok(output) => {
+                Ok(self.runtime_events_for_streaming_output(&output, identity_sequence_base, true))
+            }
+            Err(failure) => Err(crate::RuntimeInputFailure {
+                message: failure.message,
+                completed_events: self.runtime_events_for_streaming_output(
+                    &failure.completed,
+                    identity_sequence_base,
+                    true,
                 ),
             }),
         }
@@ -1906,6 +2030,33 @@ impl SessionEngine {
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
+        self.run_agent_task_with_control_inner(task_id, approver, control, None)
+    }
+
+    pub(crate) fn run_agent_task_streaming_with_control<F, E>(
+        &mut self,
+        task_id: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        emit_completed: &mut E,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+        E: FnMut(Vec<RuntimeEvent>),
+    {
+        self.run_agent_task_with_control_inner(task_id, approver, control, Some(emit_completed))
+    }
+
+    fn run_agent_task_with_control_inner<F>(
+        &mut self,
+        task_id: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        mut emit_completed: Option<&mut dyn FnMut(Vec<RuntimeEvent>)>,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
         let (dag_id, spec) = self
             .runtime_agent_dags
             .iter()
@@ -1968,12 +2119,22 @@ impl SessionEngine {
             workflow_id: self.cost_workflow_id.clone(),
             smoke_run_id: self.cost_smoke_run_id.clone(),
         });
-        let provider_result = self.process_runtime_turn_with_built_context_bundle_and_control(
-            &prompt,
-            approver,
-            control,
-            built_context,
-        );
+        let provider_result = match emit_completed.as_deref_mut() {
+            Some(emit_completed) => self
+                .process_runtime_turn_streaming_with_built_context_bundle_and_control(
+                    &prompt,
+                    approver,
+                    control,
+                    built_context,
+                    emit_completed,
+                ),
+            None => self.process_runtime_turn_with_built_context_bundle_and_control(
+                &prompt,
+                approver,
+                control,
+                built_context,
+            ),
+        };
         self.active_cost_attribution = previous_cost_attribution;
         self.restore_agent_permission_policy(previous_permissions);
         let provider_events = match provider_result {

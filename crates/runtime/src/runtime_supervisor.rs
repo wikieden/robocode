@@ -3117,7 +3117,13 @@ fn run_supervised_agent_task(
             )))
     };
 
-    let result = engine.run_agent_task_with_control(&task_id, &mut approver, &control);
+    let mut emit_completed = |events| emit_events(event_bus, owner.clone(), events);
+    let result = engine.run_agent_task_streaming_with_control(
+        &task_id,
+        &mut approver,
+        &control,
+        &mut emit_completed,
+    );
     clear_active_control(active_control, &command_id);
     match result {
         Ok(events) => emit_events(event_bus, owner.clone(), events),
@@ -3245,8 +3251,13 @@ fn run_supervised_input(
             )))
     };
 
-    let result =
-        engine.process_runtime_turn_with_approval_and_control(&content, &mut approver, &control);
+    let mut emit_completed = |events| emit_events(event_bus, owner.clone(), events);
+    let result = engine.process_runtime_turn_streaming_with_approval_and_control(
+        &content,
+        &mut approver,
+        &control,
+        &mut emit_completed,
+    );
     clear_active_control(active_control, &command_id);
     match result {
         Ok(events) => emit_events(event_bus, owner.clone(), events),

@@ -53,6 +53,13 @@ impl EngineTurnProgress {
             ordered_runtime_facts: self.ordered_runtime_facts,
         }
     }
+
+    fn take_completed(&mut self) -> crate::EngineTurnOutput {
+        crate::EngineTurnOutput {
+            engine_events: std::mem::take(&mut self.engine_events),
+            ordered_runtime_facts: std::mem::take(&mut self.ordered_runtime_facts),
+        }
+    }
 }
 
 fn record_completed_tool(progress: &mut EngineTurnProgress, call: &ToolCall, result: &ToolResult) {
@@ -91,6 +98,13 @@ fn record_completed_tool(progress: &mut EngineTurnProgress, call: &ToolCall, res
                     event,
                 }),
         );
+}
+
+fn record_started_tool(progress: &mut EngineTurnProgress, call: &ToolCall, encoded_input: &str) {
+    progress.engine_events.push(EngineEvent::ToolCall(format!(
+        "{} {}",
+        call.name, encoded_input
+    )));
 }
 
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
@@ -138,7 +152,36 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
-        self.process_input_with_optional_context_bundle(input, approver, control, None)
+        let mut on_approval_boundary = None;
+        self.process_input_with_optional_context_bundle(
+            input,
+            approver,
+            control,
+            None,
+            &mut on_approval_boundary,
+        )
+    }
+
+    pub(crate) fn process_engine_turn_streaming_with_approval_and_control<F, C>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        on_approval_boundary: &mut C,
+    ) -> Result<crate::EngineTurnOutput, crate::EngineTurnFailure>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+        C: FnMut(crate::EngineTurnOutput),
+    {
+        let mut on_approval_boundary =
+            Some(on_approval_boundary as &mut dyn FnMut(crate::EngineTurnOutput));
+        self.process_input_with_optional_context_bundle(
+            input,
+            approver,
+            control,
+            None,
+            &mut on_approval_boundary,
+        )
     }
 
     pub(crate) fn process_engine_turn_with_built_context_bundle_and_control<F>(
@@ -151,11 +194,36 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
+        let mut on_approval_boundary = None;
         self.process_input_with_optional_context_bundle(
             input,
             approver,
             control,
             Some(built_context_bundle),
+            &mut on_approval_boundary,
+        )
+    }
+
+    pub(crate) fn process_engine_turn_streaming_with_built_context_bundle_and_control<F, C>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+        built_context_bundle: crate::context_bundle::BuiltContextBundle,
+        on_approval_boundary: &mut C,
+    ) -> Result<crate::EngineTurnOutput, crate::EngineTurnFailure>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+        C: FnMut(crate::EngineTurnOutput),
+    {
+        let mut on_approval_boundary =
+            Some(on_approval_boundary as &mut dyn FnMut(crate::EngineTurnOutput));
+        self.process_input_with_optional_context_bundle(
+            input,
+            approver,
+            control,
+            Some(built_context_bundle),
+            &mut on_approval_boundary,
         )
     }
 
@@ -165,6 +233,7 @@ impl SessionEngine {
         approver: &mut F,
         control: &ModelRequestControl,
         built_context_bundle: Option<crate::context_bundle::BuiltContextBundle>,
+        on_approval_boundary: &mut Option<&mut dyn FnMut(crate::EngineTurnOutput)>,
     ) -> Result<crate::EngineTurnOutput, crate::EngineTurnFailure>
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -355,7 +424,12 @@ impl SessionEngine {
                         provider_task.progress = provider_task.progress.max(75);
                         provider_task.updated_at = Some(now_millis());
                         self.upsert_agent_task(provider_task.clone());
-                        let _ = self.handle_tool_call(call, approver, &mut progress)?;
+                        let _ = self.handle_tool_call(
+                            call,
+                            approver,
+                            &mut progress,
+                            on_approval_boundary,
+                        )?;
                     }
                     ModelEvent::Usage(_) => {}
                     ModelEvent::Done => {}
@@ -380,6 +454,7 @@ impl SessionEngine {
         call: ToolCall,
         approver: &mut F,
         progress: &mut EngineTurnProgress,
+        on_approval_boundary: &mut Option<&mut dyn FnMut(crate::EngineTurnOutput)>,
     ) -> Result<ToolResult, crate::EngineTurnFailure>
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -421,11 +496,6 @@ impl SessionEngine {
         progress.carry(self.store_entry(TranscriptEntry::Message {
             message: assistant_tool_call,
         }))?;
-        progress.engine_events.push(EngineEvent::ToolCall(format!(
-            "{} {}",
-            call.name, encoded_input
-        )));
-
         let mut decision = self.permissions.decide(&tool_spec, &call.input);
         if let PermissionDecision::Ask(ask) = &decision {
             task.status = AgentTaskStatus::WaitingApproval;
@@ -436,6 +506,16 @@ impl SessionEngine {
             task.updated_at = Some(now_millis());
             self.upsert_agent_task(task.clone());
             let prompt = PermissionEngine::prompt_for(&call.name, ask, &call.input);
+            // Publish every completed prefix before the supervisor opens the
+            // next live approval boundary.
+            if let Some(on_approval_boundary) = on_approval_boundary.as_deref_mut() {
+                let completed = progress.take_completed();
+                if !completed.engine_events.is_empty()
+                    || !completed.ordered_runtime_facts.is_empty()
+                {
+                    on_approval_boundary(completed);
+                }
+            }
             let approval = approver(prompt);
             decision = self
                 .permissions
@@ -453,6 +533,9 @@ impl SessionEngine {
                         message: allow.accept_feedback.clone(),
                     },
                 }))?;
+                // Frontend-active lifetime starts only after the permission
+                // decision is durable, so an append failure cannot orphan it.
+                record_started_tool(progress, &call, &encoded_input);
                 task.status = AgentTaskStatus::RunningTool;
                 task.activity = format!("running `{}`", call.name);
                 task.progress = 55;
@@ -527,6 +610,7 @@ impl SessionEngine {
                         message: Some(deny.message.clone()),
                     },
                 }))?;
+                record_started_tool(progress, &call, &encoded_input);
                 task.status = AgentTaskStatus::Cancelled;
                 task.activity = format!("denied `{}`", call.name);
                 task.progress = 100;
@@ -603,13 +687,14 @@ impl SessionEngine {
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
         let mut progress = EngineTurnProgress::default();
+        let mut on_approval_boundary = None;
         let call = ToolCall {
             id: fresh_id("tool"),
             name: tool_name.to_string(),
             input,
         };
         let _ = self
-            .handle_tool_call(call, approver, &mut progress)
+            .handle_tool_call(call, approver, &mut progress, &mut on_approval_boundary)
             .map_err(|failure| failure.message)?;
         let output = progress
             .engine_events
@@ -640,12 +725,13 @@ impl SessionEngine {
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
         let mut progress = EngineTurnProgress::default();
+        let mut on_approval_boundary = None;
         let call = ToolCall {
             id: fresh_id("tool"),
             name: tool_name.to_string(),
             input,
         };
-        self.handle_tool_call(call, approver, &mut progress)
+        self.handle_tool_call(call, approver, &mut progress, &mut on_approval_boundary)
             .map_err(|failure| failure.message)
     }
 }

@@ -1259,6 +1259,312 @@ fn frontend_status_tool_result_persistence_failure_keeps_completed_prefix() {
     );
 }
 
+#[test]
+fn frontend_status_submit_input_emits_one_live_approval_pair_once() {
+    assert_supervised_approval_order(ApprovalCommandPath::SubmitUserInput, 1);
+}
+
+#[test]
+fn frontend_status_submit_input_preserves_two_live_approval_boundaries() {
+    assert_supervised_approval_order(ApprovalCommandPath::SubmitUserInput, 2);
+}
+
+#[test]
+fn frontend_status_start_agent_task_emits_one_live_approval_pair_once() {
+    assert_supervised_approval_order(ApprovalCommandPath::StartAgentTask, 1);
+}
+
+#[test]
+fn frontend_status_start_agent_task_preserves_two_live_approval_boundaries() {
+    assert_supervised_approval_order(ApprovalCommandPath::StartAgentTask, 2);
+}
+
+#[test]
+fn frontend_status_permission_persistence_failure_has_no_orphan_tool_call() {
+    let cwd = temp_dir("frontend_status_permission_persistence_failure");
+    let home = temp_dir("frontend_status_permission_persistence_failure_home");
+    let provider = approval_sequence_provider("permission-persistence", 1);
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    // User message, provider cost, tool call, and assistant tool message
+    // persist before the permission decision append.
+    engine.fail_after_transcript_appends_for_test(4);
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("permission-persistence");
+
+    start_approval_command(
+        &supervisor,
+        &owner,
+        ApprovalCommandPath::SubmitUserInput,
+        "permission-persistence",
+    );
+    let mut events = collect_starter_envelopes_until(&supervisor, |events| {
+        approval_request_id(events).is_some()
+    });
+    let request_id = approval_request_id(&events).unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "approve-permission-persistence",
+            RuntimeCommand::RespondToApproval {
+                request_id,
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    events.extend(collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("injected transcript append failure")
+            )
+        })
+    }));
+
+    assert_eq!(
+        approval_tool_order(&events, &owner),
+        vec!["requested", "resolved", "error"]
+    );
+    assert_eq!(approval_event_counts(&events, &owner), (1, 1));
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .active_tool_calls
+            .is_empty(),
+        "a failed permission transcript append must not leave an active tool call"
+    );
+    assert!(!cwd.join("permission-persistence-1.txt").exists());
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ApprovalCommandPath {
+    SubmitUserInput,
+    StartAgentTask,
+}
+
+fn assert_supervised_approval_order(path: ApprovalCommandPath, tool_count: usize) {
+    let test_id = format!(
+        "{}-{tool_count}",
+        match path {
+            ApprovalCommandPath::SubmitUserInput => "submit-approval",
+            ApprovalCommandPath::StartAgentTask => "agent-approval",
+        }
+    );
+    let cwd = temp_dir(&test_id);
+    let home = temp_dir(&format!("{test_id}-home"));
+    let provider = approval_sequence_provider(&test_id, tool_count);
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner(&test_id);
+
+    start_approval_command(&supervisor, &owner, path, &test_id);
+    let mut events = collect_starter_envelopes_until(&supervisor, |events| {
+        approval_request_id(events).is_some()
+    });
+    let mut request_id = approval_request_id(&events).unwrap();
+    for approval_index in 0..tool_count {
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("approve-{test_id}-{approval_index}"),
+                RuntimeCommand::RespondToApproval {
+                    request_id: request_id.clone(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            )
+            .unwrap();
+        let final_approval = approval_index + 1 == tool_count;
+        let next = collect_starter_envelopes_until(&supervisor, |batch| {
+            if final_approval {
+                tool_finished_count(batch, &owner) == 1
+            } else {
+                approval_request_id(batch).is_some()
+            }
+        });
+        if !final_approval {
+            request_id = approval_request_id(&next).unwrap();
+        }
+        events.extend(next);
+    }
+
+    let mut expected = Vec::with_capacity(tool_count * 4);
+    for _ in 0..tool_count {
+        expected.extend(["requested", "resolved", "started", "finished"]);
+    }
+    assert_eq!(approval_tool_order(&events, &owner), expected);
+    assert_eq!(
+        approval_event_counts(&events, &owner),
+        (tool_count, tool_count)
+    );
+    assert!(
+        supervisor
+            .snapshot_envelope()
+            .unwrap()
+            .view
+            .active_tool_calls
+            .is_empty()
+    );
+}
+
+fn approval_sequence_provider(test_id: &str, tool_count: usize) -> Box<dyn ModelProvider> {
+    let tool_calls = (1..=tool_count)
+        .map(|index| {
+            let mut input = viden_types::ToolInput::new();
+            input.insert("path".to_string(), format!("{test_id}-{index}.txt"));
+            input.insert("content".to_string(), format!("approved tool {index}\n"));
+            viden_types::ModelEvent::ToolCall(ToolCall {
+                id: format!("tool-{test_id}-{index}"),
+                name: "write_file".to_string(),
+                input,
+            })
+        })
+        .collect::<Vec<_>>();
+    Box::new(SequenceProvider::new(vec![
+        tool_calls,
+        vec![viden_types::ModelEvent::Done],
+    ]))
+}
+
+fn start_approval_command(
+    supervisor: &RuntimeSupervisor,
+    owner: &RuntimeOwner,
+    path: ApprovalCommandPath,
+    test_id: &str,
+) {
+    match path {
+        ApprovalCommandPath::SubmitUserInput => supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("submit-{test_id}"),
+                RuntimeCommand::SubmitUserInput {
+                    content: "run approval-gated tools".to_string(),
+                },
+            )
+            .unwrap(),
+        ApprovalCommandPath::StartAgentTask => {
+            let task_id = format!("task-{test_id}");
+            supervisor
+                .send_command_from_owner(
+                    owner.clone(),
+                    format!("dag-{test_id}"),
+                    RuntimeCommand::StartAgentDag {
+                        goal: "run approval-gated tools".to_string(),
+                        tasks: vec![AgentDagTaskSpec {
+                            task_id: task_id.clone(),
+                            role: AgentRole::Coder,
+                            title: "Approval ordering".to_string(),
+                            objective: "Run approval-gated tools in order".to_string(),
+                            dependencies: Vec::new(),
+                            workspace: None,
+                            file_scope: Vec::new(),
+                            context_bundle_id: None,
+                            required_evidence: Vec::new(),
+                            permission_policy: "full_access".to_string(),
+                        }],
+                    },
+                )
+                .unwrap();
+            let _ = collect_starter_envelopes_until(supervisor, |events| {
+                events.iter().any(|envelope| {
+                    matches!(
+                        &envelope.event,
+                        RuntimeWireEvent::Known(RuntimeEvent {
+                            kind: RuntimeEventKind::AgentDagUpdated { .. },
+                            ..
+                        })
+                    )
+                })
+            });
+            supervisor
+                .send_command_from_owner(
+                    owner.clone(),
+                    format!("start-{test_id}"),
+                    RuntimeCommand::StartAgentTask { task_id },
+                )
+                .unwrap();
+        }
+    }
+}
+
+fn approval_request_id(events: &[RuntimeEventEnvelope]) -> Option<String> {
+    events.iter().find_map(|envelope| match &envelope.event {
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::ApprovalRequested { approval },
+            ..
+        }) => Some(approval.id.clone()),
+        _ => None,
+    })
+}
+
+fn approval_event_counts(events: &[RuntimeEventEnvelope], owner: &RuntimeOwner) -> (usize, usize) {
+    events
+        .iter()
+        .filter(|envelope| &envelope.owner == owner)
+        .fold((0, 0), |(requested, resolved), envelope| {
+            match &envelope.event {
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { .. },
+                    ..
+                }) => (requested + 1, resolved),
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalResolved { .. },
+                    ..
+                }) => (requested, resolved + 1),
+                _ => (requested, resolved),
+            }
+        })
+}
+
+fn tool_finished_count(events: &[RuntimeEventEnvelope], owner: &RuntimeOwner) -> usize {
+    events
+        .iter()
+        .filter(|envelope| &envelope.owner == owner)
+        .filter(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ToolCallFinished { .. },
+                    ..
+                })
+            )
+        })
+        .count()
+}
+
+fn approval_tool_order(events: &[RuntimeEventEnvelope], owner: &RuntimeOwner) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter(|envelope| &envelope.owner == owner)
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { .. },
+                ..
+            }) => Some("requested"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalResolved { .. },
+                ..
+            }) => Some("resolved"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallStarted { .. },
+                ..
+            }) => Some("started"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallFinished { .. },
+                ..
+            }) => Some("finished"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::Error { .. },
+                ..
+            }) => Some("error"),
+            _ => None,
+        })
+        .collect()
+}
+
 fn completed_write_then_unknown_tool(path: &str) -> Vec<viden_types::ModelEvent> {
     let mut write_input = viden_types::ToolInput::new();
     write_input.insert("path".to_string(), path.to_string());
