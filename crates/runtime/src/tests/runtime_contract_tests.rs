@@ -8,14 +8,16 @@ use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentTaskStatus, ApprovalResponse, CanonicalEvidenceReference,
-    ContextContentKind, ContextHandleRecord, ContextItemRecord, ContextReductionRecord,
-    ContextScope, CostScope, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
-    EvidenceVerificationState, EvidenceView, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage,
+    AgentDagTaskSpec, AgentRole, AgentRoute, AgentTaskKind, AgentTaskStatus, ApprovalDecision,
+    ApprovalResponse, CanonicalEvidenceReference, CapabilityId, ContextContentKind,
+    ContextHandleRecord, ContextItemRecord, ContextReductionRecord, ContextScope, CostScope,
+    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
+    EvidenceView, LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage,
     PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
     RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
-    TranscriptEntry, WorkMode,
+    TranscriptEntry, TranscriptPageRequest, WorkMode,
 };
+use viden_workflows::lanes::LaneEvent;
 use viden_workflows::stores::{WorkflowAgentEvent, WorkflowStore};
 
 use crate::{
@@ -231,10 +233,7 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("say hello", &mut approver)
@@ -258,7 +257,7 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
         )
     }));
     assert!(runtime_events.iter().any(|event| {
-        matches!(&event.kind, RuntimeEventKind::TaskUpdated { task } if task.kind == "provider")
+        matches!(&event.kind, RuntimeEventKind::TaskUpdated { task } if task.kind == AgentTaskKind::Provider)
     }));
     assert!(
         runtime_events
@@ -274,7 +273,11 @@ fn core_exports_runtime_view_state_without_tui_dependencies() {
     assert_eq!(view.snapshot.provider_family, "sequence");
     assert!(view.assistant_stream.contains("hello from runtime"));
     assert!(view.provider.is_some());
-    assert!(view.tasks.iter().any(|task| task.kind == "provider"));
+    assert!(
+        view.tasks
+            .iter()
+            .any(|task| task.kind == AgentTaskKind::Provider)
+    );
 }
 
 #[test]
@@ -298,10 +301,7 @@ fn provider_cost_attribution_uses_explicit_workflow_and_smoke_without_duplicate_
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_cost_workflow_id_for_test(Some("workflow-main-1"));
     engine.set_cost_smoke_run_id_for_test(Some("smoke-main-1"));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("attribute main turn", &mut approver)
@@ -356,10 +356,7 @@ fn agent_task_provider_cost_includes_dag_workflow_and_smoke_scopes() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_cost_workflow_id_for_test(Some("workflow-agent-1"));
     engine.set_cost_smoke_run_id_for_test(Some("smoke-agent-1"));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let task_id = "agent-cost-task".to_string();
     let dag_id = "agent-cost-dag".to_string();
 
@@ -418,10 +415,7 @@ fn core_runtime_bridge_records_tool_calls_and_results() {
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("run printf", &mut approver)
@@ -589,10 +583,7 @@ fn context_reducer_absent_adapter_does_not_block_provider_request() {
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
     engine.set_absent_context_reducer_adapter_for_test("adapter", "0.1.0");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .process_input_with_approval("ERROR src/a.rs:1 boom", &mut approver)
@@ -616,10 +607,7 @@ fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request(
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
     engine.set_sleeping_context_reducer_adapter_for_test("adapter", "0.1.0", 1_000, 25);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let started = std::time::Instant::now();
 
     let events = engine
@@ -668,10 +656,7 @@ fn core_runtime_bridge_does_not_fail_successful_tool_output_with_error_words() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let engine_events = engine
         .process_input_with_approval("print help text", &mut approver)
@@ -701,10 +686,7 @@ fn runtime_command_bus_switches_mode_and_submits_input() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let mode_events = engine
         .handle_runtime_command(
@@ -759,15 +741,61 @@ fn runtime_command_bus_switches_mode_and_submits_input() {
 }
 
 #[test]
+fn failed_permission_controls_do_not_mutate_live_runtime_state() {
+    for (case, successful_appends, command) in [
+        (
+            "permission",
+            0,
+            RuntimeCommand::SetPermissionLevel {
+                level: PermissionLevel::Auto,
+            },
+        ),
+        (
+            "work-mode",
+            1,
+            RuntimeCommand::SetWorkMode {
+                mode: WorkMode::Plan,
+            },
+        ),
+    ] {
+        let cwd = temp_dir(&format!("runtime_command_failed_{case}_cwd"));
+        let home = temp_dir(&format!("runtime_command_failed_{case}_home"));
+        let provider = Box::new(SequenceProvider::new(vec![]));
+        let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+        let before = engine.runtime_snapshot();
+        let before_permission_mode = engine.mode();
+        let session_id = engine.session_id().to_string();
+        let store = SessionStore::new_with_home(&home, &cwd, Some(session_id)).unwrap();
+        let transcript_before = store.load_entries().unwrap();
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+        engine.fail_after_transcript_appends_for_test(successful_appends);
+
+        let error = engine
+            .handle_runtime_command(format!("failed_{case}"), command, &mut approver)
+            .expect_err("injected transcript failure rejects the control command");
+
+        assert!(error.contains("injected transcript append failure"));
+        assert_eq!(engine.runtime_snapshot(), before, "{case} snapshot leaked");
+        assert_eq!(
+            engine.mode(),
+            before_permission_mode,
+            "{case} permission engine leaked"
+        );
+        assert_eq!(
+            store.load_entries().unwrap(),
+            transcript_before,
+            "{case} control left partial session metadata"
+        );
+    }
+}
+
+#[test]
 fn runtime_command_bus_covers_plan_build_review_permission_contract() {
     let cwd = temp_dir("runtime_command_mode_contract_cwd");
     let home = temp_dir("runtime_command_mode_contract_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     for (command_id, mode) in [
         ("cmd_plan", WorkMode::Plan),
@@ -829,10 +857,7 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .handle_runtime_command(
@@ -856,7 +881,10 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
     assert!(events.iter().any(|event| {
         matches!(
             &event.kind,
-            RuntimeEventKind::ApprovalResolved { approved: true, .. }
+            RuntimeEventKind::ApprovalResolved {
+                decision: ApprovalDecision::Allow { .. },
+                ..
+            }
         )
     }));
     assert!(events.iter().any(|event| {
@@ -871,16 +899,153 @@ fn runtime_command_bus_emits_approval_events_for_gated_tools() {
     }));
 }
 
+fn approval_tool_event_order(events: &[RuntimeEvent]) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { .. } => Some("requested"),
+            RuntimeEventKind::ApprovalResolved { .. } => Some("resolved"),
+            RuntimeEventKind::ToolCallStarted { .. } => Some("started"),
+            RuntimeEventKind::ToolCallFinished { .. } => Some("finished"),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn runtime_command_bus_non_streaming_turn_keeps_both_approved_tools() {
+    let cwd = temp_dir("runtime_command_two_approved_tools_cwd");
+    let home = temp_dir("runtime_command_two_approved_tools_home");
+    let mut first = ToolInput::new();
+    first.insert("path".to_string(), "first.txt".to_string());
+    first.insert("content".to_string(), "first\n".to_string());
+    let mut second = ToolInput::new();
+    second.insert("path".to_string(), "second.txt".to_string());
+    second.insert("content".to_string(), "second\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_first_approved".to_string(),
+                name: "write_file".to_string(),
+                input: first,
+            }),
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_second_approved".to_string(),
+                name: "write_file".to_string(),
+                input: second,
+            }),
+        ],
+        vec![ModelEvent::Done],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_two_approved_tools",
+            RuntimeCommand::SubmitUserInput {
+                content: "run two approved tools".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(
+        approval_tool_event_order(&events),
+        vec![
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+        ]
+    );
+}
+
+#[test]
+fn runtime_command_bus_non_streaming_agent_task_preserves_approval_boundaries() {
+    let cwd = temp_dir("runtime_command_agent_two_approved_tools_cwd");
+    let home = temp_dir("runtime_command_agent_two_approved_tools_home");
+    let mut first = ToolInput::new();
+    first.insert("path".to_string(), "agent-first.txt".to_string());
+    first.insert("content".to_string(), "first\n".to_string());
+    let mut second = ToolInput::new();
+    second.insert("path".to_string(), "agent-second.txt".to_string());
+    second.insert("content".to_string(), "second\n".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_agent_first_approved".to_string(),
+                name: "write_file".to_string(),
+                input: first,
+            }),
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_agent_second_approved".to_string(),
+                name: "write_file".to_string(),
+                input: second,
+            }),
+        ],
+        vec![ModelEvent::Done],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    engine
+        .handle_runtime_command(
+            "cmd_agent_two_approved_tools_dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "run two approved tools".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task_agent_two_approved_tools".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Run approved tools".to_string(),
+                    objective: "Run two approval-gated tools in order".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: Vec::new(),
+                    permission_policy: "full_access".to_string(),
+                }],
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_agent_two_approved_tools",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task_agent_two_approved_tools".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert_eq!(
+        approval_tool_event_order(&events),
+        vec![
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+            "requested",
+            "resolved",
+            "started",
+            "finished",
+        ]
+    );
+}
+
 #[test]
 fn runtime_command_bus_queues_follow_up_input() {
     let cwd = temp_dir("runtime_command_queue_cwd");
     let home = temp_dir("runtime_command_queue_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .handle_runtime_command(
@@ -913,6 +1078,96 @@ fn runtime_command_bus_queues_follow_up_input() {
 }
 
 #[test]
+fn typed_agent_adapter_query_projects_builtin_acp_descriptors_without_commands() {
+    let cwd = temp_dir("runtime_agent_adapter_query_cwd");
+    let home = temp_dir("runtime_agent_adapter_query_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_agent_adapters",
+            RuntimeCommand::QueryAgentAdapters,
+            &mut approver,
+        )
+        .unwrap();
+
+    let adapters = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentAdaptersLoaded { adapters } => Some(adapters),
+            _ => None,
+        })
+        .expect("typed adapter event");
+    assert_eq!(
+        adapters
+            .iter()
+            .map(|adapter| adapter.agent_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["claude-acp", "codex-acp", "kiro-cli"]
+    );
+    assert!(
+        adapters
+            .iter()
+            .all(|adapter| adapter.route == AgentRoute::Acp)
+    );
+    assert!(
+        adapters.iter().all(|adapter| adapter
+            .capabilities
+            .iter()
+            .all(|capability| capability.0.starts_with("agent.")
+                && !capability.0.contains(['/', '_'])))
+    );
+    assert!(adapters.iter().all(|adapter| {
+        adapter
+            .capabilities
+            .contains(&CapabilityId("agent.session.prompt".to_string()))
+    }));
+    let mut view = engine.runtime_view_state();
+    for event in &events {
+        view.apply_event(event);
+    }
+    assert_eq!(view.agent_adapters, *adapters);
+    assert!(!cwd.join(".viden/agents").exists());
+}
+
+#[test]
+fn typed_agent_adapter_probe_rejects_unknown_identity_without_projection() {
+    let cwd = temp_dir("runtime_agent_adapter_unknown_cwd");
+    let home = temp_dir("runtime_agent_adapter_unknown_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_agent_probe_unknown",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "unknown-acp".to_string(),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_agent_probe_unknown"
+                && reason.contains("unknown-acp")
+                && reason.contains("claude-acp")
+                && reason.contains("codex-acp")
+                && reason.contains("kiro-cli")
+    )));
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event.kind, RuntimeEventKind::AgentAdapterProbed { .. }))
+    );
+    assert!(engine.runtime_view_state().agent_adapters.is_empty());
+}
+
+#[test]
 fn hard_context_limit_rejects_before_provider_request() {
     let cwd = temp_dir("runtime_contract_hard_budget_cwd");
     let home = temp_dir("runtime_contract_hard_budget_home");
@@ -927,10 +1182,7 @@ fn hard_context_limit_rejects_before_provider_request() {
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(10, 20);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let events = engine
         .handle_runtime_command(
@@ -980,10 +1232,7 @@ fn soft_context_budget_evicts_low_priority_sources_before_provider_request() {
     ));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_budget_for_test(100, 1_000);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval(
@@ -1025,10 +1274,7 @@ fn context_engine_events_replay_without_raw_secret_or_paths() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let secret = "sk-test-secret-1234567890";
 
     let events = engine
@@ -1094,10 +1340,7 @@ fn existing_context_source_hash_corruption_fails_visibly_on_rematerialization() 
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -1137,10 +1380,7 @@ fn command_accepted_redacts_start_agent_dag_secrets_and_paths() {
     let home = temp_dir("runtime_contract_dag_redaction_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let secret = "sk-agent-dag-secret-123";
     let raw_scope = cwd.join("secret/file.rs").to_string_lossy().to_string();
 
@@ -1192,10 +1432,7 @@ fn retrieve_context_returns_safe_bytes_and_event_metadata() {
     let home = temp_dir("runtime_command_retrieve_context_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let safe_content = "retrieve-context-safe-body";
     engine
         .handle_runtime_command(
@@ -1310,10 +1547,7 @@ fn retrieved_context_cost_survives_session_resume() {
     let home = temp_dir("runtime_command_retrieve_resume_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1380,10 +1614,7 @@ fn retrieve_context_bounds_long_secret_and_path_reason_before_recording_event() 
     let home = temp_dir("runtime_command_retrieve_context_reason_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1441,10 +1672,7 @@ fn retrieve_context_denies_unknown_and_cross_scope_handles_before_reading_bytes(
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     let context_root = cwd.join(".viden/private-context-test");
     engine.set_context_engine_root_for_test(context_root.clone());
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1510,10 +1738,7 @@ fn retrieve_context_rejects_prepare_failures_without_accepting_or_rewriting_comm
     let cwd = temp_dir("runtime_command_retrieve_context_prepare_order_cwd");
     let home = temp_dir("runtime_command_retrieve_context_prepare_order_home");
     let context_root = cwd.join(".viden/private-context-test");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let mut unknown = engine_with_single_context(&cwd, &home, &context_root, "unknown body");
     let unknown_events = unknown
@@ -1637,10 +1862,7 @@ fn retrieve_context_uses_permission_policy_for_deny_ask_approve_and_plan_read() 
     let home = temp_dir("runtime_command_retrieve_context_permissions_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut allow = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1701,10 +1923,7 @@ fn retrieve_context_uses_permission_policy_for_deny_ask_approve_and_plan_read() 
     let mut saw_prompt = false;
     let mut approve = |prompt: viden_types::PermissionPrompt| {
         saw_prompt = prompt.tool_name == "context_read";
-        ApprovalResponse {
-            approved: true,
-            feedback: None,
-        }
+        ApprovalResponse::allow_once(None)
     };
     let approved = engine
         .handle_runtime_command(
@@ -1756,10 +1975,7 @@ fn retrieve_context_redacts_secret_content_before_tool_result_and_events() {
     let home = temp_dir("runtime_command_retrieve_context_secret_home");
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1798,10 +2014,7 @@ fn retrieve_context_reports_expired_missing_item_missing_blob_and_hash_mismatch_
     let cwd = temp_dir("runtime_command_retrieve_context_errors_cwd");
     let home = temp_dir("runtime_command_retrieve_context_errors_home");
     let context_root = cwd.join(".viden/private-context-test");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let mut expired = engine_with_single_context(&cwd, &home, &context_root, "expired bytes");
     let expired_handle = expired.runtime_view_state().context_handles[0].clone();
@@ -1944,10 +2157,7 @@ fn engine_with_single_context(
     let provider = Box::new(SequenceProvider::new(vec![vec![ModelEvent::Done]]));
     let mut engine = SessionEngine::new_with_home(cwd, provider, Some(home.to_path_buf())).unwrap();
     engine.set_context_engine_root_for_test(context_root.to_path_buf());
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine
         .handle_runtime_command(
             "cmd_build_context",
@@ -1974,10 +2184,7 @@ fn runtime_command_bus_configures_provider_and_active_models() {
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_user_config_path_override(config_path.clone());
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let configured = engine
         .handle_runtime_command(
@@ -2054,10 +2261,7 @@ fn merge_gate_rejects_summary_only_patch_evidence() {
     let home = temp_dir("runtime_contract_summary_only_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2135,10 +2339,7 @@ fn accept_merge_gate_command_cannot_bypass_invalid_evidence() {
     let home = temp_dir("runtime_contract_accept_bypass_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -2182,6 +2383,8 @@ fn accept_merge_gate_command_cannot_bypass_invalid_evidence() {
             "cmd_accept_gate",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_accept_bypass".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some("force accept".to_string()),
             },
             &mut approver,
@@ -2214,10 +2417,7 @@ fn merge_gate_with_empty_required_evidence_collects_summary_evidence() {
     let home = temp_dir("runtime_contract_empty_required_summary_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let _ = start_gate_with_required(&mut engine, &mut approver, "task_empty_summary", Vec::new());
 
@@ -2252,10 +2452,7 @@ fn merge_gate_with_empty_required_evidence_collects_canonical_evidence_and_repla
     let home = temp_dir("runtime_contract_empty_required_canonical_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let mut start_events = start_gate_with_required(
         &mut engine,
@@ -2312,10 +2509,7 @@ fn accept_merge_gate_command_cannot_bypass_empty_required_evidence() {
     let home = temp_dir("runtime_contract_empty_required_accept_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let _ = start_gate_with_required(&mut engine, &mut approver, "task_empty_accept", Vec::new());
 
@@ -2324,6 +2518,8 @@ fn accept_merge_gate_command_cannot_bypass_empty_required_evidence() {
             "cmd_accept_empty_required",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_empty_accept".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some("force accept empty".to_string()),
             },
             &mut approver,
@@ -2355,10 +2551,7 @@ fn record_agent_evidence_rolls_back_when_workflow_append_fails() {
     let home = temp_dir("runtime_contract_workflow_append_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_workflow_append_fail");
     let before = engine.runtime_view_state();
@@ -2420,10 +2613,7 @@ fn record_agent_evidence_does_not_dual_write_or_roll_back_on_transcript_failure(
     let home = temp_dir("runtime_contract_no_dual_write_evidence_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_no_dual_write");
     let (item, canonical) = stored_canonical_context(
@@ -2504,10 +2694,7 @@ fn record_agent_evidence_projection_redacts_summary_source_and_unsafe_paths() {
     let home = temp_dir("runtime_contract_projection_redaction_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_redact_projection");
     let (item, canonical) = stored_canonical_context(
         &cwd,
@@ -2571,10 +2758,7 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
     .unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     let secret = "sk-project-command-secret";
     let private_path = "/Users/wiki/private/project.rs";
@@ -2635,6 +2819,8 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
             "cmd_adversarial_accept",
             RuntimeCommand::AcceptMergeGate {
                 gate_id: "gate-task_adversarial".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
+                reviewed_evidence: Vec::new(),
                 decision: Some(format!("accept {secret} {private_path}")),
             },
             &mut approver,
@@ -2645,6 +2831,7 @@ fn workflow_projection_redacts_adversarial_project_command_payloads() {
             "cmd_adversarial_merge",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_adversarial".to_string(),
+                actor: viden_types::RuntimeOwner::default(),
                 decision: Some(format!("merge {secret} diff --git {private_path}")),
             },
             &mut approver,
@@ -2700,10 +2887,7 @@ fn record_agent_evidence_rejects_adversarial_nested_canonical_metadata() {
         ));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         start_single_patch_gate(&mut engine, &mut approver, "task_bad_canonical");
         let (item, mut canonical) = stored_canonical_context(
             &cwd,
@@ -2797,10 +2981,7 @@ fn record_agent_evidence_rejects_traversal_and_control_character_paths() {
         let home = temp_dir(&format!("runtime_contract_invalid_path_{case}_home"));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         start_single_patch_gate(&mut engine, &mut approver, "task_invalid_path");
         let events = engine
             .handle_runtime_command(
@@ -2835,10 +3016,7 @@ fn start_agent_task_projects_state_to_workflow_not_transcript() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_start_projection");
 
@@ -2857,15 +3035,17 @@ fn start_agent_task_projects_state_to_workflow_not_transcript() {
         &event.kind,
         RuntimeEventKind::TaskUpdated { task }
             if task.id == "task_start_projection"
-                && task.status == AgentTaskStatus::Done.as_str()
+                && task.status == AgentTaskStatus::Done
     )));
     assert!(live.latest_evidence.iter().any(|evidence| {
         evidence
             .id
-            .starts_with("evidence-task_start_projection-patch")
+            .starts_with("evidence-task_start_projection-task_summary")
+            && evidence.canonical.is_none()
     }));
     assert!(live.merge_gates.iter().any(|gate| {
-        gate.gate_id == "gate-task_start_projection" && gate.status == MergeGateStatus::Accepted
+        gate.gate_id == "gate-task_start_projection"
+            && gate.status == MergeGateStatus::CollectingEvidence
     }));
     let transcript_events = transcript_runtime_events(&cwd, &home, &session_id);
     assert!(
@@ -2904,10 +3084,7 @@ fn start_agent_dag_rejects_projection_batches_over_event_cap_without_live_leak()
     let home = temp_dir("runtime_contract_projection_event_cap_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let tasks = (0..260)
         .map(|index| AgentDagTaskSpec {
             task_id: format!("task_projection_cap_{index}"),
@@ -2963,10 +3140,7 @@ fn start_agent_task_rolls_back_when_workflow_append_fails() {
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_start_workflow_fail");
     let before = engine.runtime_view_state();
@@ -3009,10 +3183,7 @@ fn start_agent_dag_rolls_back_when_late_workflow_append_fails() {
     let home = temp_dir("runtime_contract_start_dag_late_workflow_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let before = engine.runtime_view_state();
     engine.fail_after_workflow_appends_for_test(0);
 
@@ -3057,10 +3228,7 @@ fn cancel_agent_task_rolls_back_when_workflow_append_fails() {
     let home = temp_dir("runtime_contract_cancel_task_workflow_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_cancel_workflow_fail");
     let before = engine.runtime_view_state();
     engine.fail_next_workflow_append_for_test();
@@ -3098,10 +3266,7 @@ fn start_agent_task_workflow_projection_failure_leaves_logs_and_replay_unchanged
         ModelEvent::Done,
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_start_projection_fail");
     let before = engine.runtime_view_state();
@@ -3156,10 +3321,7 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
     std::fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_merge_restore");
     let patch = b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let (patch_item, patch_canonical) = stored_canonical_context(
@@ -3170,6 +3332,7 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
         ContextContentKind::Diff,
         patch,
     );
+    let patch_hash = patch_canonical.source_hash.clone();
     engine.set_merge_gate_context_facts_for_test("bundle-merge-restore-patch", patch_item);
     let evidence_events = engine
         .handle_runtime_command(
@@ -3192,6 +3355,22 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
             if gate.gate_id == "gate-task_merge_restore"
                 && gate.status == MergeGateStatus::Accepted
     )));
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "cmd_accept_merge_restore",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_merge_restore".to_string(),
+                actor: actor.clone(),
+                reviewed_evidence: vec![viden_types::ReviewedEvidenceBinding {
+                    evidence_id: "evidence-merge-restore-patch".to_string(),
+                    source_hash: patch_hash,
+                }],
+                decision: Some("accept exact canonical patch".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
     let before = engine.runtime_view_state();
     let workflow_before = WorkflowStore::new(&home, &cwd)
         .unwrap()
@@ -3204,6 +3383,7 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
             "cmd_merge_restore",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_merge_restore".to_string(),
+                actor,
                 decision: Some("merge with rollback".to_string()),
             },
             &mut approver,
@@ -3233,15 +3413,99 @@ fn merge_agent_patch_workflow_precommit_failure_leaves_file_unchanged() {
 }
 
 #[test]
+fn merge_agent_patch_workflow_precommit_failure_removes_created_file_and_empty_parents() {
+    let cwd = temp_dir("runtime_contract_merge_patch_create_rollback_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_create_rollback_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let patch = b"diff --git a/generated/deep/new.txt b/generated/deep/new.txt\n--- /dev/null\n+++ b/generated/deep/new.txt\n@@ -0,0 +1 @@\n+created\n";
+    prepare_patch_merge_gate(
+        &mut engine,
+        &mut approver,
+        &cwd,
+        "task_merge_create_rollback",
+        patch,
+    );
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_create_rollback",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_create_rollback".to_string(),
+                actor,
+                decision: Some("merge created file with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_create_rollback"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert!(!cwd.join("generated/deep/new.txt").exists());
+    assert!(
+        !cwd.join("generated").exists(),
+        "rollback must remove empty parent directories created by this transaction"
+    );
+}
+
+#[test]
+fn merge_agent_patch_workflow_precommit_failure_restores_deleted_file() {
+    let cwd = temp_dir("runtime_contract_merge_patch_delete_rollback_cwd");
+    let home = temp_dir("runtime_contract_merge_patch_delete_rollback_home");
+    std::fs::create_dir_all(cwd.join("src")).unwrap();
+    std::fs::write(cwd.join("src/obsolete.txt"), "old\n").unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let patch = b"diff --git a/src/obsolete.txt b/src/obsolete.txt\n--- a/src/obsolete.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n";
+    prepare_patch_merge_gate(
+        &mut engine,
+        &mut approver,
+        &cwd,
+        "task_merge_delete_rollback",
+        patch,
+    );
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine.fail_next_workflow_append_for_test();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_merge_delete_rollback",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_delete_rollback".to_string(),
+                actor,
+                decision: Some("merge deleted file with rollback".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "cmd_merge_delete_rollback"
+                && reason.contains("injected workflow append failure")
+    )));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("src/obsolete.txt")).unwrap(),
+        "old\n"
+    );
+}
+
+#[test]
 fn record_agent_evidence_ignores_transcript_batch_failure_for_project_facts() {
     let cwd = temp_dir("runtime_contract_project_fact_transcript_batch_fail_cwd");
     let home = temp_dir("runtime_contract_project_fact_transcript_batch_fail_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_project_fact_batch_fail");
     let (item, canonical) = stored_canonical_context(
@@ -3289,10 +3553,7 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
     std::fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let _ = start_gate_with_required(
         &mut engine,
         &mut approver,
@@ -3308,6 +3569,7 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
         ContextContentKind::Diff,
         patch,
     );
+    let patch_hash = patch_item.content_sha256.clone();
     engine.set_merge_gate_context_facts_for_test("bundle-merge-patch", patch_item);
     let (test_item, test_canonical) = stored_canonical_context(
         &cwd,
@@ -3362,13 +3624,70 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
             if gate.gate_id == "gate-task_merge_revalidate"
                 && gate.status == MergeGateStatus::Accepted
     )));
+    let actor = engine.runtime_view_state().merge_gates[0].owner.clone();
+    engine
+        .handle_runtime_command(
+            "cmd_accept_merge_revalidate",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                actor: actor.clone(),
+                reviewed_evidence: vec![
+                    viden_types::ReviewedEvidenceBinding {
+                        evidence_id: "evidence-merge-patch".to_string(),
+                        source_hash: patch_hash,
+                    },
+                    viden_types::ReviewedEvidenceBinding {
+                        evidence_id: "evidence-merge-test".to_string(),
+                        source_hash: test_hash.clone(),
+                    },
+                ],
+                decision: Some("accept exact patch and test evidence".to_string()),
+            },
+            &mut approver,
+        )
+        .unwrap();
 
     std::fs::remove_file(blob_path_for_hash(&cwd, &test_hash)).unwrap();
+    let gate_before_denial = engine
+        .runtime_view_state()
+        .merge_gates
+        .into_iter()
+        .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+        .unwrap();
+    let mut deny_merge = |_prompt| ApprovalResponse::deny(None);
+    let denied = engine
+        .handle_runtime_command(
+            "cmd_merge_after_test_tamper_denied",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: "gate-task_merge_revalidate".to_string(),
+                actor: actor.clone(),
+                decision: Some("deny stale evidence recovery mutation".to_string()),
+            },
+            &mut deny_merge,
+        )
+        .unwrap();
+    assert!(
+        denied
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::CommandRejected { .. })),
+        "denied merge must not produce recovery mutations: {denied:#?}"
+    );
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .into_iter()
+            .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+            .unwrap(),
+        gate_before_denial
+    );
+
     let events = engine
         .handle_runtime_command(
             "cmd_merge_after_test_tamper",
             RuntimeCommand::MergeAgentPatch {
                 gate_id: "gate-task_merge_revalidate".to_string(),
+                actor,
                 decision: Some("merge only if all evidence still verifies".to_string()),
             },
             &mut approver,
@@ -3377,11 +3696,18 @@ fn merge_agent_patch_revalidates_non_patch_required_evidence_before_writing() {
 
     assert!(events.iter().any(|event| matches!(
         &event.kind,
-        RuntimeEventKind::MergeGateUpdated { gate }
-            if gate.gate_id == "gate-task_merge_revalidate"
-                && gate.status == MergeGateStatus::NeedsChanges
-                && gate.decision.as_deref().is_some_and(|reason| reason.contains("missing_source"))
+        RuntimeEventKind::CommandRejected { reason, .. }
+            if reason.contains("missing_source")
     )));
+    assert_eq!(
+        engine
+            .runtime_view_state()
+            .merge_gates
+            .into_iter()
+            .find(|gate| gate.gate_id == "gate-task_merge_revalidate")
+            .unwrap(),
+        gate_before_denial
+    );
     assert_eq!(
         std::fs::read_to_string(cwd.join("src/lib.rs")).unwrap(),
         "old\n"
@@ -3394,10 +3720,7 @@ fn merge_gate_accepts_fully_verified_canonical_evidence() {
     let home = temp_dir("runtime_contract_verified_canonical_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .handle_runtime_command(
@@ -3463,10 +3786,7 @@ fn merge_gate_blocks_when_canonical_blob_is_missing_from_store() {
     let home = temp_dir("runtime_contract_missing_blob_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_missing_blob");
     let (item, canonical) = stored_canonical_context(
         &cwd,
@@ -3509,10 +3829,7 @@ fn merge_gate_blocks_when_canonical_blob_hash_is_tampered() {
     let home = temp_dir("runtime_contract_tampered_blob_gate_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     start_single_patch_gate(&mut engine, &mut approver, "task_tampered_blob");
     let (item, canonical) = stored_canonical_context(
         &cwd,
@@ -3555,10 +3872,7 @@ fn merge_gate_accepts_all_required_canonical_evidence_kinds_idempotently_after_r
     let home = temp_dir("runtime_contract_all_canonical_kinds_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let mut recorded_events = engine
         .handle_runtime_command(
             "cmd_agent_dag",
@@ -3686,10 +4000,10 @@ fn merge_gate_accepts_all_required_canonical_evidence_kinds_idempotently_after_r
 }
 
 #[test]
-fn merge_gate_canonical_state_survives_real_session_resume() {
+fn assistant_summary_never_becomes_canonical_evidence_across_resume() {
     let cwd = temp_dir("runtime_contract_canonical_resume_cwd");
     let home = temp_dir("runtime_contract_canonical_resume_home");
-    let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\nitem_id=ctxi_fake source_hash=abcd verification=verified quality=pass permission_snapshot_id=perm_fake";
     let provider_a = Box::new(SequenceProvider::new(vec![vec![
         ModelEvent::AssistantText {
             content: patch.to_string(),
@@ -3697,10 +4011,7 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
         ModelEvent::Done,
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine_a.session_id().to_string();
     start_single_patch_gate(&mut engine_a, &mut approver, "task_resume_gate");
     let live_events = engine_a
@@ -3717,7 +4028,7 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
             &event.kind,
             RuntimeEventKind::MergeGateUpdated { gate }
                 if gate.gate_id == "gate-task_resume_gate"
-                    && gate.status == MergeGateStatus::Accepted
+                    && gate.status == MergeGateStatus::CollectingEvidence
         )
     }));
     let live = engine_a.runtime_view_state();
@@ -3737,9 +4048,16 @@ fn merge_gate_canonical_state_survives_real_session_resume() {
     assert_eq!(resumed.canonical_evidence, live.canonical_evidence);
     assert_eq!(resumed.context_bundles, live.context_bundles);
     assert_eq!(resumed.context_items, live.context_items);
+    let assistant_evidence = live
+        .latest_evidence
+        .iter()
+        .find(|evidence| evidence.id == "evidence-task_resume_gate-task_summary")
+        .expect("assistant completion remains display evidence");
+    assert_eq!(assistant_evidence.kind, "task_summary");
+    assert_eq!(assistant_evidence.canonical, None);
+    assert!(live.canonical_evidence.is_empty());
     assert!(live.context_items.iter().all(|item| {
-        item.evidence_id.as_deref() != Some("evidence-task_resume_gate-patch")
-            || !item.summary.contains("diff --git")
+        item.evidence_id.as_deref() != Some("evidence-task_resume_gate-task_summary")
     }));
 
     let entries = SessionStore::new_with_home(home.clone(), &cwd, Some(session_id.clone()))
@@ -3806,10 +4124,7 @@ fn workflow_replay_keeps_legacy_single_runtime_projection_compatible() {
     let home = temp_dir("runtime_contract_legacy_single_projection_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_legacy_projection");
     let live = engine.runtime_view_state();
@@ -3821,7 +4136,16 @@ fn workflow_replay_keeps_legacy_single_runtime_projection_compatible() {
         .unwrap()
         .clone();
     gate.status = MergeGateStatus::NeedsChanges;
-    gate.decision = Some("legacy projection replay".to_string());
+    gate.decision = Some(viden_types::MergeGateDecision {
+        outcome: viden_types::MergeGateDecisionOutcome::Legacy,
+        reason: "legacy projection replay".to_string(),
+        owner: viden_types::RuntimeOwner::default(),
+        evidence_ids: Vec::new(),
+        reviewed_evidence: Vec::new(),
+        review_request_id: None,
+        audit_id: "legacy".to_string(),
+        decided_at: 0,
+    });
     let runtime_event = RuntimeEvent::new(1, RuntimeEventKind::MergeGateUpdated { gate });
     let mut payload = BTreeMap::new();
     payload.insert(
@@ -3869,10 +4193,7 @@ fn workflow_replay_dedupes_duplicate_runtime_projection_batch_id() {
     let home = temp_dir("runtime_contract_duplicate_projection_batch_home");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine.session_id().to_string();
     start_single_patch_gate(&mut engine, &mut approver, "task_duplicate_batch");
     let (item, canonical) = stored_canonical_context(
@@ -3927,10 +4248,7 @@ fn merge_gate_reports_stable_canonical_failure_reasons() {
         let home = temp_dir(&format!("runtime_contract_canonical_failure_{case}_home"));
         let provider = Box::new(SequenceProvider::new(vec![]));
         let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-        let mut approver = |_prompt| ApprovalResponse {
-            approved: true,
-            feedback: None,
-        };
+        let mut approver = |_prompt| ApprovalResponse::allow_once(None);
         let task_id = format!("task_{case}");
         engine
             .handle_runtime_command(
@@ -3997,6 +4315,10 @@ fn merge_gate_reports_stable_canonical_failure_reasons() {
                                 .decision
                                 .as_deref()
                                 .is_some_and(|decision| decision.contains(expected_reason))
+                ) || matches!(
+                    &event.kind,
+                    RuntimeEventKind::CommandRejected { reason, .. }
+                        if reason.contains(expected_reason)
                 )
             }),
             "case {case} did not report {expected_status:?}/{expected_reason}: {events:#?}"
@@ -4037,35 +4359,11 @@ fn canonical_failure_cases() -> Vec<(
             },
         ),
         (
-            "missing_permission",
-            MergeGateStatus::Blocked,
-            "missing_permission_snapshot",
-            |canonical| {
-                canonical.permission_snapshot_id = None;
-            },
-        ),
-        (
-            "invalid_permission",
-            MergeGateStatus::Blocked,
-            "invalid_permission_snapshot",
-            |canonical| {
-                canonical.permission_scope = ContextScope::Task("task-other".to_string());
-            },
-        ),
-        (
             "missing_producer",
             MergeGateStatus::Blocked,
             "missing_producer",
             |canonical| {
                 canonical.producer.identity.clear();
-            },
-        ),
-        (
-            "quality_fail",
-            MergeGateStatus::NeedsChanges,
-            "quality_failed",
-            |canonical| {
-                canonical.quality.status = EvidenceQualityStatus::Fail;
             },
         ),
     ]
@@ -4077,6 +4375,72 @@ fn start_single_patch_gate(
     task_id: &str,
 ) {
     let _ = start_gate_with_required(engine, approver, task_id, vec!["patch".to_string()]);
+}
+
+fn prepare_patch_merge_gate(
+    engine: &mut SessionEngine,
+    approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    cwd: &std::path::Path,
+    task_id: &str,
+    patch: &[u8],
+) {
+    start_single_patch_gate(engine, approver, task_id);
+    let evidence_id = format!("evidence-{task_id}");
+    let bundle_id = format!("bundle-{task_id}");
+    let (item, canonical) = stored_canonical_context(
+        cwd,
+        task_id,
+        &evidence_id,
+        &bundle_id,
+        ContextContentKind::Diff,
+        patch,
+    );
+    let source_hash = canonical.source_hash.clone();
+    engine.set_merge_gate_context_facts_for_test(&bundle_id, item);
+
+    let events = engine
+        .handle_runtime_command(
+            format!("cmd_evidence_{task_id}"),
+            RuntimeCommand::RecordAgentEvidence {
+                gate_id: format!("gate-{task_id}"),
+                evidence_id: Some(evidence_id),
+                kind: "patch".to_string(),
+                summary: "canonical patch".to_string(),
+                path: None,
+                source: Some("executor".to_string()),
+                canonical: Some(canonical),
+            },
+            approver,
+        )
+        .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::MergeGateUpdated { gate }
+            if gate.gate_id == format!("gate-{task_id}")
+                && gate.status == MergeGateStatus::Accepted
+    )));
+    let actor = engine
+        .runtime_view_state()
+        .merge_gates
+        .into_iter()
+        .find(|gate| gate.gate_id == format!("gate-{task_id}"))
+        .unwrap()
+        .owner;
+    engine
+        .handle_runtime_command(
+            format!("cmd_accept_{task_id}"),
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor,
+                reviewed_evidence: vec![viden_types::ReviewedEvidenceBinding {
+                    evidence_id: format!("evidence-{task_id}"),
+                    source_hash,
+                }],
+                decision: Some("accept exact canonical patch".to_string()),
+            },
+            approver,
+        )
+        .unwrap();
 }
 
 fn start_gate_with_required(
@@ -4151,10 +4515,7 @@ fn assert_resumed_runtime_matches(
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut resumed =
         SessionEngine::new_with_home(cwd, provider, Some(home.to_path_buf())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let resume_events = resumed
         .process_input_with_approval(&format!("/resume {session_id}"), &mut approver)
         .unwrap();
@@ -4184,6 +4545,10 @@ fn assert_gate_status_with_reason(
                             .decision
                             .as_deref()
                             .is_some_and(|decision| decision.contains(reason))
+            ) || matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { reason: rejected, .. }
+                    if rejected.contains(reason)
             )
         }),
         "expected {gate_id} to be {status:?} with {reason}: {events:#?}"
@@ -4221,26 +4586,204 @@ fn canonical_reference(
 }
 
 #[test]
-fn runtime_view_state_emits_lane_facts_from_core_store() {
+fn runtime_view_state_emits_lane_facts_from_core_store_legacy_lane_statuses() {
     let cwd = temp_dir("runtime_contract_lane_cwd");
     let home = temp_dir("runtime_contract_lane_home");
     let lane_dir = cwd.join(".viden");
     fs::create_dir_all(&lane_dir).unwrap();
     fs::write(
         lane_dir.join("lanes.tsv"),
-        "L1\tcodex\tfix tests\trunning\tmain\t64\tpatched tests\t\n",
+        include_str!("../../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"),
     )
     .unwrap();
     let provider = Box::new(SequenceProvider::new(vec![]));
-    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+
+    // The legacy file is migration input only. Runtime projection must remain
+    // available after the source disappears and must not import it twice.
+    fs::remove_file(lane_dir.join("lanes.tsv")).unwrap();
 
     let view = engine.runtime_view_state();
 
-    assert_eq!(view.lanes.len(), 1);
-    assert_eq!(view.lanes[0].id, "L1");
-    assert_eq!(view.lanes[0].agent, "codex");
-    assert_eq!(view.lanes[0].status, "running");
-    assert_eq!(view.lanes[0].summary, "patched tests");
+    assert_eq!(view.lanes.len(), 4);
+    assert_eq!(
+        view.lanes
+            .iter()
+            .find(|lane| lane.id == "L-start")
+            .unwrap()
+            .status,
+        LaneStatus::Starting
+    );
+    assert_eq!(
+        view.lanes
+            .iter()
+            .find(|lane| lane.id == "L-conflict")
+            .unwrap()
+            .status,
+        LaneStatus::Blocked
+    );
+    for lane_id in ["L-detached", "L-stopped"] {
+        assert_eq!(
+            view.lanes
+                .iter()
+                .find(|lane| lane.id == lane_id)
+                .unwrap()
+                .status,
+            LaneStatus::Detached
+        );
+    }
+
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+    assert!(workflow_store.paths().lanes_log.exists());
+
+    let second_provider = Box::new(SequenceProvider::new(vec![]));
+    let second_engine =
+        SessionEngine::new_with_home(&cwd, second_provider, Some(home.clone())).unwrap();
+    assert_eq!(second_engine.runtime_view_state().lanes.len(), 4);
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+}
+
+#[test]
+fn lane_runtime_owner_restart_projection_never_synthesizes_from_durable_lanes() {
+    let cwd = temp_dir("lane_runtime_owner_contract_cwd");
+    let home = temp_dir("lane_runtime_owner_contract_home");
+    let lane_dir = cwd.join(".viden");
+    fs::create_dir_all(&lane_dir).unwrap();
+    fs::write(
+        lane_dir.join("lanes.tsv"),
+        include_str!("../../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"),
+    )
+    .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+
+    let first = engine.runtime_view_state();
+    assert!(!first.lanes.is_empty());
+    assert!(first.lane_runtime_owners.is_empty());
+
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let restarted = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let restarted = restarted.runtime_view_state();
+    assert!(!restarted.lanes.is_empty());
+    assert!(restarted.lane_runtime_owners.is_empty());
+}
+
+#[test]
+fn legacy_lane_migration_runs_once_at_resume_and_runtime_replays_typed_state() {
+    let cwd = temp_dir("runtime_contract_lane_resume_cwd");
+    let home = temp_dir("runtime_contract_lane_resume_home");
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "seed resumable session".to_string(),
+        },
+        ModelEvent::Done,
+    ]]));
+    let mut original = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let original_session_id = original.session_id().to_string();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    original
+        .process_input_with_approval("seed the session", &mut approver)
+        .unwrap();
+    drop(original);
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut resumed = SessionEngine::new_with_home(&cwd, provider_b, Some(home.clone())).unwrap();
+    let legacy_path = cwd.join(".viden").join("lanes.tsv");
+    fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+    fs::write(
+        &legacy_path,
+        include_str!("../../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"),
+    )
+    .unwrap();
+
+    let resume_events = resumed
+        .process_input_with_approval(&format!("/resume {original_session_id}"), &mut approver)
+        .unwrap();
+    assert!(resume_events.iter().any(
+        |event| matches!(event, crate::EngineEvent::Command(text) if text.contains("Resumed session"))
+    ));
+
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    let imported = workflow_store.load_lane_state().unwrap();
+    assert_eq!(imported.lanes().len(), 4);
+    let audit = imported
+        .migration(viden_workflows::lanes::LEGACY_LANES_MIGRATION_ID)
+        .unwrap();
+    assert_eq!(
+        audit.origin_session_id.as_deref(),
+        Some(original_session_id.as_str())
+    );
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 1);
+
+    workflow_store
+        .append_lane_event_checked(&LaneEvent::status_changed(
+            "evt_runtime_typed_lane_replay",
+            "L-start",
+            LaneStatus::Done,
+            "typed replay wins",
+            20,
+            Some(original_session_id.clone()),
+        ))
+        .unwrap();
+    fs::write(
+        &legacy_path,
+        "malformed legacy state that runtime must not read\n",
+    )
+    .unwrap();
+
+    let projected = resumed.runtime_view_state();
+    let lane = projected
+        .lanes
+        .iter()
+        .find(|lane| lane.id == "L-start")
+        .unwrap();
+    assert_eq!(lane.status, LaneStatus::Done);
+    assert_eq!(lane.summary, "typed replay wins");
+
+    resumed
+        .process_input_with_approval(&format!("/resume {original_session_id}"), &mut approver)
+        .unwrap();
+    let replayed = workflow_store.load_lane_state().unwrap();
+    assert_eq!(replayed.lanes().len(), 4);
+    assert_eq!(replayed.migrations().len(), 1);
+    assert_eq!(workflow_store.load_lane_events().unwrap().len(), 2);
+}
+
+#[test]
+fn runtime_view_state_reports_corrupt_lane_store() {
+    let cwd = temp_dir("runtime_contract_corrupt_lane_cwd");
+    let home = temp_dir("runtime_contract_corrupt_lane_home");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let workflow_store = WorkflowStore::new(&home, &cwd).unwrap();
+    let secret = "customer-secret-lane";
+    let invalid_event = LaneEvent::status_changed(
+        "evt_secret_lane",
+        secret,
+        LaneStatus::Running,
+        "must not leak",
+        10,
+        None,
+    );
+    fs::write(
+        &workflow_store.paths().lanes_log,
+        format!("{}\n", serde_json::to_string(&invalid_event).unwrap()),
+    )
+    .unwrap();
+
+    let view = engine.runtime_view_state();
+
+    assert!(view.errors.iter().any(|error| {
+        error.recoverable
+            && error.message.contains("lane_state_unavailable")
+            && error.hint.as_deref() == Some("Repair or restore the project's lanes.jsonl log.")
+    }));
+    assert!(
+        view.errors
+            .iter()
+            .all(|error| !error.message.contains(secret))
+    );
 }
 
 #[test]
@@ -4311,10 +4854,10 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
         .iter()
         .find(|task| task.id == "acp-1")
         .expect("tracked ACP session job should become a runtime task");
-    assert_eq!(task.agent, "acp");
-    assert_eq!(task.kind, "job");
-    assert_eq!(task.transport, "acp");
-    assert_eq!(task.status, "done");
+    assert_eq!(task.role, AgentRole::Coder);
+    assert_eq!(task.kind, AgentTaskKind::Job);
+    assert_eq!(task.route, AgentRoute::Acp);
+    assert_eq!(task.status, AgentTaskStatus::Done);
     assert_eq!(task.result, Some(result_path.display().to_string()));
     assert!(task.evidence.contains(&"session session_1".to_string()));
     assert_eq!(
@@ -4327,4 +4870,63 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
     assert!(view.latest_evidence.iter().any(|evidence| {
         evidence.kind == "acp_turn_end" && evidence.summary.contains("completed")
     }));
+}
+
+#[test]
+fn transcript_page_runtime_command_emits_transient_page_loaded_event() {
+    let home = temp_dir("transcript_page_runtime_home");
+    let cwd = temp_dir("transcript_page_runtime_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let session_id = engine.session_id().to_string();
+    let store = SessionStore::new_with_home(&home, &cwd, Some(session_id.clone())).unwrap();
+    store
+        .append_entry(&TranscriptEntry::Message {
+            message: viden_types::Message {
+                id: "msg-runtime-page".to_string(),
+                role: viden_types::Role::User,
+                content: "page me".to_string(),
+                timestamp: 1,
+                tool_name: None,
+                tool_call_id: None,
+            },
+        })
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_page",
+            RuntimeCommand::LoadTranscriptPage {
+                request: TranscriptPageRequest {
+                    session_id: session_id.clone(),
+                    before: None,
+                    limit: 20,
+                },
+            },
+            &mut |_| ApprovalResponse::deny(None),
+        )
+        .unwrap();
+    let loaded_events = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::TranscriptPageLoaded { page } => Some(page),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(loaded_events.len(), 1);
+    let loaded = loaded_events[0];
+    assert!(loaded.rows.iter().any(|row| {
+        matches!(
+            &row.kind,
+            viden_types::TranscriptRowKind::Message { message }
+                if message.id == "msg-runtime-page"
+        )
+    }));
+
+    let persisted = store.load_entries().unwrap();
+    assert!(!persisted.iter().any(|entry| matches!(
+        entry,
+        TranscriptEntry::RuntimeEvent { event }
+            if matches!(event.kind, RuntimeEventKind::TranscriptPageLoaded { .. })
+    )));
 }

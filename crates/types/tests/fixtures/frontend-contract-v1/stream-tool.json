@@ -1,0 +1,156 @@
+{
+  "fixture_id": "stream-tool",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_stream-tool",
+        "task_id": null,
+        "turn_id": "turn_stream-tool"
+      },
+      "cursor": {
+        "stream_id": "fixture:stream-tool",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "msg_stream",
+            "task_id": null,
+            "content": "Checking "
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_stream-tool",
+        "task_id": null,
+        "turn_id": "turn_stream-tool"
+      },
+      "cursor": {
+        "stream_id": "fixture:stream-tool",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_rg",
+            "name": "rg",
+            "input_preview": "rg TODO"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_stream-tool",
+        "task_id": null,
+        "turn_id": "turn_stream-tool"
+      },
+      "cursor": {
+        "stream_id": "fixture:stream-tool",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "tool_rg",
+            "name": "rg",
+            "success": true,
+            "exit_code": 0,
+            "evidence": {
+              "id": "ev_tool_ok",
+              "kind": "tool_log",
+              "summary": "rg completed",
+              "path": "artifacts/ev_tool_ok.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_stream-tool",
+        "task_id": null,
+        "turn_id": "turn_stream-tool"
+      },
+      "cursor": {
+        "stream_id": "fixture:stream-tool",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000004,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "msg_stream",
+            "task_id": null,
+            "content": "repository"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:stream-tool",
+    "sequence": 4
+  },
+  "expected_view_sha256": "8478c7c0ce6f0adc3efdd3aa11497462e96b3aba50cf66e81b0ad9ddcd992eef"
+}

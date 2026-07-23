@@ -33,7 +33,9 @@ impl SessionEngine {
         if let PermissionDecision::Ask(ask) = &decision {
             let prompt = PermissionEngine::prompt_for(&tool_name, ask, &input);
             let approval = approver(prompt);
-            decision = self.permissions.apply_approval(approval, ask);
+            decision = self
+                .permissions
+                .apply_approval(approval, ask, &tool, &input);
         }
         match decision {
             PermissionDecision::Allow(allow) => {

@@ -7,8 +7,14 @@ use std::process::Command;
 use std::time::Duration;
 
 use viden_types::{
-    Role, SessionSummary, TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
+    RecentWorkQuery, Role, SessionSummary, TranscriptCursor, TranscriptEntry, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowKind, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
+
+mod recent;
+
+pub use recent::RecentWorkInventory;
 
 #[derive(Debug, Clone)]
 pub struct SessionPaths {
@@ -33,6 +39,14 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// Reads the cross-project inventory rooted at one shared session home.
+    pub fn query_recent_work(
+        home_dir: impl AsRef<Path>,
+        query: RecentWorkQuery,
+    ) -> Result<RecentWorkInventory, String> {
+        recent::query_recent_work(home_dir.as_ref(), query)
+    }
+
     pub fn new(cwd: impl Into<PathBuf>, session_id: Option<String>) -> Result<Self, String> {
         let cwd = cwd.into();
         let local_home = cwd.join(".viden");
@@ -52,16 +66,8 @@ impl SessionStore {
     ) -> Result<Self, String> {
         let cwd = cwd.into();
         let home_dir = home_dir.into();
-        let projects_dir = home_dir.join("projects");
-        let project_dir = projects_dir.join(project_key(&cwd));
         let session_id = session_id.unwrap_or_else(|| fresh_id("session"));
-        let paths = SessionPaths {
-            index_db_path: home_dir.join("index.sqlite3"),
-            transcript_path: project_dir.join(format!("{session_id}.jsonl")),
-            home_dir,
-            projects_dir,
-            project_dir,
-        };
+        let paths = session_paths(home_dir, &cwd, &session_id);
         fs::create_dir_all(&paths.project_dir).map_err(|err| err.to_string())?;
         let store = Self {
             cwd,
@@ -70,6 +76,45 @@ impl SessionStore {
         };
         let _ = store.ensure_index();
         Ok(store)
+    }
+
+    /// Opens an existing default session store for lookup only.
+    ///
+    /// This path must not allocate a fresh session id, create project
+    /// directories, create the SQLite index, or chmod files. Use `new*` for
+    /// mutation-capable stores.
+    pub fn open_default_existing_for_query(
+        cwd: impl Into<PathBuf>,
+    ) -> Result<Option<Self>, String> {
+        let cwd = cwd.into();
+        let local_home = cwd.join(".viden");
+        if let Some(store) = Self::open_existing_for_query(&local_home, &cwd)? {
+            return Ok(Some(store));
+        }
+        let home = default_home_dir()?;
+        Self::open_existing_for_query(home, cwd)
+    }
+
+    /// Opens an existing session store rooted at `home_dir` for lookup only.
+    ///
+    /// Returns `Ok(None)` when neither the index nor the project transcript
+    /// directory exists; this preserves pristine homes during failed resume
+    /// lookup.
+    pub fn open_existing_for_query(
+        home_dir: impl Into<PathBuf>,
+        cwd: impl Into<PathBuf>,
+    ) -> Result<Option<Self>, String> {
+        let cwd = cwd.into();
+        let home_dir = home_dir.into();
+        let paths = session_paths(home_dir, &cwd, "__query__");
+        if !paths.index_db_path.exists() && !paths.project_dir.exists() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            cwd,
+            session_id: "__query__".to_string(),
+            paths,
+        }))
     }
 
     pub fn session_id(&self) -> &str {
@@ -207,6 +252,39 @@ impl SessionStore {
         Self::load_entries_from_path(&self.paths.transcript_path)
     }
 
+    pub fn load_transcript_page(
+        &self,
+        request: &TranscriptPageRequest,
+    ) -> Result<TranscriptPage, String> {
+        if let Some(before) = &request.before
+            && before.session_id != request.session_id
+        {
+            return Err(format!(
+                "cursor session `{}` does not match request session `{}`",
+                before.session_id, request.session_id
+            ));
+        }
+        let entries = self.load_entries_for_exact_session(&request.session_id)?;
+        let rows = transcript_rows_from_entries(&request.session_id, &entries);
+        Ok(slice_transcript_rows(
+            rows,
+            request.before.as_ref(),
+            request.limit,
+        ))
+    }
+
+    fn load_entries_for_exact_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<TranscriptEntry>, String> {
+        if session_id == self.session_id {
+            return self.load_entries();
+        }
+        self.load_by_id_for_cwd(session_id)?
+            .map(|(_, entries)| entries)
+            .ok_or_else(|| format!("session `{session_id}` not found for current project"))
+    }
+
     pub fn load_entries_from_path(path: &Path) -> Result<Vec<TranscriptEntry>, String> {
         if !path.exists() {
             return Ok(Vec::new());
@@ -269,6 +347,15 @@ impl SessionStore {
         session_id: &str,
     ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
         for summary in self.list_sessions_for_cwd()? {
+            if summary.session_id == session_id {
+                let entries = Self::load_entries_from_path(Path::new(&summary.transcript_path))?;
+                return Ok(Some((summary, entries)));
+            }
+        }
+        // A non-empty SQLite index can be stale while a valid project JSONL
+        // already exists. Exact lookup falls back to the safe project inventory
+        // instead of constructing a path from an untrusted session id.
+        for summary in self.list_sessions_from_project_dir()? {
             if summary.session_id == session_id {
                 let entries = Self::load_entries_from_path(Path::new(&summary.transcript_path))?;
                 return Ok(Some((summary, entries)));
@@ -503,6 +590,64 @@ fn summary_from_entries(
     })
 }
 
+fn transcript_rows_from_entries(
+    session_id: &str,
+    entries: &[TranscriptEntry],
+) -> Vec<TranscriptRow> {
+    let mut rows: Vec<TranscriptRow> = Vec::new();
+    let mut message_rows: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for (ordinal, entry) in entries.iter().enumerate() {
+        if let Some(message_id) = entry.coalescing_message_id()
+            && let Some(row_index) = message_rows.get(message_id).copied()
+        {
+            // Streaming assistant updates reuse a message id. Keep the first
+            // committed ordinal as the stable scroll anchor and replace only
+            // the displayed row payload with the latest committed content.
+            rows[row_index].timestamp = entry.timestamp();
+            rows[row_index].kind = TranscriptRowKind::from(entry);
+            continue;
+        }
+        let row = TranscriptRow::from_entry(session_id, ordinal as u64, entry);
+        if let Some(message_id) = entry.coalescing_message_id() {
+            message_rows.insert(message_id.to_string(), rows.len());
+        }
+        rows.push(row);
+    }
+    rows
+}
+
+fn slice_transcript_rows(
+    rows: Vec<TranscriptRow>,
+    before: Option<&TranscriptCursor>,
+    limit: u16,
+) -> TranscriptPage {
+    let limit = usize::from(limit.clamp(1, 500));
+    let end = before
+        .and_then(|cursor| {
+            rows.iter()
+                .position(|row| row.cursor.ordinal >= cursor.ordinal)
+        })
+        .unwrap_or(rows.len());
+    let start = end.saturating_sub(limit);
+    let selected = rows[start..end].to_vec();
+    let has_more = start > 0;
+    // `older` is a stable next-page anchor; it must be the first returned row
+    // only when rows exist before the selected page.
+    let older = has_more
+        .then(|| selected.first().map(|row| row.cursor.clone()))
+        .flatten();
+    let newer = (end < rows.len())
+        .then(|| selected.last().map(|row| row.cursor.clone()))
+        .flatten();
+    TranscriptPage {
+        rows: selected,
+        older,
+        newer,
+        has_more,
+    }
+}
+
 fn single_line_preview(input: &str, max_chars: usize) -> String {
     let normalized = input.split_whitespace().collect::<Vec<_>>().join(" ");
     truncate_for_preview(&normalized, max_chars)
@@ -529,6 +674,11 @@ fn run_sql(database: &Path, sql: &str) -> Result<String, String> {
 }
 
 fn default_home_dir() -> Result<PathBuf, String> {
+    default_session_home_dir()
+}
+
+/// Returns the shared, user-scoped home used for cross-project session data.
+pub fn default_session_home_dir() -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("VIDEN_HOME") {
         return Ok(PathBuf::from(path));
     }
@@ -546,6 +696,18 @@ fn project_key(path: &Path) -> String {
     let mut hasher = DefaultHasher::new();
     path.display().to_string().hash(&mut hasher);
     format!("{:x}", hasher.finish())
+}
+
+fn session_paths(home_dir: PathBuf, cwd: &Path, session_id: &str) -> SessionPaths {
+    let projects_dir = home_dir.join("projects");
+    let project_dir = projects_dir.join(project_key(cwd));
+    SessionPaths {
+        index_db_path: home_dir.join("index.sqlite3"),
+        transcript_path: project_dir.join(format!("{session_id}.jsonl")),
+        home_dir,
+        projects_dir,
+        project_dir,
+    }
 }
 
 pub fn project_key_for_path(path: &Path) -> String {

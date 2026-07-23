@@ -1,0 +1,343 @@
+{
+  "fixture_id": "frontend-host-services",
+  "schema_version": 1,
+  "required_capabilities": [
+    "core.workspace_host",
+    "runtime.credential_staging",
+    "runtime.lane_owner_projection",
+    "runtime.recent_work",
+    "runtime.starter_lane_preview",
+    "ui.preference_persistence"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "ui_preferences_updated",
+          "payload": {
+            "resolved": {
+              "locale": "zh-CN",
+              "skin": "ice",
+              "mode": "dark",
+              "density": "compact",
+              "motion": "reduced",
+              "diagnostics": []
+            },
+            "persisted": {
+              "locale": "zh-CN",
+              "skin": "ice",
+              "mode": "dark",
+              "density": "compact",
+              "motion": "reduced"
+            },
+            "diagnostics": []
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "recent_work_loaded",
+          "payload": {
+            "projects": [
+              {
+                "canonical_root": "workspace/project",
+                "display_name": "project",
+                "last_updated_at": 1700000020,
+                "latest_session_id": "session-host-fixture"
+              }
+            ],
+            "sessions": [
+              {
+                "canonical_root": "workspace/project",
+                "session_id": "session-host-fixture",
+                "created_at": 1700000010,
+                "last_updated_at": 1700000020,
+                "message_count": 2,
+                "tool_call_count": 1,
+                "command_count": 1
+              }
+            ],
+            "diagnostics": []
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "starter_lane_previewed",
+          "payload": {
+            "preview": {
+              "preview_id": "preview-host-fixture",
+              "content_sha256": "abababababababababababababababababababababababababababababababab",
+              "owner": {
+                "workspace_id": "workspace-host-fixture",
+                "project_id": "project-host-fixture",
+                "lane_id": "lane-host-fixture",
+                "session_id": "session-host-fixture",
+                "task_id": "task_host_fixture",
+                "turn_id": "turn-host-fixture"
+              },
+              "lane": {
+                "id": "lane-host-fixture",
+                "task_id": "task_host_fixture",
+                "role": "coder",
+                "route": "built_in",
+                "gate_strength": "full",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-host-fixture",
+                "branch": "codex/lane-host-fixture",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "running",
+                "budget": {
+                  "token_limit": null,
+                  "cost_limit_micro_usd": null,
+                  "wall_time_limit_secs": null
+                },
+                "active_session_ids": [
+                  "session-host-fixture"
+                ],
+                "summary": "reviewed starter Lane",
+                "evidence": []
+              },
+              "branch": "codex/lane-host-fixture",
+              "worktree_path": "workspace/.worktrees/lane-host-fixture",
+              "base_revision": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+              "diagnostics": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000004,
+        "kind": {
+          "type": "starter_lane_created",
+          "payload": {
+            "receipt": {
+              "preview_id": "preview-host-fixture",
+              "content_sha256": "abababababababababababababababababababababababababababababababab",
+              "lane": {
+                "id": "lane-host-fixture",
+                "task_id": "task_host_fixture",
+                "role": "coder",
+                "route": "built_in",
+                "gate_strength": "full",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-host-fixture",
+                "branch": "codex/lane-host-fixture",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "running",
+                "budget": {
+                  "token_limit": null,
+                  "cost_limit_micro_usd": null,
+                  "wall_time_limit_secs": null
+                },
+                "active_session_ids": [
+                  "session-host-fixture"
+                ],
+                "summary": "reviewed starter Lane",
+                "evidence": []
+              },
+              "branch": "codex/lane-host-fixture",
+              "worktree_path": "workspace/.worktrees/lane-host-fixture",
+              "base_revision": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+              "owner": {
+                "workspace_id": "workspace-host-fixture",
+                "project_id": "project-host-fixture",
+                "lane_id": "lane-host-fixture",
+                "session_id": "session-host-fixture",
+                "task_id": "task_host_fixture",
+                "turn_id": "turn-host-fixture"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000005,
+        "kind": {
+          "type": "starter_lane_preview_invalidated",
+          "payload": {
+            "owner": {
+              "workspace_id": "workspace-host-fixture",
+              "project_id": "project-host-fixture",
+              "lane_id": "lane-host-fixture",
+              "session_id": "session-host-fixture",
+              "task_id": "task_host_fixture",
+              "turn_id": "turn-host-fixture"
+            },
+            "preview_id": "preview-host-fixture",
+            "reason": "base_revision_changed"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000006,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane-host-fixture",
+              "owner": {
+                "workspace_id": "workspace-host-fixture",
+                "project_id": "project-host-fixture",
+                "lane_id": "lane-host-fixture",
+                "session_id": "session-host-fixture",
+                "task_id": "task_host_fixture",
+                "turn_id": "turn-host-fixture"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-host-fixture",
+        "project_id": "project-host-fixture",
+        "lane_id": "lane-host-fixture",
+        "session_id": "session-host-fixture",
+        "task_id": "task_host_fixture",
+        "turn_id": "turn-host-fixture"
+      },
+      "cursor": {
+        "stream_id": "fixture:frontend-host-services",
+        "sequence": 7
+      },
+      "event": {
+        "kind": {
+          "type": "future_frontend_host_fact",
+          "payload": {
+            "optional": true
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:frontend-host-services",
+    "sequence": 7
+  },
+  "expected_view_sha256": "b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e"
+}

@@ -2,7 +2,7 @@
 
 Chinese version: [parallel-development-plan.zh-CN.md](parallel-development-plan.zh-CN.md)
 
-Last updated: 2026-07-19
+Last updated: 2026-07-22
 
 ## Purpose
 
@@ -235,6 +235,19 @@ Execution order:
 For design assets, shared `tokens.css`, SPEC, and DESIGN-REF changes are reviewed by the Core/design owner first. The TUI owner controls TUI kit/screens; the GUI owner controls GUI kit/screens. Shared token or decision changes must update the matching design guards and changelog.
 
 ## Phases And Deliverables
+
+### Current Native / ACP Interaction Checkpoint
+
+- Core `0.3.4` is the required common baseline for TUI `0.3.3` and GUI
+  `0.1.0-rc.2`.
+- Core owns default Lane identity and Git/HEAD eligibility through
+  `PreviewDefaultStarterLane` and `WorkspaceEligibilityUpdated`.
+- Core owns native DeepSeek/OpenAI sessions and ACP Codex/Claude/Kiro sessions.
+  Follow-up, retry, exact-owner cancel, persistence, and recovery use
+  `SendAgentSessionInput`, `RetryAgentSession`, and `AgentSessionInputAccepted`.
+- TUI exposes ACP selection through the system command `/acp`; GUI exposes a
+  compact Zed-style new-Lane popup. Neither frontend implements a private
+  agent/session reducer.
 
 ### 0.3.0: Design And Contract Freeze
 

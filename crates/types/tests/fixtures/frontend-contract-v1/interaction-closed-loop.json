@@ -1,0 +1,992 @@
+{
+  "fixture_id": "interaction-closed-loop",
+  "schema_version": 1,
+  "required_capabilities": [
+    "core.workspace_host",
+    "runtime.agent_adapters",
+    "runtime.agent_permission_bridge",
+    "runtime.agent_sessions",
+    "runtime.approvals",
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.lane_lifecycle",
+    "runtime.merge_gate",
+    "runtime.project_onboarding",
+    "runtime.replay",
+    "runtime.snapshot",
+    "runtime.starter_lane_preview",
+    "runtime.typed_lanes"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700100001,
+        "kind": {
+          "type": "project_probed",
+          "payload": {
+            "probe": {
+              "root": "workspace/project",
+              "is_git_repository": true,
+              "git_root": "workspace/project",
+              "config_path": "workspace/project/viden.toml",
+              "config_state": "missing",
+              "project_name": "project",
+              "pack": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700100002,
+        "kind": {
+          "type": "workspace_eligibility_updated",
+          "payload": {
+            "eligibility": {
+              "is_git_repository": true,
+              "has_head": true,
+              "can_create_lane": true,
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700100003,
+        "kind": {
+          "type": "starter_lane_previewed",
+          "payload": {
+            "preview": {
+              "preview_id": "preview-loop-coder",
+              "content_sha256": "1212121212121212121212121212121212121212121212121212121212121212",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "lane": {
+                "id": "lane-loop-coder",
+                "task_id": "task_loop",
+                "role": "coder",
+                "route": "acp",
+                "gate_strength": "cooperative",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-loop-coder",
+                "branch": "codex/lane-loop-coder",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "running",
+                "budget": {
+                  "token_limit": 24000,
+                  "cost_limit_micro_usd": 750000,
+                  "wall_time_limit_secs": 2400
+                },
+                "active_session_ids": [
+                  "session-loop-built-in",
+                  "session-loop-acp"
+                ],
+                "summary": "lane.loop.running",
+                "evidence": []
+              },
+              "branch": "codex/lane-loop-coder",
+              "worktree_path": "workspace/.worktrees/lane-loop-coder",
+              "base_revision": "3434343434343434343434343434343434343434",
+              "diagnostics": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700100004,
+        "kind": {
+          "type": "starter_lane_created",
+          "payload": {
+            "receipt": {
+              "preview_id": "preview-loop-coder",
+              "content_sha256": "1212121212121212121212121212121212121212121212121212121212121212",
+              "lane": {
+                "id": "lane-loop-coder",
+                "task_id": "task_loop",
+                "role": "coder",
+                "route": "acp",
+                "gate_strength": "cooperative",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-loop-coder",
+                "branch": "codex/lane-loop-coder",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "running",
+                "budget": {
+                  "token_limit": 24000,
+                  "cost_limit_micro_usd": 750000,
+                  "wall_time_limit_secs": 2400
+                },
+                "active_session_ids": [
+                  "session-loop-built-in",
+                  "session-loop-acp"
+                ],
+                "summary": "lane.loop.running",
+                "evidence": []
+              },
+              "branch": "codex/lane-loop-coder",
+              "worktree_path": "workspace/.worktrees/lane-loop-coder",
+              "base_revision": "3434343434343434343434343434343434343434",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700100005,
+        "kind": {
+          "type": "agent_adapters_loaded",
+          "payload": {
+            "adapters": [
+              {
+                "agent_id": "viden-built-in",
+                "display_name": "Viden Built-in",
+                "route": "built_in",
+                "source": "built_in",
+                "availability": "available",
+                "auth_state": "ready",
+                "startability": "ready",
+                "capabilities": [
+                  "agent.session.prompt"
+                ],
+                "models": [
+                  "workspace-default"
+                ]
+              },
+              {
+                "agent_id": "claude-acp",
+                "display_name": "Claude ACP",
+                "route": "acp",
+                "source": "registry",
+                "availability": "available",
+                "auth_state": "ready",
+                "startability": "ready",
+                "capabilities": [
+                  "agent.session.prompt"
+                ]
+              },
+              {
+                "agent_id": "codex-acp",
+                "display_name": "Codex ACP",
+                "route": "acp",
+                "source": "registry",
+                "availability": "available",
+                "auth_state": "ready",
+                "startability": "ready",
+                "capabilities": [
+                  "agent.permission.request",
+                  "agent.session.cancel",
+                  "agent.session.prompt"
+                ],
+                "models": [
+                  "gpt-5"
+                ]
+              },
+              {
+                "agent_id": "kiro-cli",
+                "display_name": "Kiro CLI",
+                "route": "acp",
+                "source": "local_command",
+                "availability": "needs_auth",
+                "auth_state": "logged_out",
+                "startability": "authentication_required",
+                "capabilities": [
+                  "agent.session.prompt"
+                ],
+                "diagnostics": [
+                  "agent.auth.required"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-built-in",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-built-in"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700100006,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-built-in",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "viden-built-in",
+              "model": "workspace-default",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-built-in",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-built-in"
+              },
+              "task": "task.loop.preflight",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-built-in",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-built-in"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700100007,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-built-in",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "viden-built-in",
+              "model": "workspace-default",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-built-in",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-built-in"
+              },
+              "task": "task.loop.preflight",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700100008,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.implement",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700100009,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool-loop-test",
+            "name": "shell",
+            "input_preview": "command.test.core"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700100010,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "tool-loop-test",
+            "name": "shell",
+            "success": true,
+            "exit_code": 0,
+            "evidence": null
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700100011,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval-loop-tool",
+              "tool_name": "shell",
+              "title": "approval.tool.execute",
+              "message": "Core requests scoped permission",
+              "input_preview": "cargo test",
+              "is_mutating": true,
+              "reason": "contract fixture coverage",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "risk": "high",
+              "target": {
+                "kind": "repo_path",
+                "display": "crates/core",
+                "canonical_ref": "repo://crates/core"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "approval.agent_tool.mutation",
+              "policy_reason_args": {
+                "agent_id": "codex-acp",
+                "lane_id": "lane-loop-coder"
+              },
+              "expires_at": 1700003600,
+              "default_action": "deny",
+              "audit_id": "audit_approval-loop-tool"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700100012,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "waiting_approval",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.implement",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700100013,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval-loop-tool",
+            "decision": {
+              "allow": {
+                "scope": "once"
+              }
+            },
+            "owner": {
+              "workspace_id": "workspace-loop",
+              "project_id": "project-loop",
+              "lane_id": "lane-loop-coder",
+              "session_id": "session-loop-acp",
+              "task_id": "task_loop",
+              "turn_id": "turn-loop-acp"
+            },
+            "audit_id": "audit-approval-loop-tool"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700100014,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "running",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.implement",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700100015,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "evidence-loop-test",
+              "kind": "test_result",
+              "summary": "evidence.test.passed",
+              "path": "artifacts/evidence-loop-test.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700100016,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate-loop-apply",
+              "task_id": "task_loop",
+              "status": "accepted",
+              "required_evidence": [
+                "test_result"
+              ],
+              "evidence_ids": [
+                "evidence-loop-test"
+              ],
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "policy_snapshot": {
+                "required_evidence": [
+                  "test_result"
+                ],
+                "permission_snapshot_id": "permission-loop-1",
+                "requires_independent_validator": false,
+                "captured_at": 1700100014
+              },
+              "decision": {
+                "outcome": "accepted",
+                "reason": "gate.evidence.satisfied",
+                "owner": {
+                  "workspace_id": "workspace-loop",
+                  "project_id": "project-loop",
+                  "lane_id": "lane-loop-coder",
+                  "session_id": "session-loop-acp",
+                  "task_id": "task_loop",
+                  "turn_id": "turn-loop-acp"
+                },
+                "evidence_ids": [
+                  "evidence-loop-test"
+                ],
+                "audit_id": "audit-loop-gate",
+                "decided_at": 1700100014
+              },
+              "audit_ids": [
+                "audit-loop-gate"
+              ],
+              "updated_at": 1700100014
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700100017,
+        "kind": {
+          "type": "lane_conflict_detected",
+          "payload": {
+            "lane_id": "lane-loop-coder",
+            "summary": "conflict.apply.non_fast_forward",
+            "paths": [
+              "src/lib.rs"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 18
+      },
+      "event": {
+        "sequence": 18,
+        "timestamp": 1700100018,
+        "kind": {
+          "type": "lane_recovery_required",
+          "payload": {
+            "lane_id": "lane-loop-coder",
+            "reason": "recovery.apply_conflict",
+            "next_action": "action.revalidate_merge_conflict"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 19
+      },
+      "event": {
+        "sequence": 19,
+        "timestamp": 1700100019,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.implement",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700100020,
+        "kind": {
+          "type": "agent_session_input_accepted",
+          "payload": {
+            "session_id": "session-loop-acp",
+            "input_id": "agent-input-loop-follow-up"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 21
+      },
+      "event": {
+        "sequence": 21,
+        "timestamp": 1700100021,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.follow_up",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace-loop",
+        "project_id": "project-loop",
+        "lane_id": "lane-loop-coder",
+        "session_id": "session-loop-acp",
+        "task_id": "task_loop",
+        "turn_id": "turn-loop-acp"
+      },
+      "cursor": {
+        "stream_id": "fixture:interaction-closed-loop",
+        "sequence": 22
+      },
+      "event": {
+        "sequence": 22,
+        "timestamp": 1700100022,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session-loop-acp",
+              "lane_id": "lane-loop-coder",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace-loop",
+                "project_id": "project-loop",
+                "lane_id": "lane-loop-coder",
+                "session_id": "session-loop-acp",
+                "task_id": "task_loop",
+                "turn_id": "turn-loop-acp"
+              },
+              "task": "task.loop.follow_up",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:interaction-closed-loop",
+    "sequence": 22
+  },
+  "expected_view_sha256": "46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0"
+}

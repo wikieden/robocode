@@ -1,0 +1,94 @@
+[
+  {
+    "id": "L-start",
+    "task_id": "task_start",
+    "role": "coder",
+    "route": "terminal",
+    "gate_strength": "containment",
+    "mutation_policy": "propose_only",
+    "worktree": null,
+    "branch": null,
+    "target": "local",
+    "data_egress": "deny",
+    "status": "starting",
+    "budget": {
+      "token_limit": null,
+      "cost_limit_micro_usd": null,
+      "wall_time_limit_secs": null
+    },
+    "active_session_ids": [],
+    "summary": "starting legacy lane",
+    "evidence": [
+      "evidence_start"
+    ]
+  },
+  {
+    "id": "L-conflict",
+    "task_id": "task_conflict",
+    "role": "coder",
+    "route": "terminal",
+    "gate_strength": "containment",
+    "mutation_policy": "propose_only",
+    "worktree": null,
+    "branch": null,
+    "target": "local",
+    "data_egress": "deny",
+    "status": "blocked",
+    "budget": {
+      "token_limit": null,
+      "cost_limit_micro_usd": null,
+      "wall_time_limit_secs": null
+    },
+    "active_session_ids": [],
+    "summary": "legacy conflict lane",
+    "evidence": [
+      "evidence_conflict"
+    ]
+  },
+  {
+    "id": "L-detached",
+    "task_id": "task_detached",
+    "role": "coder",
+    "route": "tmux",
+    "gate_strength": "containment",
+    "mutation_policy": "propose_only",
+    "worktree": null,
+    "branch": null,
+    "target": "local",
+    "data_egress": "deny",
+    "status": "detached",
+    "budget": {
+      "token_limit": null,
+      "cost_limit_micro_usd": null,
+      "wall_time_limit_secs": null
+    },
+    "active_session_ids": [],
+    "summary": "legacy detached lane",
+    "evidence": [
+      "evidence_detached"
+    ]
+  },
+  {
+    "id": "L-stopped",
+    "task_id": "task_stopped",
+    "role": "coder",
+    "route": "terminal",
+    "gate_strength": "containment",
+    "mutation_policy": "propose_only",
+    "worktree": null,
+    "branch": null,
+    "target": "local",
+    "data_egress": "deny",
+    "status": "detached",
+    "budget": {
+      "token_limit": null,
+      "cost_limit_micro_usd": null,
+      "wall_time_limit_secs": null
+    },
+    "active_session_ids": [],
+    "summary": "legacy stopped lane",
+    "evidence": [
+      "evidence_stopped"
+    ]
+  }
+]

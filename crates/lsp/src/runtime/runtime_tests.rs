@@ -335,6 +335,30 @@ fn runtime_restarts_dead_session_before_reuse() {
 }
 
 #[test]
+fn status_does_not_report_a_crashed_cached_session_as_running() {
+    let cwd = temp_dir("status_crashed");
+    let source = cwd.join("sample.rs");
+    let counter = cwd.join("stats.json");
+    fs::write(&source, "fn main() {}\n").unwrap();
+    let runtime = LspRuntime::new(fake_registry_exits_after_symbol(&cwd, &counter));
+
+    runtime.symbols(&cwd, Path::new("sample.rs")).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = runtime.status();
+        if status.running_servers.is_empty() {
+            assert_eq!(status.cached_sessions, 1);
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "a cached session whose child exited must not remain live"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
 fn parse_locations_supports_location_links_and_dedups() {
     let payload = serde_json::json!([
         {

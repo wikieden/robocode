@@ -1,0 +1,254 @@
+{
+  "fixture_id": "multi-lane",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.events",
+    "runtime.snapshot",
+    "runtime.typed_lanes",
+    "runtime.typed_tasks"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_multi-lane",
+        "task_id": null,
+        "turn_id": "turn_multi-lane"
+      },
+      "cursor": {
+        "stream_id": "fixture:multi-lane",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_core",
+              "task_id": "task_core",
+              "role": "coder",
+              "route": "terminal",
+              "gate_strength": "containment",
+              "mutation_policy": "propose_only",
+              "worktree": ".worktrees/lane_core",
+              "branch": "codex/lane_core",
+              "target": "local",
+              "data_egress": {
+                "allow_listed": {
+                  "domains": [
+                    "docs.example.test"
+                  ]
+                }
+              },
+              "status": "running",
+              "budget": {
+                "token_limit": 16000,
+                "cost_limit_micro_usd": 500000,
+                "wall_time_limit_secs": 1800
+              },
+              "active_session_ids": [
+                "session_lane_core"
+              ],
+              "summary": "lane_core active",
+              "evidence": [
+                "evidence_lane_core"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_multi-lane",
+        "task_id": null,
+        "turn_id": "turn_multi-lane"
+      },
+      "cursor": {
+        "stream_id": "fixture:multi-lane",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_review",
+              "task_id": "task_review",
+              "role": "reviewer",
+              "route": "acp",
+              "gate_strength": "cooperative",
+              "mutation_policy": "propose_only",
+              "worktree": ".worktrees/lane_review",
+              "branch": "codex/lane_review",
+              "target": {
+                "ssh": {
+                  "host": "review.example.test"
+                }
+              },
+              "data_egress": {
+                "allow_listed": {
+                  "domains": [
+                    "docs.example.test"
+                  ]
+                }
+              },
+              "status": "waiting_approval",
+              "budget": {
+                "token_limit": 16000,
+                "cost_limit_micro_usd": 500000,
+                "wall_time_limit_secs": 1800
+              },
+              "active_session_ids": [
+                "session_lane_review"
+              ],
+              "summary": "lane_review active",
+              "evidence": [
+                "evidence_lane_review"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_multi-lane",
+        "task_id": null,
+        "turn_id": "turn_multi-lane"
+      },
+      "cursor": {
+        "stream_id": "fixture:multi-lane",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_core",
+              "parent_id": null,
+              "agent": "coder",
+              "kind": "agent",
+              "transport": "terminal",
+              "title": "task_core title",
+              "status": "running",
+              "activity": "core coding",
+              "summary": "task_core summary",
+              "progress": 40,
+              "started_at": 1700000000,
+              "updated_at": 1700000040,
+              "workspace": ".worktrees/v3-core-runtime",
+              "evidence": [
+                "evidence_task_core"
+              ],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": "resume_task_core",
+              "pid": null,
+              "next_action": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_multi-lane",
+        "task_id": null,
+        "turn_id": "turn_multi-lane"
+      },
+      "cursor": {
+        "stream_id": "fixture:multi-lane",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000004,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_review",
+              "parent_id": null,
+              "agent": "reviewer",
+              "kind": "agent",
+              "transport": "terminal",
+              "title": "task_review title",
+              "status": "waiting_approval",
+              "activity": "review queue",
+              "summary": "task_review summary",
+              "progress": 40,
+              "started_at": 1700000000,
+              "updated_at": 1700000040,
+              "workspace": ".worktrees/v3-core-runtime",
+              "evidence": [
+                "evidence_task_review"
+              ],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": "resume_task_review",
+              "pid": null,
+              "next_action": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:multi-lane",
+    "sequence": 4
+  },
+  "expected_view_sha256": "e491d3bc547601b3c54eae05dc1b1259c9cc8ccac948908be8519d432b62fe38"
+}

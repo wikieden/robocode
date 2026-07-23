@@ -2,7 +2,7 @@
 
 英文版：[parallel-development-plan.md](parallel-development-plan.md)
 
-最后更新：2026-07-19
+最后更新：2026-07-22
 
 ## 目的
 
@@ -237,6 +237,17 @@ flowchart TD
 设计资产所有权：共享 `tokens.css`、SPEC 和 DESIGN-REF 的变更由 Core/design owner 先审；TUI kit/screen 由 TUI owner；GUI kit/screen 由 GUI owner。任何共享 token 或 decision 变更都必须同步对应设计 guard 和 changelog。
 
 ## 阶段与交付物
+
+### 当前 Native / ACP 交互检查点
+
+- Core `0.3.4` 是 TUI `0.3.3` 与 GUI `0.1.0-rc.2` 唯一允许的共同基线。
+- Core 通过 `PreviewDefaultStarterLane` 与 `WorkspaceEligibilityUpdated` 独占默认
+  Lane identity 生成及 Git/HEAD eligibility 校验。
+- Core 同时负责 DeepSeek/OpenAI 原生 session 与 Codex/Claude/Kiro ACP session；
+  `SendAgentSessionInput`、`RetryAgentSession`、`AgentSessionInputAccepted` 统一续聊、
+  retry、精确 owner cancel、持久化和恢复。
+- TUI 通过系统命令 `/acp` 打开选择列表；GUI 使用简洁的 Zed 风格新建 Lane 弹出菜单。
+  两个前端都不能实现私有 agent/session reducer。
 
 ### 0.3.0：设计与 contract freeze
 
