@@ -238,8 +238,10 @@ For design assets, shared `tokens.css`, SPEC, and DESIGN-REF changes are reviewe
 
 ### Current Native / ACP Interaction Checkpoint
 
-- Core `0.3.4` is the required common baseline for TUI `0.3.3` and GUI
-  `0.1.0-rc.2`.
+- The current local integration candidate combines Core `0.3.5`, TUI `0.3.3`,
+  and GUI `0.1.0-rc.3` on `codex/d1-cockpit-closed-loop`. TUI `0.3.3` was
+  originally certified from the immutable Core `0.3.4` checkpoint and is
+  compatibility-tested against the additive Core `0.3.5` contract here.
 - Core owns default Lane identity and Git/HEAD eligibility through
   `PreviewDefaultStarterLane` and `WorkspaceEligibilityUpdated`.
 - Core owns native DeepSeek/OpenAI sessions and ACP Codex/Claude/Kiro sessions.
@@ -332,26 +334,28 @@ Every behavior change updates the matching English and Chinese documentation and
 
 ### D1 Cockpit Integration Checkpoint
 
-The local `codex/d1-cockpit-integration` checkpoint records a Core-first,
-GUI-second merge for GUI `0.1.0-rc.3`:
+The former local `codex/d1-cockpit-integration` checkpoint was a historical
+Core+GUI-only attempt. It remains useful negative evidence: it omitted the TUI
+branch, lacked the native/ACP parity gate, failed the workspace gate, and could
+not complete native Lane creation.
 
-- base `origin/main`: `aba8b05c5d334cf1a8424c8dc899819b4ecae0bb`;
-- Core source and merge: `f7fe1b31dfb237e4062209767a7051c2b2c68b93` ->
-  `6d0094a11cc64c097a2f48ee6122ec8bc95a2d23`;
-- GUI source and merge: `4cb2a498c5b091f62f554ff407acdf162f96cc1e` ->
-  `d27dc09fd230e3c2fb3ae79fbf3d10a45f400226`.
+The current local candidate is `codex/d1-cockpit-closed-loop`, rebuilt from
+`origin/main` at `aba8b05c5d334cf1a8424c8dc899819b4ecae0bb` in the required order:
 
-This checkpoint is not main-ready. Core, runtime, GUI Rust, GUI npm, GUI build,
-dependency-boundary, manifest/hash, and unsigned app-bundle gates pass, but the
-workspace gate remains blocked by the separately owned TUI/Core API drift and
-the required `scripts/native-acp-fixture-parity.sh` script is absent in this
-Core+GUI-only merge. Independent native desktop control reached Welcome, Open
-Project, D1 shell retention, and the compact New Lane menu; after a scoped GUI
-repair the menu resolves with `Viden Agent` selectable, `Codex` Ready, `Kiro`
-Ready, and `Claude` disabled by an initialize-probe failure. The full closed
-loop remains blocked because selecting `Viden Agent` closes the menu but does
-not create a new Lane within 5 seconds, and an existing selected Lane has no
-sole Core execution owner.
+- Core `0.3.5`: source `f7fe1b31dfb237e4062209767a7051c2b2c68b93`,
+  merge `76f7f8e3a84ff38846023dda7dead0c50bfb2b68`;
+- TUI `0.3.3`: source `6260f183d19da27e61fdf068d67a9c481c68d829`,
+  merge `026736dc4c16b1d039b80e77b9fe8ff99788d51b`;
+- GUI `0.1.0-rc.3`: source
+  `1c44094dd29674e1cc585ff6c83302581440aeb0`, merge
+  `864966d0677e9d958396fac150f4701b2d14b0a1`.
+
+The candidate now passes the deterministic Core/TUI/GUI fixture parity,
+component suites, dependency boundary, full workspace, GUI build, and TUI
+smoke/regression gates. The unsigned standalone macOS app bundle also builds.
+Native desktop closed-loop certification is still pending because the macOS
+desktop was locked when Computer Use attempted to launch the built app; no
+native UI result is claimed from deterministic fixtures.
 See `docs/release-gui-0.1.0-rc.3-status.md` and
 `docs/release-evidence/gui-d1-cockpit/checkpoints.md`.
 

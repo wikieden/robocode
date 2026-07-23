@@ -240,7 +240,9 @@ flowchart TD
 
 ### 当前 Native / ACP 交互检查点
 
-- Core `0.3.4` 是 TUI `0.3.3` 与 GUI `0.1.0-rc.2` 唯一允许的共同基线。
+- 当前本地集成候选在 `codex/d1-cockpit-closed-loop` 上组合 Core `0.3.5`、
+  TUI `0.3.3` 与 GUI `0.1.0-rc.3`。TUI `0.3.3` 最初基于不可变的 Core
+  `0.3.4` 检查点认证，本候选验证其与增量 Core `0.3.5` contract 兼容。
 - Core 通过 `PreviewDefaultStarterLane` 与 `WorkspaceEligibilityUpdated` 独占默认
   Lane identity 生成及 Git/HEAD eligibility 校验。
 - Core 同时负责 DeepSeek/OpenAI 原生 session 与 Codex/Claude/Kiro ACP session；
@@ -332,24 +334,25 @@ cargo fmt --check
 
 ### D1 Cockpit 集成检查点
 
-本地 `codex/d1-cockpit-integration` 检查点记录了 GUI `0.1.0-rc.3` 的
-Core-first、GUI-second 合并：
+原本地 `codex/d1-cockpit-integration` 是历史 Core+GUI-only 尝试。它保留为
+负向证据：遗漏 TUI 分支、缺少 native/ACP parity 门禁、workspace 门禁失败，并且
+无法完成 native Lane creation。
 
-- 基线 `origin/main`：`aba8b05c5d334cf1a8424c8dc899819b4ecae0bb`；
-- Core 来源与 merge：`f7fe1b31dfb237e4062209767a7051c2b2c68b93` ->
-  `6d0094a11cc64c097a2f48ee6122ec8bc95a2d23`；
-- GUI 来源与 merge：`4cb2a498c5b091f62f554ff407acdf162f96cc1e` ->
-  `d27dc09fd230e3c2fb3ae79fbf3d10a45f400226`。
+当前本地候选是 `codex/d1-cockpit-closed-loop`，从 `origin/main`
+`aba8b05c5d334cf1a8424c8dc899819b4ecae0bb` 按固定顺序重建：
 
-该检查点尚不能进入 main。Core、runtime、GUI Rust、GUI npm、GUI build、
-dependency-boundary、manifest/hash 和 unsigned app-bundle 门禁通过，但
-workspace gate 仍被独立所有的 TUI/Core API drift 阻塞，且本次 Core+GUI-only
-merge 中缺少要求的 `scripts/native-acp-fixture-parity.sh`。独立 native desktop
-control 到达 Welcome、Open Project、D1 shell retention 和紧凑 New Lane menu；
-scoped GUI 修复后菜单可以 resolve：`Viden Agent` 可选，`Codex` Ready，`Kiro`
-Ready，`Claude` 因 initialize-probe failure disabled。完整闭环仍被 native Lane
-creation/Core owner binding 阻塞：选择 `Viden Agent` 会关闭菜单，但 5 秒内没有
-新 Lane 出现；已有选中 Lane 也缺少唯一 Core execution owner。
+- Core `0.3.5`：来源 `f7fe1b31dfb237e4062209767a7051c2b2c68b93`，
+  merge `76f7f8e3a84ff38846023dda7dead0c50bfb2b68`；
+- TUI `0.3.3`：来源 `6260f183d19da27e61fdf068d67a9c481c68d829`，
+  merge `026736dc4c16b1d039b80e77b9fe8ff99788d51b`；
+- GUI `0.1.0-rc.3`：来源 `1c44094dd29674e1cc585ff6c83302581440aeb0`，
+  merge `864966d0677e9d958396fac150f4701b2d14b0a1`。
+
+当前候选已通过确定性的 Core/TUI/GUI fixture parity、组件套件、dependency
+boundary、full workspace、GUI build 与 TUI smoke/regression 门禁，也成功构建
+unsigned standalone macOS app bundle。由于 Computer Use 尝试启动构建 App 时
+macOS 桌面仍锁定，native desktop 闭环认证仍为 pending；确定性 fixture 不替代
+native UI 结果，也不据此声称 native 通过。
 详见 `docs/release-gui-0.1.0-rc.3-status.zh-CN.md` 和
 `docs/release-evidence/gui-d1-cockpit/checkpoints.md`。
 
