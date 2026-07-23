@@ -79,6 +79,24 @@ struct OrderedRuntimeFact {
     event: RuntimeEvent,
 }
 
+#[derive(Debug, Clone, Default)]
+struct EngineTurnOutput {
+    engine_events: Vec<EngineEvent>,
+    ordered_runtime_facts: Vec<OrderedRuntimeFact>,
+}
+
+#[derive(Debug, Clone)]
+struct EngineTurnFailure {
+    message: String,
+    completed: EngineTurnOutput,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeInputFailure {
+    pub(crate) message: String,
+    pub(crate) completed_events: Vec<RuntimeEvent>,
+}
+
 const COST_ATTRIBUTION_ID_MAX_CHARS: usize = 96;
 
 #[derive(Debug, Clone, Default)]
@@ -329,8 +347,6 @@ pub struct SessionEngine {
     credential_backend: Arc<dyn CredentialBackend>,
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
     runtime_event_sink: Option<RuntimeEventSink>,
-    ordered_runtime_facts: Vec<OrderedRuntimeFact>,
-    failed_engine_events: Vec<EngineEvent>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
     transaction_file_rollback: RefCell<Vec<FileRollback>>,
@@ -484,8 +500,6 @@ impl SessionEngine {
             credential_backend: Arc::new(project_runtime::UnavailableCredentialBackend),
             queued_runtime_inputs: Vec::new(),
             runtime_event_sink: None,
-            ordered_runtime_facts: Vec::new(),
-            failed_engine_events: Vec::new(),
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),
             transaction_file_rollback: RefCell::new(Vec::new()),

@@ -13,11 +13,11 @@ use std::time::{Duration, Instant};
 use viden_config::CliOverrides;
 use viden_lsp::{LspRuntime, LspServerRegistry};
 use viden_types::{
-    AgentRole, ApprovalResponse, EventCursor, LocaleId, Message, RecentWorkQuery, ReplayRequest,
-    Role, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState, RuntimeWireEvent, SessionMetaEntry,
-    StarterLanePreset, StarterLanePreviewInvalidationReason, StarterLaneRequest, ToolCall,
-    ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
+    AgentDagTaskSpec, AgentRole, ApprovalResponse, EventCursor, LocaleId, Message, RecentWorkQuery,
+    ReplayRequest, Role, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus, RuntimeViewState, RuntimeWireEvent,
+    SessionMetaEntry, StarterLanePreset, StarterLanePreviewInvalidationReason, StarterLaneRequest,
+    ToolCall, ToolResult, TranscriptEntry, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
     UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
@@ -71,6 +71,7 @@ fn frontend_status_git_sampling_is_read_only_and_missing_git_is_not_clean() {
     assert_eq!(unavailable.dirty, false);
 }
 
+#[cfg(unix)]
 #[test]
 fn frontend_status_git_sampling_is_time_and_memory_bounded_and_marks_truncation() {
     use std::os::unix::fs::PermissionsExt;
@@ -184,6 +185,7 @@ esac
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn frontend_status_git_totals_cover_all_rows_without_a_row_cap() {
     use std::os::unix::fs::PermissionsExt;
@@ -1075,6 +1077,246 @@ fn frontend_status_later_provider_failure_keeps_ordered_tool_and_change_facts() 
         fs::read_to_string(cwd.join("survives-failure.txt")).unwrap(),
         "durable result\n"
     );
+}
+
+#[test]
+fn frontend_status_unknown_second_tool_keeps_completed_first_tool_prefix() {
+    let cwd = temp_dir("frontend_status_unknown_second_tool");
+    let home = temp_dir("frontend_status_unknown_second_tool_home");
+    let provider = Box::new(SequenceProvider::new(vec![
+        completed_write_then_unknown_tool("unknown-second-tool.txt"),
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("unknown-second-tool");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-unknown-second-tool",
+            RuntimeCommand::SubmitUserInput {
+                content: "complete one tool, then reject an unknown tool".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("unknown tool")
+            )
+        })
+    });
+
+    assert_eq!(
+        completed_tool_prefix_order(&events, &owner),
+        vec!["started", "finished", "change", "error"]
+    );
+    assert_eq!(
+        fs::read_to_string(cwd.join("unknown-second-tool.txt")).unwrap(),
+        "completed before later failure\n"
+    );
+}
+
+#[test]
+fn frontend_status_start_agent_task_unknown_second_tool_keeps_completed_prefix() {
+    let cwd = temp_dir("frontend_status_agent_task_unknown_second_tool");
+    let home = temp_dir("frontend_status_agent_task_unknown_second_tool_home");
+    let provider = Box::new(SequenceProvider::new(vec![
+        completed_write_then_unknown_tool("agent-task-prefix.txt"),
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::BypassPermissions)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("agent-task-prefix");
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-agent-task-prefix-dag",
+            RuntimeCommand::StartAgentDag {
+                goal: "preserve completed tool facts".to_string(),
+                tasks: vec![AgentDagTaskSpec {
+                    task_id: "task-agent-prefix".to_string(),
+                    role: AgentRole::Coder,
+                    title: "Exercise ordered prefix".to_string(),
+                    objective: "Complete one tool before a later tool error".to_string(),
+                    dependencies: Vec::new(),
+                    workspace: None,
+                    file_scope: Vec::new(),
+                    context_bundle_id: None,
+                    required_evidence: Vec::new(),
+                    permission_policy: "full_access".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+    let _ = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::AgentDagUpdated { .. },
+                    ..
+                })
+            )
+        })
+    });
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-agent-task-prefix-start",
+            RuntimeCommand::StartAgentTask {
+                task_id: "task-agent-prefix".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("unknown tool")
+            )
+        })
+    });
+
+    assert_eq!(
+        completed_tool_prefix_order(&events, &owner),
+        vec!["started", "finished", "change", "error"]
+    );
+    assert_eq!(
+        fs::read_to_string(cwd.join("agent-task-prefix.txt")).unwrap(),
+        "completed before later failure\n"
+    );
+}
+
+#[test]
+fn frontend_status_tool_result_persistence_failure_keeps_completed_prefix() {
+    let cwd = temp_dir("frontend_status_tool_persistence_failure");
+    let home = temp_dir("frontend_status_tool_persistence_failure_home");
+    let mut input = viden_types::ToolInput::new();
+    input.insert("path".to_string(), "persist-prefix.txt".to_string());
+    input.insert(
+        "content".to_string(),
+        "tool completed before persistence failed\n".to_string(),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        viden_types::ModelEvent::ToolCall(ToolCall {
+            id: "tool-before-persistence-failure".to_string(),
+            name: "write_file".to_string(),
+            input,
+        }),
+    ]]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    // User message, provider cost, tool call, assistant tool message, and
+    // permission decision persist before the completed ToolResult append.
+    engine.fail_after_transcript_appends_for_test(5);
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = cockpit_test_owner("tool-persistence-failure");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd-tool-persistence-failure",
+            RuntimeCommand::SubmitUserInput {
+                content: "write before transcript persistence fails".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("injected transcript append failure")
+            )
+        })
+    });
+
+    assert_eq!(
+        completed_tool_prefix_order(&events, &owner),
+        vec!["started", "finished", "change", "error"]
+    );
+    assert_eq!(
+        fs::read_to_string(cwd.join("persist-prefix.txt")).unwrap(),
+        "tool completed before persistence failed\n"
+    );
+}
+
+fn completed_write_then_unknown_tool(path: &str) -> Vec<viden_types::ModelEvent> {
+    let mut write_input = viden_types::ToolInput::new();
+    write_input.insert("path".to_string(), path.to_string());
+    write_input.insert(
+        "content".to_string(),
+        "completed before later failure\n".to_string(),
+    );
+    vec![
+        viden_types::ModelEvent::ToolCall(ToolCall {
+            id: format!("write-{path}"),
+            name: "write_file".to_string(),
+            input: write_input,
+        }),
+        viden_types::ModelEvent::ToolCall(ToolCall {
+            id: format!("unknown-{path}"),
+            name: "unknown_tool".to_string(),
+            input: viden_types::ToolInput::new(),
+        }),
+    ]
+}
+
+fn cockpit_test_owner(id: &str) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: format!("workspace-{id}"),
+        project_id: format!("project-{id}"),
+        lane_id: Some(format!("lane-{id}")),
+        session_id: Some(format!("session-{id}")),
+        ..RuntimeOwner::default()
+    }
+}
+
+fn completed_tool_prefix_order(
+    events: &[RuntimeEventEnvelope],
+    owner: &RuntimeOwner,
+) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter(|envelope| &envelope.owner == owner)
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallStarted { .. },
+                ..
+            }) => Some("started"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ToolCallFinished { .. },
+                ..
+            }) => Some("finished"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceChangeUpdated { .. },
+                ..
+            }) => Some("change"),
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::Error { .. },
+                ..
+            }) => Some("error"),
+            _ => None,
+        })
+        .collect()
 }
 
 fn append_recent_runtime_fixture(home: &Path, root: &Path, session_id: &str, timestamp: u64) {

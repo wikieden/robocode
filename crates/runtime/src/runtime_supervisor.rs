@@ -3245,21 +3245,14 @@ fn run_supervised_input(
             )))
     };
 
-    let result = engine.process_input_with_approval_and_control(&content, &mut approver, &control);
+    let result =
+        engine.process_runtime_turn_with_approval_and_control(&content, &mut approver, &control);
     clear_active_control(active_control, &command_id);
     match result {
-        Ok(events) => emit_events(
-            event_bus,
-            owner.clone(),
-            engine.runtime_events_for_engine_events(&events),
-        ),
-        Err(err) => {
-            emit_events(
-                event_bus,
-                owner.clone(),
-                engine.runtime_events_for_failed_input(),
-            );
-            emit_error(event_bus, owner.clone(), err);
+        Ok(events) => emit_events(event_bus, owner.clone(), events),
+        Err(failure) => {
+            emit_events(event_bus, owner.clone(), failure.completed_events);
+            emit_error(event_bus, owner.clone(), failure.message);
         }
     }
     emit_frontend_status_events_if_changed(

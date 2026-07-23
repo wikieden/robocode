@@ -20,6 +20,79 @@ use viden_types::{
 
 use crate::CostAttribution;
 
+#[derive(Debug, Default)]
+struct EngineTurnProgress {
+    engine_events: Vec<EngineEvent>,
+    ordered_runtime_facts: Vec<crate::OrderedRuntimeFact>,
+}
+
+impl EngineTurnProgress {
+    fn carry<T>(&self, result: Result<T, String>) -> Result<T, crate::EngineTurnFailure> {
+        result.map_err(|message| crate::EngineTurnFailure {
+            message,
+            completed: crate::EngineTurnOutput {
+                engine_events: self.engine_events.clone(),
+                ordered_runtime_facts: self.ordered_runtime_facts.clone(),
+            },
+        })
+    }
+
+    fn fail(&self, message: String) -> crate::EngineTurnFailure {
+        crate::EngineTurnFailure {
+            message,
+            completed: crate::EngineTurnOutput {
+                engine_events: self.engine_events.clone(),
+                ordered_runtime_facts: self.ordered_runtime_facts.clone(),
+            },
+        }
+    }
+
+    fn finish(self) -> crate::EngineTurnOutput {
+        crate::EngineTurnOutput {
+            engine_events: self.engine_events,
+            ordered_runtime_facts: self.ordered_runtime_facts,
+        }
+    }
+}
+
+fn record_completed_tool(progress: &mut EngineTurnProgress, call: &ToolCall, result: &ToolResult) {
+    progress.engine_events.push(EngineEvent::ToolResult {
+        output: result.output.clone(),
+        success: result.success,
+        exit_code: result.exit_code,
+    });
+    let after_engine_event_index = progress.engine_events.len() - 1;
+    let unbound_owner = viden_types::RuntimeOwner::default();
+    let mut cockpit_facts =
+        crate::frontend_status::workspace_changes_from_tool_result(call, result, &unbound_owner)
+            .into_iter()
+            .map(|change| {
+                viden_types::RuntimeEvent::new(
+                    0,
+                    viden_types::RuntimeEventKind::WorkspaceChangeUpdated { change },
+                )
+            })
+            .collect::<Vec<_>>();
+    if let Some(check) =
+        crate::frontend_status::check_run_from_tool_result(call, result, &unbound_owner)
+    {
+        cockpit_facts.push(viden_types::RuntimeEvent::new(
+            0,
+            viden_types::RuntimeEventKind::CheckRunUpdated { check },
+        ));
+    }
+    progress
+        .ordered_runtime_facts
+        .extend(
+            cockpit_facts
+                .into_iter()
+                .map(|event| crate::OrderedRuntimeFact {
+                    after_engine_event_index,
+                    event,
+                }),
+        );
+}
+
 const PROVIDER_REQUEST_CHAR_BUDGET: usize = 48_000;
 const PROVIDER_RECENT_HISTORY_LIMIT: usize = 8;
 const PROVIDER_HISTORY_MESSAGE_CHAR_LIMIT: usize = 1_500;
@@ -51,16 +124,30 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
+        self.process_engine_turn_with_approval_and_control(input, approver, control)
+            .map(|output| output.engine_events)
+            .map_err(|failure| failure.message)
+    }
+
+    pub(crate) fn process_engine_turn_with_approval_and_control<F>(
+        &mut self,
+        input: &str,
+        approver: &mut F,
+        control: &ModelRequestControl,
+    ) -> Result<crate::EngineTurnOutput, crate::EngineTurnFailure>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
         self.process_input_with_optional_context_bundle(input, approver, control, None)
     }
 
-    pub(crate) fn process_input_with_built_context_bundle_and_control<F>(
+    pub(crate) fn process_engine_turn_with_built_context_bundle_and_control<F>(
         &mut self,
         input: &str,
         approver: &mut F,
         control: &ModelRequestControl,
         built_context_bundle: crate::context_bundle::BuiltContextBundle,
-    ) -> Result<Vec<EngineEvent>, String>
+    ) -> Result<crate::EngineTurnOutput, crate::EngineTurnFailure>
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
@@ -78,26 +165,29 @@ impl SessionEngine {
         approver: &mut F,
         control: &ModelRequestControl,
         built_context_bundle: Option<crate::context_bundle::BuiltContextBundle>,
-    ) -> Result<Vec<EngineEvent>, String>
+    ) -> Result<crate::EngineTurnOutput, crate::EngineTurnFailure>
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
-        self.ordered_runtime_facts.clear();
-        self.failed_engine_events.clear();
+        let mut progress = EngineTurnProgress::default();
         let trimmed = input.trim();
         if trimmed.is_empty() {
-            return Ok(Vec::new());
+            return Ok(progress.finish());
         }
         if trimmed.starts_with('/') {
-            return self.handle_command(trimmed, approver);
+            return progress
+                .carry(self.handle_command(trimmed, approver))
+                .map(|engine_events| crate::EngineTurnOutput {
+                    engine_events,
+                    ordered_runtime_facts: Vec::new(),
+                });
         }
 
-        let mut events = Vec::new();
         let user_message = Message::new(Role::User, trimmed);
         self.messages.push(user_message.clone());
-        self.store_entry(TranscriptEntry::Message {
+        progress.carry(self.store_entry(TranscriptEntry::Message {
             message: user_message,
-        })?;
+        }))?;
         #[cfg(test)]
         let context_build_started = Instant::now();
         let built_context_bundle = built_context_bundle.unwrap_or_else(|| {
@@ -109,10 +199,10 @@ impl SessionEngine {
         self.last_context_runtime_events = built_context_bundle.events;
         self.last_context_bundle = Some(context_bundle.clone());
         if built_context_bundle.hard_exceeded {
-            return Err(format!(
+            return Err(progress.fail(format!(
                 "context hard limit exceeded before provider request: used {} tokens, hard limit {}. reduce input, narrow file scope, or split the task.",
                 context_bundle.estimated_tokens, context_bundle.hard_token_limit
-            ));
+            )));
         }
         let mut provider_task = self.provider_task(
             trimmed,
@@ -158,14 +248,14 @@ impl SessionEngine {
                 Ok(events) => {
                     let usage = aggregate_model_usage(&events);
                     let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
-                    self.record_cost_usage(provider_attempt_cost_record(
+                    progress.carry(self.record_cost_usage(provider_attempt_cost_record(
                         self.provider_name(),
                         self.model_name(),
                         attempt_index,
                         usage.as_ref(),
                         CostUsageOutcome::Success,
                         self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
-                    ))?;
+                    )))?;
                     self.provider_telemetry.record_success(
                         request_started.elapsed(),
                         events.len(),
@@ -175,14 +265,14 @@ impl SessionEngine {
                 }
                 Err(err) => {
                     let usage_id = provider_attempt_usage_id(&provider_task.id, attempt_index);
-                    self.record_cost_usage(provider_attempt_cost_record(
+                    progress.carry(self.record_cost_usage(provider_attempt_cost_record(
                         self.provider_name(),
                         self.model_name(),
                         attempt_index,
                         None,
                         CostUsageOutcome::Failure,
                         self.cost_attribution_for_request(&usage_id, Some(&provider_task.id)),
-                    ))?;
+                    )))?;
                     self.provider_telemetry
                         .record_failure(request_started.elapsed(), &err);
                     if crate::provider_commands::is_request_too_large_provider_failure(&err)
@@ -198,19 +288,21 @@ impl SessionEngine {
                         self.last_context_runtime_events = retry_context.events;
                         self.last_context_bundle = Some(context_bundle.clone());
                         if retry_context.hard_exceeded {
-                            return Err(format!(
+                            return Err(progress.fail(format!(
                                 "context hard limit exceeded during request-too-large recovery: used {} tokens, hard limit {}. reduce input, narrow file scope, or split the task.",
                                 context_bundle.estimated_tokens, context_bundle.hard_token_limit
-                            ));
+                            )));
                         }
                         let note =
                             "Provider request was too large; retrying with compacted context.";
                         let system_message = Message::new(Role::System, note);
                         self.messages.push(system_message.clone());
-                        self.store_entry(TranscriptEntry::Message {
+                        progress.carry(self.store_entry(TranscriptEntry::Message {
                             message: system_message,
-                        })?;
-                        events.push(EngineEvent::System(note.to_string()));
+                        }))?;
+                        progress
+                            .engine_events
+                            .push(EngineEvent::System(note.to_string()));
                         provider_task.status = AgentTaskStatus::Thinking;
                         provider_task.activity =
                             "compacting provider context after request-too-large".to_string();
@@ -232,8 +324,7 @@ impl SessionEngine {
                     provider_task.updated_at = Some(now_millis());
                     provider_task.result = Some(rendered_error.clone());
                     self.upsert_agent_task(provider_task);
-                    self.failed_engine_events = events.clone();
-                    return Err(rendered_error);
+                    return Err(progress.fail(rendered_error));
                 }
             };
             let mut observed_tool_call = false;
@@ -252,8 +343,10 @@ impl SessionEngine {
                         observed_text = true;
                         let assistant = Message::new(Role::Assistant, &content);
                         self.messages.push(assistant.clone());
-                        self.store_entry(TranscriptEntry::Message { message: assistant })?;
-                        events.push(EngineEvent::Assistant(content));
+                        progress.carry(
+                            self.store_entry(TranscriptEntry::Message { message: assistant }),
+                        )?;
+                        progress.engine_events.push(EngineEvent::Assistant(content));
                     }
                     ModelEvent::ToolCall(call) => {
                         observed_tool_call = true;
@@ -262,7 +355,7 @@ impl SessionEngine {
                         provider_task.progress = provider_task.progress.max(75);
                         provider_task.updated_at = Some(now_millis());
                         self.upsert_agent_task(provider_task.clone());
-                        let _ = self.handle_tool_call(call, approver, &mut events)?;
+                        let _ = self.handle_tool_call(call, approver, &mut progress)?;
                     }
                     ModelEvent::Usage(_) => {}
                     ModelEvent::Done => {}
@@ -279,25 +372,26 @@ impl SessionEngine {
         provider_task.result = Some("turn complete".to_string());
         self.upsert_agent_task(provider_task);
 
-        Ok(events)
+        Ok(progress.finish())
     }
 
     fn handle_tool_call<F>(
         &mut self,
         call: ToolCall,
         approver: &mut F,
-        events: &mut Vec<EngineEvent>,
-    ) -> Result<ToolResult, String>
+        progress: &mut EngineTurnProgress,
+    ) -> Result<ToolResult, crate::EngineTurnFailure>
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
         let mut call = call;
         let reasoning_content = call.input.remove(PROVIDER_REASONING_CONTENT_KEY);
-        let tool_spec = self
-            .tools
-            .spec(&call.name)
-            .ok_or_else(|| format!("Model requested unknown tool `{}`", call.name))?;
-        self.store_entry(TranscriptEntry::ToolCall { call: call.clone() })?;
+        let tool_spec = progress.carry(
+            self.tools
+                .spec(&call.name)
+                .ok_or_else(|| format!("Model requested unknown tool `{}`", call.name)),
+        )?;
+        progress.carry(self.store_entry(TranscriptEntry::ToolCall { call: call.clone() }))?;
         let encoded_input = viden_types::encode_tool_input(&call.input);
         let mut task = self.tool_task(
             &call.id,
@@ -324,10 +418,10 @@ impl SessionEngine {
             tool_call_id: Some(call.id.clone()),
         };
         self.messages.push(assistant_tool_call.clone());
-        self.store_entry(TranscriptEntry::Message {
+        progress.carry(self.store_entry(TranscriptEntry::Message {
             message: assistant_tool_call,
-        })?;
-        events.push(EngineEvent::ToolCall(format!(
+        }))?;
+        progress.engine_events.push(EngineEvent::ToolCall(format!(
             "{} {}",
             call.name, encoded_input
         )));
@@ -350,7 +444,7 @@ impl SessionEngine {
 
         match decision {
             PermissionDecision::Allow(allow) => {
-                self.store_entry(TranscriptEntry::Permission {
+                progress.carry(self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
@@ -358,7 +452,7 @@ impl SessionEngine {
                         reason: format!("{:?}", allow.decision_reason),
                         message: allow.accept_feedback.clone(),
                     },
-                })?;
+                }))?;
                 task.status = AgentTaskStatus::RunningTool;
                 task.activity = format!("running `{}`", call.name);
                 task.progress = 55;
@@ -389,7 +483,8 @@ impl SessionEngine {
                 } else {
                     None
                 };
-                self.persist_tool_result(&result)?;
+                record_completed_tool(progress, &call, &result);
+                progress.carry(self.persist_tool_result(&result))?;
                 task.status = if result.success {
                     AgentTaskStatus::Done
                 } else {
@@ -408,52 +503,13 @@ impl SessionEngine {
                 }
                 task.updated_at = Some(now_millis());
                 self.upsert_agent_task(task);
-                events.push(EngineEvent::ToolResult {
-                    output: result.output.clone(),
-                    success: result.success,
-                    exit_code: result.exit_code,
-                });
-                let after_engine_event_index = events.len() - 1;
-                let unbound_owner = viden_types::RuntimeOwner::default();
-                let mut cockpit_facts = crate::frontend_status::workspace_changes_from_tool_result(
-                    &call,
-                    &result,
-                    &unbound_owner,
-                )
-                .into_iter()
-                .map(|change| {
-                    viden_types::RuntimeEvent::new(
-                        0,
-                        viden_types::RuntimeEventKind::WorkspaceChangeUpdated { change },
-                    )
-                })
-                .collect::<Vec<_>>();
-                if let Some(check) = crate::frontend_status::check_run_from_tool_result(
-                    &call,
-                    &result,
-                    &unbound_owner,
-                ) {
-                    cockpit_facts.push(viden_types::RuntimeEvent::new(
-                        0,
-                        viden_types::RuntimeEventKind::CheckRunUpdated { check },
-                    ));
-                }
-                self.ordered_runtime_facts
-                    .extend(
-                        cockpit_facts
-                            .into_iter()
-                            .map(|event| crate::OrderedRuntimeFact {
-                                after_engine_event_index,
-                                event,
-                            }),
-                    );
                 if let Some(message) = post_edit_diagnostics {
                     let system_message = Message::new(Role::System, message.clone());
                     self.messages.push(system_message.clone());
-                    self.store_entry(TranscriptEntry::Message {
+                    progress.carry(self.store_entry(TranscriptEntry::Message {
                         message: system_message,
-                    })?;
-                    events.push(EngineEvent::System(message));
+                    }))?;
+                    progress.engine_events.push(EngineEvent::System(message));
                 }
                 Ok(result)
             }
@@ -462,7 +518,7 @@ impl SessionEngine {
             }
             PermissionDecision::Deny(deny) => {
                 let reason = format!("{:?}", deny.decision_reason);
-                self.store_entry(TranscriptEntry::Permission {
+                progress.carry(self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
@@ -470,7 +526,7 @@ impl SessionEngine {
                         reason: reason.clone(),
                         message: Some(deny.message.clone()),
                     },
-                })?;
+                }))?;
                 task.status = AgentTaskStatus::Cancelled;
                 task.activity = format!("denied `{}`", call.name);
                 task.progress = 100;
@@ -487,18 +543,16 @@ impl SessionEngine {
                     success: false,
                     exit_code: None,
                 };
-                self.persist_tool_result(&result)?;
-                events.push(EngineEvent::ToolResult {
-                    output: result.output.clone(),
-                    success: result.success,
-                    exit_code: result.exit_code,
-                });
+                record_completed_tool(progress, &call, &result);
+                progress.carry(self.persist_tool_result(&result))?;
                 let system_message = Message::new(Role::System, rendered_denial.clone());
                 self.messages.push(system_message.clone());
-                self.store_entry(TranscriptEntry::Message {
+                progress.carry(self.store_entry(TranscriptEntry::Message {
                     message: system_message,
-                })?;
-                events.push(EngineEvent::System(rendered_denial));
+                }))?;
+                progress
+                    .engine_events
+                    .push(EngineEvent::System(rendered_denial));
                 Ok(result)
             }
         }
@@ -548,14 +602,17 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
-        let mut events = Vec::new();
+        let mut progress = EngineTurnProgress::default();
         let call = ToolCall {
             id: fresh_id("tool"),
             name: tool_name.to_string(),
             input,
         };
-        let _ = self.handle_tool_call(call, approver, &mut events)?;
-        let output = events
+        let _ = self
+            .handle_tool_call(call, approver, &mut progress)
+            .map_err(|failure| failure.message)?;
+        let output = progress
+            .engine_events
             .into_iter()
             .filter_map(|event| match event {
                 EngineEvent::System(text)
@@ -582,13 +639,14 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
-        let mut events = Vec::new();
+        let mut progress = EngineTurnProgress::default();
         let call = ToolCall {
             id: fresh_id("tool"),
             name: tool_name.to_string(),
             input,
         };
-        self.handle_tool_call(call, approver, &mut events)
+        self.handle_tool_call(call, approver, &mut progress)
+            .map_err(|failure| failure.message)
     }
 }
 

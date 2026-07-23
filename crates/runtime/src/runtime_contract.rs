@@ -193,6 +193,21 @@ impl SessionEngine {
     }
 
     pub fn runtime_events_for_engine_events(&self, events: &[EngineEvent]) -> Vec<RuntimeEvent> {
+        self.runtime_events_for_engine_output(events, &[])
+    }
+
+    fn runtime_events_for_turn_output(
+        &self,
+        output: &crate::EngineTurnOutput,
+    ) -> Vec<RuntimeEvent> {
+        self.runtime_events_for_engine_output(&output.engine_events, &output.ordered_runtime_facts)
+    }
+
+    fn runtime_events_for_engine_output(
+        &self,
+        events: &[EngineEvent],
+        ordered_runtime_facts: &[crate::OrderedRuntimeFact],
+    ) -> Vec<RuntimeEvent> {
         let mut out = self.runtime_state_events();
         let mut last_tool: Option<(ToolCallId, String)> = None;
 
@@ -285,8 +300,7 @@ impl SessionEngine {
                     ));
                 }
             }
-            for fact in self
-                .ordered_runtime_facts
+            for fact in ordered_runtime_facts
                 .iter()
                 .filter(|fact| fact.after_engine_event_index == engine_event_index)
             {
@@ -297,10 +311,6 @@ impl SessionEngine {
         }
 
         out
-    }
-
-    pub(crate) fn runtime_events_for_failed_input(&self) -> Vec<RuntimeEvent> {
-        self.runtime_events_for_engine_events(&self.failed_engine_events)
     }
 
     pub fn handle_runtime_command<F>(
@@ -456,20 +466,40 @@ impl SessionEngine {
                 Err(err) => return Ok(vec![command_rejected(command_id, err)]),
             },
             RuntimeCommand::SubmitUserInput { content } => {
-                match self.process_runtime_input_with_approval(&content, approver) {
+                match self.process_runtime_turn_with_approval_and_control(
+                    &content,
+                    approver,
+                    &ModelRequestControl::new(),
+                ) {
                     Ok(input_events) => append_resequenced(&mut events, input_events),
-                    Err(err) if err.contains("context hard limit") => {
-                        append_resequenced(&mut events, self.runtime_state_events());
+                    Err(failure) if failure.message.contains("context hard limit") => {
+                        append_resequenced(&mut events, failure.completed_events);
                         events.push(RuntimeEvent::new(
                             next_sequence(&events),
                             RuntimeEventKind::CommandRejected {
                                 command_id,
-                                reason: err,
+                                reason: failure.message,
                             },
                         ));
                         return Ok(events);
                     }
-                    Err(err) => return Err(err),
+                    Err(failure) => {
+                        append_resequenced(&mut events, failure.completed_events);
+                        events.push(RuntimeEvent::new(
+                            next_sequence(&events),
+                            RuntimeEventKind::Error {
+                                error: RuntimeErrorView {
+                                    message: failure.message,
+                                    recoverable: true,
+                                    hint: Some(
+                                        "completed tool facts were preserved before the turn stopped"
+                                            .to_string(),
+                                    ),
+                                },
+                            },
+                        ));
+                        return Ok(events);
+                    }
                 }
             }
             RuntimeCommand::QueueFollowUp { content } => {
@@ -1066,11 +1096,30 @@ impl SessionEngine {
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
-        self.process_runtime_input_with_approval_and_control(
+        match self.process_runtime_turn_with_approval_and_control(
             input,
             approver,
             &ModelRequestControl::new(),
-        )
+        ) {
+            Ok(events) => Ok(events),
+            Err(failure) => {
+                let mut events = failure.completed_events;
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::Error {
+                        error: RuntimeErrorView {
+                            message: failure.message,
+                            recoverable: true,
+                            hint: Some(
+                                "completed tool facts were preserved before the turn stopped"
+                                    .to_string(),
+                            ),
+                        },
+                    },
+                ));
+                Ok(events)
+            }
+        }
     }
 
     pub(crate) fn prepare_context_retrieval<F>(
@@ -1350,12 +1399,12 @@ impl SessionEngine {
         ));
     }
 
-    pub(crate) fn process_runtime_input_with_approval_and_control<F>(
+    pub(crate) fn process_runtime_turn_with_approval_and_control<F>(
         &mut self,
         input: &str,
         approver: &mut F,
         control: &ModelRequestControl,
-    ) -> Result<Vec<RuntimeEvent>, String>
+    ) -> Result<Vec<RuntimeEvent>, crate::RuntimeInputFailure>
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
@@ -1383,19 +1432,32 @@ impl SessionEngine {
             ));
             response
         };
-        let engine_events =
-            self.process_input_with_approval_and_control(input, &mut capturing_approver, control)?;
-        let runtime_events = self.runtime_events_for_engine_events(&engine_events);
-        Ok(merge_approval_events(runtime_events, approval_events))
+        match self.process_engine_turn_with_approval_and_control(
+            input,
+            &mut capturing_approver,
+            control,
+        ) {
+            Ok(output) => Ok(merge_approval_events(
+                self.runtime_events_for_turn_output(&output),
+                approval_events,
+            )),
+            Err(failure) => Err(crate::RuntimeInputFailure {
+                message: failure.message,
+                completed_events: merge_approval_events(
+                    self.runtime_events_for_turn_output(&failure.completed),
+                    approval_events,
+                ),
+            }),
+        }
     }
 
-    pub(crate) fn process_runtime_input_with_built_context_bundle_and_control<F>(
+    pub(crate) fn process_runtime_turn_with_built_context_bundle_and_control<F>(
         &mut self,
         input: &str,
         approver: &mut F,
         control: &ModelRequestControl,
         built_context_bundle: crate::context_bundle::BuiltContextBundle,
-    ) -> Result<Vec<RuntimeEvent>, String>
+    ) -> Result<Vec<RuntimeEvent>, crate::RuntimeInputFailure>
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
     {
@@ -1423,14 +1485,24 @@ impl SessionEngine {
             ));
             response
         };
-        let engine_events = self.process_input_with_built_context_bundle_and_control(
+        match self.process_engine_turn_with_built_context_bundle_and_control(
             input,
             &mut capturing_approver,
             control,
             built_context_bundle,
-        )?;
-        let runtime_events = self.runtime_events_for_engine_events(&engine_events);
-        Ok(merge_approval_events(runtime_events, approval_events))
+        ) {
+            Ok(output) => Ok(merge_approval_events(
+                self.runtime_events_for_turn_output(&output),
+                approval_events,
+            )),
+            Err(failure) => Err(crate::RuntimeInputFailure {
+                message: failure.message,
+                completed_events: merge_approval_events(
+                    self.runtime_events_for_turn_output(&failure.completed),
+                    approval_events,
+                ),
+            }),
+        }
     }
 
     fn runtime_state_events(&self) -> Vec<RuntimeEvent> {
@@ -1896,7 +1968,7 @@ impl SessionEngine {
             workflow_id: self.cost_workflow_id.clone(),
             smoke_run_id: self.cost_smoke_run_id.clone(),
         });
-        let provider_result = self.process_runtime_input_with_built_context_bundle_and_control(
+        let provider_result = self.process_runtime_turn_with_built_context_bundle_and_control(
             &prompt,
             approver,
             control,
@@ -1906,7 +1978,9 @@ impl SessionEngine {
         self.restore_agent_permission_policy(previous_permissions);
         let provider_events = match provider_result {
             Ok(events) => events,
-            Err(err) => {
+            Err(failure) => {
+                append_resequenced(&mut events, failure.completed_events);
+                let err = failure.message;
                 let cancelled = err.to_lowercase().contains("cancel");
                 let activity = if cancelled {
                     "cancelled during supervised role task".to_string()
@@ -1914,28 +1988,30 @@ impl SessionEngine {
                     format!("provider error: {}", truncate_for_preview(&err, 200))
                 };
                 let mut error_hint = "agent task stopped before evidence was accepted".to_string();
-                if cancelled {
-                    append_resequenced(
-                        &mut events,
-                        self.update_agent_task_status(
-                            task_id,
-                            AgentTaskStatus::Cancelled,
-                            &activity,
-                            100,
-                        )?,
-                    );
+                let task_update = if cancelled {
+                    self.update_agent_task_status(
+                        task_id,
+                        AgentTaskStatus::Cancelled,
+                        &activity,
+                        100,
+                    )
                 } else {
-                    let failure = classify_agent_task_failure(&err);
-                    error_hint = failure.recovery_suggestion.to_string();
-                    append_resequenced(
-                        &mut events,
-                        self.update_agent_task_failure(
-                            task_id,
-                            &activity,
-                            failure.class,
-                            failure.recovery_suggestion,
-                        )?,
-                    );
+                    let classification = classify_agent_task_failure(&err);
+                    error_hint = classification.recovery_suggestion.to_string();
+                    self.update_agent_task_failure(
+                        task_id,
+                        &activity,
+                        classification.class,
+                        classification.recovery_suggestion,
+                    )
+                };
+                match task_update {
+                    Ok(task_events) => append_resequenced(&mut events, task_events),
+                    Err(status_error) => {
+                        error_hint = format!(
+                            "{error_hint}; failed to persist terminal task state: {status_error}"
+                        );
+                    }
                 }
                 events.push(RuntimeEvent::new(
                     next_sequence(&events),
@@ -2018,7 +2094,19 @@ impl SessionEngine {
             .find(|task| task.id == task_id)
             .cloned()
         else {
-            return Err(format!("agent task `{task_id}` does not exist"));
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::Error {
+                    error: RuntimeErrorView {
+                        message: format!(
+                            "agent task `{task_id}` disappeared after provider execution"
+                        ),
+                        recoverable: true,
+                        hint: Some("completed provider and tool facts were preserved".to_string()),
+                    },
+                },
+            ));
+            return Ok(events);
         };
         task.status = AgentTaskStatus::Done;
         task.activity = "supervised role task complete".to_string();

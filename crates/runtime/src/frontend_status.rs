@@ -234,6 +234,10 @@ enum GitOutput {
 }
 
 fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration) -> GitOutput {
+    let containment = match ProcessTreeContainment::new() {
+        Ok(containment) => containment,
+        Err(_) => return GitOutput::Unavailable,
+    };
     let mut command = Command::new(program.as_os_str());
     command
         .arg("--no-optional-locks")
@@ -253,8 +257,18 @@ fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration)
         Ok(child) => child,
         Err(_) => return GitOutput::Unavailable,
     };
+    if containment.attach(&child).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return GitOutput::Unavailable;
+    }
+    if containment.resume(&child).is_err() {
+        containment.terminate(&mut child);
+        let _ = child.wait();
+        return GitOutput::Unavailable;
+    }
     let Some(mut stdout) = child.stdout.take() else {
-        kill_process_tree(&mut child);
+        containment.terminate(&mut child);
         let _ = child.wait();
         return GitOutput::Unavailable;
     };
@@ -282,20 +296,20 @@ fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration)
             Ok(Some(status)) => break Some(status),
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
             Ok(None) => {
-                kill_process_tree(&mut child);
+                containment.terminate(&mut child);
                 let _ = child.wait();
                 break None;
             }
             Err(_) => {
-                kill_process_tree(&mut child);
+                containment.terminate(&mut child);
                 let _ = child.wait();
                 break None;
             }
         }
     };
     // Git may leave a descendant holding stdout after its leader exits. The
-    // isolated process group is retired before joining the bounded reader.
-    kill_process_tree(&mut child);
+    // platform process tree is retired before joining the bounded reader.
+    containment.terminate(&mut child);
     let _ = child.wait();
     let read = match reader.join() {
         Ok(Some(read)) => read,
@@ -320,25 +334,240 @@ fn configure_process_group(command: &mut Command) {
     command.process_group(0);
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+
+    // Suspend before first instruction so the process cannot create an
+    // uncontained descendant between spawn and Job Object assignment.
+    command.creation_flags(CREATE_SUSPENDED);
+}
+
+#[cfg(not(any(unix, windows)))]
 fn configure_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
-fn kill_process_tree(child: &mut std::process::Child) {
-    let pgid = child.id() as libc::pid_t;
-    if pgid > 0 {
-        // Sampling is isolated from the caller's process group so descendants
-        // cannot retain capture handles beyond the deadline.
-        unsafe {
-            libc::kill(-pgid, libc::SIGKILL);
-        }
+struct ProcessTreeContainment;
+
+#[cfg(unix)]
+impl ProcessTreeContainment {
+    fn new() -> std::io::Result<Self> {
+        Ok(Self)
     }
-    let _ = child.kill();
+
+    fn attach(&self, _child: &std::process::Child) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn resume(&self, _child: &std::process::Child) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn terminate(&self, child: &mut std::process::Child) {
+        let pgid = child.id() as libc::pid_t;
+        if pgid > 0 {
+            // Sampling is isolated from the caller's process group so
+            // descendants cannot retain capture handles beyond the deadline.
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+        let _ = child.kill();
+    }
 }
 
-#[cfg(not(unix))]
-fn kill_process_tree(child: &mut std::process::Child) {
-    let _ = child.kill();
+#[cfg(windows)]
+struct ProcessTreeContainment {
+    job: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl ProcessTreeContainment {
+    fn new() -> std::io::Result<Self> {
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if job.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let configured = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&limits).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            )
+        };
+        if configured == 0 {
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(job);
+            }
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self { job })
+    }
+
+    fn attach(&self, child: &std::process::Child) -> std::io::Result<()> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+
+        let attached = unsafe { AssignProcessToJobObject(self.job, child.as_raw_handle().cast()) };
+        if attached == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn resume(&self, child: &std::process::Child) -> std::io::Result<()> {
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+        };
+
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snapshot == INVALID_HANDLE_VALUE {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            ..THREADENTRY32::default()
+        };
+        let mut has_entry = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+        let mut result = Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "suspended Git process primary thread was not found",
+        ));
+        while has_entry {
+            if entry.th32OwnerProcessID == child.id() {
+                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+                if thread.is_null() {
+                    result = Err(std::io::Error::last_os_error());
+                } else {
+                    let previous_count = unsafe { ResumeThread(thread) };
+                    unsafe {
+                        CloseHandle(thread);
+                    }
+                    result = if previous_count == u32::MAX {
+                        Err(std::io::Error::last_os_error())
+                    } else {
+                        Ok(())
+                    };
+                }
+                break;
+            }
+            has_entry = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+        }
+        unsafe {
+            CloseHandle(snapshot);
+        }
+        result
+    }
+
+    fn terminate(&self, child: &mut std::process::Child) {
+        unsafe {
+            windows_sys::Win32::System::JobObjects::TerminateJobObject(self.job, 1);
+        }
+        let _ = child.kill();
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessTreeContainment {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.job);
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_process_tree_tests {
+    use super::*;
+
+    #[test]
+    fn git_timeout_job_object_terminates_descendants_before_reader_join() {
+        let cwd = std::env::temp_dir().join(format!(
+            "viden-windows-job-object-{}",
+            viden_types::fresh_id("test")
+        ));
+        std::fs::create_dir_all(&cwd).unwrap();
+        let pid_log = cwd.join("descendant-pid");
+        let fake_git = cwd.join("fake-git.cmd");
+        std::fs::write(
+            &fake_git,
+            [
+                "@echo off",
+                "powershell.exe -NoProfile -Command \"$p=Start-Process -FilePath ping.exe -ArgumentList '127.0.0.1','-n','30' -PassThru -NoNewWindow; Set-Content -Path '%~dp0descendant-pid' -Value $p.Id; Wait-Process -Id $p.Id\"",
+            ]
+            .join("\r\n"),
+        )
+        .unwrap();
+
+        let started = Instant::now();
+        let outcome = run_git_bounded(
+            &cwd,
+            &fake_git,
+            &["status", "--porcelain=v1"],
+            Duration::from_secs(2),
+        );
+        assert!(matches!(outcome, GitOutput::Truncated));
+        assert!(started.elapsed() < Duration::from_secs(5));
+
+        let pid = std::fs::read_to_string(&pid_log)
+            .unwrap()
+            .trim()
+            .to_string();
+        let task_rows = || {
+            let tasklist = Command::new("tasklist.exe")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&tasklist.stdout).into_owned()
+        };
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        let mut rows = task_rows();
+        while rows.contains(&format!("\"{pid}\"")) && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(25));
+            rows = task_rows();
+        }
+        assert!(
+            !rows.contains(&format!("\"{pid}\"")),
+            "timed-out Git Job Object leaked descendant PID {pid}: {rows}"
+        );
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+struct ProcessTreeContainment;
+
+#[cfg(not(any(unix, windows)))]
+impl ProcessTreeContainment {
+    fn new() -> std::io::Result<Self> {
+        Ok(Self)
+    }
+
+    fn attach(&self, _child: &std::process::Child) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn resume(&self, _child: &std::process::Child) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn terminate(&self, child: &mut std::process::Child) {
+        let _ = child.kill();
+    }
 }
 
 fn unavailable_source() -> WorkspaceSourceView {

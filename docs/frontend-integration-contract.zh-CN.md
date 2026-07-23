@@ -127,10 +127,12 @@ ACP continuation 会重新加载 agent-native session id；取消必须使用该
 ### Cockpit Context
 
 该区域只使用 `runtime.cockpit_context_v1` 这一 capability 名称。Workspace source
-采样严格只读，并有时间与内存上限。`WorkspaceSourceStatus` 为 `ready`、
-`unavailable` 或 `truncated`；只有 `ready` 状态下的 branch totals 才具有权威性。
-后续失败或截断的采样必须通过有序 `WorkspaceSourceUpdated` event 替换旧的 ready
-source，不能继续显示过期数据。
+采样严格只读，并有时间与内存上限。超时采样会先终止完整 process tree，再 join
+有界 output reader：Unix 使用隔离 process group；Windows 先以 suspended 状态启动
+process、将其加入 kill-on-close Job Object，然后才恢复运行。
+`WorkspaceSourceStatus` 为 `ready`、`unavailable` 或 `truncated`；只有 `ready`
+状态下的 branch totals 才具有权威性。后续失败或截断的采样必须通过有序
+`WorkspaceSourceUpdated` event 替换旧的 ready source，不能继续显示过期数据。
 
 Change 与 check 来自结构化 tool result，不能解析 transcript 文本；其 identity 是
 `(RuntimeOwner, id)`。Patch 的 additions/deletions 必须在 display bytes 截断前计算，
@@ -162,8 +164,9 @@ flowchart LR
   call，并可能追加 evidence。
 - 由已执行 provider tool 产生的 facts 按因果顺序发出：
   `ToolCallStarted`、`ToolCallFinished`，随后是该结果产生的
-  `WorkspaceChangeUpdated` 或 `CheckRunUpdated`。即使后续 provider 失败，也要先
-  保留这段已完成前缀，再发出 `Error`。
+  `WorkspaceChangeUpdated` 或 `CheckRunUpdated`。任何后续失败（包括第二个 tool
+  dispatch 或 transcript/cost persistence 失败）都必须先保留这段已完成前缀，再发出
+  `Error`。
 - `TaskUpdated`、`AgentDagUpdated`、`LaneUpdated`、`EvidenceRecorded`、
   `ContextUpdated`、`MergeGateUpdated`、`HandoffUpdated`、
   `ReviewRequestUpdated`、`ContractUpdated`、`DependencyUpdated`、

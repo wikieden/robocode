@@ -545,6 +545,7 @@ dependencies = [
  "viden-tools",
  "viden-types",
  "viden-workflows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

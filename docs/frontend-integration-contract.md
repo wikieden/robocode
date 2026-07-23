@@ -134,10 +134,13 @@ session inferred from display text.
 
 `runtime.cockpit_context_v1` is the only capability name for this surface.
 Workspace source sampling is strictly read-only, time bounded, and memory
-bounded. `WorkspaceSourceStatus` is `ready`, `unavailable`, or `truncated`;
-branch totals are authoritative only when status is `ready`. A later failed or
-truncated sample replaces an older ready source through an ordered
-`WorkspaceSourceUpdated` event instead of leaving stale data visible.
+bounded. Timed-out samplers terminate their complete process tree before
+joining the bounded output reader: Unix uses an isolated process group, while
+Windows starts the process suspended, assigns it to a kill-on-close Job Object,
+and only then resumes it. `WorkspaceSourceStatus` is `ready`, `unavailable`, or
+`truncated`; branch totals are authoritative only when status is `ready`. A
+later failed or truncated sample replaces an older ready source through an
+ordered `WorkspaceSourceUpdated` event instead of leaving stale data visible.
 
 Changes and checks come from structured tool results, not transcript text.
 Their identity is the pair `(RuntimeOwner, id)`. Patch additions/deletions are
@@ -172,8 +175,9 @@ flowchart LR
   and may append evidence.
 - Facts derived from an executed provider tool are emitted in causal order:
   `ToolCallStarted`, `ToolCallFinished`, then any `WorkspaceChangeUpdated` or
-  `CheckRunUpdated` facts from that result. A later provider failure preserves
-  that completed prefix before emitting `Error`.
+  `CheckRunUpdated` facts from that result. Any later failure, including a
+  second tool dispatch or transcript/cost persistence failure, preserves that
+  completed prefix before emitting `Error`.
 - `TaskUpdated`, `AgentDagUpdated`, `LaneUpdated`, `EvidenceRecorded`,
   `ContextUpdated`, `MergeGateUpdated`, `HandoffUpdated`,
   `ReviewRequestUpdated`, `ContractUpdated`, `DependencyUpdated`,
