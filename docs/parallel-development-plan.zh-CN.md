@@ -330,6 +330,29 @@ cargo fmt --check
 
 每个行为变更都必须在同一分支更新对应中英文文档和必要代码注释。发布仍以 GitHub Release 与 Homebrew tap 同版本、同一验证单元完成。
 
+### D1 Cockpit 集成检查点
+
+本地 `codex/d1-cockpit-integration` 检查点记录了 GUI `0.1.0-rc.3` 的
+Core-first、GUI-second 合并：
+
+- 基线 `origin/main`：`aba8b05c5d334cf1a8424c8dc899819b4ecae0bb`；
+- Core 来源与 merge：`f7fe1b31dfb237e4062209767a7051c2b2c68b93` ->
+  `6d0094a11cc64c097a2f48ee6122ec8bc95a2d23`；
+- GUI 来源与 merge：`4cb2a498c5b091f62f554ff407acdf162f96cc1e` ->
+  `d27dc09fd230e3c2fb3ae79fbf3d10a45f400226`。
+
+该检查点尚不能进入 main。Core、runtime、GUI Rust、GUI npm、GUI build、
+dependency-boundary、manifest/hash 和 unsigned app-bundle 门禁通过，但
+workspace gate 仍被独立所有的 TUI/Core API drift 阻塞，且本次 Core+GUI-only
+merge 中缺少要求的 `scripts/native-acp-fixture-parity.sh`。独立 native desktop
+control 到达 Welcome、Open Project、D1 shell retention 和紧凑 New Lane menu；
+scoped GUI 修复后菜单可以 resolve：`Viden Agent` 可选，`Codex` Ready，`Kiro`
+Ready，`Claude` 因 initialize-probe failure disabled。完整闭环仍被 native Lane
+creation/Core owner binding 阻塞：选择 `Viden Agent` 会关闭菜单，但 5 秒内没有
+新 Lane 出现；已有选中 Lane 也缺少唯一 Core execution owner。
+详见 `docs/release-gui-0.1.0-rc.3-status.zh-CN.md` 和
+`docs/release-evidence/gui-d1-cockpit/checkpoints.md`。
+
 ## 明确不做
 
 - 不从当前 dirty、落后的本地 `main` 直接创建三个实现分支。

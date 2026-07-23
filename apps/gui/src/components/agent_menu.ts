@@ -96,12 +96,8 @@ export function renderAgentMenu(
   menu.append(
     item(
       translate(model.locale, "d1.agentMenu.viden", {}),
-      model.probing
-        ? translate(model.locale, "d1.agentMenu.probing", {})
-        : model.canCreateLane
-          ? null
-          : model.eligibilityDiagnostic,
-      model.canCreateLane && !model.probing,
+      model.canCreateLane ? null : model.eligibilityDiagnostic,
+      model.canCreateLane,
       { kind: "native" },
     ),
   );

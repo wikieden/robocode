@@ -1522,8 +1522,11 @@ describe("D1 canonical streaming cockpit", () => {
         { type: "probe_agent_adapter", agentId: "codex-acp" },
       ]);
       expect(root.querySelector('[role="menu"]')?.getAttribute("aria-busy")).toBe("true");
+      expect(root.querySelector("[data-native-agent]")?.getAttribute("aria-disabled")).toBe(
+        "false",
+      );
       expect(
-        Array.from(root.querySelectorAll('[role="menuitem"]')).every(
+        Array.from(root.querySelectorAll("[data-agent-id]")).every(
           (item) => item.getAttribute("aria-disabled") === "true",
         ),
       ).toBe(true);
