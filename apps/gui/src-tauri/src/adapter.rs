@@ -655,6 +655,17 @@ impl GuiCoreAdapter {
 
     pub fn d1_cockpit(&self, selected_lane_id: Option<&str>) -> Option<D1CockpitProjection> {
         let mut projection = self.projection.d1_cockpit(selected_lane_id)?;
+        if projection.permission_dock.request.is_none()
+            && let Some(pending) = &self.pending_d1
+            && pending.accepted
+            && matches!(pending.kind, PendingD1Kind::CreateStarterLane { .. })
+            && let Some(permission_dock) = self.projection.permission_dock_for_owner(&pending.owner)
+        {
+            // Lane creation approval precedes Lane registration, so no selected
+            // owner exists yet. Route only the exact accepted Create owner;
+            // never fall back to another owner's global pending approval.
+            projection.permission_dock = permission_dock;
+        }
         let transport_recovery = self.d6_recovery();
         if self.connection != D6ConnectionState::Live
             || projection.recovery.state != D6State::EventGap
@@ -1555,11 +1566,11 @@ mod tests {
     use std::process::Command;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use viden_core::LocalCoreHost;
+    use viden_core::{LocalCoreHost, RuntimeOwner};
 
     use crate::{D6ConnectionState, D11Intent, PermissionChoice, PermissionIntent};
 
-    use super::open_workspace_with_host;
+    use super::{PendingD1Kind, open_workspace_with_host};
 
     fn temp_dir(label: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -1684,7 +1695,54 @@ mod tests {
                 Duration::from_millis(250),
             )
             .expect("request starter Lane creation through live Core");
-        let _ = create;
+        assert!(
+            create.projection.permission_dock.request.is_some(),
+            "the exact pending Lane owner approval must be visible before Lane registration"
+        );
+        let (exact_owner, exact_kind) = adapter
+            .pending_d1
+            .as_ref()
+            .map(|pending| (pending.owner.clone(), pending.kind.clone()))
+            .expect("starter Lane creation remains pending approval");
+        adapter
+            .pending_d1
+            .as_mut()
+            .expect("pending starter creation")
+            .owner = RuntimeOwner {
+            lane_id: Some("different-lane-owner".to_string()),
+            ..RuntimeOwner::default()
+        };
+        assert!(
+            adapter
+                .d1_cockpit(None)
+                .expect("D1 projection for mismatched owner")
+                .permission_dock
+                .request
+                .is_none(),
+            "another owner must never inherit the pending creation approval"
+        );
+        {
+            let pending = adapter
+                .pending_d1
+                .as_mut()
+                .expect("pending starter creation");
+            pending.owner = exact_owner;
+            pending.kind = PendingD1Kind::QueryAgentAdapters;
+        }
+        assert!(
+            adapter
+                .d1_cockpit(None)
+                .expect("D1 projection for non-create command")
+                .permission_dock
+                .request
+                .is_none(),
+            "non-create pending commands must not expose an unselected Lane approval"
+        );
+        adapter
+            .pending_d1
+            .as_mut()
+            .expect("pending starter creation")
+            .kind = exact_kind;
         let request_id = adapter
             .permission_dock()
             .expect("global permission projection")

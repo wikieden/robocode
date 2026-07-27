@@ -2,7 +2,7 @@
 
 Chinese version: [checkpoints.zh-CN.md](checkpoints.zh-CN.md)
 
-Date: 2026-07-24
+Date: 2026-07-27
 
 This evidence describes a local candidate only. It is not a published,
 signed, notarized, pushed, merged, tagged, or live-provider-certified release.
@@ -34,7 +34,7 @@ historical blocked evidence. The table above is the current candidate.
 | `cargo test -p viden-core` | PASS |
 | `cargo test -p viden-tui` | PASS, 269 + 1 API |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS, 17 files / 243 tests |
+| `npm --prefix apps/gui test -- --run` | PASS, 17 files / 248 tests |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -42,6 +42,8 @@ historical blocked evidence. The table above is the current candidate.
 | `scripts/tui-regression.sh` | PASS after Core 0.3.5 extension count repair |
 | `scripts/rc-tui-stability-smoke.sh` | PASS after the same repair |
 | `cargo fmt --all -- --check` | PASS |
+| `npm --prefix apps/gui test -- tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts --run` | PASS, 69 tests after native-smoke repairs |
+| `git diff --check` | PASS |
 
 The canonical parity fixture contains 22 events and ends at
 `fixture:interaction-closed-loop@22` with Core view SHA-256
@@ -59,24 +61,52 @@ See
 - `CFBundleIdentifier`: `dev.viden.gui`
 - `CFBundleExecutable`: `viden-gui`
 - `CFBundleShortVersionString`: `0.1.0-rc.3`
-- executable size: `27,826,752` bytes
+- executable size: `27,830,256` bytes
 - signature: ad-hoc linker-signed, no TeamIdentifier
 
 No project distribution-signing or notarization gate was run.
 
 ## Native Smoke Boundary
 
-Status: **PENDING MAC UNLOCK**.
+Status: **PASS**.
 
 The smoke fixture is `/tmp/viden-native-smoke.Hmd3ak`, a clean Git repository
-with one committed README. Computer Use targeted the exact App path above, but
-reported that the Mac was locked and automatic unlock failed. No native
-interaction or screenshot evidence exists yet, so this checkpoint does not
-claim Welcome, project selection, zero-Lane, Lane creation, one-Lane/one-Agent,
-composer input, runtime output, approval, ACP readiness, locale, or skin
-success.
+with one committed README. The standalone App was exercised at `1229x768` with
+fallback `test-local`. The observed native path covered:
 
-After unlock, the smoke must resume against this bundle with fallback
-`test-local`, save key screenshots under `native-smoke/`, and record either
-typed completion or an exact typed recovery/rejection. It must not enter
-credentials or run a live provider/ACP turn.
+- persistent Welcome and Open Project;
+- a project cockpit with zero Lanes;
+- the compact New Lane menu with the Native Viden Agent selected;
+- Core-owned preview, application-level approval, worktree creation, and the
+  exact created Lane;
+- one Lane with one Native execution owner;
+- editable composer input, retained initial task submission, and a confirmed
+  follow-up submission.
+
+The fallback provider projected typed `Unavailable` transcript content, so this
+checkpoint claims command confirmation and operable input, not a meaningful
+assistant answer or live-provider inference. ACP discovery was visible only as
+unavailable in this offline run. The observed UI was English with
+`aurora/dark`; no locale or skin configuration surface was exposed, so
+configurability remains unverified.
+
+Native evidence is stored under [native-smoke](native-smoke/):
+
+| File | Observation |
+| --- | --- |
+| `01-welcome.jpeg` | persistent Welcome shell |
+| `02-zero-lane.jpeg` | opened project with zero Lanes |
+| `03-new-lane.jpeg` | compact New Lane menu |
+| `04-approval-obscured-before-fix.jpeg` | defect-before-fix evidence: Lane rail covered approval actions |
+| `04-approval-after-fix.jpeg` | post-fix approval is full-width; Once, Repo paths, and Deny are unobscured |
+| `05-lane-created-after-fix.jpeg` | mouse-clicking Once created the exact Lane/worktree and Native owner |
+| `06-follow-up-confirmed-unavailable.jpeg` | editable follow-up was confirmed; fallback response remained unavailable |
+
+The native run exposed and the candidate fixes three closed-loop defects:
+the New Lane overlay was clipped by the Lane rail, Create waited indefinitely
+instead of yielding to an interactive approval, and the pre-registration
+approval was not projected through the exact pending Create owner. The final
+mouse-only retest of the rebuilt App passed: the Lane rail collapsed when the
+approval appeared, all approval actions were unobscured, and a real-coordinate
+click on `Y · Once` continued to the exact created Lane, branch, worktree,
+Native owner, and retained initial task submission.

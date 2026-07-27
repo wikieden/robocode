@@ -39,7 +39,7 @@ export interface D1IntentResult {
 }
 
 type SendD1Intent = (intent: D1Intent) => Promise<D1IntentResult>;
-type PollD1 = (selectedLaneId?: string) => Promise<D1IntentResult>;
+type PollD1 = (selectedLaneId?: string, waitForEvent?: boolean) => Promise<D1IntentResult>;
 type SendPermissionIntent = (intent: PermissionIntent) => Promise<unknown>;
 type RecoverD6 = () => Promise<D6RecoveryProjection>;
 
@@ -163,6 +163,7 @@ export function renderD1Cockpit(
   let newLaneSelection: AgentMenuSelection = { kind: "native" };
   let pendingAgentTaskDraft = "";
   let creatingLane = false;
+  const commandSlotWaiters: Array<() => void> = [];
   let pendingLaneStart:
     | { laneId: string; task: string; agentId: string | null }
     | null = null;
@@ -232,6 +233,13 @@ export function renderD1Cockpit(
       } else if (result.outcome.state === "rejected") {
         submittedDraft = null;
         errorMessage = result.outcome.reason ?? "Core rejected the command.";
+        if (
+          previousPending &&
+          pendingLaneStart &&
+          !result.projection.lanes.some((lane) => lane.id === pendingLaneStart?.laneId)
+        ) {
+          pendingLaneStart = null;
+        }
       }
       const nextKey = JSON.stringify(result.projection);
       const projectionChanged = nextKey !== projectionKey;
@@ -246,6 +254,13 @@ export function renderD1Cockpit(
           else transcript.replace(result.projection.transcript);
           transcriptLaneId = selectedLaneId;
         }
+      }
+      if (pendingLaneStart && result.projection.permissionDock.request) {
+        // The pre-registration Lane approval belongs to the center dock. Keep
+        // its primary actions mouse-operable by dismissing the floating rail
+        // that launched the New Lane overlay.
+        laneRailOpen = false;
+        laneRailFocusTarget = null;
       }
       const discoveryChanged = observeAgentDiscoveryResult(result);
       if (
@@ -264,9 +279,29 @@ export function renderD1Cockpit(
       agentMenuOpen = false;
       menuController?.close();
       if (pollTimer !== null) window.clearTimeout(pollTimer);
+      commandSlotWaiters.splice(0).forEach((resolve) => resolve());
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("resize", handleWindowResize);
     },
+  };
+
+  const commandSlotAvailable = (): boolean =>
+    !sending &&
+    !pendingCommandId &&
+    !discoveryDispatching &&
+    !discoveryInFlight &&
+    !pollInFlight;
+
+  const releaseCommandSlotWaiters = (): void => {
+    if (!commandSlotAvailable()) return;
+    commandSlotWaiters.splice(0).forEach((resolve) => resolve());
+  };
+
+  const waitForCommandSlot = async (): Promise<boolean> => {
+    if (!commandSlotAvailable()) {
+      await new Promise<void>((resolve) => commandSlotWaiters.push(resolve));
+    }
+    return !disposed;
   };
 
   const schedulePoll = (): void => {
@@ -287,6 +322,7 @@ export function renderD1Cockpit(
         .finally(() => {
           pollInFlight = false;
           if (disposed) return;
+          releaseCommandSlotWaiters();
           queueMicrotask(advanceAgentDiscovery);
           schedulePoll();
         });
@@ -302,8 +338,14 @@ export function renderD1Cockpit(
     try {
       let result = await send(intent);
       controller.applyResult(result);
-      for (let attempt = 0; result.pendingCommandId && attempt < 24; attempt += 1) {
-        result = await poll(selectedLaneId ?? undefined);
+      for (
+        let attempt = 0;
+        result.pendingCommandId &&
+        result.projection.permissionDock.request === null &&
+        attempt < 24;
+        attempt += 1
+      ) {
+        result = await poll(selectedLaneId ?? undefined, true);
         controller.applyResult(result);
       }
       return result;
@@ -357,6 +399,9 @@ export function renderD1Cockpit(
   };
 
   const startLane = async (task: string, agentId: string | null): Promise<boolean> => {
+    // Native Lane creation remains available while ACP discovery runs, but
+    // both use Core's one-command-at-a-time D1 adapter boundary.
+    if (!(await waitForCommandSlot())) return false;
     const previewResult = await sendAndWait({ type: "preview_default_lane", preset: "coder" });
     const preview = previewResult?.projection.starterLanePreviews.at(-1);
     if (
@@ -469,6 +514,12 @@ export function renderD1Cockpit(
           render(false);
           return false;
         }
+        // A Core approval can redraw and remount this async popover before
+        // creation completes. Close the current controller explicitly once the
+        // accepted request has yielded to that operator decision.
+        agentMenuOpen = false;
+        menuController?.close();
+        menuController = null;
         pendingAgentTaskDraft = "";
         newLaneSelection = { kind: "native" };
         return true;
@@ -528,6 +579,7 @@ export function renderD1Cockpit(
       sending = false;
       discoveryDispatching = false;
       if (!disposed) {
+        releaseCommandSlotWaiters();
         queueMicrotask(advanceAgentDiscovery);
         schedulePoll();
       }
@@ -543,6 +595,7 @@ export function renderD1Cockpit(
       discoveryInFlight ||
       pollInFlight ||
       sending ||
+      creatingLane ||
       pendingCommandId
     ) {
       return;

@@ -17,7 +17,11 @@ Baseline: `aba8b05c5d334cf1a8424c8dc899819b4ecae0bb`
 - Task 11: complete (implementation `1fd3e59c`; strict D11 schema/value and opaque credential-id hardening follow-up complete)
 - Task 12: complete (independent-review trust invariants, dynamic dependency validation, Core-issued canonical receipts, bounce-linked origin-lane revalidation, pure supervisor preflight, and restart-safe audited recovery complete; Core gates green, legacy TUI integration gate remains)
 - Task 13: pending
-- Task 14: pending
+- Task 14: complete (native macOS Welcome -> Open Project -> New Lane ->
+  application approval -> exact Lane/worktree/Native owner -> retained task
+  and follow-up closed loop passed; fallback transcript rows remain typed
+  unavailable, and live provider/ACP auth plus locale/skin configuration remain
+  explicit future gates)
 
 Minor findings for final review:
 

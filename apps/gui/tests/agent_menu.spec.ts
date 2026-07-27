@@ -164,6 +164,51 @@ describe("compact agent menu", () => {
     expect(create?.disabled).toBe(false);
   });
 
+  test("portals both New Lane actions outside the clipped rail at 1228x768", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1228 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    document.body.innerHTML =
+      '<nav id="rail" style="overflow:hidden"><button id="anchor">New Lane</button></nav>';
+    const anchor = document.querySelector<HTMLButtonElement>("#anchor")!;
+    anchor.getBoundingClientRect = () =>
+      ({
+        bottom: 118,
+        height: 32,
+        left: 64,
+        right: 270,
+        top: 86,
+        width: 206,
+        x: 64,
+        y: 86,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const onClose = vi.fn();
+    const onCreate = vi.fn(async () => false);
+
+    const controller = renderAgentMenu(
+      anchor,
+      MODEL,
+      vi.fn(),
+      onClose,
+      onCreate,
+    );
+
+    expect(controller.root.parentElement).toBe(document.body);
+    expect(controller.root.style.getPropertyValue("--agent-menu-anchor-inline")).toBe("270px");
+    expect(controller.root.style.getPropertyValue("--agent-menu-anchor-block")).toBe("118px");
+
+    const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "Inspect README";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+    await vi.waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith({ kind: "native" }, "Inspect README"),
+    );
+
+    controller.root.querySelector<HTMLButtonElement>(".agent-menu-actions button")?.click();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   test("creates from Cmd/Ctrl+Enter only outside IME composition", async () => {
     const onCreate = vi.fn(async () => true);
     document.body.innerHTML = '<div id="host"><button id="anchor">+</button></div>';

@@ -195,7 +195,12 @@ export function renderAgentMenu(
   menu.append(heading, diagnostic, agentGrid, taskLabel, hint, actions);
 
   anchor.setAttribute("aria-expanded", "true");
-  anchor.parentElement?.append(menu);
+  const anchorRect = anchor.getBoundingClientRect();
+  menu.style.setProperty("--agent-menu-anchor-inline", `${anchorRect.right}px`);
+  menu.style.setProperty("--agent-menu-anchor-block", `${anchorRect.bottom}px`);
+  // The canonical New Lane composer is a window-level overlay. Portalling it
+  // keeps the action row outside the auto-hiding Lane rail's clipping context.
+  (anchor.closest(".d1-frame")?.parentElement ?? document.body).append(menu);
 
   function sync(): void {
     const selectedKey = selectionKey(selected);

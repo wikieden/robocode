@@ -172,7 +172,7 @@ impl RuntimeProjection {
         self.permission_dock_matching(|_| true)
     }
 
-    fn permission_dock_for_owner(
+    pub(crate) fn permission_dock_for_owner(
         &self,
         owner: &viden_core::RuntimeOwner,
     ) -> Option<PermissionDockProjection> {

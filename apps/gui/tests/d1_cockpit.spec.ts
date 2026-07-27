@@ -1232,6 +1232,172 @@ describe("D1 canonical streaming cockpit", () => {
     });
   });
 
+  test("yields a pending Lane creation to the projected approval instead of polling forever", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1228 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const preview = {
+      previewId: "preview-awaiting-approval",
+      contentSha256: "c".repeat(64),
+      laneId: "lane-awaiting-approval",
+      branch: "codex/lane-awaiting-approval",
+      diagnostics: [],
+    };
+    const previewed: D1IntentResult = {
+      projection: { ...D1_PROJECTION, starterLanePreviews: [preview] },
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const awaitingApproval: D1IntentResult = {
+      projection: {
+        ...PERMISSION_PROJECTION,
+        starterLanePreviews: [preview],
+      },
+      pendingCommandId: "create-awaiting-approval",
+      outcome: { state: "pending", reason: null },
+    };
+    const created: D1IntentResult = {
+      projection: {
+        ...D1_PROJECTION,
+        selectedLaneId: preview.laneId,
+        lanes: [
+          ...D1_PROJECTION.lanes,
+          {
+            ...D1_PROJECTION.lanes[0]!,
+            id: preview.laneId,
+            branch: preview.branch,
+          },
+        ],
+        starterLanePreviews: [preview],
+      },
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      if (intent.type === "preview_default_lane") return previewed;
+      if (intent.type === "create_starter_lane") return awaitingApproval;
+      if (intent.type === "submit") return created;
+      throw new Error(`unexpected intent ${intent.type}`);
+    });
+    const poll = vi.fn(async (): Promise<D1IntentResult> => {
+      throw new Error("interactive approval must return control before polling");
+    });
+    const controller = renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      send,
+      poll,
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")?.click();
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "Inspect README after approval";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-permission-dock]")).not.toBeNull();
+      expect(root.querySelector("[data-new-lane-popover]")).toBeNull();
+      expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
+      expect(root.querySelector('[data-permission-action="once"]')).not.toBeNull();
+      expect(root.querySelector('[data-permission-action="deny"]')).not.toBeNull();
+    });
+    expect(poll).not.toHaveBeenCalled();
+    expect(
+      send.mock.calls.some(([intent]) => intent.type === "submit"),
+    ).toBe(false);
+
+    controller.applyResult(created);
+    await vi.waitFor(() =>
+      expect(send.mock.calls.at(-1)?.[0]).toEqual({
+        type: "submit",
+        laneId: preview.laneId,
+        content: "Inspect README after approval",
+      }),
+    );
+  });
+
+  test("drops the pending native task when the interactive Lane creation is rejected", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const preview = {
+      previewId: "preview-denied",
+      contentSha256: "d".repeat(64),
+      laneId: "lane-denied",
+      branch: "codex/lane-denied",
+      diagnostics: [],
+    };
+    const previewed: D1IntentResult = {
+      projection: { ...D1_PROJECTION, starterLanePreviews: [preview] },
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const awaitingApproval: D1IntentResult = {
+      projection: { ...PERMISSION_PROJECTION, starterLanePreviews: [preview] },
+      pendingCommandId: "create-awaiting-denial",
+      outcome: { state: "pending", reason: null },
+    };
+    const rejected: D1IntentResult = {
+      projection: { ...D1_PROJECTION, starterLanePreviews: [] },
+      pendingCommandId: null,
+      outcome: { state: "rejected", reason: "Lane creation was denied." },
+    };
+    const laterLane: D1IntentResult = {
+      projection: {
+        ...D1_PROJECTION,
+        lanes: [
+          ...D1_PROJECTION.lanes,
+          {
+            ...D1_PROJECTION.lanes[0]!,
+            id: preview.laneId,
+            branch: preview.branch,
+          },
+        ],
+      },
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const sent: D1Intent[] = [];
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      sent.push(intent);
+      if (intent.type === "preview_default_lane") return previewed;
+      if (intent.type === "create_starter_lane") return awaitingApproval;
+      return laterLane;
+    });
+    const controller = renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      send,
+      async () => awaitingApproval,
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "Do not run after denial";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-new-lane-popover]")).toBeNull(),
+    );
+
+    controller.applyResult(rejected);
+    expect(root.querySelector("[data-d1-rejection]")?.textContent).toContain(
+      "Lane creation was denied.",
+    );
+    controller.applyResult(laterLane);
+    await Promise.resolve();
+    expect(sent.some((intent) => intent.type === "submit")).toBe(false);
+  });
+
   test("preserves the native task draft across ordered Core projection redraws", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;
@@ -1612,6 +1778,183 @@ describe("D1 canonical streaming cockpit", () => {
     );
 
     expect(root.querySelector("[data-agent-session-id]")).toBeNull();
+  });
+
+  test("serializes native Lane creation behind an in-flight ACP discovery command", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const sent: D1Intent[] = [];
+    const initial = {
+      ...D1_PROJECTION,
+      selectedLaneId: null,
+      lanes: [],
+      agentAdapters: [],
+    };
+    const preview = {
+      previewId: "preview-native-during-probe",
+      contentSha256: "d".repeat(64),
+      laneId: "lane-native-during-probe",
+      branch: "viden/lane-native-during-probe",
+      diagnostics: [],
+    };
+    const lane = {
+      ...D1_PROJECTION.lanes[0]!,
+      id: preview.laneId,
+      branch: preview.branch,
+    };
+    let resolveQuery!: (result: D1IntentResult) => void;
+    const deferredQuery = new Promise<D1IntentResult>((resolve) => {
+      resolveQuery = resolve;
+    });
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      sent.push(intent);
+      if (intent.type === "query_agent_adapters") return deferredQuery;
+      const projection =
+        intent.type === "preview_default_lane"
+          ? { ...initial, starterLanePreviews: [preview] }
+          : {
+              ...initial,
+              selectedLaneId: preview.laneId,
+              lanes: [lane],
+              starterLanePreviews: [preview],
+            };
+      return {
+        projection,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+    });
+    renderD1Cockpit(
+      root,
+      initial,
+      send,
+      async () => ({
+        projection: initial,
+        pendingCommandId: null,
+        outcome: { state: "idle", reason: null },
+      }),
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() => expect(sent).toEqual([{ type: "query_agent_adapters" }]));
+    expect(root.querySelector("[data-native-agent]")?.getAttribute("aria-disabled")).toBe(
+      "false",
+    );
+
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "Inspect README without modifying files";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+
+    resolveQuery({
+      projection: initial,
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual([
+        { type: "query_agent_adapters" },
+        { type: "preview_default_lane", preset: "coder" },
+        {
+          type: "create_starter_lane",
+          laneId: preview.laneId,
+          preset: "coder",
+          branch: preview.branch,
+          previewId: preview.previewId,
+          contentSha256: preview.contentSha256,
+        },
+        {
+          type: "submit",
+          laneId: preview.laneId,
+          content: "Inspect README without modifying files",
+        },
+      ]);
+    });
+    expect(root.querySelector("[data-d1-rejection]")).toBeNull();
+  });
+
+  test("waits on the Core event condition when a native Lane preview completes later", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const sent: D1Intent[] = [];
+    const initial = {
+      ...D1_PROJECTION,
+      selectedLaneId: null,
+      lanes: [],
+      agentAdapters: [],
+    };
+    const preview = {
+      previewId: "preview-delayed-native",
+      contentSha256: "e".repeat(64),
+      laneId: "lane-delayed-native",
+      branch: "viden/lane-delayed-native",
+      diagnostics: [],
+    };
+    const previewed: D1IntentResult = {
+      projection: { ...initial, starterLanePreviews: [preview] },
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const pendingPreview: D1IntentResult = {
+      projection: initial,
+      pendingCommandId: "preview-delayed",
+      outcome: { state: "pending", reason: null },
+    };
+    let resolvePreview!: (result: D1IntentResult) => void;
+    const delayedPreview = new Promise<D1IntentResult>((resolve) => {
+      resolvePreview = resolve;
+    });
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      sent.push(intent);
+      if (intent.type === "preview_default_lane") {
+        window.setTimeout(() => resolvePreview(previewed), 25);
+        return pendingPreview;
+      }
+      const projection =
+        intent.type === "query_agent_adapters"
+          ? initial
+          : {
+              ...initial,
+              selectedLaneId: preview.laneId,
+              lanes: [{ ...D1_PROJECTION.lanes[0]!, id: preview.laneId, branch: preview.branch }],
+              starterLanePreviews: [preview],
+            };
+      return {
+        projection,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+    });
+    const poll = vi.fn(
+      async (_laneId?: string, waitForEvent = false): Promise<D1IntentResult> =>
+        waitForEvent ? delayedPreview : pendingPreview,
+    );
+    renderD1Cockpit(root, initial, send, poll, undefined, undefined, { poll: false });
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
+    );
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "Inspect README after delayed preview";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+
+    await vi.waitFor(() => {
+      expect(sent).toContainEqual({
+        type: "create_starter_lane",
+        laneId: preview.laneId,
+        preset: "coder",
+        branch: preview.branch,
+        previewId: preview.previewId,
+        contentSha256: preview.contentSha256,
+      });
+    });
+    expect(poll).toHaveBeenCalledWith(undefined, true);
   });
 
   test("serializes discovery behind a stale periodic poll before accepting terminal facts", async () => {

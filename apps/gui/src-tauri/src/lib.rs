@@ -29,6 +29,7 @@ pub use permission::{
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
     PermissionTargetProjection,
 };
+
 pub use presentation::{
     ComposerAction, ComposerDraft, GuiPreferences, TranscriptRow, TranscriptViewport,
     WorkspaceSelection,
@@ -164,6 +165,7 @@ fn d1_send_intent(
 #[tauri::command]
 fn d1_poll(
     selected_lane_id: Option<String>,
+    wait_for_event: bool,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<D1IntentResult, String> {
     let mut guard = state
@@ -173,7 +175,12 @@ fn d1_poll(
     let adapter = guard
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?;
-    adapter.poll_d1(selected_lane_id.as_deref(), Duration::ZERO)
+    let timeout = if wait_for_event {
+        Duration::from_millis(250)
+    } else {
+        Duration::ZERO
+    };
+    adapter.poll_d1(selected_lane_id.as_deref(), timeout)
 }
 
 #[tauri::command]

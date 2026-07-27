@@ -148,8 +148,11 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           intent,
         });
       const pollD4 = async () => await invoke<D4IntentResult>("d4_poll");
-      const pollD1 = async (laneId?: string) =>
-        await invoke<D1IntentResult>("d1_poll", { selectedLaneId: laneId ?? null });
+      const pollD1 = async (laneId?: string, waitForEvent = false) =>
+        await invoke<D1IntentResult>("d1_poll", {
+          selectedLaneId: laneId ?? null,
+          waitForEvent,
+        });
       const sendD1 = async (intent: D1Intent) => {
         return await invoke<D1IntentResult>("d1_send_intent", {
           commandId: `gui-d1-${crypto.randomUUID()}`,

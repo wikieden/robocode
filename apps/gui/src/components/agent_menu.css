@@ -1,8 +1,15 @@
 .agent-menu {
-  position: absolute;
+  position: fixed;
   z-index: 20;
-  inset-inline-start: var(--sp-3);
+  inset-block-start: min(var(--agent-menu-anchor-block), var(--sp-12));
+  inset-inline-start: clamp(
+    var(--sp-3),
+    var(--agent-menu-anchor-inline),
+    calc(100vw - min(28rem, calc(100vw - var(--sp-6))) - var(--sp-3))
+  );
   width: min(28rem, calc(100vw - var(--sp-6)));
+  max-height: calc(100dvh - var(--sp-6));
+  box-sizing: border-box;
   display: grid;
   gap: var(--sp-3);
   padding: var(--sp-3);
@@ -11,6 +18,7 @@
   border: 1px solid var(--border-active);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-lg);
+  overflow-y: auto;
 }
 
 .agent-menu-heading {
@@ -104,9 +112,12 @@
 }
 
 .agent-menu-actions {
+  position: sticky;
+  inset-block-end: 0;
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2);
+  background: var(--bg-elev);
 }
 
 .agent-menu-actions button {
