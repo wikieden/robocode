@@ -353,9 +353,12 @@ The current local candidate is `codex/d1-cockpit-closed-loop`, rebuilt from
 The candidate now passes the deterministic Core/TUI/GUI fixture parity,
 component suites, dependency boundary, full workspace, GUI build, and TUI
 smoke/regression gates. The unsigned standalone macOS app bundle also builds.
-Native desktop closed-loop certification is still pending because the macOS
-desktop was locked when Computer Use attempted to launch the built app; no
-native UI result is claimed from deterministic fixtures.
+After the Mac was unlocked, Computer Use completed the scoped native path:
+Welcome -> Open Project -> zero-Lane -> built-in Viden Agent -> exact
+application approval -> Lane/worktree/Native owner -> retained task and
+follow-up. Fallback transcript rows remain typed `Unavailable`, and
+locale/skin configuration, live providers, and ACP authentication remain
+explicit future gates.
 See `docs/release-gui-0.1.0-rc.3-status.md` and
 `docs/release-evidence/gui-d1-cockpit/checkpoints.md`.
 

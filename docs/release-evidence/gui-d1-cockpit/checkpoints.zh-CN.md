@@ -70,8 +70,9 @@ Canonical parity fixture 含 22 个事件，终点为
 
 状态：**PASS**。
 
-Smoke fixture 是 `/tmp/viden-native-smoke.Hmd3ak`，它是仅包含一个已提交 README
-的干净 Git 仓库。独立 App 在 `1229x768`、fallback `test-local` 下完成了原生
+Smoke fixture 是 `/tmp/viden-native-smoke.Hmd3ak`；它开始时是仅包含一个已提交
+README 的干净 Git 仓库。创建仓库内 fixture worktree 后，这些 fixture 路径会显示
+为 untracked 状态。独立 App 在 `1229x768`、fallback `test-local` 下完成了原生
 操作，实际覆盖：
 
 - 持久 Welcome 与 Open Project；

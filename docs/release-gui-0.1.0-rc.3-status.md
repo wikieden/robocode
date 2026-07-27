@@ -3,7 +3,7 @@
 Chinese version:
 [release-gui-0.1.0-rc.3-status.zh-CN.md](release-gui-0.1.0-rc.3-status.zh-CN.md)
 
-Date: 2026-07-24
+Date: 2026-07-27
 
 This is a local, unpublished integration candidate. It is not a tag, push,
 main merge, signed or notarized build, Homebrew update, release, or live
@@ -37,7 +37,7 @@ be attributed to this rebuilt line.
 | `cargo test -p viden-core` | PASS, 3 manual fixture refresh tests ignored |
 | `cargo test -p viden-tui` | PASS, 269 library and 1 API test |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS, 17 files and 243 tests |
+| `npm --prefix apps/gui test -- --run` | PASS, 17 files and 248 tests |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -59,7 +59,7 @@ The parity details are recorded in
   `target/release/bundle/macos/Viden.app/Contents/MacOS/viden-gui`
 - bundle identifier: `dev.viden.gui`
 - version: `0.1.0-rc.3`
-- executable size: `27,826,752` bytes
+- executable size: `27,830,256` bytes
 - signature: ad-hoc linker-signed, no TeamIdentifier
 
 This is not a distribution-signed candidate. Project signing and notarization
@@ -67,25 +67,30 @@ were not run.
 
 ## Native App Smoke
 
-Status: **PENDING MAC UNLOCK**.
+Status: **PASS FOR THE SCOPED LOCAL CLOSED LOOP**.
 
-A safe temporary Git repository with a committed minimal README was prepared
-at `/tmp/viden-native-smoke.Hmd3ak`. The first Computer Use call targeted the
-exact built `.app`, but the macOS desktop was locked and automatic unlock could
-not unlock it. No Welcome, Open Project, zero-Lane, New Lane, composer,
-approval, ACP readiness, locale, skin, or one-Lane/one-Agent native result is
-claimed yet. Deterministic fixture parity is not a substitute for this native
-smoke.
+The standalone App was exercised through Computer Use at `1229x768` against
+`/tmp/viden-native-smoke.Hmd3ak`, which began as a clean temporary Git
+repository with one committed README. The mouse-driven path covered Welcome,
+Open Project, zero-Lane, New Lane with the built-in Viden Agent, the exact
+Core-owned preview and application approval, worktree/Lane creation, one
+Native execution owner, retained initial-task submission, and editable
+follow-up submission. Approval actions were directly visible after the Lane
+rail collapsed, and `Y · Once` was clicked with real screen coordinates.
 
-The smoke can resume without rebuilding after the Mac is unlocked. It must use
-the fallback `test-local` model only, must not enter credentials, and must save
-key screenshots under
-`docs/release-evidence/gui-d1-cockpit/native-smoke/`.
+The fallback `test-local` provider confirmed the submissions, but typed user
+and assistant transcript rows remained explicitly `Unavailable`; no
+meaningful assistant answer is claimed. ACP discovery was inspected offline
+without login or credentials. English and `aurora/dark` were observable, but
+no locale or skin configuration entry was exposed, so configurability remains
+an explicit future gate. Screenshots and the exact boundary are recorded in
+[GUI D1 cockpit checkpoints](release-evidence/gui-d1-cockpit/checkpoints.md).
 
 ## Decision
 
-The deterministic integration and standalone-app build gates pass. The
-candidate is not native-closed-loop certified and is not main-ready until the
-built App completes the documented desktop smoke. No live provider, ACP login,
-credential creation, push, merge, tag, signing, notarization, Homebrew
-mutation, release, or publication was performed.
+The deterministic integration, standalone-app build, and scoped native
+closed-loop gates pass. This remains a local candidate rather than a
+distribution or live-provider certification: fallback transcript visibility,
+locale/skin configuration, live provider behavior, and ACP authentication are
+not certified. No credential creation, push, merge, tag, signing,
+notarization, Homebrew mutation, release, or publication was performed.

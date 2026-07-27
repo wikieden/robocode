@@ -2,7 +2,7 @@
 
 英文版：[release-gui-0.1.0-rc.3-status.md](release-gui-0.1.0-rc.3-status.md)
 
-日期：2026-07-24
+日期：2026-07-27
 
 这是本地、未发布的集成候选。它不是 tag、push、main merge、签名或公证构建、
 Homebrew 更新、release 或 live provider 认证。
@@ -34,7 +34,7 @@ Homebrew 更新、release 或 live provider 认证。
 | `cargo test -p viden-core` | PASS，3 个手动 fixture refresh 测试 ignored |
 | `cargo test -p viden-tui` | PASS，269 个 library 与 1 个 API test |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS，17 个文件、243 个测试 |
+| `npm --prefix apps/gui test -- --run` | PASS，17 个文件、248 个测试 |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -55,28 +55,33 @@ Parity 详情见
   `target/release/bundle/macos/Viden.app/Contents/MacOS/viden-gui`
 - bundle identifier：`dev.viden.gui`
 - version：`0.1.0-rc.3`
-- executable size：`27,826,752` bytes
+- executable size：`27,830,256` bytes
 - signature：ad-hoc linker-signed，无 TeamIdentifier
 
 这不是 distribution-signed 候选；未运行项目签名和公证。
 
 ## Native App Smoke
 
-状态：**等待解锁 Mac**。
+状态：**限定本地闭环 PASS**。
 
-已在 `/tmp/viden-native-smoke.Hmd3ak` 准备一个带最小 README 提交的安全临时
-Git 仓库。首次 Computer Use 调用精确指向本次构建的 `.app`，但 macOS 桌面已
-锁定且自动解锁失败。因此尚未声称 Welcome、Open Project、zero-Lane、New Lane、
-composer、approval、ACP readiness、locale、skin 或 one-Lane/one-Agent 的任何
-native 结果。确定性 fixture parity 不替代 native smoke。
+独立 App 已通过 Computer Use 在 `1229x768` 下操作
+`/tmp/viden-native-smoke.Hmd3ak`。该临时 Git 仓库开始时是干净状态，只有一个
+已提交 README。纯鼠标路径覆盖 Welcome、Open Project、zero-Lane、选择内置
+Viden Agent 的 New Lane、Core 权威 preview 与应用内授权、worktree/Lane 创建、
+单一 Native execution owner、保留的首个任务提交，以及可编辑 follow-up 提交。
+Lane rail 会在授权出现时自动收起，授权操作全部直接可见，并通过真实屏幕坐标点击
+`Y · Once`。
 
-Mac 解锁后无需重建即可继续。Smoke 只能使用 fallback `test-local` model，不得
-输入凭证，关键截图必须保存到
-`docs/release-evidence/gui-d1-cockpit/native-smoke/`。
+Fallback `test-local` 已确认这些提交，但 typed user/assistant transcript rows
+仍明确显示为 `Unavailable`，因此不声称有意义的 assistant answer。ACP discovery
+仅离线检查，未登录或输入凭证。可观察到英文界面和 `aurora/dark`，但未暴露
+locale 或 skin 配置入口，因此可配置性仍是后续门禁。截图与精确边界记录在
+[GUI D1 cockpit 检查点](release-evidence/gui-d1-cockpit/checkpoints.zh-CN.md)。
 
 ## 决策
 
-确定性集成与 standalone app build 门禁通过。构建 App 完成文档规定的 desktop
-smoke 前，当前候选没有获得 native closed-loop 认证，也不能视为 main-ready。
-未执行 live provider、ACP login、credential creation、push、merge、tag、签名、
-公证、Homebrew mutation、release 或 publication。
+确定性集成、standalone app build 与限定 native closed-loop 门禁通过。当前仍是
+本地候选，而不是 distribution 或 live-provider 认证：fallback transcript
+可见性、locale/skin 配置、live provider 行为和 ACP authentication 尚未认证。
+未执行 credential creation、push、merge、tag、签名、公证、Homebrew mutation、
+release 或 publication。

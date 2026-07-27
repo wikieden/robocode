@@ -70,9 +70,11 @@ No project distribution-signing or notarization gate was run.
 
 Status: **PASS**.
 
-The smoke fixture is `/tmp/viden-native-smoke.Hmd3ak`, a clean Git repository
-with one committed README. The standalone App was exercised at `1229x768` with
-fallback `test-local`. The observed native path covered:
+The smoke fixture is `/tmp/viden-native-smoke.Hmd3ak`, which began as a clean
+Git repository with one committed README. Creating the in-repository fixture
+worktrees made those fixture paths visible as untracked state afterward; the
+standalone App was exercised at `1229x768` with fallback `test-local`. The
+observed native path covered:
 
 - persistent Welcome and Open Project;
 - a project cockpit with zero Lanes;

@@ -350,9 +350,11 @@ cargo fmt --check
 
 当前候选已通过确定性的 Core/TUI/GUI fixture parity、组件套件、dependency
 boundary、full workspace、GUI build 与 TUI smoke/regression 门禁，也成功构建
-unsigned standalone macOS app bundle。由于 Computer Use 尝试启动构建 App 时
-macOS 桌面仍锁定，native desktop 闭环认证仍为 pending；确定性 fixture 不替代
-native UI 结果，也不据此声称 native 通过。
+unsigned standalone macOS app bundle。Mac 解锁后，Computer Use 完成了限定原生
+路径：Welcome -> Open Project -> zero-Lane -> 内置 Viden Agent -> 精确应用内
+授权 -> Lane/worktree/Native owner -> 保留任务与 follow-up。Fallback transcript
+rows 仍是 typed `Unavailable`；locale/skin 配置、live provider 与 ACP
+authentication 仍是明确的后续门禁。
 详见 `docs/release-gui-0.1.0-rc.3-status.zh-CN.md` 和
 `docs/release-evidence/gui-d1-cockpit/checkpoints.md`。
 
