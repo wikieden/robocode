@@ -1621,6 +1621,121 @@ describe("D1 canonical streaming cockpit", () => {
     });
   });
 
+  test("waits for Lane creation confirmation before starting the selected ACP Agent", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const sent: D1Intent[] = [];
+    const initial = {
+      ...D1_PROJECTION,
+      selectedLaneId: null,
+      lanes: [],
+      composer: {
+        ...D1_PROJECTION.composer,
+        editable: false,
+        canCancel: false,
+      },
+    };
+    const preview = {
+      previewId: "preview-acp-confirmed",
+      contentSha256: "e".repeat(64),
+      laneId: "lane-acp-confirmed",
+      branch: "codex/lane-acp-confirmed",
+      diagnostics: [],
+    };
+    const lane = {
+      ...D1_PROJECTION.lanes[0]!,
+      id: preview.laneId,
+      branch: preview.branch,
+    };
+    const projectedLane = {
+      ...initial,
+      selectedLaneId: preview.laneId,
+      lanes: [lane],
+      starterLanePreviews: [preview],
+    };
+    const pendingProjectedLane: D1IntentResult = {
+      projection: {
+        ...projectedLane,
+        permissionDock: PERMISSION_PROJECTION.permissionDock,
+      },
+      pendingCommandId: "create-acp-awaiting-confirmation",
+      outcome: { state: "pending", reason: null },
+    };
+    const confirmedLane: D1IntentResult = {
+      projection: projectedLane,
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const session = {
+      sessionId: "acp-confirmed",
+      laneId: preview.laneId,
+      agentId: "codex-acp",
+      model: null,
+      status: "running",
+      task: "confirm before ACP start",
+      diagnostic: null,
+    };
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      sent.push(intent);
+      if (intent.type === "preview_default_lane") {
+        return {
+          projection: { ...initial, starterLanePreviews: [preview] },
+          pendingCommandId: null,
+          outcome: { state: "confirmed", reason: null },
+        };
+      }
+      if (intent.type === "create_starter_lane") return pendingProjectedLane;
+      if (intent.type === "start_agent_session") {
+        return {
+          projection: { ...projectedLane, agentSessions: [session] },
+          pendingCommandId: null,
+          outcome: { state: "confirmed", reason: null },
+        };
+      }
+      return {
+        projection: initial,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+    });
+    const controller = renderD1Cockpit(
+      root,
+      initial,
+      send,
+      async () => pendingProjectedLane,
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
+    );
+    root.querySelector<HTMLButtonElement>('[data-agent-id="codex-acp"]')?.click();
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "confirm before ACP start";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+
+    await vi.waitFor(() =>
+      expect(sent.some((intent) => intent.type === "create_starter_lane")).toBe(true),
+    );
+    expect(sent.some((intent) => intent.type === "start_agent_session")).toBe(false);
+
+    controller.applyResult(confirmedLane);
+
+    await vi.waitFor(() =>
+      expect(sent.at(-1)).toEqual({
+        type: "start_agent_session",
+        laneId: preview.laneId,
+        agentId: "codex-acp",
+        model: null,
+        task: "confirm before ACP start",
+      }),
+    );
+  });
+
   test("drains an async ACP probe queue from ordered Core poll results", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;

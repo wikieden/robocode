@@ -2,7 +2,7 @@
 
 英文版：[release-gui-0.1.0-rc.3-status.md](release-gui-0.1.0-rc.3-status.md)
 
-日期：2026-07-27
+日期：2026-07-28
 
 这是本地、未发布的集成候选。它不是 tag、push、main merge、签名或公证构建、
 Homebrew 更新、release 或 live provider 认证。
@@ -29,12 +29,12 @@ Homebrew 更新、release 或 live provider 认证。
 | 门禁 | 结果 |
 | --- | --- |
 | `bash scripts/native-acp-fixture-parity.sh` | PASS，Core、TUI、GUI 各一项精确证明 |
-| `cargo test -p viden-types` | PASS，77 passed |
+| `cargo test -p viden-types` | PASS，78 passed |
 | `cargo test -p viden-runtime` | PASS，461 passed、1 ignored |
 | `cargo test -p viden-core` | PASS，3 个手动 fixture refresh 测试 ignored |
 | `cargo test -p viden-tui` | PASS，269 个 library 与 1 个 API test |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS，17 个文件、248 个测试 |
+| `npm --prefix apps/gui test -- --run` | PASS，17 个文件、249 个测试 |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -55,7 +55,7 @@ Parity 详情见
   `target/release/bundle/macos/Viden.app/Contents/MacOS/viden-gui`
 - bundle identifier：`dev.viden.gui`
 - version：`0.1.0-rc.3`
-- executable size：`27,830,256` bytes
+- executable size：`27,832,064` bytes
 - signature：ad-hoc linker-signed，无 TeamIdentifier
 
 这不是 distribution-signed 候选；未运行项目签名和公证。
@@ -72,16 +72,24 @@ Viden Agent 的 New Lane、Core 权威 preview 与应用内授权、worktree/Lan
 Lane rail 会在授权出现时自动收起，授权操作全部直接可见，并通过真实屏幕坐标点击
 `Y · Once`。
 
-Fallback `test-local` 已确认这些提交，但 typed user/assistant transcript rows
-仍明确显示为 `Unavailable`，因此不声称有意义的 assistant answer。ACP discovery
-仅离线检查，未登录或输入凭证。可观察到英文界面和 `aurora/dark`，但未暴露
-locale 或 skin 配置入口，因此可配置性仍是后续门禁。截图与精确边界记录在
+Fallback `test-local` 已确认 Native 提交，但 typed user/assistant transcript
+rows 仍明确显示为 `Unavailable`，因此不声称有意义的 Native assistant answer。
+第二个干净 fixture `/tmp/viden-codex-acp-final.wYycYE` 使用本机已登录的 Codex
+ACP adapter 完成实测：App 发现 Codex，创建并授权一个 Lane，把临时 Lane owner
+提升为精确 ACP session owner，界面显示 `Route ACP`，并完成 session
+`agent-session_1785242592994456000`；结果为 `end_turn`、无 tool call，精确回答
+`GUI ACP OWNER OK`。这只认证当前本机 ChatGPT 登录下的 Codex ACP 路径，不认证
+可移植凭证、Claude/Kiro 登录或 OpenAI provider release。
+
+可观察到英文界面和 `aurora/dark`，但未暴露 locale 或 skin 配置入口，因此
+可配置性仍是后续门禁。截图与精确边界记录在
 [GUI D1 cockpit 检查点](release-evidence/gui-d1-cockpit/checkpoints.zh-CN.md)。
 
 ## 决策
 
 确定性集成、standalone app build 与限定 native closed-loop 门禁通过。当前仍是
 本地候选，而不是 distribution 或 live-provider 认证：fallback transcript
-可见性、locale/skin 配置、live provider 行为和 ACP authentication 尚未认证。
-未执行 credential creation、push、merge、tag、签名、公证、Homebrew mutation、
-release 或 publication。
+可见性、locale/skin 配置、DeepSeek/OpenAI provider 行为和 Claude/Kiro ACP
+authentication 尚未认证；Codex ACP 仅认证当前本机 ChatGPT 登录。未执行
+credential creation、push、merge、tag、签名、公证、Homebrew mutation、release
+或 publication。

@@ -1148,7 +1148,7 @@ pub fn builtin_agent_descriptors() -> Vec<AgentPluginDescriptor> {
         registry_acp_agent(
             "codex-acp",
             "Codex",
-            "1.1.4",
+            "1.1.7",
             "@agentclientprotocol/codex-acp",
             &[
                 AgentPluginCapability::SessionPrompt,
@@ -1351,10 +1351,10 @@ mod tests {
             .iter()
             .find(|agent| agent.agent_id == "codex-acp")
             .expect("codex descriptor");
-        assert_eq!(codex.version, "1.1.4");
+        assert_eq!(codex.version, "1.1.7");
         assert_eq!(
             codex.command.args,
-            vec!["-y", "@agentclientprotocol/codex-acp@1.1.4"]
+            vec!["-y", "@agentclientprotocol/codex-acp@1.1.7"]
         );
     }
 

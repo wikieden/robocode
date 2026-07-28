@@ -323,6 +323,7 @@ export function renderD1Cockpit(
           pollInFlight = false;
           if (disposed) return;
           releaseCommandSlotWaiters();
+          queueMicrotask(maybeResumeLaneStart);
           queueMicrotask(advanceAgentDiscovery);
           schedulePoll();
         });
@@ -437,8 +438,10 @@ export function renderD1Cockpit(
   async function maybeResumeLaneStart(): Promise<void> {
     const pending = pendingLaneStart;
     if (!pending || !projection.lanes.some((lane) => lane.id === pending.laneId)) return;
+    if (!commandSlotAvailable()) return;
     // Approval resolves asynchronously; resume only after Core projects the
-    // exact created Lane, while retaining its sole Agent task locally.
+    // exact confirmed Lane and releases the command slot, while retaining its
+    // sole Agent task locally.
     pendingLaneStart = null;
     selectedLaneId = pending.laneId;
     if (pending.agentId === null) {

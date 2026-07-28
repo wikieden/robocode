@@ -2,7 +2,7 @@
 
 英文版：[checkpoints.md](checkpoints.md)
 
-日期：2026-07-27
+日期：2026-07-28
 
 本证据只描述本地候选，不是已发布、签名、公证、push、merge、tag 或 live
 provider 认证的 release。
@@ -29,12 +29,12 @@ provider 认证的 release。
 | 命令 | 结果 |
 | --- | --- |
 | `bash scripts/native-acp-fixture-parity.sh` | PASS：精确 Core replay/hash、TUI render 与 GUI projection 证明 |
-| `cargo test -p viden-types` | PASS，77 |
+| `cargo test -p viden-types` | PASS，78 |
 | `cargo test -p viden-runtime` | PASS，461 + 1 ignored |
 | `cargo test -p viden-core` | PASS |
 | `cargo test -p viden-tui` | PASS，269 + 1 API |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS，17 files / 248 tests |
+| `npm --prefix apps/gui test -- --run` | PASS，17 files / 249 tests |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -42,7 +42,7 @@ provider 认证的 release。
 | `scripts/tui-regression.sh` | Core 0.3.5 extension count 修复后 PASS |
 | `scripts/rc-tui-stability-smoke.sh` | 同一修复后 PASS |
 | `cargo fmt --all -- --check` | PASS |
-| `npm --prefix apps/gui test -- tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts --run` | Native smoke 修复后 PASS，69 tests |
+| `npm --prefix apps/gui test -- tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts --run` | Codex ACP 修复后 PASS，70 tests |
 | `git diff --check` | PASS |
 
 Canonical parity fixture 含 22 个事件，终点为
@@ -61,7 +61,7 @@ Canonical parity fixture 含 22 个事件，终点为
 - `CFBundleIdentifier`：`dev.viden.gui`
 - `CFBundleExecutable`：`viden-gui`
 - `CFBundleShortVersionString`：`0.1.0-rc.3`
-- executable size：`27,830,256` bytes
+- executable size：`27,832,064` bytes
 - signature：ad-hoc linker-signed，无 TeamIdentifier
 
 未运行项目 distribution-signing 或公证门禁。
@@ -104,3 +104,21 @@ Create 持续等待而没有把控制权交给交互授权，以及 Lane 注册�
 Create owner 投影授权。对重建 App 的最终纯鼠标复验已通过：授权出现时 Lane rail
 自动收起，所有授权操作无遮挡，并通过真实坐标点击 `Y · Once`，继续得到精确 Lane、
 branch、worktree、Native owner 与保留的首个任务提交。
+
+## Codex ACP Native Smoke
+
+状态：**当前本机 Codex 登录下 PASS**。
+
+重建 App 另行针对干净临时 Git 仓库
+`/tmp/viden-codex-acp-final.wYycYE` 完成实测。观察路径覆盖 ACP discovery、
+选择 Codex、Core 权威 Lane preview、`Y · Once` 授权、Lane/worktree 创建与保留的
+首个任务。Core 把临时 Lane worker owner 提升为首个精确 Agent session owner；
+GUI 随后显示 `Route ACP`、`Status completed` 与 session
+`agent-session_1785242592994456000`，不再错误显示 Native projection。
+
+持久 ACP 结果记录 protocol session
+`019fa8c0-38cd-7893-be7d-baddaaea775c`、`end_turn`、无 tool call、token usage
+`29872/29864/8`，以及精确回答 `GUI ACP OWNER OK`。完成后 composer 保持可编辑；
+精确 owner 的 ACP follow-up 路由由确定性 GUI 测试覆盖。本证据严格限定为当前机器
+已有的 ChatGPT Codex 登录，不认证可移植 auth、Claude/Kiro ACP auth、
+DeepSeek/OpenAI provider 配置、签名或分发。

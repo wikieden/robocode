@@ -3,7 +3,7 @@
 Chinese version:
 [release-gui-0.1.0-rc.3-status.zh-CN.md](release-gui-0.1.0-rc.3-status.zh-CN.md)
 
-Date: 2026-07-27
+Date: 2026-07-28
 
 This is a local, unpublished integration candidate. It is not a tag, push,
 main merge, signed or notarized build, Homebrew update, release, or live
@@ -32,12 +32,12 @@ be attributed to this rebuilt line.
 | Gate | Result |
 | --- | --- |
 | `bash scripts/native-acp-fixture-parity.sh` | PASS, one exact Core, TUI, and GUI proof |
-| `cargo test -p viden-types` | PASS, 77 passed |
+| `cargo test -p viden-types` | PASS, 78 passed |
 | `cargo test -p viden-runtime` | PASS, 461 passed and 1 ignored |
 | `cargo test -p viden-core` | PASS, 3 manual fixture refresh tests ignored |
 | `cargo test -p viden-tui` | PASS, 269 library and 1 API test |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS, 17 files and 248 tests |
+| `npm --prefix apps/gui test -- --run` | PASS, 17 files and 249 tests |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -59,7 +59,7 @@ The parity details are recorded in
   `target/release/bundle/macos/Viden.app/Contents/MacOS/viden-gui`
 - bundle identifier: `dev.viden.gui`
 - version: `0.1.0-rc.3`
-- executable size: `27,830,256` bytes
+- executable size: `27,832,064` bytes
 - signature: ad-hoc linker-signed, no TeamIdentifier
 
 This is not a distribution-signed candidate. Project signing and notarization
@@ -78,12 +78,20 @@ Native execution owner, retained initial-task submission, and editable
 follow-up submission. Approval actions were directly visible after the Lane
 rail collapsed, and `Y · Once` was clicked with real screen coordinates.
 
-The fallback `test-local` provider confirmed the submissions, but typed user
-and assistant transcript rows remained explicitly `Unavailable`; no
-meaningful assistant answer is claimed. ACP discovery was inspected offline
-without login or credentials. English and `aurora/dark` were observable, but
-no locale or skin configuration entry was exposed, so configurability remains
-an explicit future gate. Screenshots and the exact boundary are recorded in
+The fallback `test-local` provider confirmed the Native submissions, but typed
+user and assistant transcript rows remained explicitly `Unavailable`; no
+meaningful Native assistant answer is claimed. A second clean fixture,
+`/tmp/viden-codex-acp-final.wYycYE`, exercised the locally logged-in Codex ACP
+adapter. The App discovered Codex, created and approved one Lane, promoted the
+provisional Lane owner to the exact ACP session owner, displayed `Route ACP`,
+and completed session `agent-session_1785242592994456000` with `end_turn`,
+no tool calls, and the exact answer `GUI ACP OWNER OK`. This certifies the
+current local ChatGPT-authenticated Codex ACP path, not portable credentials,
+Claude/Kiro authentication, or an OpenAI provider release.
+
+English and `aurora/dark` were observable, but no locale or skin configuration
+entry was exposed, so configurability remains an explicit future gate.
+Screenshots and the exact boundary are recorded in
 [GUI D1 cockpit checkpoints](release-evidence/gui-d1-cockpit/checkpoints.md).
 
 ## Decision
@@ -91,6 +99,8 @@ an explicit future gate. Screenshots and the exact boundary are recorded in
 The deterministic integration, standalone-app build, and scoped native
 closed-loop gates pass. This remains a local candidate rather than a
 distribution or live-provider certification: fallback transcript visibility,
-locale/skin configuration, live provider behavior, and ACP authentication are
-not certified. No credential creation, push, merge, tag, signing,
-notarization, Homebrew mutation, release, or publication was performed.
+locale/skin configuration, DeepSeek/OpenAI provider behavior, and Claude/Kiro
+ACP authentication are not certified. Codex ACP is certified only for the
+current local ChatGPT login. No credential creation, push, merge, tag,
+signing, notarization, Homebrew mutation, release, or publication was
+performed.

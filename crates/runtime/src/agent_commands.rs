@@ -6088,7 +6088,15 @@ fn configure_acp_agent_process_env(
     command: &mut Command,
 ) -> Result<(), String> {
     if matches!(agent.source, AgentSource::Registry) {
-        let cache_dir = cwd.join(".viden").join("cache").join("npm");
+        // npm exec keeps generated bin shims under the cache's `_npx`
+        // directory. Isolate each registry release so an interrupted install
+        // cannot poison other agents or a later package version.
+        let cache_dir = cwd
+            .join(".viden")
+            .join("cache")
+            .join("npm")
+            .join(acp_registry_cache_component(&agent.agent_id))
+            .join(acp_registry_cache_component(&agent.version));
         fs::create_dir_all(&cache_dir).map_err(|err| {
             format!(
                 "failed to create ACP registry npm cache {}: {err}",
@@ -6103,6 +6111,25 @@ fn configure_acp_agent_process_env(
             .env("npm_config_update_notifier", "false");
     }
     Ok(())
+}
+
+fn acp_registry_cache_component(value: &str) -> String {
+    let component = value
+        .chars()
+        .take(80)
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if component.is_empty() {
+        "unknown".to_string()
+    } else {
+        component
+    }
 }
 
 fn spawn_codex_app_server(cwd: &Path, command: &str) -> Result<Child, String> {
@@ -8639,7 +8666,7 @@ mod tests {
     }
 
     #[test]
-    fn acp_registry_agent_uses_project_scoped_npm_cache() {
+    fn acp_registry_agent_uses_version_scoped_npm_cache() {
         let _guard = subprocess_test_guard();
         let root = temp_root("acp_registry_npm_cache");
         let script = root.join("mock-registry-acp.sh");
@@ -8648,7 +8675,7 @@ mod tests {
             [
                 "#!/bin/sh",
                 "case \"$npm_config_cache\" in",
-                "  */.viden/cache/npm) ;;",
+                "  */.viden/cache/npm/mock-registry-cache/test) ;;",
                 "  *) echo \"unexpected npm_config_cache=$npm_config_cache\" >&2; exit 7 ;;",
                 "esac",
                 "test \"$NPM_CONFIG_CACHE\" = \"$npm_config_cache\" || exit 8",
@@ -8668,7 +8695,10 @@ mod tests {
             .expect("registry probe succeeds");
 
         assert_eq!(evidence.agent_label, "mock-registry-cache 0.1.0");
-        assert!(root.join(".viden/cache/npm").is_dir());
+        assert!(
+            root.join(".viden/cache/npm/mock-registry-cache/test")
+                .is_dir()
+        );
     }
 
     #[test]

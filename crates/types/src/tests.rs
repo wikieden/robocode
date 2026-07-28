@@ -2482,6 +2482,59 @@ fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
 }
 
 #[test]
+fn first_agent_session_promotes_the_provisional_lane_runtime_owner() {
+    let provisional_owner = RuntimeOwner {
+        workspace_id: "workspace-agent".to_string(),
+        project_id: "project-agent".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    let session_owner = RuntimeOwner {
+        session_id: Some("agent-session-1".to_string()),
+        turn_id: Some("turn-agent".to_string()),
+        ..provisional_owner.clone()
+    };
+    let session = AgentSessionView {
+        session_id: "agent-session-1".to_string(),
+        lane_id: "lane-agent".to_string(),
+        agent_id: "codex-acp".to_string(),
+        model: None,
+        status: AgentSessionStatus::Starting,
+        owner: session_owner.clone(),
+        task: "inspect the repository".to_string(),
+        diagnostic: None,
+    };
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: "lane-agent".to_string(),
+                owner: provisional_owner,
+            },
+        },
+    ));
+
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::AgentSessionStarted {
+            session: session.clone(),
+        },
+    ));
+
+    assert_eq!(view.agent_sessions, vec![session]);
+    assert_eq!(
+        view.lane_runtime_owners,
+        vec![LaneRuntimeOwnerBinding {
+            lane_id: "lane-agent".to_string(),
+            owner: session_owner,
+        }]
+    );
+}
+
+#[test]
 fn legacy_runtime_view_without_agent_extensions_defaults_to_empty_collections() {
     let view = RuntimeViewState::new(runtime_snapshot_for_contract());
     let mut encoded = serde_json::to_value(view).unwrap();

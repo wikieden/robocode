@@ -970,6 +970,21 @@ impl RuntimeViewState {
                         existing.session_id == session.session_id
                     });
                     cap_vec(&mut self.agent_sessions);
+                    // Lane creation binds its worker before an Agent session exists.
+                    // Promote that provisional identity exactly once so the first
+                    // Core-published session becomes the Lane's routable owner.
+                    if session.owner.lane_id.as_ref() == Some(&session.lane_id)
+                        && session.owner.session_id.as_ref() == Some(&session.session_id)
+                        && let Some(binding) = self.lane_runtime_owners.iter_mut().find(|binding| {
+                            binding.lane_id == session.lane_id
+                                && binding.owner.session_id.is_none()
+                                && binding.owner.workspace_id == session.owner.workspace_id
+                                && binding.owner.project_id == session.owner.project_id
+                                && binding.owner.lane_id == session.owner.lane_id
+                        })
+                    {
+                        binding.owner = session.owner.clone();
+                    }
                 }
             }
             RuntimeEventKind::AgentSessionInputAccepted {

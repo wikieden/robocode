@@ -2,7 +2,7 @@
 
 Chinese version: [checkpoints.zh-CN.md](checkpoints.zh-CN.md)
 
-Date: 2026-07-27
+Date: 2026-07-28
 
 This evidence describes a local candidate only. It is not a published,
 signed, notarized, pushed, merged, tagged, or live-provider-certified release.
@@ -29,12 +29,12 @@ historical blocked evidence. The table above is the current candidate.
 | Command | Result |
 | --- | --- |
 | `bash scripts/native-acp-fixture-parity.sh` | PASS: exact Core replay/hash, TUI render, and GUI projection proofs |
-| `cargo test -p viden-types` | PASS, 77 |
+| `cargo test -p viden-types` | PASS, 78 |
 | `cargo test -p viden-runtime` | PASS, 461 + 1 ignored |
 | `cargo test -p viden-core` | PASS |
 | `cargo test -p viden-tui` | PASS, 269 + 1 API |
 | `cargo test -p viden-gui` | PASS |
-| `npm --prefix apps/gui test -- --run` | PASS, 17 files / 248 tests |
+| `npm --prefix apps/gui test -- --run` | PASS, 17 files / 249 tests |
 | `npm --prefix apps/gui run build` | PASS |
 | `bash scripts/check-dependency-boundaries.sh` | PASS |
 | `cargo test --workspace --quiet` | PASS |
@@ -42,7 +42,7 @@ historical blocked evidence. The table above is the current candidate.
 | `scripts/tui-regression.sh` | PASS after Core 0.3.5 extension count repair |
 | `scripts/rc-tui-stability-smoke.sh` | PASS after the same repair |
 | `cargo fmt --all -- --check` | PASS |
-| `npm --prefix apps/gui test -- tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts --run` | PASS, 69 tests after native-smoke repairs |
+| `npm --prefix apps/gui test -- tests/agent_menu.spec.ts tests/d1_cockpit.spec.ts --run` | PASS, 70 tests after Codex ACP repairs |
 | `git diff --check` | PASS |
 
 The canonical parity fixture contains 22 events and ends at
@@ -61,7 +61,7 @@ See
 - `CFBundleIdentifier`: `dev.viden.gui`
 - `CFBundleExecutable`: `viden-gui`
 - `CFBundleShortVersionString`: `0.1.0-rc.3`
-- executable size: `27,830,256` bytes
+- executable size: `27,832,064` bytes
 - signature: ad-hoc linker-signed, no TeamIdentifier
 
 No project distribution-signing or notarization gate was run.
@@ -112,3 +112,25 @@ mouse-only retest of the rebuilt App passed: the Lane rail collapsed when the
 approval appeared, all approval actions were unobscured, and a real-coordinate
 click on `Y · Once` continued to the exact created Lane, branch, worktree,
 Native owner, and retained initial task submission.
+
+## Codex ACP Native Smoke
+
+Status: **PASS FOR THE CURRENT LOCAL CODEX LOGIN**.
+
+The rebuilt App was separately run against the clean temporary Git repository
+`/tmp/viden-codex-acp-final.wYycYE`. The observed path covered ACP discovery,
+Codex selection, Core-owned Lane preview, `Y · Once` approval, Lane/worktree
+creation, and the retained initial task. Core promoted the provisional
+Lane-worker owner to the first exact Agent session owner; the GUI then showed
+`Route ACP`, `Status completed`, and session
+`agent-session_1785242592994456000` instead of the previous incorrect Native
+projection.
+
+The durable ACP result recorded protocol session
+`019fa8c0-38cd-7893-be7d-baddaaea775c`, `end_turn`, no tool calls, token usage
+`29872/29864/8`, and exact answer `GUI ACP OWNER OK`. The composer remained
+editable after completion, while deterministic GUI tests cover exact-owner ACP
+follow-up routing. This evidence is intentionally limited to the current
+machine's existing ChatGPT Codex login. It does not certify portable auth,
+Claude/Kiro ACP auth, DeepSeek/OpenAI provider configuration, signing, or
+distribution.
