@@ -874,8 +874,12 @@ export function renderD1Cockpit(
     const canCancelAcp = focusedAcp
       ? ["starting", "running", "waiting_approval"].includes(focusedAcp.status)
       : false;
+    const canCancelFocusedConversation =
+      focusedConversation?.kind === "acp"
+        ? canCancelAcp
+        : Boolean(projection.composer.canCancel && selectedLaneId);
     const mutationBlock = composerMutationBlockReason(projection, selectedLaneId);
-    if (!mutationBlock && ((projection.composer.canCancel && selectedLaneId) || canCancelAcp)) {
+    if (!mutationBlock && canCancelFocusedConversation) {
       const cancel = button(translate(locale, "d1.cancel", {}), "cancelTurn");
       cancel.addEventListener("click", () => {
         const commandBlock = composerMutationBlockReason(projection, selectedLaneId);
@@ -916,7 +920,21 @@ export function renderD1Cockpit(
       showWelcome,
       ariaLabel: translate(locale, "d1.workSurface", {}),
     });
-    const right = renderContextDock(projection, locale, projectionMatchesSelectedLane);
+    // The selected ACP session supplies typed task/status/output rows, so stale
+    // native transcript capability gaps must not contradict the visible facts.
+    const contextDockProjection = focusedAcp
+      ? {
+          ...projection,
+          unavailableFeatures: projection.unavailableFeatures.filter(
+            ({ id }) => id !== "transcript_user" && id !== "transcript_assistant",
+          ),
+        }
+      : projection;
+    const right = renderContextDock(
+      contextDockProjection,
+      locale,
+      projectionMatchesSelectedLane,
+    );
     right.dataset.drawerOpen = String(contextDrawerOpen);
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
     topbar.contextDrawerToggle.addEventListener("click", () => {

@@ -204,8 +204,24 @@ describe("D1 canonical streaming cockpit", () => {
       composer: {
         ...D1_PROJECTION.composer,
         busy: false,
-        canCancel: false,
+        // Native turn state may lag behind the selected ACP route.
+        canCancel: true,
       },
+      unavailableFeatures: [
+        ...D1_PROJECTION.unavailableFeatures,
+        {
+          id: "transcript_user",
+          available: false as const,
+          code: "GUI-CORE-009",
+          message: "Typed user prompt rows are unavailable.",
+        },
+        {
+          id: "transcript_assistant",
+          available: false as const,
+          code: "GUI-CORE-009",
+          message: "Owner-scoped assistant rows are unavailable.",
+        },
+      ],
       recovery: {
         ...D1_PROJECTION.recovery,
         state: "agent_stopped" as const,
@@ -221,6 +237,9 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-acp-output] pre")?.textContent).toBe(
       "ACP-GUI-CLOSED-LOOP-OK",
     );
+    expect(root.querySelector("[data-cancel-turn]")).toBeNull();
+    expect(root.querySelector('[data-unavailable-feature="transcript_user"]')).toBeNull();
+    expect(root.querySelector('[data-unavailable-feature="transcript_assistant"]')).toBeNull();
   });
 
   test("keeps recovery visible when the selected ACP session itself failed", () => {
