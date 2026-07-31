@@ -2055,6 +2055,7 @@ mod tests {
                 owner: owner.clone(),
                 task: "implement".to_string(),
                 diagnostic: None,
+                output: None,
             });
         state.ui.focused_lane = Some("lane-1".to_string());
         state.ui.session_id = "acp-1".to_string();
@@ -2235,6 +2236,7 @@ mod tests {
                 owner: owner.clone(),
                 task: "failed task".to_string(),
                 diagnostic: Some("recoverable".to_string()),
+                output: None,
             });
         state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
             selected: 0,

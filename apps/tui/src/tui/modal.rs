@@ -971,6 +971,7 @@ mod tests {
                 },
                 task: "continue implementation".to_string(),
                 diagnostic: None,
+                output: None,
             });
         state
             .runtime
