@@ -776,6 +776,7 @@ impl RuntimeProjection {
                     status: agent_session_status(session.status).to_string(),
                     task: session.task.clone(),
                     diagnostic: session.diagnostic.clone(),
+                    output: session.output.clone(),
                 })
                 .collect(),
             // Session-input views do not carry a RuntimeOwner. Exclude them rather
@@ -997,5 +998,103 @@ fn check_run_status(status: CheckRunStatus) -> &'static str {
         CheckRunStatus::Passed => "passed",
         CheckRunStatus::Failed => "failed",
         CheckRunStatus::Cancelled => "cancelled",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::path::PathBuf;
+
+    use viden_core::{
+        AgentLaneRecord, AgentRole, AgentRoute, AgentSessionStatus, AgentSessionView,
+        COCKPIT_CONTEXT_CAPABILITY, CapabilityId, DataEgressPolicy, EventCursor, ExecutionTarget,
+        FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
+        MutationPolicy, PermissionLevel, PermissionMode, ResolvedUiPreferences, RuntimeOwner,
+        RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, WorkMode,
+    };
+
+    use crate::d1::D1_OWNER_CAPABILITY;
+
+    use super::RuntimeProjection;
+
+    #[test]
+    fn d1_projects_completed_acp_output_for_the_exact_lane_owner() {
+        let snapshot = RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace/viden"),
+            provider_family: "deepseek".to_string(),
+            model_label: "deepseek-v4-flash".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: String::new(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: ResolvedUiPreferences::default(),
+        };
+        let owner = RuntimeOwner {
+            workspace_id: "workspace-contract-v1".to_string(),
+            project_id: "project-viden".to_string(),
+            lane_id: Some("lane-acp".to_string()),
+            session_id: Some("session-acp".to_string()),
+            task_id: None,
+            turn_id: None,
+        };
+        let mut view = RuntimeViewState::new(snapshot.clone());
+        view.lanes.push(AgentLaneRecord {
+            id: "lane-acp".to_string(),
+            task_id: None,
+            role: AgentRole::Coder,
+            route: AgentRoute::Acp,
+            gate_strength: GateStrength::Full,
+            mutation_policy: MutationPolicy::ProposeOnly,
+            worktree: Some("/workspace/viden/.worktrees/lane-acp".to_string()),
+            branch: Some("viden/lane-acp".to_string()),
+            target: ExecutionTarget::Local,
+            data_egress: DataEgressPolicy::Deny,
+            status: LaneStatus::Done,
+            budget: LaneBudget::default(),
+            active_session_ids: vec!["session-acp".to_string()],
+            summary: "Return an exact response".to_string(),
+            evidence: Vec::new(),
+        });
+        view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+            lane_id: "lane-acp".to_string(),
+            owner: owner.clone(),
+        });
+        view.agent_sessions.push(AgentSessionView {
+            session_id: "session-acp".to_string(),
+            lane_id: "lane-acp".to_string(),
+            agent_id: "codex-acp".to_string(),
+            model: None,
+            status: AgentSessionStatus::Completed,
+            owner,
+            task: "Return an exact response".to_string(),
+            diagnostic: None,
+            output: Some("ACP-GUI-CLOSED-LOOP-OK".to_string()),
+        });
+        let mut projection = RuntimeProjection::default();
+        projection.replace(RuntimeSnapshotEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            capabilities: BTreeSet::from([
+                CapabilityId(D1_OWNER_CAPABILITY.to_string()),
+                CapabilityId(COCKPIT_CONTEXT_CAPABILITY.to_string()),
+            ]),
+            cursor: EventCursor {
+                stream_id: "stream-acp".to_string(),
+                sequence: 1,
+            },
+            snapshot,
+            view,
+        });
+
+        let cockpit = projection
+            .d1_cockpit(Some("lane-acp"))
+            .expect("D1 cockpit projection");
+
+        assert_eq!(
+            cockpit.agent_sessions[0].output.as_deref(),
+            Some("ACP-GUI-CLOSED-LOOP-OK")
+        );
     }
 }

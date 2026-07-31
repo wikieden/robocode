@@ -642,6 +642,7 @@ fn d1_acp_follow_up_preserves_exact_session_and_owner() {
         owner: session_owner.clone(),
         task: "review".into(),
         diagnostic: None,
+        output: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));
@@ -691,6 +692,7 @@ fn acp_input_rejects_a_malformed_duplicate_lane_binding_without_transport() {
         owner: session_owner,
         task: "review".into(),
         diagnostic: None,
+        output: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));
@@ -729,6 +731,7 @@ fn busy_acp_follow_up_queues_through_the_selected_exact_owner() {
         owner: acp_owner.clone(),
         task: "review".into(),
         diagnostic: None,
+        output: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));

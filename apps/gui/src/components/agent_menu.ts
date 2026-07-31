@@ -220,14 +220,19 @@ export function renderAgentMenu(
       model.probing ||
       selected === undefined ||
       taskDraft.trim().length === 0;
+    let selectedAcpName: string | null = null;
+    if (selected?.kind === "acp") {
+      const selectedAgentId = selected.agentId;
+      selectedAcpName =
+        model.adapters.find((adapter) => adapter.agentId === selectedAgentId)?.displayName ??
+        selectedAgentId;
+    }
     create.textContent =
       selected?.kind === "native"
         ? translate(model.locale, "d1.task.nativeTitle", {})
-        : selected?.kind === "acp"
+        : selectedAcpName
           ? translate(model.locale, "d1.task.acpTitle", {
-              agent:
-                model.adapters.find((adapter) => adapter.agentId === selected?.agentId)
-                  ?.displayName ?? selected.agentId,
+              agent: selectedAcpName,
             })
           : translate(model.locale, "d1.task.submit", {});
     diagnostic.textContent =

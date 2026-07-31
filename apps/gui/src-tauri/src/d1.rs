@@ -296,6 +296,8 @@ pub struct D1AgentSessionProjection {
     pub status: String,
     pub task: String,
     pub diagnostic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

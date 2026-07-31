@@ -186,6 +186,73 @@ describe("D1 canonical streaming cockpit", () => {
     expect(document.activeElement).toBe(root.querySelector("[data-composer]"));
   });
 
+  test("shows completed ACP output instead of an unrelated stale agent-stopped recovery", () => {
+    const projection = {
+      ...D1_PROJECTION,
+      agentSessions: [
+        {
+          sessionId: "session-lane-core",
+          laneId: "lane-core",
+          agentId: "codex-acp",
+          model: null,
+          status: "completed",
+          task: "Return an exact response",
+          diagnostic: null,
+          output: "ACP-GUI-CLOSED-LOOP-OK",
+        },
+      ],
+      composer: {
+        ...D1_PROJECTION.composer,
+        busy: false,
+        canCancel: false,
+      },
+      recovery: {
+        ...D1_PROJECTION.recovery,
+        state: "agent_stopped" as const,
+        detail: "A previous execution stopped.",
+        recoverable: true,
+        businessSuccessBlocked: true,
+      },
+    };
+
+    const { root } = setup(projection);
+
+    expect(root.querySelector("[data-d6-state='agent_stopped']")).toBeNull();
+    expect(root.querySelector("[data-acp-output] pre")?.textContent).toBe(
+      "ACP-GUI-CLOSED-LOOP-OK",
+    );
+  });
+
+  test("keeps recovery visible when the selected ACP session itself failed", () => {
+    const projection = {
+      ...D1_PROJECTION,
+      agentSessions: [
+        {
+          sessionId: "session-lane-core",
+          laneId: "lane-core",
+          agentId: "codex-acp",
+          model: null,
+          status: "failed",
+          task: "Return an exact response",
+          diagnostic: "ACP transport stopped",
+          output: null,
+        },
+      ],
+      recovery: {
+        ...D1_PROJECTION.recovery,
+        state: "agent_stopped" as const,
+        detail: "ACP transport stopped",
+        recoverable: true,
+        businessSuccessBlocked: true,
+      },
+    };
+
+    const { root } = setup(projection);
+
+    expect(root.querySelector("[data-d6-state='agent_stopped']")).not.toBeNull();
+    expect(root.querySelector("[data-acp-output]")).toBeNull();
+  });
+
   test("renders the selected Lane work surface in typed center sequence with semantic landmarks", () => {
     const { root, controller } = setup(CENTER_SEQUENCE_PROJECTION, { poll: false });
     const sequence = root.querySelector<HTMLElement>("[data-center-sequence]");
@@ -944,6 +1011,9 @@ describe("D1 canonical streaming cockpit", () => {
       sessionId: "acp-restored",
       content: "continue",
     });
+    expect(root.querySelector("[data-acp-status] pre")?.textContent).toBe(
+      "codex-acp · running",
+    );
   });
 
   test("Cancel is offered only from typed canCancel state", () => {

@@ -198,6 +198,7 @@ export interface D1CockpitProjection {
     status: string;
     task: string;
     diagnostic: string | null;
+    output?: string | null;
   }>;
   composer: {
     editable: boolean;

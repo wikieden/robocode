@@ -113,8 +113,10 @@ function appendUnavailableTranscriptRows(
   root: HTMLElement,
   unavailableFeatures: D1CockpitProjection["unavailableFeatures"],
   locale: D1CockpitProjection["preferences"]["locale"],
+  availableKinds: ReadonlySet<"user" | "assistant"> = new Set(),
 ): void {
   for (const kind of ["user", "assistant"] as const) {
+    if (availableKinds.has(kind)) continue;
     const feature = unavailableFeatures.find((candidate) => candidate.id === `transcript_${kind}`);
     if (!feature) continue;
     const placeholder = document.createElement("article");
@@ -128,6 +130,31 @@ function appendUnavailableTranscriptRows(
     placeholder.title = feature.code;
     root.append(placeholder);
   }
+}
+
+function appendAcpConversationRows(
+  root: HTMLElement,
+  session: D1CockpitProjection["agentSessions"][number],
+): void {
+  appendTranscriptRows(root, [
+    {
+      id: `acp-task-${session.sessionId}`,
+      kind: "user",
+      content: session.task,
+    },
+  ]);
+  root.lastElementChild?.setAttribute("data-acp-task", "true");
+  appendTranscriptRows(root, [
+    {
+      id: `acp-output-${session.sessionId}`,
+      kind: session.output ? "assistant" : "assistant_status",
+      content: session.output ?? `${session.agentId} · ${session.status}`,
+    },
+  ]);
+  root.lastElementChild?.setAttribute(
+    session.output ? "data-acp-output" : "data-acp-status",
+    "true",
+  );
 }
 
 export function renderD1Cockpit(
@@ -707,7 +734,20 @@ export function renderD1Cockpit(
     });
     const workSurface = document.createElement("section");
     workSurface.className = "d1-work-surface";
-    const showRecovery = !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state);
+    const focusedAcpSessionId =
+      focusedConversation?.kind === "acp" ? focusedConversation.sessionId : null;
+    const focusedAcp = focusedAcpSessionId
+      ? projection.agentSessions.find(
+          (session) => session.sessionId === focusedAcpSessionId,
+        )
+      : null;
+    const focusedAcpOwnsLiveSurface =
+      focusedAcp !== null &&
+      focusedAcp !== undefined &&
+      ["starting", "running", "waiting_approval", "completed"].includes(focusedAcp.status);
+    const showRecovery =
+      !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state) &&
+      !(projection.recovery.state === "agent_stopped" && focusedAcpOwnsLiveSurface);
     if (showWelcome) {
       renderWelcomeCenter(workSurface, locale, options.onOpenProject);
     } else if (showRecovery) {
@@ -732,7 +772,18 @@ export function renderD1Cockpit(
       const visibleRows = projectionMatchesSelectedLane
         ? transcript.visible(transcriptRegion.clientHeight || 720, 36)
         : [];
-      appendUnavailableTranscriptRows(transcriptRegion, projection.unavailableFeatures, locale);
+      const acpKinds = new Set<"user" | "assistant">();
+      if (focusedAcp) {
+        acpKinds.add("user");
+        acpKinds.add("assistant");
+        appendAcpConversationRows(transcriptRegion, focusedAcp);
+      }
+      appendUnavailableTranscriptRows(
+        transcriptRegion,
+        projection.unavailableFeatures,
+        locale,
+        acpKinds,
+      );
       appendTranscriptRows(transcriptRegion, visibleRows);
       if (projectionMatchesSelectedLane) {
         appendTypedWorkCards(transcriptRegion, projection.contextDock.checklist, locale);
@@ -820,13 +871,6 @@ export function renderD1Cockpit(
     submit.disabled = composer.disabled;
     submit.addEventListener("click", () => submitComposer(composer.value));
     composerRegion.append(submit);
-    const focusedAcpSessionId =
-      focusedConversation?.kind === "acp" ? focusedConversation.sessionId : null;
-    const focusedAcp = focusedAcpSessionId
-      ? projection.agentSessions.find(
-          (session) => session.sessionId === focusedAcpSessionId,
-        )
-      : null;
     const canCancelAcp = focusedAcp
       ? ["starting", "running", "waiting_approval"].includes(focusedAcp.status)
       : false;
