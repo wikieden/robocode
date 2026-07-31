@@ -160,7 +160,7 @@ export function renderD1Cockpit(
   let menuController: AgentMenuController | null = null;
   let agentMenuOpen = false;
   let remountingAgentMenu = false;
-  let newLaneSelection: AgentMenuSelection = { kind: "native" };
+  let newLaneSelection: AgentMenuSelection | undefined;
   let pendingAgentTaskDraft = "";
   let creatingLane = false;
   const commandSlotWaiters: Array<() => void> = [];
@@ -502,7 +502,7 @@ export function renderD1Cockpit(
         creatingLane = false;
         if (!remountingAgentMenu) {
           pendingAgentTaskDraft = "";
-          newLaneSelection = { kind: "native" };
+          newLaneSelection = undefined;
         }
       },
       async (selection, task) => {
@@ -524,7 +524,7 @@ export function renderD1Cockpit(
         menuController?.close();
         menuController = null;
         pendingAgentTaskDraft = "";
-        newLaneSelection = { kind: "native" };
+        newLaneSelection = undefined;
         return true;
       },
       (task) => {

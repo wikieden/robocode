@@ -75,7 +75,7 @@ export function renderAgentMenu(
   menu.setAttribute("aria-label", translate(model.locale, "d1.agentMenu.title", {}));
   menu.setAttribute("aria-busy", String(model.probing));
 
-  let selected = model.selected ?? { kind: "native" };
+  let selected = model.selected;
   let taskDraft = model.taskDraft ?? "";
   let composing = false;
 
@@ -203,7 +203,7 @@ export function renderAgentMenu(
   (anchor.closest(".d1-frame")?.parentElement ?? document.body).append(menu);
 
   function sync(): void {
-    const selectedKey = selectionKey(selected);
+    const selectedKey = selected ? selectionKey(selected) : null;
     for (const candidate of menu.querySelectorAll<HTMLButtonElement>("[data-selection-key]")) {
       const isSelected = candidate.dataset.selectionKey === selectedKey;
       candidate.classList.toggle("on", isSelected);
@@ -215,7 +215,21 @@ export function renderAgentMenu(
       branch: `vd/${slug}`,
       worktree: `.worktrees/${slug}`,
     });
-    create.disabled = model.submitting === true || taskDraft.trim().length === 0;
+    create.disabled =
+      model.submitting === true ||
+      model.probing ||
+      selected === undefined ||
+      taskDraft.trim().length === 0;
+    create.textContent =
+      selected?.kind === "native"
+        ? translate(model.locale, "d1.task.nativeTitle", {})
+        : selected?.kind === "acp"
+          ? translate(model.locale, "d1.task.acpTitle", {
+              agent:
+                model.adapters.find((adapter) => adapter.agentId === selected?.agentId)
+                  ?.displayName ?? selected.agentId,
+            })
+          : translate(model.locale, "d1.task.submit", {});
     diagnostic.textContent =
       model.eligibilityDiagnostic ??
       (model.probing ? translate(model.locale, "d1.agentMenu.probing", {}) : "");
@@ -284,7 +298,7 @@ export function renderAgentMenu(
 
   async function submit(): Promise<void> {
     const trimmed = taskDraft.trim();
-    if (!trimmed || create.disabled) return;
+    if (!selected || !trimmed || create.disabled) return;
     create.disabled = true;
     const accepted = await onCreate(selected, trimmed);
     if (accepted) close();

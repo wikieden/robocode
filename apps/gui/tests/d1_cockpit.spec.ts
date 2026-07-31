@@ -1296,6 +1296,10 @@ describe("D1 canonical streaming cockpit", () => {
     root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")?.click();
     expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
+    );
+    root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "Inspect README after approval";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -1381,6 +1385,10 @@ describe("D1 canonical streaming cockpit", () => {
     );
 
     root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
+    );
+    root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "Do not run after denial";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -1461,6 +1469,7 @@ describe("D1 canonical streaming cockpit", () => {
         "false",
       ),
     );
+    root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "keep this lane task";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -1895,7 +1904,7 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-agent-session-id]")).toBeNull();
   });
 
-  test("serializes native Lane creation behind an in-flight ACP discovery command", async () => {
+  test("blocks native Lane creation until ACP discovery completes", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;
     const sent: D1Intent[] = [];
@@ -1958,17 +1967,23 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-native-agent]")?.getAttribute("aria-disabled")).toBe(
       "false",
     );
+    root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
 
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "Inspect README without modifying files";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
     root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+    expect(sent).toEqual([{ type: "query_agent_adapters" }]);
 
     resolveQuery({
       projection: initial,
       pendingCommandId: null,
       outcome: { state: "confirmed", reason: null },
     });
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
+    );
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
 
     await vi.waitFor(() => {
       expect(sent).toEqual([
@@ -2054,6 +2069,7 @@ describe("D1 canonical streaming cockpit", () => {
     await vi.waitFor(() =>
       expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
     );
+    root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "Inspect README after delayed preview";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));

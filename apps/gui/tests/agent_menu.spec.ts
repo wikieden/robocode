@@ -44,6 +44,36 @@ describe("compact agent menu", () => {
     ).toBe("false");
   });
 
+  test("requires an explicit Agent selection before Lane creation", () => {
+    const { controller } = setup();
+    const radios = Array.from(
+      controller.root.querySelectorAll<HTMLElement>('[role="radio"]'),
+    );
+    const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    const create = controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")!;
+
+    expect(radios.every((radio) => radio.getAttribute("aria-checked") === "false")).toBe(true);
+    task.value = "Review the parser diff";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(create.disabled).toBe(true);
+
+    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')?.click();
+    expect(create.disabled).toBe(false);
+    expect(create.textContent).toContain("Codex");
+  });
+
+  test("blocks Lane creation throughout Agent discovery", () => {
+    const { controller } = setup({ ...MODEL, probing: true });
+    const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    const create = controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")!;
+
+    controller.root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
+    task.value = "Use the native Agent";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    expect(create.disabled).toBe(true);
+  });
+
   test("presents built-in ACP adapters in the stable product order", () => {
     const { controller } = setup({
       ...MODEL,
@@ -200,6 +230,7 @@ describe("compact agent menu", () => {
     const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "Inspect README";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    controller.root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
     await vi.waitFor(() =>
       expect(onCreate).toHaveBeenCalledWith({ kind: "native" }, "Inspect README"),
@@ -216,6 +247,7 @@ describe("compact agent menu", () => {
     const controller = renderAgentMenu(anchor, MODEL, vi.fn(), vi.fn(), onCreate);
     const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
 
+    controller.root.querySelector<HTMLButtonElement>("[data-native-agent]")?.click();
     task.value = "Write parser tests";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
     task.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
