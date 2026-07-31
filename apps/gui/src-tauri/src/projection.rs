@@ -756,7 +756,7 @@ impl RuntimeProjection {
                     preview_id: preview.preview_id.clone(),
                     content_sha256: preview.content_sha256.clone(),
                     lane_id: preview.lane.id.clone(),
-                    branch: preview.branch.clone(),
+                    branch: preview.lane.branch.clone(),
                     diagnostics: preview.diagnostics.clone(),
                 })
                 .collect(),

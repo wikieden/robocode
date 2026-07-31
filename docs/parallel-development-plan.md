@@ -242,8 +242,10 @@ For design assets, shared `tokens.css`, SPEC, and DESIGN-REF changes are reviewe
   and GUI `0.1.0-rc.3` on `codex/d1-cockpit-closed-loop`. TUI `0.3.3` was
   originally certified from the immutable Core `0.3.4` checkpoint and is
   compatibility-tested against the additive Core `0.3.5` contract here.
-- Core owns default Lane identity and Git/HEAD eligibility through
-  `PreviewDefaultStarterLane` and `WorkspaceEligibilityUpdated`.
+- Core owns default Lane identity and workspace isolation selection through
+  `PreviewDefaultStarterLane` and `WorkspaceEligibilityUpdated`: valid Git
+  `HEAD` uses branch/worktree isolation; other existing directories use the
+  opened workspace directly.
 - Core owns native DeepSeek/OpenAI sessions and ACP Codex/Claude/Kiro sessions.
   Follow-up, retry, exact-owner cancel, persistence, and recovery use
   `SendAgentSessionInput`, `RetryAgentSession`, and `AgentSessionInputAccepted`.

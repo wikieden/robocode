@@ -200,6 +200,7 @@
   "acp.not_startable": "ACP agent {agent} 当前不可启动",
   "acp.retry_hint": "按 r 重试",
   "native_lane.eligible": "工作区可创建隔离 Lane",
+  "native_lane.direct_workspace": "Lane 将直接在当前工作区运行，不创建 Git 分支或 worktree",
   "native_lane.ineligible": "工作区不能创建 Lane",
   "native_lane.unknown": "Core 尚未返回工作区 eligibility",
   "native_lane.task.prompt": "输入首个原生任务后按 Enter",

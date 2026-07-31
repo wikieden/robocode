@@ -136,9 +136,9 @@ fn open_workspace_with_host(
         .map_err(|error| error.to_string())?;
     let mut adapter = GuiCoreAdapter::new(Box::new(HostedCoreClient::new(bound)));
     adapter.connect().map_err(|error| error.to_string())?;
-    // D1 needs Core's Git/HEAD eligibility before it can enable New Lane. A
-    // project probe is read-only and publishes that authority without routing
-    // the user into the D11 intake screen.
+    // D1 needs Core's workspace-mode decision before it can enable New Lane.
+    // A project probe is read-only and publishes whether Core will use Git
+    // isolation or the opened directory without routing into D11.
     adapter.send_d11_intent_and_wait(
         "gui-open-workspace-probe",
         D11Intent::ProbeProject,
@@ -970,7 +970,7 @@ impl GuiCoreAdapter {
                             preview.preview_id == preview_id
                                 && preview.content_sha256 == content_sha256
                                 && preview.lane.id == lane_id
-                                && preview.branch == branch
+                                && preview.lane.branch == branch
                         })
                     })
                     .ok_or_else(|| "Core has not published the exact Lane preview".to_string())?;
@@ -980,7 +980,7 @@ impl GuiCoreAdapter {
                         request: StarterLaneRequest {
                             lane_id,
                             preset,
-                            branch: Some(branch),
+                            branch,
                             worktree_path: None,
                         },
                         preview_id: preview_id.clone(),
@@ -1652,6 +1652,89 @@ mod tests {
                 .diagnostics
                 .is_empty()
         );
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    #[test]
+    fn local_workspace_adapter_creates_lane_in_non_git_directory_without_worktree() {
+        let session_home = temp_dir("non-git-create-session-home");
+        let project = temp_dir("non-git-create-project");
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        let eligibility = adapter
+            .d1_cockpit(None)
+            .expect("D1 cockpit projection")
+            .workspace_eligibility
+            .expect("workspace eligibility is projected during open");
+        assert!(!eligibility.is_git_repository);
+        assert!(!eligibility.has_head);
+        assert!(eligibility.can_create_lane);
+        assert_eq!(eligibility.diagnostic, None);
+
+        let preview = adapter
+            .send_d1_intent_and_wait(
+                "live-non-git-preview",
+                crate::D1Intent::PreviewDefaultLane {
+                    preset: "coder".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("preview a non-Git Lane through live Core")
+            .projection
+            .starter_lane_previews
+            .into_iter()
+            .next()
+            .expect("Core publishes a non-Git starter Lane preview");
+        assert_eq!(preview.branch, None);
+
+        let create = adapter
+            .send_d1_intent_and_wait(
+                "live-non-git-create",
+                crate::D1Intent::CreateStarterLane {
+                    lane_id: preview.lane_id.clone(),
+                    preset: "coder".to_string(),
+                    branch: None,
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("request non-Git starter Lane creation");
+        let request_id = create
+            .projection
+            .permission_dock
+            .request
+            .expect("Core approval remains required without Git")
+            .id;
+        adapter
+            .send_permission_intent_and_wait(
+                "live-non-git-create-allow-once",
+                PermissionIntent::Respond {
+                    request_id,
+                    choice: PermissionChoice::Once,
+                    feedback: None,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("allow non-Git starter Lane creation once");
+        let created = adapter
+            .poll_d1(None, Duration::from_millis(250))
+            .expect("observe non-Git starter Lane creation");
+
+        assert!(
+            created
+                .projection
+                .lanes
+                .iter()
+                .any(|lane| { lane.id == preview.lane_id && lane.branch.is_none() })
+        );
+        assert!(!project.join(".git").exists());
+        assert!(!project.join(".worktrees").exists());
 
         drop(adapter);
         drop(host);

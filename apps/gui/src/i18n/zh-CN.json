@@ -83,6 +83,7 @@
   "d1.task.label": "任务",
   "d1.task.placeholder": "描述任务，Cmd/Ctrl+Enter 创建 Lane。",
   "d1.task.hint": "仅作为界面预览：{branch} · {worktree}",
+  "d1.task.directWorkspaceHint": "直接在已打开的工作区目录中运行，不创建 Git 分支或 worktree。",
   "d1.task.submit": "创建 Lane",
   "d1.task.cancel": "取消",
   "d1.task.nativeTitle": "启动 Viden Lane",

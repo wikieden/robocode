@@ -382,7 +382,8 @@ impl LaneSupervisor {
             let request = StarterLaneRequest {
                 lane_id: lane_id.clone(),
                 preset,
-                branch: Some(format!("viden/{lane_id}")),
+                branch: (eligibility.is_git_repository && eligibility.has_head)
+                    .then(|| format!("viden/{lane_id}")),
                 worktree_path: None,
             };
             let mut generated_owner = owner;
@@ -755,19 +756,27 @@ impl LaneSupervisor {
                 StarterLanePreviewInvalidationReason::HashMismatch,
                 "starter lane preview hash mismatch".to_string(),
             ))
-        } else if current_base_revision(&self.repo).as_deref()
+        } else if starter_lane_base_revision(&self.repo, &pending.preview.lane).as_deref()
             != Ok(pending.preview.base_revision.as_str())
         {
             Some((
                 StarterLanePreviewInvalidationReason::BaseRevisionChanged,
                 "starter lane base revision is stale".to_string(),
             ))
-        } else if Path::new(&pending.preview.worktree_path).exists() {
+        } else if pending.preview.lane.worktree.is_some()
+            && Path::new(&pending.preview.worktree_path).exists()
+        {
             Some((
                 StarterLanePreviewInvalidationReason::WorktreeUnavailable,
                 "starter lane worktree already exists".to_string(),
             ))
-        } else if git_branch_exists(&self.repo, &pending.preview.branch).unwrap_or(true) {
+        } else if pending
+            .preview
+            .lane
+            .branch
+            .as_deref()
+            .is_some_and(|branch| git_branch_exists(&self.repo, branch).unwrap_or(true))
+        {
             Some((
                 StarterLanePreviewInvalidationReason::BranchUnavailable,
                 "starter lane branch already exists or cannot be inspected".to_string(),
@@ -1140,30 +1149,25 @@ impl LaneSupervisor {
 }
 
 pub(crate) fn workspace_eligibility(repo: &Path) -> WorkspaceEligibility {
+    let workspace_available = repo
+        .canonicalize()
+        .is_ok_and(|canonical| canonical.is_dir());
     let is_git_repository = Command::new("git")
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(repo)
         .output()
         .is_ok_and(|output| output.status.success());
-    if !is_git_repository {
-        return WorkspaceEligibility {
-            is_git_repository: false,
-            has_head: false,
-            can_create_lane: false,
-            diagnostic: Some("workspace_not_git_repository".to_string()),
-        };
-    }
-
-    let has_head = Command::new("git")
-        .args(["rev-parse", "--verify", "HEAD^{commit}"])
-        .current_dir(repo)
-        .output()
-        .is_ok_and(|output| output.status.success());
+    let has_head = is_git_repository
+        && Command::new("git")
+            .args(["rev-parse", "--verify", "HEAD^{commit}"])
+            .current_dir(repo)
+            .output()
+            .is_ok_and(|output| output.status.success());
     WorkspaceEligibility {
-        is_git_repository: true,
+        is_git_repository,
         has_head,
-        can_create_lane: has_head,
-        diagnostic: (!has_head).then(|| "workspace_missing_head".to_string()),
+        can_create_lane: workspace_available,
+        diagnostic: (!workspace_available).then(|| "workspace_root_unavailable".to_string()),
     }
 }
 
@@ -1206,6 +1210,40 @@ fn resolve_starter_lane_preview(
     request: &StarterLaneRequest,
 ) -> Result<StarterLanePreview, String> {
     validate_starter_lane_id(&request.lane_id)?;
+    let eligibility = workspace_eligibility(repo);
+    if !eligibility.can_create_lane {
+        return Err(eligibility
+            .diagnostic
+            .unwrap_or_else(|| "workspace_ineligible".to_string()));
+    }
+    if !(eligibility.is_git_repository && eligibility.has_head) {
+        if request
+            .branch
+            .as_deref()
+            .is_some_and(|branch| !branch.is_empty())
+            || request
+                .worktree_path
+                .as_deref()
+                .is_some_and(|worktree| !worktree.is_empty())
+        {
+            return Err("non-Git starter lanes cannot request a branch or worktree".to_string());
+        }
+        let lane = starter_lane_record(request, None, None);
+        let workspace_path = resolve_lane_target(repo, &lane, false)?;
+        let mut preview = StarterLanePreview {
+            preview_id: fresh_id("starter-lane-preview"),
+            content_sha256: String::new(),
+            owner: owner.clone(),
+            lane,
+            branch: String::new(),
+            worktree_path: workspace_path.to_string_lossy().to_string(),
+            base_revision: workspace_identity(repo)?,
+            diagnostics: Vec::new(),
+        };
+        preview.content_sha256 = starter_lane_preview_hash(&preview)?;
+        return Ok(preview);
+    }
+
     let branch = request
         .branch
         .clone()
@@ -1215,7 +1253,7 @@ fn resolve_starter_lane_preview(
         .worktree_path
         .clone()
         .unwrap_or_else(|| format!(".worktrees/{}", request.lane_id));
-    let mut lane = starter_lane_record(request, branch.clone(), configured_worktree);
+    let mut lane = starter_lane_record(request, Some(branch.clone()), Some(configured_worktree));
     let worktree_path = resolve_lane_target(repo, &lane, true)?;
     lane.worktree = Some(worktree_path.to_string_lossy().to_string());
     let base_revision = current_base_revision(repo)?;
@@ -1242,8 +1280,8 @@ fn resolve_starter_lane_preview(
 
 fn starter_lane_record(
     request: &StarterLaneRequest,
-    branch: String,
-    worktree_path: String,
+    branch: Option<String>,
+    worktree_path: Option<String>,
 ) -> AgentLaneRecord {
     let (role, gate_strength) = match request.preset {
         StarterLanePreset::Coder => (AgentRole::Coder, GateStrength::Full),
@@ -1258,8 +1296,8 @@ fn starter_lane_record(
         gate_strength,
         // Presets remain permission-gated; role policy further narrows reviewer/tester tools.
         mutation_policy: MutationPolicy::ProposeOnly,
-        worktree: Some(worktree_path),
-        branch: Some(branch),
+        worktree: worktree_path,
+        branch,
         target: ExecutionTarget::Local,
         data_egress: DataEgressPolicy::Deny,
         status: LaneStatus::Draft,
@@ -1315,6 +1353,32 @@ fn current_base_revision(repo: &Path) -> Result<String, String> {
         .map_err(|_| "starter lane base revision is not UTF-8".to_string())
 }
 
+fn workspace_identity(repo: &Path) -> Result<String, String> {
+    let canonical = repo
+        .canonicalize()
+        .map_err(|error| format!("invalid workspace root `{}`: {error}", repo.display()))?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "workspace root `{}` is not a directory",
+            canonical.display()
+        ));
+    }
+    Ok(format!(
+        "workspace:{:x}",
+        Sha256::digest(canonical.to_string_lossy().as_bytes())
+    ))
+}
+
+fn starter_lane_base_revision(repo: &Path, lane: &AgentLaneRecord) -> Result<String, String> {
+    if lane.worktree.is_some() {
+        current_base_revision(repo)
+    } else {
+        // Direct-workspace lanes have no immutable Git commit. Bind approval
+        // to the canonical workspace identity instead of inventing a revision.
+        workspace_identity(repo)
+    }
+}
+
 fn git_branch_exists(repo: &Path, branch: &str) -> Result<bool, String> {
     let reference = format!("refs/heads/{branch}");
     let status = Command::new("git")
@@ -1354,17 +1418,19 @@ fn validate_starter_lane_effect(
     {
         return Err("starter lane preview changed before effect".to_string());
     }
-    if current_base_revision(repo)? != preview.base_revision {
+    if starter_lane_base_revision(repo, lane)? != preview.base_revision {
         return Err("starter lane base revision changed while approval was pending".to_string());
     }
     let resolved = resolve_lane_target(repo, lane, true)?;
     if resolved.to_string_lossy() != preview.worktree_path {
-        return Err("starter lane worktree changed before effect".to_string());
+        return Err("starter lane workspace changed before effect".to_string());
     }
-    if resolved.exists() {
+    if lane.worktree.is_some() && resolved.exists() {
         return Err("starter lane worktree appeared while approval was pending".to_string());
     }
-    if git_branch_exists(repo, &preview.branch)? {
+    if let Some(branch) = lane.branch.as_deref()
+        && git_branch_exists(repo, branch)?
+    {
         return Err("starter lane branch appeared while approval was pending".to_string());
     }
     Ok(())

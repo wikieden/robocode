@@ -8,7 +8,7 @@ export type D1Intent =
       type: "create_starter_lane";
       laneId: string;
       preset: "coder";
-      branch: string;
+      branch: string | null;
       previewId: string;
       contentSha256: string;
     }

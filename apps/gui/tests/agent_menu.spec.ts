@@ -7,6 +7,7 @@ import { renderAgentMenu, type AgentMenuModel } from "../src/components/agent_me
 const MODEL: AgentMenuModel = {
   locale: "en",
   canCreateLane: true,
+  usesGitIsolation: true,
   probing: false,
   eligibilityDiagnostic: null,
   adapters: [
@@ -136,6 +137,17 @@ describe("compact agent menu", () => {
     expect(
       controller.root.querySelector('[data-agent-id="codex"]')?.getAttribute("aria-disabled"),
     ).toBe("true");
+  });
+
+  test("explains that a non-Git Lane uses the opened workspace directly", () => {
+    const { controller } = setup({ ...MODEL, usesGitIsolation: false });
+    const hint = controller.root.querySelector<HTMLElement>("[data-lane-hint]");
+
+    expect(hint?.textContent).toContain("without a Git branch or worktree");
+    expect(hint?.textContent).not.toContain(".worktrees/");
+    expect(
+      controller.root.querySelector("[data-native-agent]")?.getAttribute("aria-disabled"),
+    ).toBe("false");
   });
 
   test("uses roving Agent keyboard focus and restores the trigger on Escape", () => {

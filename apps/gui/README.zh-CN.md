@@ -180,8 +180,9 @@ transcript/tool rows、排队状态、evidence 与 composer 都是 Core 最新
 acceptance 当作业务成功。
 
 “新建 Lane”会打开一个锚定弹层，包含内置 Viden Agent、已发现的 ACP Agents、任务 draft、
-Core 投影的 eligibility/probe 诊断，以及仅由任务文本派生、只作呈现的 branch/worktree
-提示。选择 Agent 不会关闭弹层，任务 textarea 会获得焦点，任务非空前“创建 Lane”保持禁用。
+Core 投影的 eligibility/probe 诊断，以及只作呈现的 isolation 提示。Git 工作区预览由任务
+文本派生的 branch/worktree；非 Git 目录明确提示 Lane 直接在已打开工作区运行，不创建二者。
+选择 Agent 不会关闭弹层，任务 textarea 会获得焦点，任务非空前“创建 Lane”保持禁用。
 创建时沿用现有有序路径：`preview_default_lane`、`create_starter_lane`，并且只有在精确
 Core Lane 已投影后才发送原生 `submit` 或 ACP `start_agent_session`。Transport 或 Core
 拒绝会保留 draft，并使用 D1 已有 typed rejection surface。

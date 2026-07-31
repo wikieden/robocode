@@ -2161,46 +2161,144 @@ fn default_starter_lane_preview_generates_unique_core_owned_identity() {
 }
 
 #[test]
-fn default_starter_lane_preview_rejects_non_git_before_preview() {
+fn default_starter_lane_creates_in_non_git_workspace_without_worktree() {
     let repo = temp_dir("default_starter_lane_non_git_repo");
     let home = temp_dir("default_starter_lane_non_git_home");
     let effects = Arc::new(StarterLaneEffects::default());
-    let supervisor = starter_supervisor(&repo, home, effects);
+    let supervisor = starter_supervisor(&repo, home, Arc::clone(&effects));
+    let workspace_owner = RuntimeOwner {
+        workspace_id: "workspace-starter".to_string(),
+        project_id: "project-starter".to_string(),
+        ..RuntimeOwner::default()
+    };
 
     supervisor
         .send_command_from_owner(
-            RuntimeOwner {
-                workspace_id: "workspace-starter".to_string(),
-                project_id: "project-starter".to_string(),
-                ..RuntimeOwner::default()
-            },
+            workspace_owner,
             "default-preview-non-git",
             RuntimeCommand::PreviewDefaultStarterLane {
                 preset: StarterLanePreset::Coder,
             },
         )
         .unwrap();
-    let events = collect_starter_envelopes_until(&supervisor, |events| {
+    let preview_events = collect_starter_envelopes_until(&supervisor, |events| {
         events.iter().any(|envelope| {
             matches!(
                 &envelope.event,
                 RuntimeWireEvent::Known(RuntimeEvent {
-                    kind: RuntimeEventKind::CommandRejected { reason, .. },
+                    kind: RuntimeEventKind::StarterLanePreviewed { .. },
                     ..
-                }) if reason == "workspace_not_git_repository"
+                })
             )
         })
     });
-
-    assert!(!events.iter().any(|envelope| {
-        matches!(
-            &envelope.event,
+    let eligibility = preview_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
             RuntimeWireEvent::Known(RuntimeEvent {
-                kind: RuntimeEventKind::StarterLanePreviewed { .. },
+                kind: RuntimeEventKind::WorkspaceEligibilityUpdated { eligibility },
                 ..
-            })
+            }) => Some(eligibility),
+            _ => None,
+        })
+        .unwrap();
+    assert!(!eligibility.is_git_repository);
+    assert!(!eligibility.has_head);
+    assert!(eligibility.can_create_lane);
+    assert_eq!(eligibility.diagnostic, None);
+    let preview = preview_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLanePreviewed { preview },
+                ..
+            }) => Some(preview.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(preview.lane.branch, None);
+    assert_eq!(preview.lane.worktree, None);
+    assert_eq!(preview.branch, "");
+    assert_eq!(
+        preview.worktree_path,
+        repo.canonicalize().unwrap().display().to_string()
+    );
+    assert!(preview.base_revision.starts_with("workspace:"));
+    assert!(preview.diagnostics.is_empty());
+
+    let request = StarterLaneRequest {
+        lane_id: preview.lane.id.clone(),
+        preset: StarterLanePreset::Coder,
+        branch: None,
+        worktree_path: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            preview.owner.clone(),
+            "default-create-non-git",
+            RuntimeCommand::CreateStarterLane {
+                request,
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+            },
         )
-    }));
+        .unwrap();
+    let approval_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == "lane_create"
+            )
+        })
+    });
+    let approval_id = approval_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) => Some(approval.id.clone()),
+            _ => None,
+        })
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            preview.owner.clone(),
+            "default-approve-non-git",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval_id,
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let created_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLaneCreated { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let receipt = created_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLaneCreated { receipt },
+                ..
+            }) => Some(receipt),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(receipt.lane.branch, None);
+    assert_eq!(receipt.lane.worktree, None);
+    assert_eq!(receipt.worktree_path, preview.worktree_path);
+    assert_eq!(effects.calls.lock().unwrap().as_slice(), [preview.lane.id]);
 }
 
 #[test]

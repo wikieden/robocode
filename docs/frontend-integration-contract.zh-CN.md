@@ -96,7 +96,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 核心模块 | 前端区域 | 主要事实 | Commands / actions | 状态 |
 | --- | --- | --- | --- | --- |
 | Workspace host | first-run project open、workspace rebind | `WorkspaceBinding.canonical_root`、`session_id`、`stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
-| Workspace Lane eligibility | 新建 Lane 入口可用性与分类诊断 | `RuntimeViewState.workspace_eligibility`、`WorkspaceEligibilityUpdated` | `PreviewDefaultStarterLane` | Core `0.3.4` extension `runtime.workspace_eligibility`；只有 Core 校验 Git/HEAD 并生成 Lane identity |
+| Workspace Lane eligibility | 新建 Lane 入口可用性、隔离模式与分类诊断 | `RuntimeViewState.workspace_eligibility`、`WorkspaceEligibilityUpdated` | `PreviewDefaultStarterLane` | Core `0.3.5` extension `runtime.workspace_eligibility`；只有 Core 决定在有效 `HEAD` 时使用 Git branch/worktree 隔离，否则使用直接工作区模式 |
 | Trusted credential staging | provider credential 输入、platform-secret bridge | `CredentialRequestId`、`CredentialHandle`、`ProviderHealthView.credential` | `BoundCoreClient::stage_credential`，然后发送 `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap、reconnect、compatibility error | `CoreHandshake`、schema version、capability set、`EventCursor`、snapshot/replay envelopes | `CoreClient::discover`、`snapshot`、`replay`、`recv`、`transcript_page` | Core `0.3.0` 已冻结 |
 | Runtime supervisor | activity rail、live work indicator、cancel 操作 | `RuntimeEvent`、`RuntimeViewState`、`RuntimeErrorView` | `SubmitUserInput`、`QueueFollowUp`、`CancelActiveTurn` | 已落地 |
@@ -113,7 +113,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
 | 原生与 ACP agent session | 内置 DeepSeek/OpenAI 工作，以及 Codex/Claude/Kiro ACP session | `AgentAdapterView.startability`、`AgentSessionView`、`RuntimeViewState.agent_session_inputs` | `StartAgentSession`、`SendAgentSessionInput`、`RetryAgentSession`、`CancelAgentSession` | Core `0.3.4` extensions `runtime.agent_adapters`、`runtime.agent_sessions`、`runtime.agent_session_input` |
 | Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | Core `0.3.2` extension `runtime.lane_owner_projection` |
-| 已审阅 starter Lane | 首启 starter 选择、branch/worktree 审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | Core `0.3.2` extension `runtime.starter_lane_preview` |
+| 已审阅 starter Lane | 首启 starter 选择与隔离目标审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | Core `0.3.2` extension `runtime.starter_lane_preview`；Git 工作区携带 branch/worktree facts，直接工作区两者均为空 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
 | UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
 | Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
@@ -226,7 +226,14 @@ flowchart LR
 | 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
 | 加载 recent work | `QueryRecentWork { query }` | shared-home 发现、canonical metadata 校验、稳定排序、边界、diagnostic 与安全 view projection |
-| 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、repository/base/path 校验、permission gate、执行前复检、补偿和 typed receipt |
+| 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
+
+Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
+`HEAD` 的工作区继续使用 branch 与 worktree 隔离；其他任何真实存在的目录都创建直接工作区
+Lane，其中 `AgentLaneRecord.branch = None`、`worktree = None`，receipt 的
+`worktree_path` 指向已打开目录的 canonical path。直接工作区 Lane 不创建 `.git`、branch
+或 `.worktrees`，其 approval preview 绑定 canonical workspace identity，而不是伪造 Git
+revision。两种模式都必须继续经过标准 permission gate 与精确 preview hash 校验。
 
 `PreviewProjectConfig` 是只读命令。有效 preview 包含其 SHA-256 所描述的精确 UTF-8
 内容；无效或携带 secret 字段的候选不返回这些内容，也不能 confirm。此类

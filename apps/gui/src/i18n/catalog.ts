@@ -88,6 +88,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.task.label": [],
   "d1.task.placeholder": [],
   "d1.task.hint": ["branch", "worktree"],
+  "d1.task.directWorkspaceHint": [],
   "d1.task.submit": [],
   "d1.task.cancel": [],
   "d1.task.nativeTitle": [],

@@ -101,7 +101,7 @@ self-referential inside the payload commit.
 | Core module | Frontend surface | Primary facts | Commands / actions | Status |
 | --- | --- | --- | --- | --- |
 | Workspace host | first-run project open, workspace rebind | `WorkspaceBinding.canonical_root`, `session_id`, `stream_id` | `LocalCoreHost::open_workspace` | Core `0.3.2` extension `core.workspace_host` |
-| Workspace Lane eligibility | new Lane entry-point availability and classified diagnostics | `RuntimeViewState.workspace_eligibility`, `WorkspaceEligibilityUpdated` | `PreviewDefaultStarterLane` | Core `0.3.4` extension `runtime.workspace_eligibility`; Core alone validates Git/HEAD and generates Lane identity |
+| Workspace Lane eligibility | new Lane entry-point availability, isolation mode, and classified diagnostics | `RuntimeViewState.workspace_eligibility`, `WorkspaceEligibilityUpdated` | `PreviewDefaultStarterLane` | Core `0.3.5` extension `runtime.workspace_eligibility`; Core alone selects Git branch/worktree isolation when a valid HEAD exists or direct-workspace mode otherwise |
 | Trusted credential staging | provider credential entry, platform-secret bridge | `CredentialRequestId`, `CredentialHandle`, `ProviderHealthView.credential` | `BoundCoreClient::stage_credential`, then `StoreCredentialHandle` | Core `0.3.2` extension `runtime.credential_staging` |
 | Compatibility and transport | client bootstrap, reconnect, compatibility error | `CoreHandshake`, schema version, capability set, `EventCursor`, snapshot/replay envelopes | `CoreClient::discover`, `snapshot`, `replay`, `recv`, `transcript_page` | frozen in Core `0.3.0` |
 | Runtime supervisor | activity rail, live work indicator, cancellation affordance | `RuntimeEvent`, `RuntimeViewState`, `RuntimeErrorView` | `SubmitUserInput`, `QueueFollowUp`, `CancelActiveTurn` | landed |
@@ -118,7 +118,7 @@ self-referential inside the payload commit.
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
 | Native and ACP agent sessions | built-in DeepSeek/OpenAI work and Codex/Claude/Kiro ACP sessions | `AgentAdapterView.startability`, `AgentSessionView`, `RuntimeViewState.agent_session_inputs` | `StartAgentSession`, `SendAgentSessionInput`, `RetryAgentSession`, `CancelAgentSession` | Core `0.3.4` extensions `runtime.agent_adapters`, `runtime.agent_sessions`, `runtime.agent_session_input` |
 | Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | Core `0.3.2` extension `runtime.lane_owner_projection` |
-| Reviewed starter Lane | first-run starter choice, reviewed branch/worktree confirmation | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview` |
+| Reviewed starter Lane | first-run starter choice and reviewed isolation target | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview`; Git workspaces carry branch/worktree facts, while direct workspaces carry neither |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
 | UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
 | Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
@@ -244,7 +244,17 @@ flowchart LR
 | Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
 | Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
-| Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, repository/base/path checks, permission gate, execution-time recheck, compensation, typed receipt |
+| Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
+
+Starter Lane isolation is selected by Core, not by the frontend. A workspace
+inside a Git work tree with a valid `HEAD` receives the existing branch and
+worktree isolation. Any other existing directory receives a direct-workspace
+Lane with `AgentLaneRecord.branch = None` and `worktree = None`; its
+`worktree_path` receipt identifies the canonical opened directory. Direct
+workspace Lanes do not create `.git`, a branch, or `.worktrees`, and their
+approval preview is bound to the canonical workspace identity rather than a
+fabricated Git revision. The normal permission gate and exact preview hash
+remain mandatory in both modes.
 
 `PreviewProjectConfig` is read-only. A valid preview includes the exact UTF-8
 contents that its SHA-256 describes; invalid or secret-bearing candidates omit

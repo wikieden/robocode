@@ -6,6 +6,7 @@ export type AgentMenuSelection = { kind: "native" } | { kind: "acp"; agentId: st
 export interface AgentMenuModel {
   locale: Locale;
   canCreateLane: boolean;
+  usesGitIsolation: boolean;
   probing: boolean;
   eligibilityDiagnostic: string | null;
   selected?: AgentMenuSelection;
@@ -210,11 +211,15 @@ export function renderAgentMenu(
       candidate.setAttribute("aria-checked", String(isSelected));
       candidate.setAttribute("aria-pressed", String(isSelected));
     }
-    const slug = taskSlug(taskDraft);
-    hint.textContent = translate(model.locale, "d1.task.hint", {
-      branch: `vd/${slug}`,
-      worktree: `.worktrees/${slug}`,
-    });
+    if (model.usesGitIsolation) {
+      const slug = taskSlug(taskDraft);
+      hint.textContent = translate(model.locale, "d1.task.hint", {
+        branch: `vd/${slug}`,
+        worktree: `.worktrees/${slug}`,
+      });
+    } else {
+      hint.textContent = translate(model.locale, "d1.task.directWorkspaceHint", {});
+    }
     create.disabled =
       model.submitting === true ||
       model.probing ||

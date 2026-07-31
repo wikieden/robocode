@@ -1358,7 +1358,7 @@ fn observe_driver_events<C: CoreClient>(
                         request: viden_core::StarterLaneRequest {
                             lane_id: preview.lane.id.clone(),
                             preset: StarterLanePreset::Coder,
-                            branch: Some(preview.branch.clone()),
+                            branch: preview.lane.branch.clone(),
                             worktree_path: None,
                         },
                         preview_id: preview.preview_id.clone(),
@@ -2210,6 +2210,70 @@ mod tests {
             state.ui.focused_conversation,
             Some(FocusedConversation::NativeLane(_))
         ));
+    }
+
+    #[test]
+    fn native_lane_task_preserves_direct_workspace_preview_without_fake_branch() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+        ))
+        .expect("interaction fixture");
+        let mut events = fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .take(3)
+            .map(|value| {
+                serde_json::from_value::<RuntimeEventEnvelope>(value.clone())
+                    .expect("runtime event")
+            })
+            .collect::<VecDeque<_>>();
+        for event in &mut events {
+            event.cursor.stream_id = "fixture".to_string();
+        }
+        let preview = match &mut events[2].event {
+            viden_core::RuntimeWireEvent::Known(viden_core::RuntimeEvent {
+                kind: viden_core::RuntimeEventKind::StarterLanePreviewed { preview },
+                ..
+            }) => preview,
+            event => panic!("expected starter Lane preview, got {event:?}"),
+        };
+        preview.lane.branch = None;
+        preview.lane.worktree = None;
+        preview.branch.clear();
+        preview.worktree_path = "workspace/project".to_string();
+        preview.base_revision = "workspace:direct".to_string();
+
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events,
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+
+        for _ in 0..2 {
+            driver.pump().expect("eligibility event");
+        }
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+            task: "inspect this folder".to_string(),
+        });
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
+        driver.pump().expect("direct workspace preview");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("create from direct preview");
+
+        let commands = sent.lock().expect("sent commands");
+        let RuntimeCommand::CreateStarterLane { request, .. } = &commands[1].command else {
+            panic!("expected create starter Lane command");
+        };
+        assert_eq!(request.branch, None);
+        assert_eq!(request.worktree_path, None);
     }
 
     #[test]

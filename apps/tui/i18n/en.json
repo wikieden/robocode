@@ -200,6 +200,7 @@
   "acp.not_startable": "ACP agent {agent} is not startable",
   "acp.retry_hint": "press r to retry",
   "native_lane.eligible": "Workspace ready for an isolated Lane",
+  "native_lane.direct_workspace": "Lane will run in this workspace without a Git branch or worktree",
   "native_lane.ineligible": "Workspace cannot create a Lane",
   "native_lane.unknown": "Workspace eligibility has not been reported by Core",
   "native_lane.task.prompt": "Describe the first native task, then press Enter",

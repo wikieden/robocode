@@ -244,7 +244,8 @@ flowchart TD
   TUI `0.3.3` 与 GUI `0.1.0-rc.3`。TUI `0.3.3` 最初基于不可变的 Core
   `0.3.4` 检查点认证，本候选验证其与增量 Core `0.3.5` contract 兼容。
 - Core 通过 `PreviewDefaultStarterLane` 与 `WorkspaceEligibilityUpdated` 独占默认
-  Lane identity 生成及 Git/HEAD eligibility 校验。
+  Lane identity 与 workspace isolation 选择：有效 Git `HEAD` 使用 branch/worktree
+  隔离，其他真实存在的目录直接使用已打开工作区。
 - Core 同时负责 DeepSeek/OpenAI 原生 session 与 Codex/Claude/Kiro ACP session；
   `SendAgentSessionInput`、`RetryAgentSession`、`AgentSessionInputAccepted` 统一续聊、
   retry、精确 owner cancel、持久化和恢复。

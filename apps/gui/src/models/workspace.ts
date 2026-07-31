@@ -181,7 +181,7 @@ export interface D1CockpitProjection {
     previewId: string;
     contentSha256: string;
     laneId: string;
-    branch: string;
+    branch: string | null;
     diagnostics: string[];
   }>;
   agentAdapters: Array<{

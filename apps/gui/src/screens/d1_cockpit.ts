@@ -513,6 +513,9 @@ export function renderD1Cockpit(
       {
         locale,
         canCreateLane: projection.workspaceEligibility?.canCreateLane === true,
+        usesGitIsolation:
+          projection.workspaceEligibility?.isGitRepository === true &&
+          projection.workspaceEligibility?.hasHead === true,
         probing: discoveryIsProbing(),
         eligibilityDiagnostic: projection.workspaceEligibility?.diagnostic ?? null,
         selected: newLaneSelection,

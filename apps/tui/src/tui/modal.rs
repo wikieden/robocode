@@ -442,6 +442,11 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
         Some(InteractionPanel::NewLaneTask { task }) => {
             let eligibility = state.runtime.workspace_eligibility.as_ref();
             let status = match eligibility {
+                Some(value)
+                    if value.can_create_lane && !(value.is_git_repository && value.has_head) =>
+                {
+                    super::i18n::text(state, "native_lane.direct_workspace")
+                }
                 Some(value) if value.can_create_lane => {
                     super::i18n::text(state, "native_lane.eligible")
                 }

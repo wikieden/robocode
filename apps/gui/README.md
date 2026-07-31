@@ -214,7 +214,9 @@ claim command acceptance as business success.
 
 `New Lane` opens one anchored popover with the built-in Viden Agent, discovered
 ACP Agents, the task draft, Core-projected eligibility/probe diagnostics, and a
-presentation-only branch/worktree hint derived from the task text. Agent
+presentation-only isolation hint. Git workspaces preview the derived
+branch/worktree; non-Git directories explicitly state that the Lane runs in the
+opened workspace without creating either. Agent
 selection stays inside the popover, the task textarea receives focus, and
 Create Lane is disabled until the task is non-empty. Create dispatches the
 existing ordered path: `preview_default_lane`, `create_starter_lane`, then

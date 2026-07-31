@@ -83,6 +83,7 @@
   "d1.task.label": "Task",
   "d1.task.placeholder": "Describe the task. Cmd/Ctrl+Enter creates the Lane.",
   "d1.task.hint": "Presentation preview only: {branch} · {worktree}",
+  "d1.task.directWorkspaceHint": "Runs in the opened workspace directory without a Git branch or worktree.",
   "d1.task.submit": "Create Lane",
   "d1.task.cancel": "Cancel",
   "d1.task.nativeTitle": "Start a Viden Lane",

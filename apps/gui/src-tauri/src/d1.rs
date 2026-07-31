@@ -112,7 +112,7 @@ pub enum D1Intent {
     CreateStarterLane {
         lane_id: String,
         preset: String,
-        branch: String,
+        branch: Option<String>,
         preview_id: String,
         content_sha256: String,
     },
@@ -266,7 +266,7 @@ pub struct D1StarterLanePreviewProjection {
     pub preview_id: String,
     pub content_sha256: String,
     pub lane_id: String,
-    pub branch: String,
+    pub branch: Option<String>,
     pub diagnostics: Vec<String>,
 }
 

@@ -1995,7 +1995,7 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-agent-session-id]")).toBeNull();
   });
 
-  test("blocks native Lane creation until ACP discovery completes", async () => {
+  test("blocks a native direct-workspace Lane until ACP discovery completes", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;
     const sent: D1Intent[] = [];
@@ -2004,12 +2004,18 @@ describe("D1 canonical streaming cockpit", () => {
       selectedLaneId: null,
       lanes: [],
       agentAdapters: [],
+      workspaceEligibility: {
+        isGitRepository: false,
+        hasHead: false,
+        canCreateLane: true,
+        diagnostic: null,
+      },
     };
     const preview = {
       previewId: "preview-native-during-probe",
       contentSha256: "d".repeat(64),
       laneId: "lane-native-during-probe",
-      branch: "viden/lane-native-during-probe",
+      branch: null,
       diagnostics: [],
     };
     const lane = {
