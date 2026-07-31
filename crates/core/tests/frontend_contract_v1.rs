@@ -1355,6 +1355,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         owner: built_in_owner.clone(),
         task: "task.loop.preflight".to_string(),
         diagnostic: None,
+        output: None,
     };
     let acp_session = AgentSessionView {
         session_id: "session-loop-acp".to_string(),
@@ -1365,6 +1366,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         owner: acp_owner.clone(),
         task: "task.loop.implement".to_string(),
         diagnostic: None,
+        output: None,
     };
     let mut approval = approval("approval-loop-tool", "approval.tool.execute", true);
     approval.owner = acp_owner.clone();

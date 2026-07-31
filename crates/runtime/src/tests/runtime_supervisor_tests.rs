@@ -1814,6 +1814,7 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
             _ => None,
         })
         .expect("completed typed ACP session");
+    assert_eq!(session.output.as_deref(), Some("typed session output"));
     supervisor
         .send_command_from_owner(
             owner_for_lane("lane-other-owner"),

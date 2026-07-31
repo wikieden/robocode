@@ -2611,6 +2611,7 @@ fn run_supervised_agent_session(
         owner: session_owner.clone(),
         task: request.task.clone(),
         diagnostic: None,
+        output: None,
     };
     let approver = supervised_agent_session_approver(
         engine,

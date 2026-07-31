@@ -1381,6 +1381,9 @@ pub(crate) fn tracked_agent_job_sessions(cwd: &Path) -> Vec<AgentSessionView> {
                         "restored failed ACP session".to_string()
                     }
                 })),
+                output: (status == AgentSessionStatus::Completed)
+                    .then(|| read_acp_session_output(&job.result_path))
+                    .flatten(),
             })
         })
         .collect()
@@ -2151,6 +2154,7 @@ fn start_typed_agent_session_attempt(
         owner,
         task: request.task,
         diagnostic: None,
+        output: None,
     };
     let mut start_events = Vec::new();
     if let Some(input_id) = accepted_input_id {
@@ -2240,6 +2244,7 @@ fn start_typed_agent_session_attempt(
                     RuntimeEventKind::AgentSessionFailed { session: terminal }
                 } else {
                     terminal.status = AgentSessionStatus::Completed;
+                    terminal.output = nonempty_acp_output(&evidence.message);
                     RuntimeEventKind::AgentSessionCompleted { session: terminal }
                 }
             }
@@ -2264,6 +2269,18 @@ fn start_typed_agent_session_attempt(
     });
 
     Ok(session)
+}
+
+fn nonempty_acp_output(message: &str) -> Option<String> {
+    let output = message.trim();
+    (!output.is_empty()).then(|| output.to_string())
+}
+
+fn read_acp_session_output(path: &Path) -> Option<String> {
+    let result = fs::read_to_string(path).ok()?;
+    let (_, output) = result.split_once("\n\n")?;
+    let (_, output) = output.rsplit_once("\n\n")?;
+    nonempty_acp_output(output)
 }
 
 pub(crate) fn validate_typed_agent_session_request(

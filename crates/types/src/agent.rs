@@ -169,6 +169,10 @@ pub struct AgentSessionView {
     pub owner: RuntimeOwner,
     pub task: String,
     pub diagnostic: Option<String>,
+    /// Latest completed ACP assistant response for this exact owner session.
+    /// Older frontend-contract-v1 snapshots omit it and decode as unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

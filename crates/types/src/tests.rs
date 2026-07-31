@@ -2303,6 +2303,7 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
         owner: owner.clone(),
         task: "review the runtime contract".to_string(),
         diagnostic: None,
+        output: None,
     };
     let cases = [
         RuntimeEventKind::AgentAdaptersLoaded {
@@ -2365,6 +2366,7 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
                     },
                     task: "review".to_string(),
                     diagnostic: None,
+                    output: None,
                 },
             },
         )),
@@ -2397,11 +2399,37 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
                     owner: embedded_owner,
                     task: "review".to_string(),
                     diagnostic: None,
+                    output: None,
                 },
             },
         )),
     };
     assert!(serde_json::to_string(&inconsistent_identity).is_err());
+}
+
+#[test]
+fn legacy_agent_session_without_output_decodes_as_absent() {
+    let legacy = serde_json::json!({
+        "session_id": "agent-session-legacy",
+        "lane_id": "lane-agent",
+        "agent_id": "codex-acp",
+        "model": null,
+        "status": "completed",
+        "owner": {
+            "workspace_id": "workspace-agent",
+            "project_id": "project-agent",
+            "lane_id": "lane-agent",
+            "session_id": "agent-session-legacy",
+            "task_id": null,
+            "turn_id": null
+        },
+        "task": "inspect the repository",
+        "diagnostic": null
+    });
+
+    let decoded: AgentSessionView = serde_json::from_value(legacy).unwrap();
+
+    assert_eq!(decoded.output, None);
 }
 
 #[test]
@@ -2435,6 +2463,7 @@ fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
         owner: owner.clone(),
         task: "review the runtime contract".to_string(),
         diagnostic: None,
+        output: None,
     };
     let completed = AgentSessionView {
         status: AgentSessionStatus::Completed,
@@ -2505,6 +2534,7 @@ fn first_agent_session_promotes_the_provisional_lane_runtime_owner() {
         owner: session_owner.clone(),
         task: "inspect the repository".to_string(),
         diagnostic: None,
+        output: None,
     };
     let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
     view.apply_event(&RuntimeEvent::new(
@@ -2675,6 +2705,7 @@ fn d1_main_cockpit_keeps_one_agent_session_per_lane_projection() {
         },
         task: "replacement must not join the Lane projection".to_string(),
         diagnostic: None,
+        output: None,
     };
     let replacement_owner = replacement.owner.clone();
     let replacement_session = RuntimeEventEnvelope {
@@ -2784,6 +2815,7 @@ fn d1_terminal_lane_cannot_rebind_a_second_execution_owner() {
         owner: replacement_owner.clone(),
         task: "must not restart a terminal Lane".to_string(),
         diagnostic: None,
+        output: None,
     };
     view.apply_event(&RuntimeEvent::new(
         92,
