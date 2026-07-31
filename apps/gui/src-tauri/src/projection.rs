@@ -516,7 +516,17 @@ impl RuntimeProjection {
         let exact_binding = selected_lane
             .and_then(|_| selected_lane_id.as_deref())
             .and_then(|lane_id| exact_owner_binding(view, lane_id));
-        let selected_owner = exact_binding.map(|binding| &binding.owner);
+        let restored_agent_session = exact_binding
+            .is_none()
+            .then(|| {
+                selected_lane
+                    .and_then(|_| selected_lane_id.as_deref())
+                    .and_then(|lane_id| exact_terminal_agent_session(view, lane_id))
+            })
+            .flatten();
+        let selected_owner = exact_binding
+            .map(|binding| &binding.owner)
+            .or_else(|| restored_agent_session.map(|session| &session.owner));
         let supports_owner = confirmed
             .capabilities
             .iter()
@@ -570,14 +580,19 @@ impl RuntimeProjection {
         }
 
         let context_dock = if supports_context_dock {
-            let lane_agent = exact_binding.map(|binding| D1LaneAgentProjection {
-                lane_id: binding.lane_id.clone(),
-                workspace_id: binding.owner.workspace_id.clone(),
-                project_id: binding.owner.project_id.clone(),
-                session_id: binding.owner.session_id.clone(),
-                task_id: binding.owner.task_id.clone(),
-                turn_id: binding.owner.turn_id.clone(),
-            });
+            let lane_agent = exact_binding
+                .map(|binding| (&binding.lane_id, &binding.owner))
+                .or_else(|| {
+                    restored_agent_session.map(|session| (&session.lane_id, &session.owner))
+                })
+                .map(|(lane_id, owner)| D1LaneAgentProjection {
+                    lane_id: lane_id.clone(),
+                    workspace_id: owner.workspace_id.clone(),
+                    project_id: owner.project_id.clone(),
+                    session_id: owner.session_id.clone(),
+                    task_id: owner.task_id.clone(),
+                    turn_id: owner.turn_id.clone(),
+                });
             let selected_lane_matches =
                 |owner: &viden_core::RuntimeOwner| selected_owner == Some(owner);
             let mut checklist = view
@@ -839,6 +854,33 @@ fn exact_owner_count(view: &RuntimeViewState, lane_id: &str) -> usize {
         .count()
 }
 
+/// Restored terminal ACP sessions are durable Core facts even though process-local
+/// Lane runtime owners intentionally disappear across a Core restart.
+fn exact_terminal_agent_session<'a>(
+    view: &'a RuntimeViewState,
+    lane_id: &str,
+) -> Option<&'a viden_core::AgentSessionView> {
+    let mut sessions = view.agent_sessions.iter().filter(|session| {
+        session.lane_id == lane_id
+            && session.owner.lane_id.as_deref() == Some(lane_id)
+            && view
+                .agent_adapters
+                .iter()
+                .find(|adapter| adapter.agent_id == session.agent_id)
+                .map_or(session.agent_id != "viden-built-in", |adapter| {
+                    adapter.route == AgentRoute::Acp
+                })
+            && matches!(
+                session.status,
+                AgentSessionStatus::Completed
+                    | AgentSessionStatus::Failed
+                    | AgentSessionStatus::Cancelled
+            )
+    });
+    let session = sessions.next()?;
+    sessions.next().is_none().then_some(session)
+}
+
 fn project_projection(probe: &ProjectProbe) -> D11ProjectProjection {
     D11ProjectProjection {
         root: probe.root.clone(),
@@ -1009,9 +1051,9 @@ mod tests {
     use viden_core::{
         AgentLaneRecord, AgentRole, AgentRoute, AgentSessionStatus, AgentSessionView,
         COCKPIT_CONTEXT_CAPABILITY, CapabilityId, DataEgressPolicy, EventCursor, ExecutionTarget,
-        FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
-        MutationPolicy, PermissionLevel, PermissionMode, ResolvedUiPreferences, RuntimeOwner,
-        RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, WorkMode,
+        FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MutationPolicy, PermissionLevel,
+        PermissionMode, ResolvedUiPreferences, RuntimeOwner, RuntimeSnapshot,
+        RuntimeSnapshotEnvelope, RuntimeViewState, WorkMode,
     };
 
     use crate::d1::D1_OWNER_CAPABILITY;
@@ -1019,7 +1061,7 @@ mod tests {
     use super::RuntimeProjection;
 
     #[test]
-    fn d1_projects_completed_acp_output_for_the_exact_lane_owner() {
+    fn d1_projects_restored_completed_acp_output_without_a_live_lane_owner() {
         let snapshot = RuntimeSnapshot {
             cwd: PathBuf::from("/workspace/viden"),
             provider_family: "deepseek".to_string(),
@@ -1058,10 +1100,6 @@ mod tests {
             summary: "Return an exact response".to_string(),
             evidence: Vec::new(),
         });
-        view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
-            lane_id: "lane-acp".to_string(),
-            owner: owner.clone(),
-        });
         view.agent_sessions.push(AgentSessionView {
             session_id: "session-acp".to_string(),
             lane_id: "lane-acp".to_string(),
@@ -1095,6 +1133,14 @@ mod tests {
         assert_eq!(
             cockpit.agent_sessions[0].output.as_deref(),
             Some("ACP-GUI-CLOSED-LOOP-OK")
+        );
+        assert_eq!(
+            cockpit
+                .context_dock
+                .lane_agent
+                .as_ref()
+                .and_then(|agent| agent.session_id.as_deref()),
+            Some("session-acp")
         );
     }
 }
