@@ -124,7 +124,9 @@ ACP continuation 会重新加载 agent-native session id；取消必须使用该
 及已接受输入。Retry 是同一逻辑 session 的新 attempt，前端不能从显示文本推断出一个
 新 session。
 重启后若进程内 Lane binding 已消失，唯一 terminal ACP Session 可继续使用其持久、精确的
-Session owner 续聊；client 与 adapter 仍必须拒绝重复 Session、owner 错配以及非 ACP 恢复。
+Session owner 续聊。Core 必须在 `AgentSessionStarted` 前为同一 owner 发布
+`LaneRuntimeOwnerBound`，让 continuation 在整个 active attempt 中保持 owner-routable 且可见；
+client 与 adapter 仍必须拒绝重复 Session、owner 错配以及非 ACP 恢复。
 
 ### Cockpit Context
 

@@ -194,8 +194,9 @@ live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 act
 `runtime.lane_owner_projection`，并且 `lane_runtime_owners` 中恰好有一个完整匹配 owner 时，
 控件才可见且允许传输。owner 缺失、错配或歧义都 fail closed，保持零发送。
 桌面端重启后，Core 恢复出的唯一 terminal ACP Session 即使已经没有进程内 Lane binding，
-仍可使用其精确、持久的 Session owner 接收后续输入；重复 Session、owner 错配以及非 ACP
-恢复仍然 fail closed。
+仍可使用其精确、持久的 Session owner 接收后续输入。Continuation 启动前，Core 会为同一
+持久 owner 发布新的 `LaneRuntimeOwnerBound` 事实，因此 ACP 响应运行期间 Lane 会持续显示
+busy，而不会短暂掉入 Agent Stopped；重复 Session、owner 错配以及非 ACP 恢复仍然 fail closed。
 取消内置 Agent 的活跃模型推理时，现在会先终止该 turn，再考虑 Lane 生命周期取消，因此
 Lane 与其精确 owner 仍可继续路由。对于已经没有 owner 的旧 terminal 原生 Lane，composer
 和“发送”会显示为禁用，而不是保留一个点击后无反应的控件。

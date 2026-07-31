@@ -14,11 +14,11 @@ use viden_types::{
     AgentSessionRequest, AgentSessionStatus, AgentSessionView, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES,
-    FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, PermissionLevel, PermissionPrompt,
-    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, WorkMode, fresh_id,
-    now_timestamp,
+    FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, LaneRuntimeOwnerBinding, PermissionLevel,
+    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
+    TranscriptPageRequest, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -2487,6 +2487,54 @@ fn reserve_lane_agent_session_binding(
     Ok(binding)
 }
 
+fn publish_reactivated_agent_session_owner(
+    event_bus: &RuntimeEventBus,
+    session: &AgentSessionView,
+) -> Result<(), String> {
+    let durable = lane_agent_session_binding(event_bus, &session.owner)?
+        .ok_or_else(|| "agent session has no durable Lane-agent binding".to_string())?;
+    if durable.lane_id != session.lane_id
+        || durable.agent_id != session.agent_id
+        || durable.session_id != session.session_id
+    {
+        return Err(lane_agent_session_binding_rejection(&durable));
+    }
+
+    let bindings = event_bus
+        .state
+        .lock()
+        .map_err(|_| "runtime event state poisoned".to_string())?
+        .live_view
+        .lane_runtime_owners
+        .iter()
+        .filter(|binding| binding.lane_id == session.lane_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    match bindings.as_slice() {
+        [] => {
+            // A terminal ACP session survives restart, while its process-local
+            // runtime owner does not. Publish the exact durable owner before
+            // starting a continuation so every frontend keeps the Lane live.
+            emit_event(
+                event_bus,
+                session.owner.clone(),
+                RuntimeEventKind::LaneRuntimeOwnerBound {
+                    binding: LaneRuntimeOwnerBinding {
+                        lane_id: session.lane_id.clone(),
+                        owner: session.owner.clone(),
+                    },
+                },
+            );
+            Ok(())
+        }
+        [binding] if binding.owner == session.owner => Ok(()),
+        _ => Err(format!(
+            "Lane `{}` does not have one exact Core ACP owner",
+            session.lane_id
+        )),
+    }
+}
+
 fn lane_agent_session_binding_rejection(binding: &LaneAgentExecutionBinding) -> String {
     format!(
         "lane_already_bound_to_agent_session: lane `{}` has durable Lane-agent identity agent `{}` session `{}`; a different execution identity cannot be accepted",
@@ -2835,6 +2883,14 @@ fn run_supervised_agent_session_continuation(
                 command_id,
                 reason: format!("agent session `{session_id}` is still active"),
             },
+        );
+        return;
+    }
+    if let Err(reason) = publish_reactivated_agent_session_owner(event_bus, &session) {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected { command_id, reason },
         );
         return;
     }

@@ -130,9 +130,11 @@ spawn, and snapshot/replay restores both the session and accepted inputs after a
 restart. A retry is a new attempt of the same logical session, not a new frontend
 session inferred from display text.
 When no process-local Lane binding survives a restart, the sole terminal ACP
-session may continue through its durable exact session owner. The client and
-adapter must still reject duplicate sessions, owner mismatch, and non-ACP
-restoration.
+session may continue through its durable exact session owner. Core must publish
+`LaneRuntimeOwnerBound` for that same owner before `AgentSessionStarted`, so
+the continuation remains owner-routable and visible throughout its active
+attempt. The client and adapter must still reject duplicate sessions, owner
+mismatch, and non-ACP restoration.
 
 ### Cockpit Context
 

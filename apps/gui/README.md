@@ -235,7 +235,10 @@ is visible and transport-enabled only when the selected Lane is active,
 or ambiguous owners fail closed with zero sends.
 After a desktop restart, the sole terminal ACP session restored by Core may
 accept a follow-up through its exact durable session owner even though the
-process-local Lane binding has expired. Duplicate sessions, owner mismatch,
+process-local Lane binding has expired. Before the continuation starts, Core
+publishes a fresh `LaneRuntimeOwnerBound` fact for that same durable owner, so
+the Lane remains visible as busy while the ACP response is in flight instead
+of temporarily falling into Agent Stopped. Duplicate sessions, owner mismatch,
 and non-ACP restoration still fail closed.
 Cancelling an active built-in model turn now stops that turn before considering
 Lane lifecycle cancellation, so the Lane and its exact owner remain routable.

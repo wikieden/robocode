@@ -728,6 +728,64 @@ fn restored_completed_acp_session_accepts_follow_up_without_a_live_lane_binding(
 }
 
 #[test]
+fn reactivated_restored_acp_session_stays_visible_while_running() {
+    let mut view = d1_view();
+    let session_owner = RuntimeOwner {
+        session_id: Some("acp-restored".into()),
+        turn_id: None,
+        ..owner("lane_d1_core")
+    };
+    view.lane_runtime_owners.clear();
+    view.lanes[0].status = viden_core::LaneStatus::Draft;
+    let mut session = viden_core::AgentSessionView {
+        session_id: "acp-restored".into(),
+        lane_id: "lane_d1_core".into(),
+        agent_id: "codex-acp".into(),
+        model: None,
+        status: viden_core::AgentSessionStatus::Completed,
+        owner: session_owner.clone(),
+        task: "previous turn".into(),
+        diagnostic: None,
+        output: Some("finished".into()),
+    };
+    view.agent_sessions.push(session.clone());
+    view.apply_event(&RuntimeEvent::new(
+        0,
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: "lane_d1_core".into(),
+                owner: session_owner,
+            },
+        },
+    ));
+    session.status = viden_core::AgentSessionStatus::Starting;
+    session.task = "continue after restart".into();
+    session.output = None;
+    view.apply_event(&RuntimeEvent::new(
+        0,
+        RuntimeEventKind::AgentSessionStarted { session },
+    ));
+
+    let projection = connected(view, Arc::new(Mutex::new(Vec::new())))
+        .d1_cockpit(Some("lane_d1_core"))
+        .expect("reactivated ACP projection");
+
+    assert!(projection.composer.editable);
+    assert!(projection.composer.busy);
+    assert_eq!(projection.agent_sessions.len(), 1);
+    assert_eq!(projection.agent_sessions[0].status, "starting");
+    assert_eq!(
+        projection
+            .context_dock
+            .lane_agent
+            .unwrap()
+            .session_id
+            .as_deref(),
+        Some("acp-restored")
+    );
+}
+
+#[test]
 fn acp_input_rejects_a_malformed_duplicate_lane_binding_without_transport() {
     let mut view = d1_view();
     let session_owner = RuntimeOwner {

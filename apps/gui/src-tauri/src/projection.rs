@@ -535,9 +535,21 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == COCKPIT_CONTEXT_CAPABILITY);
-        // `RuntimeOwner.turn_id` is the owner-scoped Core fact that proves an active turn.
-        // Do not infer queueing from broad Lane lifecycle states.
-        let busy = selected_owner.is_some_and(|owner| owner.turn_id.is_some());
+        // Native turns publish `turn_id`; typed ACP attempts publish an exact,
+        // owner-scoped session status. Both are Core facts, unlike the broad
+        // Lane lifecycle state, so either may prove that the composer must queue.
+        let busy = selected_owner.is_some_and(|owner| {
+            owner.turn_id.is_some()
+                || view.agent_sessions.iter().any(|session| {
+                    &session.owner == owner
+                        && matches!(
+                            session.status,
+                            AgentSessionStatus::Starting
+                                | AgentSessionStatus::Running
+                                | AgentSessionStatus::WaitingApproval
+                        )
+                })
+        });
 
         let provider_id = view
             .provider

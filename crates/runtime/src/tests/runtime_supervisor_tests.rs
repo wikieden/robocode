@@ -1930,10 +1930,6 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
             .iter()
             .all(|event| { !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }) })
     );
-    unsafe {
-        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
-    }
-
     let accepted = events.iter().position(|event| {
         matches!(
             &event.kind,
@@ -1988,6 +1984,49 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
             && session.owner.lane_id.as_deref() == Some("lane-typed-acp")
     }));
     assert_eq!(restarted_view.agent_session_inputs.len(), 2);
+    assert!(restarted_view.lane_runtime_owners.is_empty());
+
+    let restarted = RuntimeSupervisor::start(restarted);
+    restarted
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_typed_acp_follow_up_after_restart",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "continue after Core restart".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let restarted_events = collect_events_until(&restarted, Duration::from_secs(3), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionStarted { session: started }
+                    if started.session_id == session.session_id
+            )
+        })
+    });
+    assert!(restarted_events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::LaneRuntimeOwnerBound { binding }
+                if binding.lane_id == "lane-typed-acp"
+                    && binding.owner == session.owner
+        )
+    }));
+    let active_after_restart = restarted.snapshot_envelope().unwrap();
+    assert_eq!(
+        active_after_restart.view.lane_runtime_owners,
+        vec![viden_types::LaneRuntimeOwnerBinding {
+            lane_id: "lane-typed-acp".to_string(),
+            owner: session.owner.clone(),
+        }]
+    );
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
 }
 
 #[test]
