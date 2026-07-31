@@ -231,7 +231,7 @@ describe("D1 canonical streaming cockpit", () => {
       },
     };
 
-    const { root } = setup(projection);
+    const { root, controller } = setup(projection, { poll: false });
 
     expect(root.querySelector("[data-d6-state='agent_stopped']")).toBeNull();
     expect(root.querySelector("[data-acp-output] pre")?.textContent).toBe(
@@ -240,6 +240,7 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-cancel-turn]")).toBeNull();
     expect(root.querySelector('[data-unavailable-feature="transcript_user"]')).toBeNull();
     expect(root.querySelector('[data-unavailable-feature="transcript_assistant"]')).toBeNull();
+    controller.dispose();
   });
 
   test("keeps recovery visible when the selected ACP session itself failed", () => {
@@ -266,10 +267,11 @@ describe("D1 canonical streaming cockpit", () => {
       },
     };
 
-    const { root } = setup(projection);
+    const { root, controller } = setup(projection, { poll: false });
 
     expect(root.querySelector("[data-d6-state='agent_stopped']")).not.toBeNull();
     expect(root.querySelector("[data-acp-output]")).toBeNull();
+    controller.dispose();
   });
 
   test("renders the selected Lane work surface in typed center sequence with semantic landmarks", () => {
