@@ -145,6 +145,21 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
 }
 
 #[test]
+fn terminal_native_lane_without_an_owner_disables_the_composer() {
+    let mut view = d1_view();
+    view.lane_runtime_owners.clear();
+    view.lanes[0].status = viden_core::LaneStatus::Cancelled;
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+
+    let projection = adapter
+        .d1_cockpit(Some("lane_d1_core"))
+        .expect("D1 projection");
+
+    assert!(!projection.composer.editable);
+    assert!(!projection.composer.can_submit_immediately);
+}
+
+#[test]
 fn d1_cockpit_preserves_typed_workspace_patches_for_the_selected_lane() {
     let mut view = d1_main_view();
     view.workspace_changes[0].patch = Some("@@ typed patch @@".into());
@@ -664,6 +679,51 @@ fn d1_acp_follow_up_preserves_exact_session_and_owner() {
         &sent[0].command,
         RuntimeCommand::SendAgentSessionInput { input }
             if input.session_id == "acp-1" && input.content == "continue"
+    ));
+}
+
+#[test]
+fn restored_completed_acp_session_accepts_follow_up_without_a_live_lane_binding() {
+    let mut view = d1_view();
+    let session_owner = RuntimeOwner {
+        session_id: Some("acp-restored".into()),
+        turn_id: None,
+        ..owner("lane_d1_core")
+    };
+    view.lane_runtime_owners.clear();
+    view.lanes[0].status = viden_core::LaneStatus::Done;
+    view.agent_sessions.push(viden_core::AgentSessionView {
+        session_id: "acp-restored".into(),
+        lane_id: "lane_d1_core".into(),
+        agent_id: "codex-acp".into(),
+        model: None,
+        status: viden_core::AgentSessionStatus::Completed,
+        owner: session_owner.clone(),
+        task: "review".into(),
+        diagnostic: None,
+        output: Some("finished the previous turn".into()),
+    });
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = connected(view, Arc::clone(&sent));
+
+    adapter
+        .send_d1_intent(
+            "acp-restored-input",
+            D1Intent::SendAgentSessionInput {
+                lane_id: "lane_d1_core".into(),
+                session_id: "acp-restored".into(),
+                content: "continue after restart".into(),
+            },
+        )
+        .expect("resume the sole restored ACP session");
+
+    let sent = sent.lock().expect("sent");
+    assert_eq!(sent[0].owner, session_owner);
+    assert!(matches!(
+        &sent[0].command,
+        RuntimeCommand::SendAgentSessionInput { input }
+            if input.session_id == "acp-restored"
+                && input.content == "continue after restart"
     ));
 }
 

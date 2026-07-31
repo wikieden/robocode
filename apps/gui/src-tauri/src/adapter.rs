@@ -17,6 +17,7 @@ use crate::d1::{
     D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult, D1OutcomeProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
+use crate::projection::exact_terminal_agent_session;
 use crate::{
     D6ConnectionState, D6RecoveryProjection, D6State, D11IntakeProjection, PermissionChoice,
     PermissionDockProjection, PermissionIntent, PermissionIntentResult,
@@ -1241,11 +1242,10 @@ impl GuiCoreAdapter {
         lane_id: &str,
         session_id: &str,
     ) -> Result<&viden_core::AgentSessionView, String> {
-        let owner = self.exact_lane_owner(lane_id, "ACP")?;
         let view = self
             .projection
             .view()
-            .expect("exact owner requires a Core view");
+            .ok_or_else(|| "Core has not published a D1 projection".to_string())?;
         let sessions = view
             .agent_sessions
             .iter()
@@ -1256,10 +1256,27 @@ impl GuiCoreAdapter {
                 "Core has no unique ACP session `{session_id}` for Lane `{lane_id}`"
             ));
         };
-        if session.owner != owner {
-            return Err(format!(
-                "ACP session `{session_id}` does not match the exact Core owner for Lane `{lane_id}`"
-            ));
+        let bindings = view
+            .lane_runtime_owners
+            .iter()
+            .filter(|binding| binding.lane_id == lane_id)
+            .collect::<Vec<_>>();
+        match bindings.as_slice() {
+            [binding]
+                if binding.owner.lane_id.as_deref() == Some(lane_id)
+                    && session.owner == binding.owner => {}
+            [] if exact_terminal_agent_session(view, lane_id)
+                .is_some_and(|restored| restored.session_id == session_id) => {}
+            [binding] if binding.owner.lane_id.as_deref() == Some(lane_id) => {
+                return Err(format!(
+                    "ACP session `{session_id}` does not match the exact Core owner for Lane `{lane_id}`"
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "Lane `{lane_id}` does not have one exact Core ACP owner"
+                ));
+            }
         }
         Ok(session)
     }

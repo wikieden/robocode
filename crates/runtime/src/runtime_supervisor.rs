@@ -906,15 +906,14 @@ impl RuntimeSupervisor {
                     .map_err(|err| format!("runtime supervisor stopped: {err}"))
             }
             RuntimeCommand::CancelActiveTurn => {
-                if self.lane_supervisor.cancel(&owner, command_id.clone())? {
-                    return Ok(());
-                }
                 let controls = self
                     .active_control
                     .lock()
                     .map_err(|_| "active turn lock poisoned".to_string())?;
                 let control = controls.get(&RuntimeOwnerKey::from(&owner)).cloned();
-                if control.is_none() && !controls.is_empty() {
+                let another_owner_is_active = control.is_none() && !controls.is_empty();
+                drop(controls);
+                if another_owner_is_active {
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
@@ -925,51 +924,53 @@ impl RuntimeSupervisor {
                     );
                     return Ok(());
                 }
-                drop(controls);
-                let Some(control) = control else {
+                if let Some(control) = control {
+                    if control.owner != owner {
+                        emit_event(
+                            &self.event_bus,
+                            owner.clone(),
+                            RuntimeEventKind::CommandRejected {
+                                command_id,
+                                reason: format!(
+                                    "active runtime job `{}` owner mismatch",
+                                    control.owner_id
+                                ),
+                            },
+                        );
+                        return Ok(());
+                    }
+                    control.control.cancel();
+                    if let ActiveJobState::PendingApproval { request_id } = &control.state {
+                        resolve_pending_approval_by_id(
+                            request_id,
+                            ApprovalDecision::Deny,
+                            &self.event_bus,
+                            &self.active_control,
+                            &self.pending_approvals,
+                            None,
+                        );
+                    }
                     emit_event(
                         &self.event_bus,
                         owner.clone(),
-                        RuntimeEventKind::CommandRejected {
+                        RuntimeEventKind::CommandAccepted {
                             command_id,
-                            reason: "no active turn to cancel".to_string(),
-                        },
-                    );
-                    return Ok(());
-                };
-                if control.owner != owner {
-                    emit_event(
-                        &self.event_bus,
-                        owner.clone(),
-                        RuntimeEventKind::CommandRejected {
-                            command_id,
-                            reason: format!(
-                                "active runtime job `{}` owner mismatch",
-                                control.owner_id
+                            command: redacted_runtime_command_for_event(
+                                &RuntimeCommand::CancelActiveTurn,
                             ),
                         },
                     );
                     return Ok(());
                 }
-                control.control.cancel();
-                if let ActiveJobState::PendingApproval { request_id } = &control.state {
-                    resolve_pending_approval_by_id(
-                        request_id,
-                        ApprovalDecision::Deny,
-                        &self.event_bus,
-                        &self.active_control,
-                        &self.pending_approvals,
-                        None,
-                    );
+                if self.lane_supervisor.cancel(&owner, command_id.clone())? {
+                    return Ok(());
                 }
                 emit_event(
                     &self.event_bus,
                     owner.clone(),
-                    RuntimeEventKind::CommandAccepted {
+                    RuntimeEventKind::CommandRejected {
                         command_id,
-                        command: redacted_runtime_command_for_event(
-                            &RuntimeCommand::CancelActiveTurn,
-                        ),
+                        reason: "no active turn to cancel".to_string(),
                     },
                 );
                 Ok(())

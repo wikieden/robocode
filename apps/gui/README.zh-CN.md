@@ -193,6 +193,12 @@ CJK IME 组合阶段绝不提前提交。两种命令都使用 Core 发布的精
 live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 active、Core 宣告
 `runtime.lane_owner_projection`，并且 `lane_runtime_owners` 中恰好有一个完整匹配 owner 时，
 控件才可见且允许传输。owner 缺失、错配或歧义都 fail closed，保持零发送。
+桌面端重启后，Core 恢复出的唯一 terminal ACP Session 即使已经没有进程内 Lane binding，
+仍可使用其精确、持久的 Session owner 接收后续输入；重复 Session、owner 错配以及非 ACP
+恢复仍然 fail closed。
+取消内置 Agent 的活跃模型推理时，现在会先终止该 turn，再考虑 Lane 生命周期取消，因此
+Lane 与其精确 owner 仍可继续路由。对于已经没有 owner 的旧 terminal 原生 Lane，composer
+和“发送”会显示为禁用，而不是保留一个点击后无反应的控件。
 
 Transcript 最多保留 240 行。离开最新输出边缘后会设为 `follow_latest=false`、保留当前锚点，
 并递增可见的新输出计数，而不会强制滚动。Rust 与 webview 测试覆盖 10,000-event burst、

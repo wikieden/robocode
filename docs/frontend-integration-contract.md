@@ -129,6 +129,10 @@ must use that exact owner. `AgentSessionInputAccepted` is appended before proces
 spawn, and snapshot/replay restores both the session and accepted inputs after a
 restart. A retry is a new attempt of the same logical session, not a new frontend
 session inferred from display text.
+When no process-local Lane binding survives a restart, the sole terminal ACP
+session may continue through its durable exact session owner. The client and
+adapter must still reject duplicate sessions, owner mismatch, and non-ACP
+restoration.
 
 ### Cockpit Context
 
@@ -335,6 +339,11 @@ entire bound owner unchanged. Missing capability, zero or ambiguous matches,
 or any `owner.lane_id` mismatch means cancel is unavailable and command
 transport sends nothing. Unknown future runtime-owner events remain inspectable
 wire events and do not mutate `RuntimeViewState`.
+
+When an exact owner has both a live model turn and a live Lane worker,
+`CancelActiveTurn` cancels the model turn first and preserves the Lane binding.
+Lane lifecycle cancellation is considered only when no exact model turn is
+active.
 
 ## Agent DAG And Task UI Contract
 

@@ -233,6 +233,14 @@ is visible and transport-enabled only when the selected Lane is active,
 `runtime.lane_owner_projection` is advertised, and exactly one matching
 `lane_runtime_owners` binding supplies the complete owner. Missing, mismatched,
 or ambiguous owners fail closed with zero sends.
+After a desktop restart, the sole terminal ACP session restored by Core may
+accept a follow-up through its exact durable session owner even though the
+process-local Lane binding has expired. Duplicate sessions, owner mismatch,
+and non-ACP restoration still fail closed.
+Cancelling an active built-in model turn now stops that turn before considering
+Lane lifecycle cancellation, so the Lane and its exact owner remain routable.
+A legacy terminal native Lane without an owner renders a disabled composer and
+Send action instead of a clickable no-op.
 
 The transcript retains at most 240 rows. Leaving the latest edge sets
 `follow_latest=false`, preserves the current anchor, and increments a visible

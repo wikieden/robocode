@@ -123,6 +123,8 @@ ACP continuation 会重新加载 agent-native session id；取消必须使用该
 `AgentSessionInputAccepted` 在进程启动前追加，重启后的 snapshot/replay 会恢复 session
 及已接受输入。Retry 是同一逻辑 session 的新 attempt，前端不能从显示文本推断出一个
 新 session。
+重启后若进程内 Lane binding 已消失，唯一 terminal ACP Session 可继续使用其持久、精确的
+Session owner 续聊；client 与 adapter 仍必须拒绝重复 Session、owner 错配以及非 ACP 恢复。
 
 ### Cockpit Context
 
@@ -300,6 +302,10 @@ Frontend cancel 必须 fail-closed。client 先 discover
 缺失、零条或多条匹配、或任意 `owner.lane_id` mismatch 时，cancel 显示 unavailable，
 command transport 零发送。未来未知 runtime-owner event 只作为可检查 wire event保留，
 不修改 `RuntimeViewState`。
+
+当精确 owner 同时拥有活跃模型 turn 与 live Lane worker 时，`CancelActiveTurn` 必须优先
+取消模型 turn 并保留 Lane binding；只有不存在精确活跃模型 turn 时，才考虑 Lane 生命周期
+取消。
 
 ## Agent DAG 和 Task UI 契约
 

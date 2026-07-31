@@ -517,16 +517,18 @@ describe("D1 canonical streaming cockpit", () => {
     controller.dispose();
   });
 
-  test("keeps the composer editable but blocks mutation when the selected Lane has no sole owner", () => {
+  test("disables Send when the selected Lane has no sole owner", () => {
     const { root, send, controller } = setup(
       {
         ...D1_PROJECTION,
+        composer: { ...D1_PROJECTION.composer, editable: false },
         contextDock: { ...D1_PROJECTION.contextDock, laneAgent: null },
       },
       { poll: false },
     );
     const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
-    expect(composer.disabled).toBe(false);
+    expect(composer.disabled).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>("[data-composer-send]")?.disabled).toBe(true);
     composer.value = "keep this draft";
     composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
     composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));

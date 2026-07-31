@@ -816,12 +816,12 @@ impl RuntimeProjection {
                 sequence: confirmed.cursor.sequence,
             },
             composer: D1ComposerProjection {
-                editable: selected_lane.is_some(),
+                editable: supports_owner && selected_owner.is_some(),
                 busy,
                 can_cancel: supports_owner
                     && selected_lane.is_some_and(|lane| lane.is_active())
                     && exact_binding.is_some(),
-                can_submit_immediately: !busy,
+                can_submit_immediately: supports_owner && selected_owner.is_some() && !busy,
             },
             permission_dock: match selected_owner {
                 Some(owner) => self.permission_dock_for_owner(owner)?,
@@ -856,7 +856,7 @@ fn exact_owner_count(view: &RuntimeViewState, lane_id: &str) -> usize {
 
 /// Restored terminal ACP sessions are durable Core facts even though process-local
 /// Lane runtime owners intentionally disappear across a Core restart.
-fn exact_terminal_agent_session<'a>(
+pub(crate) fn exact_terminal_agent_session<'a>(
     view: &'a RuntimeViewState,
     lane_id: &str,
 ) -> Option<&'a viden_core::AgentSessionView> {

@@ -1,17 +1,17 @@
 use std::sync::{
     Arc, Mutex, OnceLock,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
 use std::time::{Duration, Instant};
 
-use viden_provider::ModelProvider;
+use viden_provider::{ModelProvider, ModelRequestControl};
 use viden_types::{
     AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, EventCursor, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
-    MutationPolicy, PermissionLevel, PermissionMode, ReplayRequest, RuntimeCommand, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
-    RuntimeWireEvent, WorkMode,
+    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, ModelEvent,
+    ModelRequest, MutationPolicy, PermissionLevel, PermissionMode, ReplayRequest, RuntimeCommand,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
+    RuntimeViewState, RuntimeWireEvent, WorkMode,
 };
 use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
@@ -610,6 +610,112 @@ fn lane_runtime_owner_cancel_requires_exact_binding_and_terminal_clears_only_its
             .lock()
             .unwrap()
             .contains(&"stop:lane-owner-a".to_string())
+    );
+}
+
+#[test]
+fn cancel_active_native_turn_keeps_its_lane_routable() {
+    let cwd = temp_dir("cancel_native_turn_keeps_lane_cwd");
+    let home = temp_dir("cancel_native_turn_keeps_lane_home");
+    let entered = Arc::new(AtomicBool::new(false));
+    let provider: Box<dyn ModelProvider> = Box::new(BlockingLaneProvider {
+        entered: Arc::clone(&entered),
+    });
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let exact_owner = owner("lane-native-turn");
+
+    supervisor
+        .send_command_from_owner(
+            exact_owner.clone(),
+            "create_native_turn_lane",
+            RuntimeCommand::CreateLane {
+                lane: autonomous_lane("lane-native-turn"),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                    ..
+                }) if binding.owner == exact_owner
+            )
+        })
+    });
+
+    supervisor
+        .send_command_from_owner(
+            exact_owner.clone(),
+            "submit_native_turn",
+            RuntimeCommand::SubmitUserInput {
+                content: "run until cancelled".to_string(),
+            },
+        )
+        .unwrap();
+    wait_until(Duration::from_secs(2), || entered.load(Ordering::SeqCst));
+
+    supervisor
+        .send_command_from_owner(
+            exact_owner.clone(),
+            "cancel_native_turn",
+            RuntimeCommand::CancelActiveTurn,
+        )
+        .unwrap();
+    let first_cancel = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::Error { error },
+                    ..
+                }) if error.message.contains("Model request cancelled")
+            ) || matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-native-turn" && lane.status == LaneStatus::Cancelled
+            )
+        })
+    });
+    let lane_was_cancelled = first_cancel.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneUpdated { lane },
+                ..
+            }) if lane.id == "lane-native-turn" && lane.status == LaneStatus::Cancelled
+        )
+    });
+    assert!(
+        !lane_was_cancelled,
+        "cancelling a model turn must not cancel its Lane"
+    );
+    let snapshot = supervisor.snapshot_envelope().unwrap();
+    assert!(
+        snapshot
+            .view
+            .lane_runtime_owners
+            .iter()
+            .any(|binding| binding.owner == exact_owner)
+    );
+    assert!(
+        effects
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|call| call != "stop:lane-native-turn")
     );
 }
 
@@ -3626,6 +3732,38 @@ struct CountingLaneEffects {
 #[derive(Default)]
 struct RecordingLaneEffects {
     calls: Mutex<Vec<String>>,
+}
+
+struct BlockingLaneProvider {
+    entered: Arc<AtomicBool>,
+}
+
+impl ModelProvider for BlockingLaneProvider {
+    fn provider_name(&self) -> &str {
+        "blocking-lane"
+    }
+
+    fn model(&self) -> &str {
+        "blocking-lane-model"
+    }
+
+    fn set_model(&mut self, _model: String) {}
+
+    fn next_events(&mut self, _request: &ModelRequest) -> Result<Vec<ModelEvent>, String> {
+        Ok(Vec::new())
+    }
+
+    fn next_events_with_control(
+        &mut self,
+        _request: &ModelRequest,
+        control: &ModelRequestControl,
+    ) -> Result<Vec<ModelEvent>, String> {
+        self.entered.store(true, Ordering::SeqCst);
+        loop {
+            control.check_cancelled()?;
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 }
 
 struct BlockingApplyLaneEffects {
