@@ -119,10 +119,19 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 
 Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
-ACP continuation 会重新加载 agent-native session id；取消必须使用该精确 owner。
-`AgentSessionInputAccepted` 在进程启动前追加，重启后的 snapshot/replay 会恢复 session
-及已接受输入。Retry 是同一逻辑 session 的新 attempt，前端不能从显示文本推断出一个
-新 session。
+在同一个 Core 进程生命周期内，健康的 ACP continuation 会复用常驻 agent 进程与
+agent-native session，直接发送 `session/prompt`。若该进程已退出、agent/config 不再匹配，
+或 Core 自身已重启，Core 才会先重连并重新加载持久化的 agent-native session。回退判断必须
+发生在 prompt 发送前；prompt 是否已送达存在歧义时，Core 不得自动重放。取消必须使用精确
+owner，并在适用时回收空闲的常驻连接。该优化最多保留八个 ACP Session；空闲超过 15 分钟的
+连接由 Core 回收。Supervisor 关闭时会在 Core host 被释放前回收该工作区的全部常驻连接。
+`AgentSessionInputAccepted` 在 ACP 启动或复用前追加，
+重启后的 snapshot/replay 会恢复 session 及已接受输入。Retry 是同一逻辑 session 的新
+attempt，前端不能从显示文本推断出一个新 session。
+
+前端确认仍由有序事件驱动，并应在 input/start 事实到达时立即显示。热 ACP turn 不得再次
+承担 `initialize` 或 `session/load` 往返；模型排队、上下文处理与推理耗时仍属于
+agent/provider latency，应与 Core dispatch latency 分开报告。
 重启后若进程内 Lane binding 已消失，唯一 terminal ACP Session 可继续使用其持久、精确的
 Session owner 续聊。Core 必须在 `AgentSessionStarted` 前为同一 owner 发布
 `LaneRuntimeOwnerBound`，让 continuation 在整个 active attempt 中保持 owner-routable 且可见；

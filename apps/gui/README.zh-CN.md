@@ -197,6 +197,13 @@ live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 act
 仍可使用其精确、持久的 Session owner 接收后续输入。Continuation 启动前，Core 会为同一
 持久 owner 发布新的 `LaneRuntimeOwnerBound` 事实，因此 ACP 响应运行期间 Lane 会持续显示
 busy，而不会短暂掉入 Agent Stopped；重复 Session、owner 错配以及非 ACP 恢复仍然 fail closed。
+在同一次 App/Core 生命周期内，已完成 ACP turn 会保留健康的进程与远端 Session；下一次
+“发送”因此直接进入 `session/prompt`。常驻连接已退出或不兼容时，Core 会在发送 prompt 前
+回退到持久化 `session/load` 路径。GUI 不持有这份缓存，仍只渲染 Core 的有序事实。即时
+Starting/busy 反馈衡量 Core dispatch；首个 assistant 内容的等待时间还包含冷启动时的 agent
+启动、上下文处理和模型推理。
+Core 将常驻池限制为八个 Session，并回收空闲 15 分钟的连接；之后的“发送”会透明走持久化
+reload 路径。Core 关闭时也会回收该工作区的全部常驻连接。
 取消内置 Agent 的活跃模型推理时，现在会先终止该 turn，再考虑 Lane 生命周期取消，因此
 Lane 与其精确 owner 仍可继续路由。对于已经没有 owner 的旧 terminal 原生 Lane，composer
 和“发送”会显示为禁用，而不是保留一个点击后无反应的控件。

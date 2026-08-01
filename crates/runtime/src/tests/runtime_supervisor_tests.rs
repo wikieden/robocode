@@ -31,6 +31,14 @@ static CUSTOM_ACP_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static RETRIEVE_CONTEXT_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static PERMISSION_CONTROL_HOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+fn acp_client_payloads(log: &str) -> Vec<String> {
+    log.lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|entry| entry["direction"] == "client")
+        .filter_map(|entry| entry["payload"].as_str().map(str::to_string))
+        .collect()
+}
+
 fn assert_no_project_side_channel_events(events: &[viden_workflows::stores::WorkflowAgentEvent]) {
     let forbidden = [
         "agent_dag_created",
@@ -1753,19 +1761,28 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
     let cwd = temp_dir("runtime_supervisor_typed_acp_cwd");
     let home = temp_dir("runtime_supervisor_typed_acp_home");
     let script = cwd.join("mock-typed-acp.sh");
+    let spawn_count = cwd.join("mock-typed-acp-spawns.log");
     fs::write(
         &script,
-        [
-            "#!/bin/sh",
-            "read _init",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-typed-acp\",\"version\":\"0.1.0\"}}}'",
-            "read _new_session",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-typed-session\"}}'",
-            "read _prompt",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"typed session output\"}}}'",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
-        ]
-        .join("\n"),
+        format!(
+            "{}\n",
+            [
+                "#!/bin/sh".to_string(),
+                format!("printf '%s\\n' \"$$\" >> '{}'", spawn_count.display()),
+                "read _init".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-typed-acp\",\"version\":\"0.1.0\"}}}'".to_string(),
+                "read _new_session".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-typed-session\"}}'".to_string(),
+                "turn=0".to_string(),
+                "while [ \"$turn\" -lt 4 ]; do".to_string(),
+                "  read _prompt || exit 0".to_string(),
+                "  printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"typed session output\"}}}'".to_string(),
+                "  printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-typed-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'".to_string(),
+                "  turn=$((turn + 1))".to_string(),
+                "done".to_string(),
+            ]
+            .join("\n")
+        ),
     )
     .expect("write typed ACP mock");
     unsafe {
@@ -1880,18 +1897,29 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
                 if command_id == "cmd_typed_acp_follow_up"
         )
     }));
-    let follow_up_log = fs::read_dir(cwd.join(".viden/agents"))
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
+    let follow_up_input_id = follow_up
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionInputAccepted { input_id, .. } => Some(input_id),
+            _ => None,
         })
-        .filter_map(|path| fs::read_to_string(path).ok())
-        .find(|contents| contents.contains("session/load"))
-        .expect("follow-up ACP log uses session/load");
-    assert!(follow_up_log.contains("remote-typed-session"));
+        .expect("follow-up input identity");
+    let follow_up_log = fs::read_to_string(
+        cwd.join(".viden/agents")
+            .join(format!("{follow_up_input_id}.jsonl")),
+    )
+    .expect("follow-up ACP log exists");
+    let follow_up_requests = acp_client_payloads(&follow_up_log);
+    assert!(
+        follow_up_requests
+            .iter()
+            .all(|request| !request.contains("\"method\":\"initialize\""))
+    );
+    assert!(
+        follow_up_requests
+            .iter()
+            .all(|request| !request.contains("\"method\":\"session/load\""))
+    );
     supervisor
         .send_command_from_owner(
             session.owner.clone(),
@@ -1929,6 +1957,14 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
         retry
             .iter()
             .all(|event| { !matches!(event.kind, RuntimeEventKind::CommandRejected { .. }) })
+    );
+    assert_eq!(
+        fs::read_to_string(&spawn_count)
+            .expect("ACP spawn count")
+            .lines()
+            .count(),
+        1,
+        "follow-up and retry should reuse the live ACP process"
     );
     let accepted = events.iter().position(|event| {
         matches!(
@@ -2000,13 +2036,21 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
         )
         .unwrap();
     let restarted_events = collect_events_until(&restarted, Duration::from_secs(3), |events| {
-        events.iter().any(|event| {
+        let started = events.iter().any(|event| {
             matches!(
                 &event.kind,
                 RuntimeEventKind::AgentSessionStarted { session: started }
                     if started.session_id == session.session_id
             )
-        })
+        });
+        let completed = events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        });
+        started && completed
     });
     assert!(restarted_events.iter().any(|event| {
         matches!(
@@ -2024,9 +2068,153 @@ fn runtime_supervisor_owns_typed_acp_session_lifecycle_snapshot_and_replay() {
             owner: session.owner.clone(),
         }]
     );
+    assert_eq!(
+        fs::read_to_string(&spawn_count)
+            .expect("ACP spawn count after Core restart")
+            .lines()
+            .count(),
+        2,
+        "dropping Core must retire resident ACP processes before restart"
+    );
     unsafe {
         std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
     }
+}
+
+#[test]
+fn typed_acp_follow_up_reloads_after_resident_process_exits() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_typed_acp_exit_cwd");
+    let home = temp_dir("runtime_supervisor_typed_acp_exit_home");
+    let script = cwd.join("mock-one-shot-typed-acp.sh");
+    let spawn_count = cwd.join("mock-one-shot-typed-acp-spawns.log");
+    fs::write(
+        &script,
+        format!(
+            "{}\n",
+            [
+                "#!/bin/sh".to_string(),
+                format!("printf '%s\\n' \"$$\" >> '{}'", spawn_count.display()),
+                "read _init".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-one-shot-acp\",\"version\":\"0.1.0\"}}}'".to_string(),
+                "read _session".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-one-shot-session\"}}'".to_string(),
+                "read _prompt".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-one-shot-session\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"one-shot output\"}}}'".to_string(),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-one-shot-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'".to_string(),
+            ]
+            .join("\n")
+        ),
+    )
+    .expect("write one-shot ACP mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-one-shot-acp");
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_one_shot_acp_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-one-shot-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "start one-shot adapter".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+    });
+    let session = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionCompleted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("one-shot ACP session completed");
+    std::thread::sleep(Duration::from_millis(50));
+
+    supervisor
+        .send_command_from_owner(
+            session.owner.clone(),
+            "cmd_one_shot_acp_follow_up",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "resume after adapter exit".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let follow_up = collect_events_until(&supervisor, Duration::from_secs(3), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionCompleted { session: completed }
+                    if completed.session_id == session.session_id
+            )
+        })
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert!(follow_up.iter().any(|event| {
+        matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                if session_id == &session.session_id
+        )
+    }));
+    assert_eq!(
+        fs::read_to_string(&spawn_count)
+            .expect("one-shot ACP spawn count")
+            .lines()
+            .count(),
+        2
+    );
+    let follow_up_input_id = follow_up
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionInputAccepted { input_id, .. } => Some(input_id),
+            _ => None,
+        })
+        .expect("one-shot follow-up input identity");
+    let follow_up_log = fs::read_to_string(
+        cwd.join(".viden/agents")
+            .join(format!("{follow_up_input_id}.jsonl")),
+    )
+    .expect("one-shot follow-up log");
+    let follow_up_requests = acp_client_payloads(&follow_up_log);
+    assert!(
+        follow_up_requests
+            .iter()
+            .any(|request| request.contains("\"method\":\"initialize\""))
+    );
+    assert!(
+        follow_up_requests
+            .iter()
+            .any(|request| request.contains("\"method\":\"session/load\""))
+    );
 }
 
 #[test]

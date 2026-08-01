@@ -124,11 +124,27 @@ self-referential inside the payload commit.
 | Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 
 For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
-`RuntimeOwner`. ACP continuation reloads the agent-native session id; cancellation
-must use that exact owner. `AgentSessionInputAccepted` is appended before process
-spawn, and snapshot/replay restores both the session and accepted inputs after a
-restart. A retry is a new attempt of the same logical session, not a new frontend
-session inferred from display text.
+`RuntimeOwner`. During one Core process lifetime, a healthy ACP continuation
+reuses the resident agent process and agent-native session and sends
+`session/prompt` directly. If that process has exited, its agent/config no longer
+matches, or Core itself restarted, Core reconnects and reloads the persisted
+agent-native session before prompting. The fallback decision must happen before
+prompt delivery; Core must never automatically replay a prompt after delivery is
+ambiguous. Cancellation must use the exact owner and retire an idle resident
+connection when applicable. Core bounds this optimization to eight resident
+ACP sessions and retires connections idle for more than 15 minutes.
+Supervisor shutdown retires every resident connection for its workspace before
+the Core host is dropped.
+`AgentSessionInputAccepted` is appended before ACP startup or reuse, and
+snapshot/replay restores both the session and accepted
+inputs after a restart. A retry is a new attempt of the same logical session, not
+a new frontend session inferred from display text.
+
+Frontend acknowledgement remains event-driven and should appear as soon as the
+ordered input/start facts arrive. Warm ACP turns must not pay another
+`initialize` or `session/load` round trip; model queueing, context processing,
+and inference time remain agent/provider latency and are reported separately
+from Core dispatch latency.
 When no process-local Lane binding survives a restart, the sole terminal ACP
 session may continue through its durable exact session owner. Core must publish
 `LaneRuntimeOwnerBound` for that same owner before `AgentSessionStarted`, so

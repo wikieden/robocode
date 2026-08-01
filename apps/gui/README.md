@@ -240,6 +240,16 @@ publishes a fresh `LaneRuntimeOwnerBound` fact for that same durable owner, so
 the Lane remains visible as busy while the ACP response is in flight instead
 of temporarily falling into Agent Stopped. Duplicate sessions, owner mismatch,
 and non-ACP restoration still fail closed.
+Within one app/Core lifetime, completed ACP turns keep their healthy process and
+remote session resident. The next Send therefore goes straight to
+`session/prompt`; a dead or incompatible resident connection falls back to the
+persisted `session/load` path before prompt delivery. The GUI does not own this
+cache and continues to render only ordered Core facts. Immediate Starting/busy
+feedback measures Core dispatch, while time to first assistant content also
+includes agent startup (for cold turns), context work, and model inference.
+Core caps the resident pool at eight sessions and expires connections after 15
+idle minutes; a later Send transparently uses the persisted reload path. Core
+shutdown also retires the workspace's entire resident pool.
 Cancelling an active built-in model turn now stops that turn before considering
 Lane lifecycle cancellation, so the Lane and its exact owner remain routable.
 A legacy terminal native Lane without an owner renders a disabled composer and

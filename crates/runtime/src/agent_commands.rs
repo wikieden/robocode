@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, OnceLock, mpsc},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -32,6 +32,8 @@ const DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS: u64 = 90;
 const DEFAULT_LOCAL_ACP_SESSION_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_KIRO_ACP_SESSION_TIMEOUT_SECS: u64 = 120;
 const ACP_SESSION_CANCEL_REQUEST_ID: u64 = 90;
+const MAX_RESIDENT_ACP_SESSIONS: usize = 8;
+const RESIDENT_ACP_SESSION_IDLE_TTL: Duration = Duration::from_secs(15 * 60);
 
 pub(crate) type AgentSessionApprover =
     Box<dyn FnMut(viden_types::PermissionPrompt) -> ApprovalResponse + Send + 'static>;
@@ -820,6 +822,139 @@ struct AcpSessionOptions {
     model_id: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ResidentAcpSessionKey {
+    cwd: PathBuf,
+    logical_session_id: String,
+}
+
+struct ResidentAcpSession {
+    child: Child,
+    stdin: ChildStdin,
+    receiver: mpsc::Receiver<std::io::Result<String>>,
+    remote_session_id: String,
+    next_request_id: u64,
+    agent_command: String,
+    mode_id: Option<String>,
+    model_id: Option<String>,
+    last_used_at: Instant,
+}
+
+static RESIDENT_ACP_SESSIONS: OnceLock<Mutex<BTreeMap<ResidentAcpSessionKey, ResidentAcpSession>>> =
+    OnceLock::new();
+
+fn resident_acp_sessions() -> &'static Mutex<BTreeMap<ResidentAcpSessionKey, ResidentAcpSession>> {
+    RESIDENT_ACP_SESSIONS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn resident_acp_session_key(cwd: &Path, logical_session_id: &str) -> ResidentAcpSessionKey {
+    ResidentAcpSessionKey {
+        cwd: fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf()),
+        logical_session_id: logical_session_id.to_string(),
+    }
+}
+
+fn take_resident_acp_session(
+    key: &ResidentAcpSessionKey,
+    agent: &AgentPluginDescriptor,
+    options: &AcpSessionOptions,
+) -> Option<ResidentAcpSession> {
+    let mut resident = resident_acp_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(key)?;
+    let compatible = resident.agent_command == agent_command_line(agent)
+        && resident.mode_id == options.mode_id
+        && resident.model_id == options.model_id
+        && options
+            .load_session_id
+            .as_deref()
+            .is_none_or(|session_id| session_id == resident.remote_session_id);
+    let running = matches!(resident.child.try_wait(), Ok(None));
+    let fresh = resident.last_used_at.elapsed() <= RESIDENT_ACP_SESSION_IDLE_TTL;
+    if compatible && running && fresh {
+        return Some(resident);
+    }
+    stop_resident_acp_session(resident);
+    None
+}
+
+fn store_resident_acp_session(key: ResidentAcpSessionKey, mut resident: ResidentAcpSession) {
+    if !matches!(resident.child.try_wait(), Ok(None)) {
+        return;
+    }
+    resident.last_used_at = Instant::now();
+    let retired = {
+        let mut sessions = resident_acp_sessions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let stale_keys = sessions
+            .iter()
+            .filter(|(_, session)| session.last_used_at.elapsed() > RESIDENT_ACP_SESSION_IDLE_TTL)
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        let mut retired = stale_keys
+            .into_iter()
+            .filter_map(|key| sessions.remove(&key))
+            .collect::<Vec<_>>();
+        if let Some(replaced) = sessions.insert(key, resident) {
+            retired.push(replaced);
+        }
+        while sessions.len() > MAX_RESIDENT_ACP_SESSIONS {
+            let Some(oldest_key) = sessions
+                .iter()
+                .min_by_key(|(_, session)| session.last_used_at)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            if let Some(oldest) = sessions.remove(&oldest_key) {
+                retired.push(oldest);
+            }
+        }
+        retired
+    };
+    for retired in retired {
+        stop_resident_acp_session(retired);
+    }
+}
+
+fn remove_resident_acp_session(cwd: &Path, logical_session_id: &str) {
+    let key = resident_acp_session_key(cwd, logical_session_id);
+    let resident = resident_acp_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&key);
+    if let Some(resident) = resident {
+        stop_resident_acp_session(resident);
+    }
+}
+
+pub(crate) fn shutdown_resident_acp_sessions(cwd: &Path) {
+    let canonical_cwd = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let retired = {
+        let mut sessions = resident_acp_sessions()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let keys = sessions
+            .keys()
+            .filter(|key| key.cwd == canonical_cwd)
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.into_iter()
+            .filter_map(|key| sessions.remove(&key))
+            .collect::<Vec<_>>()
+    };
+    for retired in retired {
+        stop_resident_acp_session(retired);
+    }
+}
+
+fn stop_resident_acp_session(mut resident: ResidentAcpSession) {
+    let _ = resident.child.kill();
+    let _ = wait_child_timeout(&mut resident.child, Duration::from_secs(1));
+}
+
 struct AcpSessionPromptRunContext<'a, A, P>
 where
     A: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -831,6 +966,7 @@ where
     runtime_event_log_path: Option<PathBuf>,
     permission_context: PermissionContext,
     runtime_event_sink: Option<RuntimeEventSink>,
+    resident_session_id: Option<String>,
     on_pid: P,
 }
 
@@ -2194,6 +2330,7 @@ fn start_typed_agent_session_attempt(
     let pid_slot = Arc::new(Mutex::new(None::<u32>));
     let pid_slot_for_thread = Arc::clone(&pid_slot);
     std::thread::spawn(move || {
+        let resident_session_id = monitor_record.id.clone();
         let result = run_acp_session_prompt_for_agent_with_log(
             &monitor_cwd,
             &monitor_agent,
@@ -2206,6 +2343,7 @@ fn start_typed_agent_session_attempt(
                 runtime_event_log_path: Some(monitor_runtime_event_path.clone()),
                 permission_context: PermissionContext::default(),
                 runtime_event_sink: Some(protocol_sink),
+                resident_session_id: Some(resident_session_id),
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -2376,6 +2514,7 @@ fn start_acp_session_job(
                 runtime_event_log_path: Some(monitor_runtime_event_path.clone()),
                 permission_context: PermissionContext::default(),
                 runtime_event_sink,
+                resident_session_id: None,
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -2587,7 +2726,11 @@ fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
 }
 
 pub(crate) fn cancel_typed_agent_session(cwd: &Path, session_id: &str) -> Result<(), String> {
-    cancel_codex_job(cwd, Some(session_id)).map(|_| ())
+    let result = cancel_codex_job(cwd, Some(session_id)).map(|_| ());
+    // A completed turn may leave its ACP process idle for a fast follow-up.
+    // Explicit session cancellation must also retire that resident connection.
+    remove_resident_acp_session(cwd, session_id);
+    result
 }
 
 pub(crate) fn mark_typed_agent_session_status(
@@ -4027,6 +4170,7 @@ fn run_acp_session_prompt_for_agent_with_permissions(
             runtime_event_log_path: None,
             permission_context,
             runtime_event_sink,
+            resident_session_id: None,
             on_pid: |_| {},
         },
     )
@@ -4050,146 +4194,178 @@ where
         runtime_event_log_path,
         permission_context,
         runtime_event_sink,
+        resident_session_id,
         mut on_pid,
     } = context;
     let mut log_entries = Vec::new();
     let mut permission_engine = PermissionEngine::new(cwd);
     permission_engine.restore_context(permission_context);
-    let mut child = spawn_acp_agent_process(cwd, agent)?;
-    on_pid(child.id());
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "failed to open ACP stdin".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "failed to open ACP stdout".to_string())?;
-    let receiver = read_lines_async(stdout);
-
-    let initialize = acp_initialize_request();
-    if let Err(error) = write_acp_request(&mut stdin, &initialize, &mut log_entries) {
-        return Err(finish_failed_probe(child, log_path, log_entries, error));
-    }
-    if let Err(error) = read_acp_response_line(
-        &receiver,
-        0,
-        &mut log_entries,
-        acp_agent_handshake_timeout(agent),
-    ) {
-        return Err(finish_failed_probe(child, log_path, log_entries, error));
-    }
-
-    let session_request = if let Some(session_id) = session.load_session_id.as_deref() {
-        acp_session_load_request(cwd, session_id)
+    let resident_key = resident_session_id
+        .as_deref()
+        .map(|session_id| resident_acp_session_key(cwd, session_id));
+    let resident = resident_key
+        .as_ref()
+        .and_then(|key| take_resident_acp_session(key, agent, &session));
+    let (mut child, mut stdin, receiver, session_id, next_request_id) = if let Some(resident) =
+        resident
+    {
+        on_pid(resident.child.id());
+        log_entries.push(jsonl_event("system", "reused live ACP process and session"));
+        (
+            resident.child,
+            resident.stdin,
+            resident.receiver,
+            resident.remote_session_id,
+            resident.next_request_id,
+        )
     } else {
-        acp_session_new_request(cwd)
-    };
-    if let Err(error) = write_acp_request(&mut stdin, &session_request, &mut log_entries) {
-        return Err(finish_failed_probe(child, log_path, log_entries, error));
-    }
-    let session_response = match read_acp_response_line(
-        &receiver,
-        1,
-        &mut log_entries,
-        acp_agent_handshake_timeout(agent),
-    ) {
-        Ok(response) => response,
-        Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
-    };
-    let Some(session_id) =
-        acp_session_id_from_response(&session_response).or_else(|| session.load_session_id.clone())
-    else {
-        return Err(finish_failed_probe(
-            child,
-            log_path.clone(),
-            log_entries.clone(),
-            "ACP session creation did not return a session id".to_string(),
-        ));
-    };
+        let mut child = spawn_acp_agent_process(cwd, agent)?;
+        on_pid(child.id());
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "failed to open ACP stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "failed to open ACP stdout".to_string())?;
+        let receiver = read_lines_async(stdout);
 
-    let mut next_request_id = 2;
-    if let Some(mode_id) = session.mode_id.as_deref() {
-        let set_mode = acp_session_set_mode_request(&session_id, mode_id, next_request_id);
-        if let Err(error) = write_acp_request(&mut stdin, &set_mode, &mut log_entries) {
+        let initialize = acp_initialize_request();
+        if let Err(error) = write_acp_request(&mut stdin, &initialize, &mut log_entries) {
             return Err(finish_failed_probe(child, log_path, log_entries, error));
         }
-        let response = match read_acp_response_line(
+        if let Err(error) = read_acp_response_line(
             &receiver,
-            next_request_id,
+            0,
+            &mut log_entries,
+            acp_agent_handshake_timeout(agent),
+        ) {
+            return Err(finish_failed_probe(child, log_path, log_entries, error));
+        }
+
+        let session_request = if let Some(session_id) = session.load_session_id.as_deref() {
+            acp_session_load_request(cwd, session_id)
+        } else {
+            acp_session_new_request(cwd)
+        };
+        if let Err(error) = write_acp_request(&mut stdin, &session_request, &mut log_entries) {
+            return Err(finish_failed_probe(child, log_path, log_entries, error));
+        }
+        let session_response = match read_acp_response_line(
+            &receiver,
+            1,
             &mut log_entries,
             acp_agent_handshake_timeout(agent),
         ) {
             Ok(response) => response,
-            Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
-        };
-        if acp_response_has_error(&response) {
-            return Err(finish_failed_probe(
-                child,
-                log_path,
-                log_entries,
-                acp_response_error_message_for(
-                    "ACP session/set_mode failed",
-                    &serde_json::from_str(&response).unwrap_or(Value::Null),
-                ),
-            ));
-        }
-        next_request_id += 1;
-    }
-    if let Some(model_id) = session.model_id.as_deref() {
-        let set_model = acp_session_set_model_request(&session_id, model_id, next_request_id);
-        if let Err(error) = write_acp_request(&mut stdin, &set_model, &mut log_entries) {
-            return Err(finish_failed_probe(child, log_path, log_entries, error));
-        }
-        let response = match read_acp_response_line(
-            &receiver,
-            next_request_id,
-            &mut log_entries,
-            acp_agent_handshake_timeout(agent),
-        ) {
-            Ok(response) => response,
-            Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
-        };
-        next_request_id += 1;
-        if acp_response_is_method_not_found(&response) {
-            let legacy_set_model =
-                acp_legacy_session_set_model_request(&session_id, model_id, next_request_id);
-            if let Err(error) = write_acp_request(&mut stdin, &legacy_set_model, &mut log_entries) {
+            Err(error) => {
                 return Err(finish_failed_probe(child, log_path, log_entries, error));
             }
-            let legacy_response = match read_acp_response_line(
+        };
+        let Some(session_id) = acp_session_id_from_response(&session_response)
+            .or_else(|| session.load_session_id.clone())
+        else {
+            return Err(finish_failed_probe(
+                child,
+                log_path.clone(),
+                log_entries.clone(),
+                "ACP session creation did not return a session id".to_string(),
+            ));
+        };
+
+        let mut next_request_id = 2;
+        if let Some(mode_id) = session.mode_id.as_deref() {
+            let set_mode = acp_session_set_mode_request(&session_id, mode_id, next_request_id);
+            if let Err(error) = write_acp_request(&mut stdin, &set_mode, &mut log_entries) {
+                return Err(finish_failed_probe(child, log_path, log_entries, error));
+            }
+            let response = match read_acp_response_line(
                 &receiver,
                 next_request_id,
                 &mut log_entries,
                 acp_agent_handshake_timeout(agent),
             ) {
                 Ok(response) => response,
-                Err(error) => return Err(finish_failed_probe(child, log_path, log_entries, error)),
+                Err(error) => {
+                    return Err(finish_failed_probe(child, log_path, log_entries, error));
+                }
             };
-            if acp_response_has_error(&legacy_response) {
+            if acp_response_has_error(&response) {
                 return Err(finish_failed_probe(
                     child,
                     log_path,
                     log_entries,
                     acp_response_error_message_for(
-                        "ACP session/set_model failed",
-                        &serde_json::from_str(&legacy_response).unwrap_or(Value::Null),
+                        "ACP session/set_mode failed",
+                        &serde_json::from_str(&response).unwrap_or(Value::Null),
                     ),
                 ));
             }
             next_request_id += 1;
-        } else if acp_response_has_error(&response) {
-            return Err(finish_failed_probe(
-                child,
-                log_path,
-                log_entries,
-                acp_response_error_message_for(
-                    "ACP session/set_config_option failed",
-                    &serde_json::from_str(&response).unwrap_or(Value::Null),
-                ),
-            ));
         }
-    }
+        if let Some(model_id) = session.model_id.as_deref() {
+            let set_model = acp_session_set_model_request(&session_id, model_id, next_request_id);
+            if let Err(error) = write_acp_request(&mut stdin, &set_model, &mut log_entries) {
+                return Err(finish_failed_probe(child, log_path, log_entries, error));
+            }
+            let response = match read_acp_response_line(
+                &receiver,
+                next_request_id,
+                &mut log_entries,
+                acp_agent_handshake_timeout(agent),
+            ) {
+                Ok(response) => response,
+                Err(error) => {
+                    return Err(finish_failed_probe(child, log_path, log_entries, error));
+                }
+            };
+            next_request_id += 1;
+            if acp_response_is_method_not_found(&response) {
+                let legacy_set_model =
+                    acp_legacy_session_set_model_request(&session_id, model_id, next_request_id);
+                if let Err(error) =
+                    write_acp_request(&mut stdin, &legacy_set_model, &mut log_entries)
+                {
+                    return Err(finish_failed_probe(child, log_path, log_entries, error));
+                }
+                let legacy_response = match read_acp_response_line(
+                    &receiver,
+                    next_request_id,
+                    &mut log_entries,
+                    acp_agent_handshake_timeout(agent),
+                ) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        return Err(finish_failed_probe(child, log_path, log_entries, error));
+                    }
+                };
+                if acp_response_has_error(&legacy_response) {
+                    return Err(finish_failed_probe(
+                        child,
+                        log_path,
+                        log_entries,
+                        acp_response_error_message_for(
+                            "ACP session/set_model failed",
+                            &serde_json::from_str(&legacy_response).unwrap_or(Value::Null),
+                        ),
+                    ));
+                }
+                next_request_id += 1;
+            } else if acp_response_has_error(&response) {
+                return Err(finish_failed_probe(
+                    child,
+                    log_path,
+                    log_entries,
+                    acp_response_error_message_for(
+                        "ACP session/set_config_option failed",
+                        &serde_json::from_str(&response).unwrap_or(Value::Null),
+                    ),
+                ));
+            }
+        }
+        (child, stdin, receiver, session_id, next_request_id)
+    };
 
     let prompt_request_id = next_request_id;
     let prompt_request = acp_session_prompt_request(agent, &session_id, prompt, prompt_request_id);
@@ -4386,9 +4562,29 @@ where
             ),
         ));
     };
-    let _ = child.kill();
-    let _ = child.wait();
     write_probe_log(&log_path, &log_entries)?;
+    if let Some(resident_key) = resident_key
+        && !cancel_sent
+        && final_status != "cancelled"
+    {
+        store_resident_acp_session(
+            resident_key,
+            ResidentAcpSession {
+                child,
+                stdin,
+                receiver,
+                remote_session_id: session_id.clone(),
+                next_request_id: prompt_request_id + 1,
+                agent_command: agent_command_line(agent),
+                mode_id: session.mode_id.clone(),
+                model_id: session.model_id.clone(),
+                last_used_at: Instant::now(),
+            },
+        );
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 
     Ok(AcpSessionPromptEvidence {
         session_id,

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::OnceLock;
 use std::sync::{
@@ -26,8 +27,9 @@ use crate::{
     RuntimeEventSink, SessionEngine,
     agent_commands::{
         AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
-        resume_typed_agent_session, retry_typed_agent_session, start_typed_agent_session,
-        typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
+        resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
+        start_typed_agent_session, typed_agent_session_request_from_compat_input,
+        validate_typed_agent_session_request,
     },
     event_journal::RuntimeEventJournal,
     lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
@@ -416,6 +418,7 @@ enum SupervisorMessage {
 }
 
 pub struct RuntimeSupervisor {
+    workspace_root: PathBuf,
     commands: Sender<SupervisorMessage>,
     events: Receiver<RuntimeEventEnvelope>,
     event_bus: RuntimeEventBus,
@@ -457,6 +460,7 @@ impl RuntimeSupervisor {
         lane_effects: Arc<dyn LaneEffectExecutor>,
         lane_persistence: Option<Arc<dyn LanePersistence>>,
     ) -> Self {
+        let workspace_root = engine.cwd().to_path_buf();
         let permission_control = Arc::new(Mutex::new(PermissionControlState::new(
             engine.work_mode(),
             engine.permission_level(),
@@ -604,6 +608,7 @@ impl RuntimeSupervisor {
         });
 
         Self {
+            workspace_root,
             commands: command_sender,
             events: event_receiver,
             event_bus,
@@ -1389,6 +1394,7 @@ impl Drop for RuntimeSupervisor {
             let _ = worker.join();
         }
         self.approval_timers.shutdown_and_join();
+        shutdown_resident_acp_sessions(&self.workspace_root);
     }
 }
 
