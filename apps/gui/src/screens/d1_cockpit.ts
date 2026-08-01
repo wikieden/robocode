@@ -208,6 +208,7 @@ export function renderD1Cockpit(
   let locale = initial.preferences.locale;
   let draft = "";
   let composing = false;
+  let composerRefreshDeferred = false;
   let disposed = false;
   let pollTimer: number | null = null;
   let pollInFlight = false;
@@ -222,6 +223,8 @@ export function renderD1Cockpit(
   let menuController: AgentMenuController | null = null;
   let agentMenuOpen = false;
   let remountingAgentMenu = false;
+  let agentMenuComposing = false;
+  let agentMenuRefreshDeferred = false;
   let newLaneSelection: AgentMenuSelection | undefined;
   let pendingAgentTaskDraft = "";
   let creatingLane = false;
@@ -581,6 +584,8 @@ export function renderD1Cockpit(
         agentMenuOpen = false;
         menuController = null;
         creatingLane = false;
+        agentMenuComposing = false;
+        agentMenuRefreshDeferred = false;
         if (!remountingAgentMenu) {
           pendingAgentTaskDraft = "";
           newLaneSelection = undefined;
@@ -613,6 +618,16 @@ export function renderD1Cockpit(
       },
       () => {
         options.onFullSetup?.();
+      },
+      (isComposing, task) => {
+        agentMenuComposing = isComposing;
+        pendingAgentTaskDraft = task;
+        if (!isComposing && agentMenuRefreshDeferred) {
+          agentMenuRefreshDeferred = false;
+          queueMicrotask(() => {
+            if (!disposed && agentMenuOpen && !agentMenuComposing) render(false);
+          });
+        }
       },
     );
   }
@@ -724,6 +739,14 @@ export function renderD1Cockpit(
   }
 
   const render = (focusComposer = false): void => {
+    // Replacing the focused textarea while macOS IME owns a composition drops
+    // the candidate session. Core facts may advance, but visual remount waits
+    // until compositionend commits the draft.
+    if (composing || (agentMenuOpen && agentMenuComposing)) {
+      if (composing) composerRefreshDeferred = true;
+      if (agentMenuOpen && agentMenuComposing) agentMenuRefreshDeferred = true;
+      return;
+    }
     const reopenAgentMenu = agentMenuOpen;
     if (menuController) {
       remountingAgentMenu = true;
@@ -918,6 +941,12 @@ export function renderD1Cockpit(
     composer.addEventListener("compositionend", () => {
       composing = false;
       draft = composer.value;
+      if (composerRefreshDeferred) {
+        composerRefreshDeferred = false;
+        queueMicrotask(() => {
+          if (!disposed && !composing) render(false);
+        });
+      }
     });
     composer.addEventListener("input", () => {
       draft = composer.value;

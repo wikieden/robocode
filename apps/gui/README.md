@@ -226,7 +226,9 @@ compatibility flow instead of expanding the quick creator in place. Git
 workspaces preview the derived branch/worktree; non-Git directories explicitly
 state that the Lane runs in the opened workspace without creating either. Agent
 selection stays inside the popover, the task textarea receives focus, and Create
-Lane is disabled until the task is non-empty. Create dispatches the
+Lane is disabled until the task is non-empty. Core or Agent discovery redraws
+are deferred while that textarea owns an IME composition, so macOS candidate
+input is not detached mid-composition. Create dispatches the
 existing ordered path: `preview_default_lane`, `create_starter_lane`, then
 native `submit` or ACP `start_agent_session` only after the exact Core Lane is
 projected. Transport or Core rejection preserves the draft and uses the typed
@@ -235,8 +237,9 @@ D1 rejection surface.
 The composer remains editable while an assistant stream, tool, task, approval,
 or queued input is active. Enter sends `QueueFollowUp` in that state and
 `SubmitUserInput` when idle; Shift+Enter preserves multiline input and CJK IME
-composition never submits early. Both commands use an exact Core-published
-Lane owner from a live owner binding or the D4 receipt. Cancel is stricter: it
+composition never submits early. Streaming Core redraws likewise keep the
+focused textarea mounted until `compositionend`. Both commands use an exact
+Core-published Lane owner from a live owner binding or the D4 receipt. Cancel is stricter: it
 is visible and transport-enabled only when the selected Lane is active,
 `runtime.lane_owner_projection` is advertised, and exactly one matching
 `lane_runtime_owners` binding supplies the complete owner. Missing, mismatched,

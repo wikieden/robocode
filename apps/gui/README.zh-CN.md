@@ -190,13 +190,16 @@ isolation 提示。“完整设置…”进入既有 D4 兼容流程，不在快
 Git 工作区预览由任务文本派生的 branch/worktree；非 Git 目录明确提示 Lane
 直接在已打开工作区运行，不创建二者。
 选择 Agent 不会关闭弹层，任务 textarea 会获得焦点，任务非空前“创建 Lane”保持禁用。
+该 textarea 持有 IME 组合态时，会推迟 Core 或 Agent 探测引发的界面重绘，避免 macOS
+候选输入过程中节点被移除。
 创建时沿用现有有序路径：`preview_default_lane`、`create_starter_lane`，并且只有在精确
 Core Lane 已投影后才发送原生 `submit` 或 ACP `start_agent_session`。Transport 或 Core
 拒绝会保留 draft，并使用 D1 已有 typed rejection surface。
 
 当 assistant stream、tool、task、approval 或 queued input 仍活跃时，composer 仍可编辑。
 此时 Enter 发送 `QueueFollowUp`，空闲时发送 `SubmitUserInput`；Shift+Enter 保留多行输入，
-CJK IME 组合阶段绝不提前提交。两种命令都使用 Core 发布的精确 Lane owner，来源只能是
+CJK IME 组合阶段绝不提前提交；streaming Core 重绘同样会等到 `compositionend` 后再替换
+输入节点。两种命令都使用 Core 发布的精确 Lane owner，来源只能是
 live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 active、Core 宣告
 `runtime.lane_owner_projection`，并且 `lane_runtime_owners` 中恰好有一个完整匹配 owner 时，
 控件才可见且允许传输。owner 缺失、错配或歧义都 fail closed，保持零发送。

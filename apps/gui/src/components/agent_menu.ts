@@ -70,6 +70,7 @@ export function renderAgentMenu(
     true,
   onTaskChange: (task: string) => void = () => undefined,
   onFullSetup: () => void = () => undefined,
+  onCompositionChange: (composing: boolean, task: string) => void = () => undefined,
 ): AgentMenuController {
   const menu = document.createElement("div");
   menu.className = "agent-menu new-lane-popover";
@@ -311,8 +312,16 @@ export function renderAgentMenu(
       focusAt(items.length - 1);
     }
   });
-  task.addEventListener("compositionstart", () => (composing = true));
-  task.addEventListener("compositionend", () => (composing = false));
+  task.addEventListener("compositionstart", () => {
+    composing = true;
+    onCompositionChange(true, task.value);
+  });
+  task.addEventListener("compositionend", () => {
+    composing = false;
+    taskDraft = task.value;
+    onTaskChange(taskDraft);
+    onCompositionChange(false, taskDraft);
+  });
   task.addEventListener("input", () => {
     taskDraft = task.value;
     onTaskChange(taskDraft);

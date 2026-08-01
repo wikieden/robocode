@@ -1236,6 +1236,35 @@ describe("D1 canonical streaming cockpit", () => {
     expect([refreshed.selectionStart, refreshed.selectionEnd]).toEqual([5, 9]);
   });
 
+  test("keeps the conversation textarea mounted while CJK composition crosses a Core redraw", async () => {
+    const { root, controller } = setup();
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.focus();
+    composer.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    composer.value = "继续处理";
+    composer.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertCompositionText" }),
+    );
+
+    controller.applyProjection({
+      ...D1_PROJECTION,
+      transcript: [
+        ...D1_PROJECTION.transcript,
+        { id: "stream-during-ime", kind: "assistant_stream", content: "More output" },
+      ],
+    });
+
+    expect(root.querySelector<HTMLTextAreaElement>("[data-composer]")).toBe(composer);
+    expect(document.activeElement).toBe(composer);
+    expect(composer.value).toBe("继续处理");
+
+    composer.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLTextAreaElement>("[data-composer]")).not.toBe(composer),
+    );
+    expect(root.querySelector<HTMLTextAreaElement>("[data-composer]")?.value).toBe("继续处理");
+  });
+
   test("idle identical projections do not replace the rendered viewport", () => {
     const { root, controller } = setup();
     const transcript = root.querySelector<HTMLElement>('[aria-label="Transcript"]')!;
@@ -1676,6 +1705,54 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector<HTMLTextAreaElement>("[data-lane-task]")?.value).toBe(
       "read README only",
     );
+  });
+
+  test("keeps the New Lane textarea mounted while CJK composition crosses a Core redraw", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const send = vi.fn(async (): Promise<D1IntentResult> => ({
+      projection: D1_PROJECTION,
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    }));
+    const controller = renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      send,
+      async () => {
+        throw new Error("unexpected poll");
+      },
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
+    );
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.focus();
+    task.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    task.value = "中文";
+    task.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertCompositionText" }),
+    );
+
+    controller.applyProjection({
+      ...D1_PROJECTION,
+      environment: { ...D1_PROJECTION.environment, tokenTotal: 1 },
+    });
+
+    expect(root.querySelector<HTMLTextAreaElement>("[data-lane-task]")).toBe(task);
+    expect(document.activeElement).toBe(task);
+    expect(task.value).toBe("中文");
+
+    task.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLTextAreaElement>("[data-lane-task]")).not.toBe(task),
+    );
+    expect(root.querySelector<HTMLTextAreaElement>("[data-lane-task]")?.value).toBe("中文");
   });
 
   test("preserves the New Lane task draft when Core rejects preview dispatch", async () => {
