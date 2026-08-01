@@ -218,13 +218,15 @@ The webview owns only focus, draft, layout, bounded-row, and scroll-anchor
 state. It does not parse display strings, persist a second workspace model, or
 claim command acceptance as business success.
 
-`New Lane` opens one anchored popover with the built-in Viden Agent, discovered
-ACP Agents, the task draft, Core-projected eligibility/probe diagnostics, and a
-presentation-only isolation hint. Git workspaces preview the derived
-branch/worktree; non-Git directories explicitly state that the Lane runs in the
-opened workspace without creating either. Agent
-selection stays inside the popover, the task textarea receives focus, and
-Create Lane is disabled until the task is non-empty. Create dispatches the
+`New Lane` opens one compact, anchored popover with the built-in Viden Agent
+selected by default, discovered ACP Agents, the task draft, branded Agent
+identity, Core-projected eligibility/probe diagnostics, and a
+presentation-only isolation hint. `Full setup…` routes to the existing D4
+compatibility flow instead of expanding the quick creator in place. Git
+workspaces preview the derived branch/worktree; non-Git directories explicitly
+state that the Lane runs in the opened workspace without creating either. Agent
+selection stays inside the popover, the task textarea receives focus, and Create
+Lane is disabled until the task is non-empty. Create dispatches the
 existing ordered path: `preview_default_lane`, `create_starter_lane`, then
 native `submit` or ACP `start_agent_session` only after the exact Core Lane is
 projected. Transport or Core rejection preserves the draft and uses the typed

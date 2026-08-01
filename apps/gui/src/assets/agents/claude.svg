@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <g stroke="#d97757" stroke-width="2.1" stroke-linecap="round">
+    <line x1="12" y1="8.8" x2="12" y2="1.5"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(27.6923 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(55.3846 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(83.0769 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(110.7692 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(138.4615 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(166.1538 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(193.8462 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(221.5385 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(249.2308 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(276.9231 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(304.6154 12 12)"/>
+    <line x1="12" y1="8.8" x2="12" y2="1.5" transform="rotate(332.3077 12 12)"/>
+  </g>
+</svg>

@@ -1,4 +1,5 @@
 import { translate, type Locale } from "../i18n/catalog";
+import { createAgentLogo, resolveAgentLogoKind, type AgentLogoKind } from "./agent_logo";
 import "./agent_menu.css";
 
 export type AgentMenuSelection = { kind: "native" } | { kind: "acp"; agentId: string };
@@ -68,6 +69,7 @@ export function renderAgentMenu(
   onCreate: (selection: AgentMenuSelection, task: string) => Promise<boolean> | boolean = () =>
     true,
   onTaskChange: (task: string) => void = () => undefined,
+  onFullSetup: () => void = () => undefined,
 ): AgentMenuController {
   const menu = document.createElement("div");
   menu.className = "agent-menu new-lane-popover";
@@ -76,13 +78,26 @@ export function renderAgentMenu(
   menu.setAttribute("aria-label", translate(model.locale, "d1.agentMenu.title", {}));
   menu.setAttribute("aria-busy", String(model.probing));
 
-  let selected = model.selected;
+  let selected = model.selected ?? (model.canCreateLane ? { kind: "native" } : undefined);
   let taskDraft = model.taskDraft ?? "";
   let composing = false;
 
+  const header = document.createElement("header");
+  header.className = "agent-menu-header";
   const heading = document.createElement("h2");
   heading.className = "agent-menu-heading";
   heading.textContent = translate(model.locale, "d1.agentMenu.newLane", {});
+  const scope = document.createElement("span");
+  scope.className = "agent-menu-scope";
+  scope.dataset.laneScope = "true";
+  scope.textContent = translate(model.locale, "d1.agentMenu.scopeCurrent", {});
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "agent-menu-close";
+  closeButton.setAttribute("aria-label", translate(model.locale, "d1.agentMenu.close", {}));
+  closeButton.textContent = "×";
+  closeButton.addEventListener("click", () => close());
+  header.append(heading, scope, closeButton);
 
   const diagnostic = document.createElement("p");
   diagnostic.className = "agent-menu-diagnostic";
@@ -92,6 +107,9 @@ export function renderAgentMenu(
   agentGrid.className = "agent-menu-agents";
   agentGrid.setAttribute("role", "radiogroup");
   agentGrid.setAttribute("aria-label", translate(model.locale, "d1.agentMenu.agentLabel", {}));
+  const agentLabel = document.createElement("p");
+  agentLabel.className = "agent-menu-label";
+  agentLabel.textContent = translate(model.locale, "d1.agentMenu.agentLabel", {});
 
   const select = (next: AgentMenuSelection): void => {
     selected = next;
@@ -104,6 +122,8 @@ export function renderAgentMenu(
     status: string | null,
     enabled: boolean,
     selection: AgentMenuSelection,
+    logoKind: AgentLogoKind | null,
+    badge: string,
   ): HTMLButtonElement => {
     const button = document.createElement("button");
     button.type = "button";
@@ -116,11 +136,20 @@ export function renderAgentMenu(
     if (selection.kind === "acp") button.dataset.agentId = selection.agentId;
     if (selection.kind === "native") button.dataset.nativeAgent = "true";
     button.dataset.selectionKey = selectionKey(selection);
+    const primary = document.createElement("span");
+    primary.className = "agent-menu-primary";
+    if (logoKind) primary.append(createAgentLogo(logoKind));
     const name = document.createElement("span");
+    name.className = "agent-menu-name";
     name.textContent = label;
-    button.append(name);
+    primary.append(name);
+    const kind = document.createElement("span");
+    kind.className = "agent-menu-badge";
+    kind.textContent = badge;
+    button.append(primary, kind);
     if (status) {
       const detail = document.createElement("small");
+      detail.className = "agent-menu-item-detail";
       detail.textContent = status;
       button.append(detail);
     }
@@ -137,6 +166,8 @@ export function renderAgentMenu(
       model.canCreateLane ? null : model.eligibilityDiagnostic,
       model.canCreateLane,
       { kind: "native" },
+      "viden",
+      translate(model.locale, "d1.agentMenu.builtIn", {}),
     ),
   );
   for (const adapter of orderedAgentAdapters(model.adapters)) {
@@ -144,7 +175,7 @@ export function renderAgentMenu(
       model.probing
         ? translate(model.locale, "d1.agentMenu.probing", {})
         : adapter.startability === "ready"
-        ? translate(model.locale, "d1.agentMenu.ready", {})
+        ? null
         : adapter.diagnostics[0] ?? adapter.startability.replaceAll("_", " ");
     agentGrid.append(
       item(
@@ -152,6 +183,8 @@ export function renderAgentMenu(
         status,
         model.canCreateLane && !model.probing && adapter.startability === "ready",
         { kind: "acp", agentId: adapter.agentId },
+        resolveAgentLogoKind(adapter.agentId, adapter.displayName),
+        "ACP",
       ),
     );
   }
@@ -180,20 +213,27 @@ export function renderAgentMenu(
   const hint = document.createElement("p");
   hint.className = "agent-menu-hint";
   hint.dataset.laneHint = "true";
+  const branch = document.createElement("span");
+  branch.dataset.laneBranch = "true";
+  const isolation = document.createElement("span");
+  isolation.dataset.laneIsolation = "true";
+  hint.append(branch, isolation);
 
   const actions = document.createElement("div");
   actions.className = "agent-menu-actions";
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.textContent = translate(model.locale, "d1.task.cancel", {});
+  const fullSetup = document.createElement("button");
+  fullSetup.type = "button";
+  fullSetup.className = "agent-menu-full-setup";
+  fullSetup.dataset.fullSetup = "true";
+  fullSetup.textContent = translate(model.locale, "d1.agentMenu.fullSetup", {});
   const create = document.createElement("button");
   create.type = "button";
   create.className = "agent-menu-create";
   create.dataset.laneTaskSubmit = "true";
   create.textContent = translate(model.locale, "d1.task.submit", {});
-  actions.append(cancel, create);
+  actions.append(fullSetup, create);
 
-  menu.append(heading, diagnostic, agentGrid, taskLabel, hint, actions);
+  menu.append(header, diagnostic, agentLabel, agentGrid, taskLabel, hint, actions);
 
   anchor.setAttribute("aria-expanded", "true");
   const anchorRect = anchor.getBoundingClientRect();
@@ -213,33 +253,18 @@ export function renderAgentMenu(
     }
     if (model.usesGitIsolation) {
       const slug = taskSlug(taskDraft);
-      hint.textContent = translate(model.locale, "d1.task.hint", {
-        branch: `vd/${slug}`,
-        worktree: `.worktrees/${slug}`,
-      });
+      branch.textContent = `⌁ vd/${slug}`;
+      isolation.textContent = translate(model.locale, "d1.agentMenu.isolationLocal", {});
     } else {
-      hint.textContent = translate(model.locale, "d1.task.directWorkspaceHint", {});
+      branch.textContent = translate(model.locale, "d1.task.directWorkspaceHint", {});
+      isolation.textContent = translate(model.locale, "d1.agentMenu.isolationDirect", {});
     }
     create.disabled =
       model.submitting === true ||
       model.probing ||
       selected === undefined ||
       taskDraft.trim().length === 0;
-    let selectedAcpName: string | null = null;
-    if (selected?.kind === "acp") {
-      const selectedAgentId = selected.agentId;
-      selectedAcpName =
-        model.adapters.find((adapter) => adapter.agentId === selectedAgentId)?.displayName ??
-        selectedAgentId;
-    }
-    create.textContent =
-      selected?.kind === "native"
-        ? translate(model.locale, "d1.task.nativeTitle", {})
-        : selectedAcpName
-          ? translate(model.locale, "d1.task.acpTitle", {
-              agent: selectedAcpName,
-            })
-          : translate(model.locale, "d1.task.submit", {});
+    create.textContent = translate(model.locale, "d1.task.submit", {});
     diagnostic.textContent =
       model.eligibilityDiagnostic ??
       (model.probing ? translate(model.locale, "d1.agentMenu.probing", {}) : "");
@@ -303,7 +328,10 @@ export function renderAgentMenu(
     event.preventDefault();
     void submit();
   });
-  cancel.addEventListener("click", close);
+  fullSetup.addEventListener("click", () => {
+    onFullSetup();
+    close();
+  });
   create.addEventListener("click", () => void submit());
 
   async function submit(): Promise<void> {

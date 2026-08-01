@@ -53,6 +53,7 @@ export interface D1Controller {
 export interface D1RenderOptions {
   onOpenProject?: () => void | Promise<void>;
   onCreateLane?: () => void;
+  onFullSetup?: () => void;
   showWelcome?: boolean;
   poll?: boolean;
 }
@@ -609,6 +610,9 @@ export function renderD1Cockpit(
       },
       (task) => {
         pendingAgentTaskDraft = task;
+      },
+      () => {
+        options.onFullSetup?.();
       },
     );
   }

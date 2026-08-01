@@ -18,6 +18,7 @@
       const locale = params.get("locale") === "zh-CN" ? "zh-CN" : "en";
       const mode = params.get("mode") === "light" ? "light" : "dark";
       const density = params.get("density") === "compact" ? "compact" : "regular";
+      const showAgentMenu = params.get("agentMenu") === "open";
       const skin = mode === "light" ? "ice" : "aurora";
       const preferences = { locale, skin, mode, density, motion: "reduced", diagnostics: [] };
       document.documentElement.lang = locale;
@@ -143,8 +144,20 @@
         starterLanePreviews: [],
         agentAdapters: [
           {
-            agentId: "viden-agent",
-            displayName: "Viden Agent",
+            agentId: "codex-acp",
+            displayName: "Codex",
+            startability: "ready",
+            diagnostics: [],
+          },
+          {
+            agentId: "claude-acp",
+            displayName: "Claude Agent",
+            startability: "ready",
+            diagnostics: [],
+          },
+          {
+            agentId: "kiro-cli",
+            displayName: "Kiro CLI",
             startability: "ready",
             diagnostics: [],
           },
@@ -201,9 +214,13 @@
         async () => result,
         async () => undefined,
         undefined,
-        { onCreateLane: () => undefined, poll: false },
+        { onCreateLane: showAgentMenu ? undefined : () => undefined, poll: false },
       );
       requestAnimationFrame(() => {
+        if (showAgentMenu) {
+          document.querySelector('[data-activity="lanes"]')?.click();
+          requestAnimationFrame(() => document.querySelector("[data-create-lane]")?.click());
+        }
         if (params.get("drawer") === "open") {
           document.querySelector("[data-context-drawer-toggle]")?.click();
           document.body.dataset.drawer = "open";

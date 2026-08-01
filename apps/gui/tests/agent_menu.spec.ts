@@ -12,7 +12,7 @@ const MODEL: AgentMenuModel = {
   eligibilityDiagnostic: null,
   adapters: [
     {
-      agentId: "codex",
+      agentId: "codex-acp",
       displayName: "Codex",
       startability: "ready",
       diagnostics: [],
@@ -36,16 +36,19 @@ describe("compact agent menu", () => {
   test("offers every ready Agent as the unique owner of a new Lane", () => {
     const { controller } = setup();
 
-    expect(controller.root.textContent).toContain("New Lane");
+    expect(controller.root.textContent).toContain("New lane");
     expect(controller.root.textContent).toContain("Viden Agent");
     expect(controller.root.textContent).not.toContain("DELEGATE TO CURRENT LANE");
     expect(controller.root.textContent).toContain("Codex");
+    expect(controller.root.textContent).toContain("ACP");
+    expect(controller.root.querySelector('[data-agent-logo="viden"]')).not.toBeNull();
+    expect(controller.root.querySelector('[data-agent-logo="codex"]')).not.toBeNull();
     expect(
-      controller.root.querySelector('[data-agent-id="codex"]')?.getAttribute("aria-disabled"),
+      controller.root.querySelector('[data-agent-id="codex-acp"]')?.getAttribute("aria-disabled"),
     ).toBe("false");
   });
 
-  test("requires an explicit Agent selection before Lane creation", () => {
+  test("defaults to the built-in Agent and requires only a task", () => {
     const { controller } = setup();
     const radios = Array.from(
       controller.root.querySelectorAll<HTMLElement>('[role="radio"]'),
@@ -53,14 +56,11 @@ describe("compact agent menu", () => {
     const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     const create = controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")!;
 
-    expect(radios.every((radio) => radio.getAttribute("aria-checked") === "false")).toBe(true);
+    expect(radios[0]?.getAttribute("aria-checked")).toBe("true");
     task.value = "Review the parser diff";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    expect(create.disabled).toBe(true);
-
-    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')?.click();
     expect(create.disabled).toBe(false);
-    expect(create.textContent).toContain("Codex");
+    expect(create.textContent).toContain("Create lane");
   });
 
   test("blocks Lane creation throughout Agent discovery", () => {
@@ -135,7 +135,7 @@ describe("compact agent menu", () => {
     const { controller } = setup({ ...MODEL, canCreateLane: false });
 
     expect(
-      controller.root.querySelector('[data-agent-id="codex"]')?.getAttribute("aria-disabled"),
+      controller.root.querySelector('[data-agent-id="codex-acp"]')?.getAttribute("aria-disabled"),
     ).toBe("true");
   });
 
@@ -153,7 +153,7 @@ describe("compact agent menu", () => {
   test("uses roving Agent keyboard focus and restores the trigger on Escape", () => {
     const { anchor, controller } = setup();
     const native = controller.root.querySelector<HTMLButtonElement>("[data-native-agent]")!;
-    const acp = controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')!;
+    const acp = controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex-acp"]')!;
     expect(document.activeElement).toBe(
       controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]"),
     );
@@ -180,8 +180,8 @@ describe("compact agent menu", () => {
 
   test("selects only a Core-ready item", () => {
     const { onSelect, controller } = setup();
-    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')?.click();
-    expect(onSelect).toHaveBeenCalledWith({ kind: "acp", agentId: "codex" });
+    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex-acp"]')?.click();
+    expect(onSelect).toHaveBeenCalledWith({ kind: "acp", agentId: "codex-acp" });
   });
 
   test("keeps Agent selection, task draft, and Create in one focused popover", () => {
@@ -194,16 +194,44 @@ describe("compact agent menu", () => {
     expect(document.activeElement).toBe(task);
     expect(create?.disabled).toBe(true);
 
-    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex"]')?.click();
-    expect(onSelect).toHaveBeenCalledWith({ kind: "acp", agentId: "codex" });
+    controller.root.querySelector<HTMLButtonElement>('[data-agent-id="codex-acp"]')?.click();
+    expect(onSelect).toHaveBeenCalledWith({ kind: "acp", agentId: "codex-acp" });
     expect(document.body.contains(controller.root)).toBe(true);
-    expect(controller.root.querySelector('[data-agent-id="codex"]')?.getAttribute("aria-pressed")).toBe(
+    expect(controller.root.querySelector('[data-agent-id="codex-acp"]')?.getAttribute("aria-pressed")).toBe(
       "true",
     );
 
     task!.value = "Review the parser diff";
     task!.dispatchEvent(new InputEvent("input", { bubbles: true }));
     expect(create?.disabled).toBe(false);
+  });
+
+  test("matches the compact reference shell and exposes Full setup", () => {
+    document.body.innerHTML = '<div id="host"><button id="anchor">+</button></div>';
+    const anchor = document.querySelector<HTMLButtonElement>("#anchor")!;
+    const onFullSetup = vi.fn();
+    const controller = renderAgentMenu(
+      anchor,
+      MODEL,
+      vi.fn(),
+      vi.fn(),
+      async () => true,
+      vi.fn(),
+      onFullSetup,
+    );
+
+    expect(controller.root.getAttribute("role")).toBe("dialog");
+    expect(controller.root.querySelector("[data-lane-scope]")?.textContent).toContain(
+      "Current project",
+    );
+    expect(controller.root.querySelector("[data-lane-branch]")?.textContent).toContain(
+      "vd/new-lane",
+    );
+    expect(controller.root.querySelector("[data-lane-isolation]")?.textContent).toContain(
+      "local",
+    );
+    controller.root.querySelector<HTMLButtonElement>("[data-full-setup]")?.click();
+    expect(onFullSetup).toHaveBeenCalledTimes(1);
   });
 
   test("portals both New Lane actions outside the clipped rail at 1228x768", async () => {

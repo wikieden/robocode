@@ -1,55 +1,49 @@
-# Design QA — GUI ACP Conversation Flow
+# Design QA — Compact New Lane Popover
 
 ## Scope
 
-This QA is limited to the interaction requested in this change: the D1 center
-surface must present one Core-owned ACP session as an ordered `YOU` / `VIDEN`
-conversation, preserve earlier turns, and keep the composer below that flow.
-Tool cards, permission contents, and the completeness of the Context Dock are
-outside this focused pass.
+This QA covers the latest supplied target for GUI Lane creation: a compact
+popover anchored to `+ New Lane`, Agent selection, task entry, isolation
+preview, `Full setup…`, and one primary create action.
 
 ## Source and implementation
 
-- Authoritative source: `/var/folders/rm/hlc2td2x1rq11k_yknfsn1y80000gn/T/codex-clipboard-7004b8e0-f88e-4369-a7d6-8eb4d792a175.png`
-- Normalized source: `apps/gui/evidence/0.1.0-rc.3/conversation-flow-reference-normalized.png`
-- Native implementation: `apps/gui/evidence/0.1.0-rc.3/conversation-flow-implementation.jpeg`
-- Source pixels: 3068 × 1862; normalized to 1229 × 746 without cropping.
-- Implementation pixels: 1229 × 768, native macOS App capture.
-- Density treatment: source width normalized to the native capture width;
-  aspect ratio preserved; no crop or pixel-density interpolation was applied
-  to the implementation.
+- Latest reference: `/var/folders/rm/hlc2td2x1rq11k_yknfsn1y80000gn/T/codex-clipboard-2dce13da-5348-45e6-90e1-bfa81acf2347.png`
+- Focused reference crop: `apps/gui/evidence/0.1.0-rc.3/lane-agent-popover-reference.png`
+- Browser-rendered implementation: `apps/gui/evidence/0.1.0-rc.3/lane-agent-popover-implementation.png`
+- Same-input comparison: `apps/gui/evidence/0.1.0-rc.3/lane-agent-popover-comparison.png`
 
-## State and focus
+The two 600 × 650 comparison regions preserve aspect ratio and use padding,
+not stretching. The implementation also passed native macOS accessibility
+inspection and exposes a dialog, radio group, task textbox, and create action.
 
-- Source state: active coding turn with one user message, one assistant message,
-  tool/test cards, live work, and a permission request.
-- Implementation state: completed two-turn Codex ACP session restored from Core
-  facts, with the composer ready for the next message.
-- Full-view comparison: performed with the normalized source and implementation
-  in the same visual comparison input.
-- Focused region: ordered message headers, message bodies, vertical flow, and
-  composer placement. The source's active permission/tool state was not
-  reproduced because it is not required to prove ordered multi-turn dialogue.
+## Interaction checks
 
-## Review history
-
-1. Initial native capture exposed a duplicate assistant response after restart.
-2. The GUI now suppresses reconstructed transcript rows already represented by
-   the canonical Core conversation while retaining non-dialogue rows.
-3. A fresh Core conversation reducer and persisted ACP events restore the exact
-   `YOU → VIDEN → YOU → VIDEN` order.
-4. The final normalized comparison confirms the source interaction language:
-   cyan `YOU`, amber `VIDEN`, unboxed message flow, and a bottom composer.
+1. The built-in Viden Agent is selected by default; ready ACP adapters retain
+   stable product ordering and real registered brand assets.
+2. The task field receives initial focus, supports CJK composition, and submits
+   with Cmd/Ctrl+Enter only after composition ends.
+3. Create remains disabled until the selected Agent is startable and the task
+   is non-empty.
+4. Git projects preview `vd/<task-slug>` plus local isolation; non-Git folders
+   state that the opened workspace is used directly.
+5. Create uses the existing ordered Core flow: preview, create/approval, exact
+   Lane projection, then native submit or ACP session start.
+6. `Full setup…` routes to D4 rather than adding advanced controls to the quick
+   popover.
 
 ## Findings
 
 - P0: none.
 - P1: none.
-- P2: none within the conversation-flow scope.
-- P3: the deterministic verification response contains a Codex skills-budget
-  warning, which is authentic Agent output rather than GUI placeholder copy.
+- P2: none.
+- P3: the reference includes `Attach tmux…`, but the current Core contract does
+  not publish a startable tmux Lane adapter. The GUI omits that action instead
+  of presenting a control that cannot complete.
+- P3: the reference says `Global · cross-project`; current Core state is scoped
+  to the opened project, so the implementation truthfully labels it `Current
+  project` until a cross-project scope contract exists.
 
 ## Final result
 
 passed
-

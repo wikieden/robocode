@@ -199,7 +199,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           pollD1,
           sendPermission,
           recoverD6,
-          {},
+          { onFullSetup: () => void showD4() },
         );
       };
 
