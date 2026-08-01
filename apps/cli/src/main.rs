@@ -2,12 +2,13 @@ use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use viden_config::{CliOverrides, load_config};
-use viden_provider::{
-    ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
-    list_supported_provider_strings,
+use viden_core::{LocalCoreTransport, StatefulCoreClient};
+use viden_provider::list_supported_provider_strings;
+use viden_runtime::{EngineEvent, RuntimeSupervisor, bootstrap_runtime_with_resolved_config};
+use viden_types::{
+    ApprovalResponse, PermissionPrompt, ResolvedUiPreferences, UiColorMode, UiPreferences, UiSkin,
+    resolve_ui_preferences,
 };
-use viden_runtime::{EngineEvent, SessionEngine};
-use viden_types::{ApprovalResponse, PermissionLevel, PermissionPrompt, RuntimeSnapshot, WorkMode};
 
 use viden_tui as tui;
 
@@ -41,8 +42,12 @@ fn run() -> Result<(), String> {
         request_timeout_secs: startup.request_timeout_secs,
         max_retries: startup.max_retries,
         config_path: startup.config_path.clone(),
+        ui: None,
     };
-    let resolved_config = load_config(&cwd, &cli_config)?;
+    let mut resolved_config = load_config(&cwd, &cli_config)?;
+    if let Some(skin) = startup.tui_theme.as_deref() {
+        resolved_config.ui = ui_preferences_with_skin(&resolved_config.ui, skin);
+    }
     let preview_provider = resolved_config.provider.as_str();
     let preview_model = resolved_config.model.as_deref().unwrap_or("default");
     if startup.tui_preview || startup.tui_preview_ansi {
@@ -294,53 +299,27 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
-    let provider_host = load_startup_provider_host(&resolved_config)?;
-    let provider_selection = create_startup_provider(&provider_host, &resolved_config)?;
-    let provider_summary = format!(
-        "{} | config={} | files={}",
-        provider_selection.summary,
-        resolved_config.summary(),
-        if resolved_config.loaded_files.is_empty() {
-            "<none>".to_string()
-        } else {
-            resolved_config
-                .loaded_files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+    let bootstrap =
+        bootstrap_runtime_with_resolved_config(&cwd, resolved_config, startup.summary_overrides())?;
+    let provider_summary = bootstrap.provider_summary;
+    let mut engine = bootstrap.engine;
+
+    if startup.should_start_tui() {
+        if startup.resume_selector.is_some() {
+            return Err(
+                "--resume requires a Core resume command before it can be used with the V3 TUI; use --no-tui for the legacy REPL"
+                    .to_string(),
+            );
         }
-    );
-    let runtime_snapshot = RuntimeSnapshot {
-        cwd: cwd.clone(),
-        provider_family: resolved_config.provider.clone(),
-        model_label: provider_selection.model_label.clone(),
-        work_mode: if resolved_config.permission_mode == viden_types::PermissionMode::Plan {
-            WorkMode::Plan
-        } else {
-            WorkMode::Build
-        },
-        permission_mode: resolved_config.permission_mode,
-        permission_level: PermissionLevel::from_legacy_mode(resolved_config.permission_mode),
-        config_summary: resolved_config.summary(),
-        loaded_config_files: resolved_config.loaded_files.clone(),
-        startup_overrides: startup.summary_overrides(),
-    };
-    let mut engine = SessionEngine::new_with_home_and_snapshot(
-        &cwd,
-        provider_selection.provider,
-        resolved_config.session_home.clone(),
-        runtime_snapshot,
-    )?;
-    engine.set_provider_runtime(
-        provider_host,
-        resolved_config.provider_plugin_dirs.clone(),
-        resolved_config.api_base.clone(),
-        resolved_config.api_key.clone(),
-        resolved_config.request_timeout_secs,
-        resolved_config.max_retries,
-    );
-    engine.set_permission_mode(resolved_config.permission_mode)?;
+        let supervisor = RuntimeSupervisor::start(engine);
+        let transport = LocalCoreTransport::new(supervisor);
+        let client = StatefulCoreClient::new(transport);
+        let mut options = tui::TuiOptions::new(&provider_summary);
+        if startup.tui_startup_check {
+            options = options.with_startup_check();
+        }
+        return tui::run_tui(client, options).map_err(|error| error.to_string());
+    }
 
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
@@ -352,22 +331,6 @@ fn run() -> Result<(), String> {
         {
             render_event(event);
         }
-    }
-
-    if startup.should_start_tui() {
-        if let Some(screen) = startup
-            .tui_screen
-            .as_deref()
-            .and_then(tui::SideScreen::parse)
-        {
-            return tui::run_side_tui_with_theme(
-                &engine,
-                &provider_summary,
-                screen,
-                startup.tui_theme.as_deref(),
-            );
-        }
-        return tui::run_tui_with_theme(engine, &provider_summary, startup.tui_theme.as_deref());
     }
 
     println!(
@@ -397,25 +360,33 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn is_exit_command(input: &str) -> bool {
-    matches!(
-        input.trim().to_ascii_lowercase().as_str(),
-        "exit" | "quit" | "/exit" | "/quit"
-    )
-}
-
-fn load_startup_provider_host(
-    resolved_config: &viden_config::ResolvedConfig,
-) -> Result<ProviderHost, String> {
-    if resolved_config.provider_plugin_dirs.is_empty() {
-        ProviderHost::load_default_diagnostic().map_err(format_provider_plugin_error)
+fn ui_preferences_with_skin(base: &ResolvedUiPreferences, skin: &str) -> ResolvedUiPreferences {
+    let skin = match skin {
+        "ice" => UiSkin::Ice,
+        "mono" => UiSkin::Mono,
+        "amber" => UiSkin::Amber,
+        "phosphor" => UiSkin::Phosphor,
+        _ => UiSkin::Aurora,
+    };
+    let mode = if UiPreferences::is_valid_effective_pair(skin, base.mode) {
+        base.mode
     } else {
-        ProviderHost::load_from_dirs_diagnostic(resolved_config.provider_plugin_dirs.clone())
-            .map_err(format_provider_plugin_error)
-    }
+        UiColorMode::Dark
+    };
+    let profile = UiPreferences {
+        locale: base.locale,
+        skin,
+        mode,
+        density: base.density,
+        motion: base.motion,
+    };
+    let mut resolved = resolve_ui_preferences(Some(profile), None, None, profile);
+    resolved.diagnostics.extend(base.diagnostics.clone());
+    resolved
 }
 
-fn format_provider_plugin_error(err: ProviderPluginError) -> String {
+#[cfg(test)]
+fn format_provider_plugin_error(err: viden_provider::ProviderPluginError) -> String {
     let path = if err.path.as_os_str().is_empty() {
         "<registry>".to_string()
     } else {
@@ -427,105 +398,10 @@ fn format_provider_plugin_error(err: ProviderPluginError) -> String {
     )
 }
 
-struct StartupProviderSelection {
-    provider: Box<dyn ModelProvider>,
-    model_label: String,
-    summary: String,
-}
-
-fn create_startup_provider(
-    host: &ProviderHost,
-    resolved_config: &viden_config::ResolvedConfig,
-) -> Result<StartupProviderSelection, String> {
-    match ProviderConfig::from_settings(
-        &resolved_config.provider,
-        resolved_config.model.as_deref(),
-        resolved_config.api_base.as_deref(),
-        resolved_config.api_key.as_deref(),
-        resolved_config.request_timeout_secs,
-        resolved_config.max_retries,
-    ) {
-        Ok(provider_config) => {
-            let model_label = provider_config.model.clone();
-            let summary = provider_config.summary();
-            let provider = host.create(provider_config)?;
-            Ok(StartupProviderSelection {
-                provider,
-                model_label,
-                summary,
-            })
-        }
-        Err(builtin_error) => create_dynamic_startup_provider(host, resolved_config)
-            .map_err(|dynamic_error| format!("{builtin_error}; {dynamic_error}")),
-    }
-}
-
-fn create_dynamic_startup_provider(
-    host: &ProviderHost,
-    resolved_config: &viden_config::ResolvedConfig,
-) -> Result<StartupProviderSelection, String> {
-    let registry = host.registry();
-    let descriptor = registry
-        .descriptor(&resolved_config.provider)
-        .ok_or_else(|| format!("Provider `{}` is not registered", resolved_config.provider))?;
-    let model_label = resolved_config
-        .model
-        .clone()
-        .or_else(|| descriptor.default_model.clone())
-        .ok_or_else(|| {
-            format!(
-                "Provider `{}` does not define a default model; pass --model",
-                resolved_config.provider
-            )
-        })?;
-    let provider = host.create_registered(
-        &resolved_config.provider,
-        resolved_config.model.as_deref(),
-        resolved_config.api_base.as_deref(),
-        resolved_config.api_key.as_deref(),
-        resolved_config.request_timeout_secs,
-        resolved_config.max_retries,
-    )?;
-    Ok(StartupProviderSelection {
-        provider,
-        model_label,
-        summary: dynamic_provider_summary(&registry, resolved_config),
-    })
-}
-
-fn dynamic_provider_summary(
-    registry: &ProviderRegistry,
-    resolved_config: &viden_config::ResolvedConfig,
-) -> String {
-    let descriptor = registry.descriptor(&resolved_config.provider);
-    let model = resolved_config
-        .model
-        .as_deref()
-        .or_else(|| descriptor.and_then(|descriptor| descriptor.default_model.as_deref()))
-        .unwrap_or("<required>");
-    let api_base = resolved_config
-        .api_base
-        .clone()
-        .or_else(|| {
-            descriptor
-                .and_then(|descriptor| descriptor.env_mappings.api_base_env.as_deref())
-                .and_then(|name| std::env::var(name).ok())
-        })
-        .or_else(|| descriptor.and_then(|descriptor| descriptor.default_api_base.clone()))
-        .unwrap_or_else(|| "<required>".to_string());
-    let key_present = resolved_config.api_key.is_some()
-        || descriptor
-            .and_then(|descriptor| descriptor.env_mappings.api_key_env.as_deref())
-            .and_then(|name| std::env::var(name).ok())
-            .is_some();
-    format!(
-        "provider={} model={} api_base={} key={} timeout={}s retries={}",
-        resolved_config.provider,
-        model,
-        api_base,
-        if key_present { "present" } else { "missing" },
-        resolved_config.request_timeout_secs,
-        resolved_config.max_retries,
+fn is_exit_command(input: &str) -> bool {
+    matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "exit" | "quit" | "/exit" | "/quit"
     )
 }
 
@@ -573,6 +449,7 @@ struct StartupOptions {
     tui_preview_side_ansi: bool,
     tui_preview_side_2: bool,
     tui_preview_side_2_ansi: bool,
+    tui_startup_check: bool,
     tui_theme: Option<String>,
 }
 
@@ -712,6 +589,9 @@ impl StartupOptions {
         if self.tui_theme.is_some() {
             overrides.push("--tui-theme".to_string());
         }
+        if self.tui_startup_check {
+            overrides.push("--tui-startup-check".to_string());
+        }
         overrides
     }
 }
@@ -804,10 +684,14 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-screen" => {
                 index += 1;
                 let value = required_flag_value(args, index, "--tui-screen")?;
-                if value != "main" && tui::SideScreen::parse(&value).is_none() {
+                if !matches!(value.as_str(), "main" | "side-1" | "side-2") {
                     return Err("--tui-screen must be `main`, `side-1`, or `side-2`".to_string());
                 }
                 options.tui_screen = Some(value);
+            }
+            "--tui-startup-check" => {
+                options.tui_startup_check = true;
+                options.tui = true;
             }
             "--tui-preview" => {
                 options.tui_preview = true;
@@ -943,6 +827,7 @@ fn print_startup_help() {
     println!("  --config <path>      Load config from an explicit TOML file");
     println!("  --resume [id|latest] Resume a prior session");
     println!("  --tui                Start the cockpit terminal UI (default)");
+    println!("  --tui-startup-check  Verify Core/TUI startup without entering raw mode");
     println!("  --no-tui             Start the legacy line REPL");
     println!("  --tui-screen <main|side-1|side-2>");
     println!("                       Start a specific TUI screen surface");
@@ -1024,15 +909,13 @@ fn prompt_for_approval(prompt: PermissionPrompt, stdin: &mut impl BufRead) -> Ap
     print!("Allow? [y/N]: ");
     io::stdout().flush().ok();
     let Ok(Some(response)) = read_lossy_line(stdin) else {
-        return ApprovalResponse {
-            approved: false,
-            feedback: None,
-        };
+        return ApprovalResponse::deny(None);
     };
     let approved = matches!(response.trim(), "y" | "Y" | "yes" | "YES");
-    ApprovalResponse {
-        approved,
-        feedback: None,
+    if approved {
+        ApprovalResponse::allow_once(None)
+    } else {
+        ApprovalResponse::deny(None)
     }
 }
 
@@ -1486,12 +1369,32 @@ mod tests {
 
     #[test]
     fn parse_startup_options_accepts_tui_theme_flag() {
-        let args = vec!["--tui-theme".to_string(), "ember-gold".to_string()];
+        let args = vec!["--tui-theme".to_string(), "amber".to_string()];
 
         let options = parse_startup_options(&args).unwrap();
 
-        assert_eq!(options.tui_theme.as_deref(), Some("ember-gold"));
+        assert_eq!(options.tui_theme.as_deref(), Some("amber"));
         assert_eq!(options.summary_overrides(), vec!["--tui-theme".to_string()]);
+    }
+
+    #[test]
+    fn tui_skin_override_preserves_other_core_ui_preferences() {
+        let base = viden_types::ResolvedUiPreferences {
+            locale: viden_types::LocaleId::ZhCn,
+            skin: viden_types::UiSkin::Aurora,
+            mode: viden_types::UiColorMode::Light,
+            density: viden_types::UiDensity::Comfy,
+            motion: viden_types::UiMotion::Reduced,
+            diagnostics: Vec::new(),
+        };
+
+        let resolved = ui_preferences_with_skin(&base, "ice");
+
+        assert_eq!(resolved.locale, viden_types::LocaleId::ZhCn);
+        assert_eq!(resolved.skin, viden_types::UiSkin::Ice);
+        assert_eq!(resolved.mode, viden_types::UiColorMode::Light);
+        assert_eq!(resolved.density, viden_types::UiDensity::Comfy);
+        assert_eq!(resolved.motion, viden_types::UiMotion::Reduced);
     }
 
     #[test]
@@ -1503,8 +1406,18 @@ mod tests {
             Err(err) => err,
         };
 
-        assert!(err.contains("aurora-cyan"), "{err}");
-        assert!(err.contains("monochrome-ice"), "{err}");
+        assert!(err.contains("aurora"), "{err}");
+        assert!(err.contains("phosphor"), "{err}");
+    }
+
+    #[test]
+    fn parse_startup_options_accepts_core_client_startup_check() {
+        let args = vec!["--tui-startup-check".to_string()];
+
+        let options = parse_startup_options(&args).expect("startup check flag");
+
+        assert!(options.tui_startup_check);
+        assert!(options.should_start_tui());
     }
 
     #[test]

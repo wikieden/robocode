@@ -1,5 +1,8 @@
 use super::*;
 use std::collections::BTreeMap;
+use viden_types::{
+    LocaleId, UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin,
+};
 
 fn default_config_path_for_test(root: &Path) -> PathBuf {
     if cfg!(windows) {
@@ -22,6 +25,759 @@ fn map_env(values: &[(&str, &str)]) -> BTreeMap<String, String> {
         .iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect()
+}
+
+#[test]
+fn ui_preferences_write_patch_preserves_unknown_top_level_and_ui_fields() {
+    let root = std::env::temp_dir().join(format!("viden_ui_write_preserve_{}", std::process::id()));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        &path,
+        r#"custom = 7
+
+[ui]
+locale = "en"
+skin = "ice"
+mode = "dark"
+density = "compact"
+motion = "full"
+future_field = "preserve-me"
+"#,
+    )
+    .unwrap();
+
+    save_user_ui_preferences_at(
+        &path,
+        &UiPreferencePatch {
+            locale: Some(LocaleId::ZhCn),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap();
+
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .parse::<toml::Value>()
+        .unwrap();
+    assert_eq!(
+        value.get("custom").and_then(toml::Value::as_integer),
+        Some(7)
+    );
+    assert_eq!(
+        value
+            .get("ui")
+            .and_then(toml::Value::as_table)
+            .and_then(|ui| ui.get("future_field"))
+            .and_then(toml::Value::as_str),
+        Some("preserve-me")
+    );
+    assert_eq!(
+        value
+            .get("ui")
+            .and_then(toml::Value::as_table)
+            .and_then(|ui| ui.get("locale"))
+            .and_then(toml::Value::as_str),
+        Some("zh-CN")
+    );
+}
+
+#[test]
+fn ui_preferences_write_rejects_invalid_complete_pair_without_changing_bytes() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_write_invalid_pair_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let original = b"[ui]\nskin = \"amber\"\nmode = \"dark\"\n";
+    fs::write(&path, original).unwrap();
+
+    let error = save_user_ui_preferences_at(
+        &path,
+        &UiPreferencePatch {
+            mode: Some(UiColorMode::Light),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("ui.invalid_skin_mode_pair"));
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[test]
+fn ui_preferences_write_persists_exactly_eight_supported_skin_mode_pairs() {
+    let root =
+        std::env::temp_dir().join(format!("viden_ui_write_eight_pairs_{}", std::process::id()));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let pairs = [
+        (UiSkin::Aurora, UiColorMode::Dark),
+        (UiSkin::Aurora, UiColorMode::Light),
+        (UiSkin::Ice, UiColorMode::Dark),
+        (UiSkin::Ice, UiColorMode::Light),
+        (UiSkin::Mono, UiColorMode::Dark),
+        (UiSkin::Mono, UiColorMode::Light),
+        (UiSkin::Amber, UiColorMode::Dark),
+        (UiSkin::Phosphor, UiColorMode::Dark),
+    ];
+
+    for (skin, mode) in pairs {
+        let state = save_user_ui_preferences_at(
+            &path,
+            &UiPreferencePatch {
+                locale: Some(LocaleId::En),
+                skin: Some(skin),
+                mode: Some(mode),
+                density: Some(UiDensity::Regular),
+                motion: Some(UiMotion::System),
+            },
+            UiPreferences::client_default(),
+        )
+        .unwrap();
+        assert_eq!(state.persisted.unwrap().skin, skin);
+        assert_eq!(state.resolved.mode, mode);
+    }
+}
+
+#[test]
+fn ui_preferences_write_reset_removes_entire_ui_table_only() {
+    let root = std::env::temp_dir().join(format!("viden_ui_write_reset_{}", std::process::id()));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        &path,
+        "custom = 7\n[ui]\nskin = \"ice\"\nfuture_field = \"remove-too\"\n",
+    )
+    .unwrap();
+
+    let state = reset_user_ui_preferences_at(&path, None, UiPreferences::client_default()).unwrap();
+
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .parse::<toml::Value>()
+        .unwrap();
+    assert!(value.get("ui").is_none());
+    assert_eq!(
+        value.get("custom").and_then(toml::Value::as_integer),
+        Some(7)
+    );
+    assert_eq!(state.persisted, None);
+}
+
+#[test]
+fn ui_preferences_write_reset_rejects_invalid_override_before_changing_bytes() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_write_reset_invalid_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let original = b"custom = 7\n[ui]\nskin = \"ice\"\nmode = \"dark\"\n";
+    fs::write(&path, original).unwrap();
+    let invalid_override = UiPreferences {
+        locale: LocaleId::En,
+        skin: UiSkin::Amber,
+        mode: UiColorMode::Light,
+        density: UiDensity::Regular,
+        motion: UiMotion::System,
+    };
+
+    assert!(
+        reset_user_ui_preferences_at(
+            &path,
+            Some(invalid_override),
+            UiPreferences::client_default(),
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[test]
+fn ui_preferences_write_corrupt_toml_preserves_bytes_and_creates_no_temp() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_write_corrupt_toml_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let original = b"[ui\nskin = \"ice\"\n";
+    fs::write(&path, original).unwrap();
+
+    assert!(
+        save_user_ui_preferences_at(
+            &path,
+            &UiPreferencePatch {
+                locale: Some(LocaleId::ZhCn),
+                ..UiPreferencePatch::default()
+            },
+            UiPreferences::client_default(),
+        )
+        .is_err()
+    );
+
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert_eq!(temp_files_for(&root).len(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_preferences_write_installs_mode_0600() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!("viden_ui_write_mode_{}", std::process::id()));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    save_user_ui_preferences_at(
+        &path,
+        &UiPreferencePatch {
+            locale: Some(LocaleId::En),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn ui_preferences_write_atomic_failure_preserves_destination_and_cleans_temp() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_write_atomic_failure_{}",
+        std::process::id()
+    ));
+    let path = root.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let original = b"[ui]\nskin = \"mono\"\nmode = \"dark\"\n";
+    fs::write(&path, original).unwrap();
+
+    let error = save_user_ui_preferences_at_with_failure(
+        &path,
+        &UiPreferencePatch {
+            skin: Some(UiSkin::Ice),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+        UiPreferenceWriteFailure::AfterTempSync,
+    )
+    .unwrap_err();
+
+    assert!(error.contains("injected UI preference write failure"));
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert_eq!(temp_files_for(&root).len(), 0);
+}
+
+fn temp_files_for(root: &Path) -> Vec<PathBuf> {
+    fs::read_dir(root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.contains(".ui-") && name.ends_with(".tmp"))
+        })
+        .collect()
+}
+
+#[test]
+fn ui_preferences_cli_user_system_precedence_is_whole_profile() {
+    let root = std::env::temp_dir().join(format!("viden_ui_precedence_{}", std::process::id()));
+    let global_config_path = default_config_path_for_test(&root);
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(
+        &global_config_path,
+        r#"
+[ui]
+locale = "en"
+skin = "mono"
+mode = "dark"
+density = "compact"
+motion = "full"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &project_config_path,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "ice"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let user_config =
+        load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+            env_map.get(key).cloned()
+        })
+        .unwrap();
+
+    assert_eq!(user_config.ui.locale, LocaleId::En);
+    assert_eq!(user_config.ui.skin, UiSkin::Mono);
+    assert_eq!(user_config.ui.mode, UiColorMode::Dark);
+    assert_eq!(user_config.ui.density, UiDensity::Compact);
+    assert_eq!(user_config.ui.motion, UiMotion::Full);
+
+    let cli = CliOverrides {
+        ui: Some(UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Aurora,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::Reduced,
+        }),
+        ..CliOverrides::default()
+    };
+    let cli_config = load_config_with_env(&root.join("project"), &cli, &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(cli_config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(cli_config.ui.skin, UiSkin::Aurora);
+    assert_eq!(cli_config.ui.mode, UiColorMode::Light);
+    assert_eq!(cli_config.ui.density, UiDensity::Regular);
+    assert_eq!(cli_config.ui.motion, UiMotion::Reduced);
+}
+
+#[test]
+fn ui_preferences_project_config_does_not_set_personal_preferences() {
+    let root =
+        std::env::temp_dir().join(format!("viden_ui_project_default_{}", std::process::id()));
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(
+        &project_config_path,
+        r#"
+[ui]
+locale = "system"
+skin = "aurora"
+mode = "system"
+density = "regular"
+motion = "reduced"
+"#,
+    )
+    .unwrap();
+
+    let env_map = map_env(&[
+        ("HOME", root.to_string_lossy().as_ref()),
+        ("LC_ALL", "zh_CN.UTF-8"),
+    ]);
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.motion, UiMotion::System);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_project_config_path_is_never_a_personal_write_target() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_project_write_target_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let project_path = cwd.join(".viden").join("config.toml");
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let selected =
+        user_ui_config_path_with_env(&cwd, Some(&project_path), &|key| env_map.get(key).cloned())
+            .unwrap();
+
+    assert_eq!(selected, default_config_path_for_test(&root));
+    assert_ne!(selected, project_path);
+
+    let relative_selected =
+        user_ui_config_path_with_env(&cwd, Some(Path::new(".viden/config.toml")), &|key| {
+            env_map.get(key).cloned()
+        })
+        .unwrap();
+    assert_eq!(relative_selected, default_config_path_for_test(&root));
+}
+
+#[test]
+fn ui_preferences_missing_project_path_lexical_aliases_never_become_write_targets() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_missing_project_write_target_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let project_dir = cwd.join(".viden");
+    let project_path = project_dir.join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&cwd).unwrap();
+    let cwd_mtime = fs::metadata(&cwd).unwrap().modified().unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let expected = default_config_path_for_test(&root);
+    let aliases = [
+        PathBuf::from(".viden/../.viden/config.toml"),
+        cwd.join(".viden/../.viden/config.toml"),
+        PathBuf::from("./.viden/./nested/../config.toml"),
+        cwd.join("./.viden/subdir/../../.viden/./config.toml"),
+    ];
+
+    for alias in aliases {
+        let selected =
+            user_ui_config_path_with_env(&cwd, Some(&alias), &|key| env_map.get(key).cloned())
+                .unwrap();
+        assert_eq!(selected, expected, "alias escaped exclusion: {alias:?}");
+    }
+
+    save_user_ui_preferences_at(
+        &expected,
+        &UiPreferencePatch {
+            locale: Some(LocaleId::ZhCn),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap();
+
+    assert!(!project_path.exists());
+    assert!(!project_dir.exists());
+    assert_eq!(fs::metadata(&cwd).unwrap().modified().unwrap(), cwd_mtime);
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_preferences_missing_project_path_resolves_existing_parent_symlink_alias() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_project_symlink_target_{}",
+        std::process::id()
+    ));
+    let real_cwd = root.join("real-project");
+    let linked_cwd = root.join("linked-project");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&real_cwd).unwrap();
+    symlink(&real_cwd, &linked_cwd).unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let selected = user_ui_config_path_with_env(
+        &linked_cwd,
+        Some(&real_cwd.join(".viden/child/../config.toml")),
+        &|key| env_map.get(key).cloned(),
+    )
+    .unwrap();
+
+    assert_eq!(selected, default_config_path_for_test(&root));
+    assert!(!real_cwd.join(".viden").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_preferences_symlink_parent_traversal_cannot_hide_missing_project_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_project_symlink_parent_traversal_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let symlink_target = cwd.join("nested").join("target");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&symlink_target).unwrap();
+    symlink(&symlink_target, cwd.join("alias")).unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    // Filesystem traversal follows `alias` before applying the parent
+    // components, so this resolves to `<cwd>/.viden/config.toml` even though a
+    // purely lexical collapse points outside `cwd`.
+    let selected = user_ui_config_path_with_env(
+        &cwd,
+        Some(&cwd.join("alias/../../.viden/config.toml")),
+        &|key| env_map.get(key).cloned(),
+    )
+    .unwrap();
+
+    assert_eq!(selected, default_config_path_for_test(&root));
+    assert!(!cwd.join(".viden").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_preferences_indeterminate_symlink_loop_falls_back_without_unsafe_write() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_indeterminate_symlink_loop_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let loop_path = cwd.join("loop");
+    let unsafe_path = loop_path.join("user").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&cwd).unwrap();
+    symlink("loop", &loop_path).unwrap();
+    let cwd_mtime = fs::metadata(&cwd).unwrap().modified().unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let expected = default_config_path_for_test(&root);
+
+    let selected =
+        user_ui_config_path_with_env(&cwd, Some(&unsafe_path), &|key| env_map.get(key).cloned())
+            .unwrap();
+    assert_eq!(selected, expected);
+
+    save_user_ui_preferences_at(
+        &selected,
+        &UiPreferencePatch {
+            locale: Some(LocaleId::ZhCn),
+            ..UiPreferencePatch::default()
+        },
+        UiPreferences::client_default(),
+    )
+    .unwrap();
+    assert_eq!(fs::read_link(&loop_path).unwrap(), PathBuf::from("loop"));
+    assert_eq!(fs::metadata(&cwd).unwrap().modified().unwrap(), cwd_mtime);
+}
+
+#[test]
+fn ui_preferences_normal_missing_user_path_remains_an_explicit_write_target() {
+    let root = std::env::temp_dir().join(format!(
+        "viden_ui_normal_missing_user_target_{}",
+        std::process::id()
+    ));
+    let cwd = root.join("project");
+    let explicit = root.join("user-config").join("nested").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&cwd).unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let selected =
+        user_ui_config_path_with_env(&cwd, Some(&explicit), &|key| env_map.get(key).cloned())
+            .unwrap();
+
+    assert_eq!(selected, explicit);
+    assert!(!selected.exists());
+}
+
+#[test]
+fn ui_preferences_corrupt_table_preserves_file_and_returns_one_diagnostic() {
+    let root = std::env::temp_dir().join(format!("viden_ui_corrupt_{}", std::process::id()));
+    let path = default_config_path_for_test(&root);
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = r#"
+provider = "deepseek"
+
+[ui]
+locale = "zh-CN"
+skin = "amber"
+mode = "light"
+density = 3
+motion = "reduced"
+"#;
+    fs::write(&path, original).unwrap();
+
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let config = load_config_with_env(&root, &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(config.provider, "deepseek");
+    assert_eq!(config.ui.locale, LocaleId::ZhCn);
+    assert_eq!(config.ui.skin, UiSkin::Aurora);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.density, UiDensity::Regular);
+    assert_eq!(config.ui.motion, UiMotion::Reduced);
+    assert_eq!(config.ui_diagnostics.len(), 1);
+    assert_eq!(config.ui_diagnostics[0].key, "density");
+}
+
+#[test]
+fn ui_preferences_valid_cli_ignores_invalid_lower_priority_sources() {
+    let root = write_ui_source_pair(
+        "viden_ui_cli_ignores_invalid",
+        r#"
+[ui]
+locale = "en"
+skin = "amber"
+mode = "light"
+density = "compact"
+motion = "full"
+"#,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "phosphor"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    );
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+    let cli = CliOverrides {
+        ui: Some(UiPreferences {
+            locale: LocaleId::ZhCn,
+            skin: UiSkin::Ice,
+            mode: UiColorMode::Light,
+            density: UiDensity::Regular,
+            motion: UiMotion::Reduced,
+        }),
+        ..CliOverrides::default()
+    };
+
+    let config = load_config_with_env(&root.join("project"), &cli, &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.skin, UiSkin::Ice);
+    assert_eq!(config.ui.mode, UiColorMode::Light);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_valid_user_ignores_invalid_project_source() {
+    let root = write_ui_source_pair(
+        "viden_ui_user_ignores_project",
+        r#"
+[ui]
+locale = "en"
+skin = "mono"
+mode = "light"
+density = "compact"
+motion = "full"
+"#,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "amber"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    );
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::En);
+    assert_eq!(config.ui.skin, UiSkin::Mono);
+    assert_eq!(config.ui.mode, UiColorMode::Light);
+    assert_eq!(config.ui.density, UiDensity::Compact);
+    assert_eq!(config.ui.motion, UiMotion::Full);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+#[test]
+fn ui_preferences_invalid_user_beats_invalid_project_with_one_user_diagnostic() {
+    let root = write_ui_source_pair(
+        "viden_ui_invalid_user_beats_project",
+        r#"
+[ui]
+locale = "en"
+skin = "amber"
+mode = "light"
+density = "compact"
+motion = "full"
+"#,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "phosphor"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    );
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::En);
+    assert_eq!(config.ui.skin, UiSkin::Aurora);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.density, UiDensity::Regular);
+    assert_eq!(config.ui.motion, UiMotion::Full);
+    assert_eq!(config.ui_diagnostics.len(), 1);
+    assert_eq!(
+        config.ui_diagnostics[0].rejected_value.as_deref(),
+        Some("amber/light")
+    );
+}
+
+#[test]
+fn ui_preferences_absent_user_ignores_invalid_project_source() {
+    let root =
+        std::env::temp_dir().join(format!("viden_ui_invalid_project_{}", std::process::id()));
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(
+        &project_config_path,
+        r#"
+[ui]
+locale = "zh-CN"
+skin = "phosphor"
+mode = "light"
+density = "comfy"
+motion = "reduced"
+"#,
+    )
+    .unwrap();
+    let env_map = map_env(&[("HOME", root.to_string_lossy().as_ref())]);
+
+    let config = load_config_with_env(&root.join("project"), &CliOverrides::default(), &|key| {
+        env_map.get(key).cloned()
+    })
+    .unwrap();
+
+    assert_eq!(config.ui.locale, LocaleId::En);
+    assert_eq!(config.ui.skin, UiSkin::Aurora);
+    assert_eq!(config.ui.mode, UiColorMode::Dark);
+    assert_eq!(config.ui.density, UiDensity::Regular);
+    assert_eq!(config.ui.motion, UiMotion::System);
+    assert!(config.ui_diagnostics.is_empty());
+}
+
+fn write_ui_source_pair(slug: &str, user: &str, project: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("{slug}_{}", std::process::id()));
+    let global_config_path = default_config_path_for_test(&root);
+    let project_config_path = root.join("project").join(".viden").join("config.toml");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(project_config_path.parent().unwrap()).unwrap();
+    fs::write(&global_config_path, user).unwrap();
+    fs::write(&project_config_path, project).unwrap();
+    root
 }
 
 #[test]

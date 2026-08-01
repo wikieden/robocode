@@ -49,7 +49,32 @@ run_step() {
 run_cargo_test() {
   local name="$1"
   shift
-  run_step "$name" cargo test -p viden-tui "$@" -- --nocapture
+  run_step "$name" cargo_test_with_match "$@"
+}
+
+cargo_test_with_match() {
+  local output
+  local rc
+  set +e
+  output="$(cargo test -p viden-tui "$@" -- --nocapture 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$output"
+  if [[ "$rc" -ne 0 ]]; then
+    return "$rc"
+  fi
+  if ! grep -Eq 'test result: ok\. [1-9][0-9]* passed' <<<"$output"; then
+    printf 'test filter matched no passing tests: %s\n' "$*" >&2
+    return 1
+  fi
+}
+
+mouse_capture_default_is_disabled() {
+  if rg -q 'EnableMouseCapture|DisableMouseCapture' apps/tui/src/tui/terminal.rs; then
+    printf 'terminal default path must not enable mouse capture\n' >&2
+    return 1
+  fi
+  rg -q '^mouse_capture = false$' apps/tui/release-manifest.toml
 }
 
 record "# Viden RC TUI Stability Smoke"
@@ -61,22 +86,37 @@ record "## Guardrail Results"
 run_step "terminal-redraw-and-residue-tests" cargo test -p viden-tui tui::terminal::tests -- --nocapture
 run_cargo_test "fake-slow-provider-nonblocking" runtime_provider_turn_starts_without_blocking_ui_thread
 run_cargo_test "approval-nonblocking" active_approval_does_not_swallow_composer_typing
+run_cargo_test "typed-lane-projection-render" typed_done_review_and_blocked_lanes_project_into_rendered_statuses
+run_cargo_test "typed-side-lane-state" typed_core_lane_states_drive_side_counts_and_state_rows
+run_cargo_test "shortcut-hint-consistency" rendered_shortcut_hints_match_command_and_agent_handlers
+run_step "mouse-capture-default-off" mouse_capture_default_is_disabled
 run_cargo_test "streaming-scrollback" streaming_delta_does_not_steal_scrollback_when_user_scrolled_up
 run_cargo_test "focus-paste-repaint-policy" focus_and_paste_events_force_repaint_without_becoming_input
 run_cargo_test "composer-residue-filter" composer_discards_terminal_escape_residue_instead_of_rendering_it
-run_cargo_test "provider-model-picker-setup" exact_provider_and_model_commands_expand_to_local_pickers
-run_cargo_test "configured-model-picker-scope" model_picker_omits_unconfigured_provider_models
-run_cargo_test "welcome-missing-key-clean-start" initial_state_keeps_clean_welcome_when_online_provider_key_is_missing
-run_cargo_test "live-work-preview-contract" main_preview_surfaces_live_work_without_fake_provider_progress
+run_cargo_test "provider-model-picker-setup" provider_and_model_selector_paths_are_reachable_from_core_client_loop
+run_cargo_test "configured-model-picker-scope" models_selector_filters_unconfigured_providers
+run_cargo_test "welcome-missing-key-clean-start" render_frame_uses_welcome_layout_for_first_empty_session
+run_cargo_test "live-work-preview-contract" render_frame_keeps_live_activity_visible_for_lanes_and_tool_calls
+run_cargo_test "core-client-startup" startup_check_connects_core_client_without_entering_terminal
+run_cargo_test "runtime-view-projection" runtime_view_projects_authoritative_frontend_facts_without_workspace_fixture
+run_cargo_test "approval-core-command" approval_shortcut_builds_response_for_core_request_id
+run_cargo_test "streaming-composer" composer_stays_editable_while_events_stream
+run_cargo_test "queue-core-command" active_turn_enter_queues_follow_up_instead_of_submitting_second_turn
+run_cargo_test "shared-contract-fixture" shared_frontend_fixtures_reduce_to_core_expected_facts
+run_cargo_test "gap-replay" sequence_gap_requests_replay_before_success_is_visible
+run_cargo_test "atomic-replay-rollback" failed_replay_does_not_publish_partial_view_or_cursor
+run_cargo_test "core-preference-skin-mode" core_color_mode_changes_the_effective_palette
+run_cargo_test "core-preference-color-depth" core_color_depth_selects_a_non_rgb_terminal_palette
+run_cargo_test "all-palettes-all-depths" all_eight_palettes_map_across_truecolor_ansi256_and_ansi16
+run_cargo_test "settings-apply-reset-receipts" apply_and_reset_wait_for_matching_core_receipts
 run_cargo_test "synthetic-planning-clears-after-result" agent_tasks_do_not_keep_failed_provider_turn_active
 run_step "tui-regression-preview" scripts/tui-regression.sh "$OUT_DIR/tui-regression"
 
 record ""
-record "## P0/P1 TUI Backlog"
+record "## Automated Gate Scope"
 record ""
-record "- Known open P0: \`0\` from the automated RC gate."
-record "- Known open P1: \`0\` from the automated RC gate."
-record "- Failing cases: none observed in this smoke run."
+record "- Every named gate above matched at least one passing test."
+record "- This smoke does not claim that the complete P0/P1 backlog is empty."
 record ""
 record "## Manual Terminal Acceptance"
 record ""

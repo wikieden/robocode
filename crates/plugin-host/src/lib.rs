@@ -1135,7 +1135,7 @@ pub fn builtin_agent_descriptors() -> Vec<AgentPluginDescriptor> {
         registry_acp_agent(
             "claude-acp",
             "Claude Agent",
-            "0.56.0",
+            "0.60.0",
             "@agentclientprotocol/claude-agent-acp",
             &[
                 AgentPluginCapability::SessionPrompt,
@@ -1148,7 +1148,7 @@ pub fn builtin_agent_descriptors() -> Vec<AgentPluginDescriptor> {
         registry_acp_agent(
             "codex-acp",
             "Codex",
-            "1.1.0",
+            "1.1.7",
             "@agentclientprotocol/codex-acp",
             &[
                 AgentPluginCapability::SessionPrompt,
@@ -1342,10 +1342,19 @@ mod tests {
             .iter()
             .find(|agent| agent.agent_id == "claude-acp")
             .expect("claude descriptor");
-        assert_eq!(claude.version, "0.56.0");
+        assert_eq!(claude.version, "0.60.0");
         assert_eq!(
             claude.command.args,
-            vec!["-y", "@agentclientprotocol/claude-agent-acp@0.56.0"]
+            vec!["-y", "@agentclientprotocol/claude-agent-acp@0.60.0"]
+        );
+        let codex = agents
+            .iter()
+            .find(|agent| agent.agent_id == "codex-acp")
+            .expect("codex descriptor");
+        assert_eq!(codex.version, "1.1.7");
+        assert_eq!(
+            codex.command.args,
+            vec!["-y", "@agentclientprotocol/codex-acp@1.1.7"]
         );
     }
 

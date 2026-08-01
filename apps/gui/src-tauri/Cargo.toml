@@ -1,0 +1,72 @@
+[package]
+name = "viden-gui"
+version = "0.1.0-rc.3"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "viden_gui"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "viden-gui"
+path = "src/main.rs"
+
+[[test]]
+name = "architecture_boundary"
+path = "../tests/architecture_boundary.rs"
+
+[[test]]
+name = "fixture_parity"
+path = "../tests/fixture_parity.rs"
+
+[[test]]
+name = "native_acp_fixture"
+path = "../tests/native_acp_fixture.rs"
+
+[[test]]
+name = "d11_intake"
+path = "../tests/d11_intake.rs"
+
+[[test]]
+name = "d4_lane_create"
+path = "../tests/d4_lane_create.rs"
+
+[[test]]
+name = "d1_cockpit"
+path = "../tests/d1_cockpit.rs"
+
+[[test]]
+name = "composer_ime"
+path = "../tests/composer_ime.rs"
+
+[[test]]
+name = "transcript_virtualization"
+path = "../tests/transcript_virtualization.rs"
+
+[[test]]
+name = "permission_dock"
+path = "../tests/permission_dock.rs"
+
+[[test]]
+name = "d6_recovery"
+path = "../tests/d6_recovery.rs"
+
+[[test]]
+name = "reconnect"
+path = "../tests/reconnect.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-dialog = "2.7.2"
+viden-core = { path = "../../../crates/core" }
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dev-dependencies]
+serde_json = "1"
+toml = "0.8"

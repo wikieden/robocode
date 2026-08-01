@@ -1,0 +1,149 @@
+{
+  "fixture_id": "context-pressure-cost-blind",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.context",
+    "runtime.cost",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_context-pressure-cost-blind",
+        "task_id": null,
+        "turn_id": "turn_context-pressure-cost-blind"
+      },
+      "cursor": {
+        "stream_id": "fixture:context-pressure-cost-blind",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "context_updated",
+          "payload": {
+            "context": {
+              "bundle_id": "ctx_bundle_pressure",
+              "task_id": "task_context",
+              "policy": "pressure-aware",
+              "sources": [
+                {
+                  "name": "contract-spec",
+                  "kind": "doc",
+                  "priority": 1,
+                  "estimated_tokens": 23000,
+                  "summary": "frontend contract spec",
+                  "include_reason": "required by contract freeze",
+                  "handle_id": "ctxh_contract_spec",
+                  "item_id": "ctxi_contract_spec",
+                  "view_id": "ctxv_contract_spec",
+                  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "view_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "quality_id": "ctxq_contract_spec"
+                }
+              ],
+              "omitted_sources": [
+                {
+                  "name": "large-history",
+                  "kind": "transcript",
+                  "estimated_tokens": 9000,
+                  "reason": "hard_token_limit"
+                }
+              ],
+              "estimated_tokens": 92000,
+              "largest_sources": [
+                "contract-spec"
+              ],
+              "compaction_notes": [
+                "omitted large-history"
+              ],
+              "soft_token_budget": 80000,
+              "hard_token_limit": 100000
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_context-pressure-cost-blind",
+        "task_id": null,
+        "turn_id": "turn_context-pressure-cost-blind"
+      },
+      "cursor": {
+        "stream_id": "fixture:context-pressure-cost-blind",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "cost_usage_recorded",
+          "payload": {
+            "cost": {
+              "usage_id": "usage_unknown_actual",
+              "provider_id": "deepseek",
+              "model": "deepseek-v4-flash",
+              "scopes": [
+                {
+                  "type": "agent_task",
+                  "id": "task_context"
+                }
+              ],
+              "tokens": {
+                "input_tokens": 100,
+                "output_tokens": 25,
+                "cached_input_tokens": 10,
+                "retrieval_tokens": 5,
+                "total_tokens": 125
+              },
+              "estimate": null,
+              "actual_cost": null,
+              "attempt_index": 1,
+              "outcome": "success",
+              "recorded_at": 1700000060
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:context-pressure-cost-blind",
+    "sequence": 2
+  },
+  "expected_view_sha256": "2e39ec2e32fac56ae6279e8f681bcf4357701de51a6772bad14caee0ddb4ba5e"
+}

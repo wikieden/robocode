@@ -1,113 +1,186 @@
 use super::{
     canvas::Frame,
-    panel::bordered_row,
-    state::TuiState,
-    text::{char_width, compact_middle, truncate},
+    input::effective_input_mode,
+    projection::{CockpitProjection, ContextPressure, CostVisibility},
+    state::{TuiState, has_active_work},
+    text::{pad, truncate},
 };
 
-pub(super) const BOTTOM_BAR_HEIGHT: usize = 1;
+pub(super) const BOTTOM_BAR_HEIGHT: usize = 2;
 
 pub(super) fn render_bottom_bar(frame: &mut Frame, state: &TuiState) {
-    let session = compact_middle(&state.session_id, 8);
-    let active_lanes = state
-        .lanes
-        .iter()
-        .filter(|lane| matches!(lane.status.as_str(), "running" | "queued" | "attached"))
-        .count();
-    let work_mode = state.provider_status.work_mode.label();
-    let permission_level = state.provider_status.permission_level.label();
-    let left = if frame.width >= 100 {
-        format!(
-            "● CONNECTED  ┆ MODE {work_mode:<5} ┆ PERM {permission_level:<9} ┆ SESSION {session:<8} ┆ EVENTS {events:<4} ┆ LANES {active_lanes:<2} ┆ CONTEXT {ctx:<5}",
-            events = state.entries.len(),
-            ctx = state.provider_status.context_window,
-        )
-    } else {
-        format!(
-            "● CONNECTED MODE {work_mode} PERM {permission_level} SES {session:<8} EVT {events:<3} L{active_lanes:<2}",
-            events = state.entries.len(),
-        )
-    };
-    let right = if frame.width >= 160 {
-        format!("THEME {} ┆ HELP ?", state.theme_name,)
-    } else if frame.width >= 120 {
-        "Press ? for help".to_string()
-    } else if frame.width >= 100 {
-        "Press ?".to_string()
-    } else {
-        "? help".to_string()
-    };
-    frame.write_line(
-        frame.height - 1,
-        &bordered_row(
-            &status_content(&left, &right, frame.width.saturating_sub(4)),
-            frame.width,
-        ),
+    let row = frame.height.saturating_sub(BOTTOM_BAR_HEIGHT);
+    let project = state
+        .runtime
+        .confirmed_project_config
+        .as_ref()
+        .and_then(|preview| preview.project_name.as_deref())
+        .or_else(|| {
+            state
+                .runtime
+                .project_probe
+                .as_ref()
+                .and_then(|probe| probe.project_name.as_deref())
+        })
+        .or_else(|| {
+            state
+                .runtime
+                .snapshot
+                .cwd
+                .file_name()
+                .and_then(|name| name.to_str())
+        })
+        .unwrap_or("-");
+    let lane = state.ui.focused_lane.as_deref().unwrap_or("-");
+    let mut identity = format!(" P:{} L:{}", truncate(project, 12), truncate(lane, 14));
+    if frame.width >= 80 {
+        identity.push_str(&format!(
+            " M:{:?} {}",
+            state.runtime.snapshot.work_mode,
+            effective_input_mode(state).label()
+        ));
+    }
+    if frame.width >= 112 {
+        identity.push_str(&format!(" · {}", ambient_status(state)));
+    }
+    frame.write_line(row, &pad(&identity, frame.width));
+    let mut pinned = format!(
+        " PERM:{:?} A:{} G:{} E:{}",
+        state.runtime.snapshot.permission_level,
+        state.runtime.pending_approvals.len(),
+        state.runtime.merge_gates.len(),
+        state.runtime.errors.len()
     );
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
+    let context = match projection.context_pressure {
+        ContextPressure::Unavailable => "unavailable",
+        ContextPressure::Nominal => "nominal",
+        ContextPressure::Elevated => "elevated",
+        ContextPressure::PressureCritical => "critical",
+    };
+    let cost = match projection.cost_visibility {
+        CostVisibility::Unavailable => "unavailable",
+        CostVisibility::Metered => "metered",
+        CostVisibility::BlindUnmetered => "blind",
+    };
+    pinned.push_str(&format!(" · CTX:{context} · COST:{cost}"));
+    if !projection.recovery_actions.is_empty() {
+        pinned.push_str(&format!(
+            " · RECOVERY:{}",
+            projection.recovery_actions.len()
+        ));
+    }
+    if projection.pending_command.is_some() {
+        pinned.push_str(" · CMD:pending Core fact");
+    }
+    if frame.width >= 80 {
+        pinned.push_str(" · Ctrl-K commands · Ctrl-C cancel · Esc back");
+    }
+    frame.write_line(row + 1, &pad(&pinned, frame.width));
 }
 
-fn status_content(left: &str, right: &str, width: usize) -> String {
-    let left_width = char_width(left);
-    let right_width = char_width(right);
-    if left_width + right_width + 3 <= width {
-        return format!(
-            "{left}{} {right}",
-            " ".repeat(width.saturating_sub(left_width + right_width + 1))
-        );
+fn ambient_status(state: &TuiState) -> String {
+    let activity = if has_active_work(state) {
+        "ACTIVE"
+    } else {
+        "IDLE"
+    };
+    let provider = state
+        .runtime
+        .provider
+        .as_ref()
+        .map_or("-", |provider| provider.status.as_str());
+    format!(
+        "{activity} · EVENTS {} · TOKENS {} · PROVIDER {provider}",
+        state.runtime.tasks.len() + state.runtime.lanes.len(),
+        state.runtime.cost_ledger.total_tokens
+    )
+}
+
+#[cfg(test)]
+mod ambient_tests {
+    use super::*;
+
+    #[test]
+    fn ambient_status_has_no_action_labels_or_shortcuts() {
+        let status = ambient_status(&TuiState::default());
+
+        for forbidden in ["GATE", "APPROVAL", "ERROR", "PERM", "Ctrl-"] {
+            assert!(
+                !status.contains(forbidden),
+                "ambient ticker contains {forbidden}"
+            );
+        }
     }
-    if right_width + 3 >= width {
-        return truncate(left, width);
-    }
-    let left_width = width.saturating_sub(right_width + 3);
-    format!("{}   {right}", truncate(left, left_width))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BOTTOM_BAR_HEIGHT, render_bottom_bar};
-    use crate::tui::{
-        canvas::Frame,
-        state::{ProviderOption, ProviderStatus, TuiState, WorkspaceSnapshot},
-    };
-    use viden_types::{PermissionLevel, WorkMode};
+    use super::*;
+    use crate::tui::{keymap::OverlayKind, state::OverlayState};
+    use viden_core::{ContextBundleRecord, RuntimeCommand};
+    use viden_types::{LaneRecoveryView, RuntimeCommandReceipt};
 
     #[test]
-    fn bottom_bar_reflects_runtime_mode_and_permission_level() {
-        let mut provider_status = ProviderStatus::configured();
-        provider_status.work_mode = WorkMode::Plan;
-        provider_status.permission_level = PermissionLevel::ReadOnly;
-        let mut frame = Frame::new(140, BOTTOM_BAR_HEIGHT + 4);
-        let state = TuiState {
-            session_id: "session_123".to_string(),
-            provider: "fallback".to_string(),
-            model: "test-local".to_string(),
-            provider_catalog: ProviderOption::fixture(),
-            provider_status,
-            theme_name: "aurora-cyan".to_string(),
-            input: String::new(),
-            command_selection: 0,
-            command_palette_hidden_for: None,
-            approval_focus: 0,
-            approval_apply_all: false,
-            pending_turn: None,
-            streaming_assistant: None,
-            transcript_scroll: 0,
-            entries: Vec::new(),
-            workspace: WorkspaceSnapshot::fixture(),
-            tasks: Vec::new(),
-            runtime_tasks: Vec::new(),
-            memory: Vec::new(),
-            screens: Vec::new(),
-            lanes: Vec::new(),
-            lane_store: None,
-            focused_lane: None,
-            interaction_panel: None,
-        };
+    fn status_bar_always_displays_the_explicit_input_mode() {
+        let mut frame = Frame::new(100, 4);
+
+        render_bottom_bar(&mut frame, &TuiState::default());
+
+        assert!(frame.to_string().contains("NORMAL"));
+    }
+
+    #[test]
+    fn status_bar_tracks_insert_and_overlay_ownership() {
+        let mut state = TuiState::default();
+        state.ui.input_mode = crate::tui::keymap::InputMode::Insert;
+        let mut frame = Frame::new(100, 4);
+        render_bottom_bar(&mut frame, &state);
+        assert!(frame.to_string().contains("INSERT"));
+
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::ContextHelp));
+        let mut frame = Frame::new(100, 4);
+        render_bottom_bar(&mut frame, &state);
+        assert!(frame.to_string().contains("OVERLAY"));
+    }
+
+    #[test]
+    fn status_bar_pins_supervision_alerts_without_putting_actions_in_ambient_ticker() {
+        let mut state = TuiState::default();
+        state.runtime.context = Some(ContextBundleRecord {
+            bundle_id: "ctx-pressure".to_string(),
+            task_id: "task-pressure".to_string(),
+            policy: "pressure-aware".to_string(),
+            sources: Vec::new(),
+            omitted_sources: Vec::new(),
+            estimated_tokens: 95,
+            largest_sources: Vec::new(),
+            compaction_notes: Vec::new(),
+            soft_token_budget: 80,
+            hard_token_limit: 100,
+        });
+        state.runtime.cost_ledger.total_tokens = 9_500;
+        state.runtime.lane_recoveries.push(LaneRecoveryView {
+            lane_id: "lane-retry".to_string(),
+            reason: "detached".to_string(),
+            next_action: "reattach".to_string(),
+            timestamp: None,
+        });
+        state.runtime.last_command = Some(RuntimeCommandReceipt {
+            command_id: "cmd-pending".to_string(),
+            command: RuntimeCommand::CancelActiveTurn,
+        });
+        let mut frame = Frame::new(160, 4);
 
         render_bottom_bar(&mut frame, &state);
-        let rendered = frame.to_string();
 
-        assert!(rendered.contains("MODE Plan"));
-        assert!(rendered.contains("PERM Read Only"));
+        let rendered = frame.to_string();
+        assert!(rendered.contains("CTX:critical"));
+        assert!(rendered.contains("COST:blind"));
+        assert!(rendered.contains("RECOVERY:1"));
+        assert!(rendered.contains("CMD:pending Core fact"));
+        assert!(!ambient_status(&state).contains("RECOVERY"));
+        assert!(!ambient_status(&state).contains("CMD:"));
     }
 }

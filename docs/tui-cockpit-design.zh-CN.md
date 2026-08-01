@@ -26,15 +26,20 @@ TUI 决策。
 
 - 使用 canonical component vocabulary，避免每个页面自造终端框、状态栏、lane 行、
   approval gate 和 overlay。
-- 状态栏采用 ticker：左侧固定 workspace/lane/provider，中央滚动大量状态指标，右侧固定帮助和
-  decision entry。
-- 右栏采用 Env / Lane / More tabs，可折叠，可隐藏；隐藏后 transcript 铺满。
+- 状态栏把 project/lane 身份与可操作的 permission/approval/gate/error facts 分别固定。
+  中央 ticker 只能承载 activity、event、token、provider-health 等 ambient facts，绝不放 action。
+- 右栏只在对应 Core facts 存在时显示 Env / Lane / More 分组。它是可选区域且默认关闭；
+  关闭时 transcript 铺满可用空间。
 - lane 行支持展开显示当前 lane 下的 subagents。
 - composer 行为跟随 canonical T1c 组件：多行编辑、bracketed paste、有限增高，随后内部
   滚动。本文不再单独定义另一套行数上限。
-- welcome screen 使用 Viden 身份和命令选择器，配置动作结束后回到 welcome，不自动进入会话。
-- approval gate 使用 4 档决策：allow once、allow for session、加入 repo allowlist、deny，
-  并支持倒计时自动拒绝。
+- welcome screen 使用 Viden 身份和命令选择器。`/setup` 打开 Core-backed onboarding，
+  `/lanes` 打开 Core lane board，普通输入进入 unified cockpit。
+- Pending approval 保持 pinned，但不接管 composer。`Ctrl-G` 打开 Decisions；选中一条
+  具体 request 后才进入显式 approval focus。
+- 本地监督闭环只投影 typed Core facts：task/DAG、active tool、queued input、lane
+  output/conflict/recovery、merge gate、evidence decision、context pressure、cost
+  visibility 和 audit ID。command receipt 只能显示为 `pending Core fact`，绝不能推断成功。
 
 ## 主屏幕
 
@@ -47,8 +52,46 @@ TUI 决策。
   Todo、diagnostics、provider health、recent files、usage 和 keybindings。
 - Composer：始终在底部可见，尺寸和内部滚动行为跟随 canonical T1c，输入光标位于输入行内
   并使用原生 blinking bar cursor，带 action hints、work mode chips 和 permission level chips。
-- 底部状态栏：连接状态、session、event 数量、active lanes、context window、
-  theme/help 提示。token、cost、rate 指标只有接入真实 provider telemetry 后才能显示。
+- 底部状态栏：连接状态、session、event 数量、active lanes、context pressure 和
+  presentation/help 提示。Cost 必须明确区分 `metered`、`blind`、`unavailable`；Core
+  没有 actual cost fact 时，token 数不能伪造金额。recovery 与 pending-command alert
+  固定在 pinned 区，不能混入 ambient ticker。
+
+## 展示偏好
+
+- locale、skin、color mode、density、motion、font scale 和 accessibility 是 Core
+  统一拥有并持久化的展示偏好。TUI 只消费解析后的 preference projection，不维护私有
+  palette 或 preference store。
+- 内置 locale 首先支持 `en` 和 `zh-CN`。用户可见 label 必须保持可翻译；稳定 command
+  name、ID、status 和 audit fact 不能从本地化文案推断。
+- TUI 文案存放在 key 兼容的 `apps/tui/i18n/en.json` 与
+  `apps/tui/i18n/zh-CN.json` catalog 中；两者必须保持完全一致的 key 集合与插值参数集合。
+  `zh-Hans-CN` 系统输入映射到 `zh-CN`，未知系统 locale 回退到英文；missing key 直接显示
+  key，不能静默消失。
+- 每一帧渲染都从当前 Core `ResolvedUiPreferences` projection 派生 catalog，因此 snapshot、
+  replay 或 `UiPreferencesUpdated` 后无需维护第二份 locale 状态。CLI override、stored user
+  preference、system locale 与英文 fallback 的优先级由 Core 解析；TUI 不重复该 resolver，
+  也不接受 project data 作为个人 UI 偏好来源。
+- Stable Settings 采用 selector-first，开放 locale、skin、mode、density、motion、终端
+  color depth、Apply 与 Reset。需要持久化的选择只发送
+  `SetUiPreferences { patch: UiPreferencePatch }` 或 `ResetUiPreferences`；
+  `CommandAccepted` 后仍保持 pending，只有匹配的 `UiPreferencesUpdated` 才确认成功。
+  rejection 保留 draft 并渲染 Core reason。缺少 `ui.preference_persistence` 时 surface
+  仍可见但明确 unavailable，command transport 保持零发送。
+- Amber 与 Phosphor 的 light 选项保持可见但禁用，并解释 dark-only 原因。Color depth
+  因 schema 1 不持久化该 terminal-only axis，只作为明确标记的未保存 session preview；
+  TUI 不写私有 config 或 preference store。
+- 生产 TUI 在构建时从 `docs/viden-design/Viden/tokens.css` 生成恰好八套完整语义 palette：
+  Aurora、Ice、Mono 各有 dark/light，Amber、Phosphor 仅 dark。登记 token 缺失会让构建失败；
+  无效或不完整外观会原子回退到 Aurora dark/regular，不得拼接不同 profile 的轴。
+- 终端展示会按检测到的能力解析 `auto | truecolor | ansi256 | ansi16`，应用
+  compact/regular/comfy 几何，reduced motion 使用静态 indicator；Unicode 不可用时把登记字形
+  替换为单格 ASCII fallback。`UiPreferencesUpdated` projection 会在内存中刷新 theme、density、
+  motion，不建立 TUI preference store。
+- Mouse capture 保持禁用。只有 Core resolved preference 合同新增并返回显式 true 后才可启用；
+  环境猜测或 TUI 私有持久化都不能替代该合同。
+- 新增 locale 或 skin 必须同时补齐双语 copy/token coverage 与确定性 preview evidence；
+  frontend-only 的 skin fork 不是可接受扩展方式。
 
 ## Lane / Session 层级
 
@@ -71,18 +114,13 @@ Workspace -> Project -> Lane / Session -> Subagent
 - 运行时数据未接入时，显示 `unavailable`、`0` 或明确 setup 提示，不能编造
   health、latency、cost、task、diagnostic 等值。
 - demo 值只能出现在明确的 `--tui-preview*` fixture 路径。
-- 右栏数据源：
-  - workspace：`WorkspaceSnapshot::load_current`。
-  - active tasks：pending approval 加统一 `AgentTask` 视图中的 running/queued
-    terminal lanes 和 delegated Codex jobs。
-  - diagnostics：`WorkspaceSnapshot.diagnostics`；后台 LSP 检查、真实
-    `/lsp diagnostics <path>` 或 post-edit LSP 输出后会写入
-    `.viden/diagnostics.txt` cache；为空表示 unavailable/0。
-  - provider health：`ProviderStatus` 来源于 `SessionEngine` 的
-    `ProviderTelemetry`；request 数量、成功/失败数量、last/average latency、
-    last event count 和 last error 都是真实值。rate、token、cost 在有真实运行时
-    来源前保持隐藏。
-  - recent files：文件系统 metadata 修改时间。
+- 主 cockpit 与右栏的每项事实都通过 `CoreClient` 来自 `RuntimeViewState`。
+  TUI 不自行扫描 workspace 文件、不读取 lane artifacts、不修改配置，也不独立持久化 runtime facts。
+- Setup 消费 `ProjectProbe`、`ProjectConfigPreview`、`confirmed_project_config`、
+  active provider health 和安全 credential handle。Core 0.3.2 client 尚未提供 raw secret ingress，
+  TUI 不能把它重新包装成 slash command。
+- 启动只要求冻结的 Core 基础契约。Core 0.3.2 的每项 extension 都独立 gate 对应 feature，
+  且必须由 handshake 与 confirmed snapshot 共同确认；缺少 extension 不得阻塞无关 cockpit 功能。
 - 新增 cockpit 指标必须在代码或文档里标明运行时数据来源。
 
 ## 命令提示列表
@@ -110,9 +148,17 @@ Workspace -> Project -> Lane / Session -> Subagent
   lane/agent 操作和多选项工作流也要沿用同一模式。除非是 `/config`、`/status`
   或 `/provider doctor` 这类明确诊断/详情命令，否则不要退化成只展示信息的页面。
 
-- `/setup` 是 first-run wizard，不是被动 help 页。每一行都必须是真实动作，包括
-  provider 配置、model 选择、permissions、theme、当前 provider doctor、fallback
-  smoke 和保存默认值。
+- `/setup` 打开 Core-backed Setup lens；只有 `runtime.project_onboarding` 可用时才发送
+  `ProbeProject`。否则该入口保持可见且只读，显示明确 unavailable 原因，并且不发送 Setup
+  command。selector 持有符合 Core D11
+  `[project]` 结构、包含必填 `name`/`pack` 且不含 secret 的 presentation draft。
+  Preview action 用 `PreviewProjectConfig` 发送 exact contents；只有 Core 返回的合法 preview
+  仍与当前 draft 完全一致时，才可使用 immutable preview id/hash 发送 `ConfirmProjectConfig`。在
+  `ProjectConfigConfirmed` 到达之前 UI 始终显示 pending；本地 command acceptance 不能标记完成。
+
+- `/lanes` 从 `RuntimeViewState.lanes` 打开 Board lens。选择 lane 时只使用其 Core-owned
+  `active_session_ids`；存在多个 id 时先打开第二级 selector，再进入 Session/Cockpit lens。
+  Core 0.3.2 没有全局 session list，因此 TUI 不得自行构造。
 
 - `/lane` 是编排动作 selector。它会列出 lane 启动命令；已有 lane 时，还会列出带
   lane id 的 inspect、timeline、diff 和 artifacts 动作，避免用户记 lane id。
@@ -121,8 +167,9 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 - provider 和 model selector 的语义必须分开：`/provider`/`/connect` 是供应商连接流程，
   一级列表只展示供应商，例如 `DeepSeek`、`OpenRouter`，不要在供应商行里混入
-  key、endpoint、model 解释；选中供应商后，如果需要 key，进入独立 API key 输入面板，
-  key 必须脱敏显示且只保存环境变量名，不能保存明文；随后进入该供应商的 model picker。
+  credential、endpoint、model 解释。TUI 0.3.0 不接收 credential bytes，也不把它们重新包装成
+  slash-command 文本；它只显示 Core 已脱敏的 handle 元数据。没有可信 Core ingress 时，
+  detail surface 明确显示 unavailable 并保持只读。
   `/models` 是跨供应商模型选择器，必须按 provider 分组，用缩进表示 provider 下面的
   model；它只展示已经配置/激活过的 provider/model，不展示未配置 provider 的 descriptor
   默认模型。选中一行直接应用 provider/model 切换，不再先补全一条命令让用户猜怎么执行。
@@ -146,15 +193,30 @@ Workspace -> Project -> Lane / Session -> Subagent
 
 ## 审批闸
 
-审批闸是同一个事件循环里的可交互 overlay，不是被动 transcript 卡片或嵌套 input loop。
+审批闸使用同一个事件循环里的显式 focus overlay，不是被动 transcript 卡片或嵌套 input loop。
 
-- `1` 仅本次允许，`2` 当前 session 允许，`3` 加入界面所示 repo allowlist，`4` 拒绝。
-- 方向键移动选项，`Enter` 执行当前选项。
-- `Esc` 和超时都安全拒绝。`Ctrl-C` 仍只负责打断活动工作，不是审批答案。
-- 鼠标为可选输入；启用后也只选择同一组四档动作。
+- Pending approval 只保持 pinned，不接管 composer。Composer 中的 `y`、`n`、`d` 和
+  `Enter` 保持普通编辑/提交语义。
+- `Ctrl-G` 打开 Decisions。选中一条具体 pending request 后，只为该 request 打开显式
+  approval focus。
+- 显式 focus 渲染四个 typed choice：`1` 仅本次允许、`2` 对 Core 提供的 session 允许、
+  `3` 添加 Core 提供的精确 repository allowlist、`4` 拒绝。缺失 scope 必须显示为
+  unavailable。`y`/`n` 保留 allow-once/deny 兼容语义，`d` 打开 request diff/evidence，
+  方向键移动当前 action，`Enter` 执行选中 action。
+- `Esc` 只关闭显式 approval focus，绝不拒绝或以其他方式处理 request。overlay 与本地
+  selection unwind 完成后，只有 `runtime.lane_owner_projection` 为所选 active lane 提供唯一
+  owner 时，Normal-mode `Esc`、`Ctrl-C` 与 ExitConfirm 才发送 active-work interrupt。
+  owner 缺失、歧义、lane 不匹配、inactive 或 stale 时必须显示 unavailable，并产生零条
+  transport command。
+- 只有 request 的 typed `allowed_scopes` 带有精确 Core payload 时，才显示 session 级允许
+  和 repository allowlist。TUI 原样转发该 scope 与原 request owner。
+- 鼠标为可选输入；启用后也只选择当前可用 action。
 - 查看 diff/evidence 不会自动处理审批。面板必须展示真实 command、scope、risk、
   expiry/default action，以及存在时的 preview 或 evidence。
-- 批准或拒绝后，pending 弹窗必须立即消失，transcript 和右栏不能留下样式残影。
+- Core 报告 approval resolution 后，pinned request 及其匹配的显式 focus 必须消失，
+  transcript 和右栏不能留下样式残影。
+- deadline 到期后，request 保持可见但不可操作，并显示
+  `default Deny · awaiting Core ApprovalResolved`；TUI 不得本地移除或合成拒绝。
 
 ## 多屏方向
 

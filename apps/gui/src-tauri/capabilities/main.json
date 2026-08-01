@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Allow the Viden main window to use Tauri core APIs and select one project folder.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

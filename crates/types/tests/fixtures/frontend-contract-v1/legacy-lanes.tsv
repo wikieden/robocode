@@ -1,0 +1,4 @@
+L-start	codex	start migration	starting	main	0	starting legacy lane
+L-conflict	codex	resolve conflict	apply_conflict	main	100	legacy conflict lane
+L-detached	tmux	inspect output	detached	tmux legacy	50	legacy detached lane
+L-stopped	shell	stop process	stopped	local	99	legacy stopped lane

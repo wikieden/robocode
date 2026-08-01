@@ -30,16 +30,18 @@ viden --version
 viden --provider fallback --model test-local
 ```
 
-`viden` 默认启动主 TUI。干净会话会先进入聚焦的 welcome 输入界面，
-不会自动提交命令或自动打开 setup。需要配置 provider/model 时，用 `Ctrl-P`
-打开命令，或直接提交下面这些入口。slash 设置命令执行后仍停留在 welcome；
-提交第一个普通任务 prompt 后才进入完整 cockpit。
+`viden` 默认启动主 TUI。TUI 0.3.1 会协商 Core 0.3.2 frontend-service extensions 并请求
+project probe，但干净会话仍停留在聚焦的 Welcome composer。`/setup` 打开
+Core-backed Setup selector；`/lanes` 打开 Core lane board。提交普通任务 prompt，
+或选择 Core lane/session 后进入完整 cockpit。
 
 ```text
 /setup
+/lanes
 /setup provider
 /connect
 /models
+/settings
 ```
 
 带显式启动参数进入主 cockpit：
@@ -73,7 +75,8 @@ viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 - `--tui`：启动主 cockpit。现在这是默认行为。
 - `--no-tui`：启动旧版行式 REPL。
 - `--tui-screen <main|side-1|side-2>`：启动指定屏幕。
-- `--tui-theme <aurora-cyan|ember-gold|plasma-violet|monochrome-ice>`：选择内置主题。
+- `--tui-theme <aurora|aurora-light|ice|ice-light|mono|mono-light|amber|phosphor>`：
+  选择八个已登记 palette profile 之一。
 
 用于视觉 review 的 preview flags：
 
@@ -86,12 +89,16 @@ viden --tui-screen side-2 --provider deepseek --model deepseek-v4-flash
 - `--tui-preview-lane`
 - `--tui-preview-setup-wizard`
 - `--tui-preview-provider-selector`
+- `--tui-preview-provider-detail`
 - `--tui-preview-model-selector`
 - `--tui-preview-lane-selector`
 - `--tui-preview-side`
 - `--tui-preview-side-2`
 
 每个 preview flag 都有对应的 `-ansi` 版本。
+`scripts/tui-previews.sh` 默认写入 `target/tui-previews/0.3.1`；
+`scripts/tui-regression.sh target/tui-regression/0.3.1` 会追加结构化 TUI 0.3.1
+认证报告，并且不修改已接受的设计 reference。
 
 ## 配置
 
@@ -119,7 +126,35 @@ models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 favorite_models = ["deepseek-v4-pro"]
 ```
 
-TUI 设置路径在提交命令后进入独立面板：`/connect`、`/provider`、`/setup provider`、`/settings provider` 会打开供应商选择面板；`Enter` 选择供应商，缺 key 时进入 API key 输入面板，然后进入 provider config 动作页。这个动作页可以更换 API key、清除当前进程里的 key、运行 provider doctor，或打开该 provider 的模型选择面板。在 provider-scoped 模型面板里选中模型后，会保存 provider/model、自动运行 provider doctor，并把 readiness 结果写回 transcript。`/models`、`/model`、`/setup model`、`/settings model` 会打开按供应商分组的模型选择面板，只显示已经配置过的 provider；对已配置 provider，会显示 active、favorite、default 和 known models。选中模型后会立即切换 provider/model。API key 在界面里脱敏展示，Viden 只保存环境变量名，不保存明文 key。直接命令 `/settings provider <provider-id> ...`、`/models <provider-id> <model>`、`/model <model>` 仍保留给脚本和高级用户。Provider 失败会被分类为 missing key、auth、rate limit、timeout、context overflow、compatibility 或 model unavailable 等 recovery class，并给出打开 doctor、切换 model/provider、稍后重试或使用 fallback 的具体命令。当 provider 因请求过大拒绝执行时，Viden 会记录压缩说明，用更小的 provider request view 自动重试一次，同时保留完整本地 transcript 作为审计记录。
+TUI 0.3.0 的稳定 project-onboarding 路径由 Core 驱动。Setup 展示 Core project probe，
+并持有只用于 presentation、不含 secret、符合 D11 的 `project.name`/`project.pack` draft。
+Preview action 用 `PreviewProjectConfig` 发送 exact bytes；只有 Core 返回的合法 preview
+仍与当前 draft 一致时才允许 Confirm，且只有 `ProjectConfigConfirmed` 能标记完成。
+TUI 不自行扫描项目、写入配置或在本地推断成功。
+
+`/connect`、`/provider` 只展示供应商元数据；`/models`、`/model` 展示已配置的 model choices。
+TUI 0.3.0 没有可信 frontend secret-ingress，因此面板绝不收集 credential bytes，也不会序列化
+`/provider key` 命令。Provider detail 只显示 active Core health 和脱敏 credential-handle 摘要；
+没有安全 handle/ingress 时显示 `TRUSTED INGRESS unavailable` 并保持只读。Core 0.3.2 也没有
+全局 session 枚举；`/lanes` 只选择各 Core lane 公布的 session id。
+
+TUI 0.3.1 将 `/settings` 开放为 selector-first UI preference surface。它提供 locale
+（`system | en | zh-CN`）、五种 skin、system/dark/light mode、
+compact/regular/comfy density、system/reduced/full motion、终端 color depth、Apply
+和 Reset。Amber 与 Phosphor 仅支持 dark；light 选项保持可见但禁用，并显示原因。每个 row
+都会显示当前选择及其效果。
+
+稳定 Apply 只发送 typed `UiPreferencePatch`，Reset 发送 `ResetUiPreferences`。
+`CommandAccepted` 只代表 pending，不代表已保存；只有匹配的 `UiPreferencesUpdated` 返回
+Core 的 resolved value、persisted value 与 diagnostics 后，selector 才显示成功。
+Command rejection 会保留 draft 并展示 Core reason。CLI 与 user-config precedence 只显示
+Core diagnostics，TUI 不重复 resolver。Plan mode 也允许走同一 UI preference command path，
+因为 Core 会把这种 presentation mutation 与 project/file/shell/Git/workflow/memory effect
+分开分类。
+
+Color depth 被明确标记为未保存、仅当前 session 的 terminal preview，因为 schema 1 没有
+可持久化的 color-depth field；它不会写 TUI config 或 local preference store。若缺少
+`ui.preference_persistence`，Settings 仍可见但显示 unavailable，Apply/Reset 保持零发送。
 
 ```text
 /settings
@@ -244,35 +279,25 @@ DeepSeek 开发场景 smoke 会产生真实费用，会写出 `usage.json` 和 `
 
 ## TUI 操作
 
-以下快捷键描述当前 `0.1.x` 实现，不是下一版 TUI 视觉/交互目标。接受目标是
-[Viden 设计接入](viden-design-adoption.zh-CN.md) 所链接的 T4 契约；`v3-tui-client`
-分支交付对应行为时，必须同步更新本节。
+TUI 0.3.1 使用明确的 Normal、Insert、Overlay ownership；状态栏始终显示当前 mode。
 
-- `Enter`：提交输入区。
-- `Ctrl-J`：显式发送。
-- `Ctrl-K`：清空输入区。
-- `Ctrl-R`：把最近一次用户输入重新放回输入区，便于重新生成。
-- `Ctrl-N`：开始一个新的 `/task add ...` 命令。
-- `?`：输入区为空时打开帮助。
-- `Esc` 或 `Ctrl-C`：退出。
-- `/quit` 或 `/exit`：从命令输入退出。
-- `/`：打开命令提示。可以用 `Up` / `Down`、`Tab`、`Enter`，也可以点击可见提示行。
-- 长命令提示列表会随着键盘选择滚动，保证选中行可见，鼠标点击和键盘选择看到的是同一组行。
-- transcript 历史：用 `PageUp` / `PageDown` 或鼠标滚轮浏览更早的 transcript 行。
-  `Ctrl-Home` 跳到最早可见历史，`Ctrl-End` 回到实时尾部。进入历史模式时，
-  transcript 面板角标会从 `live session` 变成 `history N`。
-- 审批弹窗：`y` 通过，`n` 拒绝，`d` 聚焦 diff，`Tab` / 方向键移动焦点。
-  diff 焦点会优先展示本次审批 prompt 里的真实 evidence / preview lines，而不是装饰性占位内容。
-- provider turn 运行中，TUI event loop 会继续工作；transcript live tail 会在最近
-  对话内容下面显示更醒目的 `LIVE WORK` strip，展示 phase、signal 和下一步 guidance。
-  Provider thinking 不再显示假进度百分比。状态栏、elapsed time、lane snapshot 和审批桥接
-  都可以持续刷新。`Ctrl-C` 会请求取消；但已经发出的 HTTP provider 请求仍可能先完成。
-- 支持 streaming 的 HTTP provider 在 TUI turn 中会请求 server-sent streaming。
-  模型返回的 text delta 会先追加到临时 assistant transcript 行里；turn 完成后，
-  再替换为正式持久化 transcript event。
-- provider turn 尚未结束时，输入区仍可编辑。按 `Enter` 会把当前草稿排成下一条
-  prompt，Viden 会立即清空输入区，并在当前 turn 结束后自动执行队列里的 prompt。
-  如果当前 turn 失败，会把第一条已排队 prompt 放回输入区，方便你修改后重试。
+- Normal：按 `i` 进入 Insert。上下文单键作用于所选 runtime fact，不会写入 composer。
+- Insert：可打印按键编辑 grapheme-safe multiline composer。空闲时 `Enter` 提交；工作中
+  `Enter` 排队 follow-up。`Shift-Enter` 或 `Alt-Enter` 插入换行；未闭合三反引号代码块内
+  的 `Enter` 也只插入换行。Bracketed paste 保留换行且绝不发送。
+- Overlay：方向键或 `j`/`k` 移动 focus，输入用于筛选，`Enter` 应用聚焦 action。
+  `Esc` 依次退出 overlay、清除 selection、退出 Insert，并保留 draft。
+- 全局 chords 在三种 mode 都有效：`Ctrl-L` lane、`Ctrl-S` session、`Ctrl-T` 新 session、
+  `Ctrl-K` command palette、`Ctrl-B` board、`Ctrl-G` decisions、`?` context help。
+- `Ctrl-C` 只请求取消 Core 给出的 exact active owner；它不会拒绝 approval，也不会直接
+  退出。只有 Core 报告没有 current work 时，空闲状态连续按两次才打开退出确认。
+- streaming、tool execution、pinned approval 都不会锁住 composer。只有显式聚焦的
+  approval 才拥有快捷键：方向键或 `Tab` 可到 Deny、Diff、Approve；typed scope 会携带
+  stable Core request id 与 owner 发送。
+- `PageUp` / `PageDown` 浏览 transcript history；`Ctrl-Home` 跳到最早可见 history，
+  `Ctrl-End` 回到 live tail。CJK 与 grapheme cursor 使用 terminal cell width。
+- 默认关闭 mouse capture，以保留终端原生文本选择。TUI 0.3.1 已有完整键盘路径，但尚未
+  提供设计中可选的 `mouse_capture=true` opt-in。
 
 ## Slash Commands
 

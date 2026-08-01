@@ -1,4 +1,7 @@
-use viden_types::{AgentNextAction, AgentTaskRecord, AgentTaskStatus, EvidenceView, now_timestamp};
+use viden_types::{
+    AgentNextAction, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus,
+    EvidenceView, now_timestamp,
+};
 
 use crate::{SessionEngine, TestEvidence};
 
@@ -59,11 +62,11 @@ impl SessionEngine {
         AgentTaskRecord {
             id: format!("turn-{}-{now}", compact_session_id(self.session_id())),
             parent_id: None,
-            agent: "viden".to_string(),
-            kind: "provider".to_string(),
-            transport: self.provider_name().to_string(),
+            role: AgentRole::Coder,
+            kind: AgentTaskKind::Provider,
+            route: AgentRoute::BuiltIn,
             title: first_line(input),
-            status: status.as_str().to_string(),
+            status,
             activity: activity.into(),
             summary: format!(
                 "{} / {} is processing",
@@ -105,15 +108,15 @@ impl SessionEngine {
         AgentTaskRecord {
             id: format!("tool-{call_id}"),
             parent_id: None,
-            agent: agent_for_tool(tool_name).to_string(),
+            role: AgentRole::Coder,
             kind: if tool_name == "shell" {
-                "shell".to_string()
+                AgentTaskKind::Shell
             } else {
-                "tool".to_string()
+                AgentTaskKind::Tool
             },
-            transport: "local".to_string(),
+            route: AgentRoute::Terminal,
             title: format!("{tool_name} {encoded_input}"),
-            status: status.as_str().to_string(),
+            status,
             activity: activity.into(),
             summary: format!("{tool_name} {encoded_input}"),
             progress,
@@ -169,11 +172,11 @@ impl SessionEngine {
         AgentTaskRecord {
             id: format!("test-{}", stable_task_suffix(command)),
             parent_id: None,
-            agent: "shell".to_string(),
-            kind: "test".to_string(),
-            transport: "shell".to_string(),
+            role: AgentRole::Tester,
+            kind: AgentTaskKind::Test,
+            route: AgentRoute::Terminal,
             title: command.to_string(),
-            status: status.as_str().to_string(),
+            status,
             activity: activity.into(),
             summary: command.to_string(),
             progress,
@@ -298,14 +301,6 @@ fn safe_task_path(path: &str) -> Option<String> {
 
 fn compact_session_id(session_id: &str) -> String {
     session_id.chars().take(8).collect()
-}
-
-fn agent_for_tool(tool_name: &str) -> &str {
-    match tool_name {
-        "shell" => "shell",
-        "git_diff" => "git",
-        _ => "viden",
-    }
 }
 
 fn stable_task_suffix(value: &str) -> String {

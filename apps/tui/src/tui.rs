@@ -1,27 +1,51 @@
 mod app;
 mod canvas;
+mod client;
+// Deterministic design previews still exercise the richer selector surface;
+// production runtime facts enter through the CoreClient loop in `app`.
+#[allow(dead_code)]
 mod command_palette;
 mod composer;
+mod composer_buffer;
+mod geometry;
+mod glyphs;
+mod i18n;
 mod indicators;
+#[allow(dead_code)]
 mod input;
+mod jump;
+mod keymap;
+#[allow(dead_code)]
 mod lane;
+mod lane_presenter;
+#[allow(dead_code)]
 mod modal;
 mod ops_screen;
+mod palette;
 mod panel;
+mod preferences;
 mod preview;
+mod projection;
 mod render;
 mod right_rail;
+#[allow(dead_code)]
 mod screen;
 mod side_screen;
+// Task 3 removes the remaining legacy persistence/read helpers. They are not
+// called from the production CoreClient loop in Tasks 1-2.
+#[allow(dead_code)]
 mod state;
 mod statusbar;
+#[allow(dead_code)]
 mod terminal;
 mod text;
+#[allow(dead_code)]
 mod theme;
 mod topbar;
 mod transcript;
+mod ui_state;
 
-pub use app::run_tui_with_theme;
+pub use app::{TuiError, TuiOptions, run_tui};
 pub use preview::{
     render_ansi_cjk_input_preview_with_theme, render_ansi_command_palette_preview_with_theme,
     render_ansi_idle_preview_with_theme, render_ansi_lane_preview_with_theme,
@@ -36,7 +60,6 @@ pub use preview::{
     render_provider_detail_preview, render_provider_selector_preview, render_resize_preview,
     render_setup_wizard_preview, render_side_preview,
 };
-pub use screen::{SideScreen, run_side_tui_with_theme};
 
 pub fn is_known_theme(name: &str) -> bool {
     theme::TuiTheme::is_known(name)

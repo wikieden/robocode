@@ -68,10 +68,16 @@ impl LspRuntime {
             .sessions
             .lock()
             .ok()
-            .map(|sessions| {
+            .map(|mut sessions| {
                 let mut names = sessions
-                    .values()
-                    .map(|session| session.server_id.clone())
+                    .values_mut()
+                    .filter_map(|session| {
+                        session
+                            .is_dead()
+                            .ok()
+                            .is_some_and(|dead| !dead)
+                            .then(|| session.server_id.clone())
+                    })
                     .collect::<Vec<_>>();
                 names.sort();
                 names.dedup();

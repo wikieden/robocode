@@ -2,7 +2,7 @@
 
 English version: [tui-interaction-flow-design.md](tui-interaction-flow-design.md)
 
-最后更新：2026-07-19
+最后更新：2026-07-20
 
 ## 目的
 
@@ -35,7 +35,30 @@ input loop，也不能编造 core runtime 无法解释的状态。
 - Streaming 时 transcript history 必须仍可浏览。新输出只更新 badge，不把用户强行拉回
   底部。
 - 输入包含三个明确模式：Normal 负责 cockpit 导航，Insert 负责 composer 编辑，Overlay
-  负责 selector、panel 与审批。`Esc` 每次只退出一层，`Ctrl-C` 只打断活动工作。
+  负责 selector、panel 与审批。`Esc` 每次只退出一层。只有 Core 为所选 active lane
+  提供唯一且精确的 owner binding 时，`Ctrl-C`、完成本地 selection unwind 后的
+  Normal-mode `Esc` 与 ExitConfirm 才发送 owner-scoped cancellation。capability 缺失、
+  binding 为零或多个、lane 不匹配、lane 已 inactive/stale，以及 Core restart 后新 event
+  stream 尚未收到新 owner binding 时，都必须显示 cancel unavailable 且不发送 transport
+  command。这些 active-but-ownerless 状态下，重复 `Ctrl-C` 也不得打开退出确认。
+- `Ctrl-P` 打开 selector-first 全局跳转。它只投影 Core 的 typed lane、其
+  `active_session_ids`、merge gate、pending approval，以及受控的导航/补全命令注册表。
+  `:`、`@`、`#`、`>`、`~` 分别限定 lane、会话、闸/问询、命令和文件；方向键或
+  `j`/`k` 移动，Enter 选择，Esc 精确恢复之前的 overlay 所有权与 composer 上下文。
+  Core 目前没有 typed 文件清单能力，所以 File 会保留可见但禁用，并显示具体原因；
+  TUI 绝不扫描文件系统或 Git。
+
+## Core 0.3.2 兼容契约
+
+TUI 0.3.0 启动时只强制要求冻结的 15 项基础 capability。Core 0.3.2 的 10 项 extension
+capability 独立协商、只 gate 各自负责的 feature；缺少任一 extension 都不能阻止连接。
+只有 handshake 与 confirmed snapshot 同时声明 extension 时，TUI 才能使用它。具体而言，
+取消操作要求 `runtime.lane_owner_projection`，Setup transport 要求
+`runtime.project_onboarding`。
+
+TUI release manifest 固定 Core checkpoint
+`a927e2f31d2cb9bb6015c30bc0ed0976e958c77e`，保留冻结 payload SHA，并记录 Core-owned
+extension fixture SHA-256。TUI 只把该 fixture replay 为 typed state，绝不从显示文本反推 owner。
 
 ## 顶层状态模型
 
@@ -54,8 +77,13 @@ stateDiagram-v2
 
     Cockpit --> ActiveTurn: submit prompt
     ActiveTurn --> ActiveTurn: stream delta / tool event / queued follow-up
-    ActiveTurn --> ApprovalPanel: permission request
-    ApprovalPanel --> ActiveTurn: approve / deny / inspect
+    ActiveTurn --> ActiveTurn: permission request pinned
+    ActiveTurn --> Decisions: ctrl-g
+    Decisions --> ApprovalFocus: select concrete request
+    Decisions --> ActiveTurn: esc
+    ApprovalFocus --> ActiveTurn: y approve once / n deny / esc close（仍 pinned）
+    ApprovalFocus --> EvidenceFocus: d diff/evidence
+    EvidenceFocus --> ApprovalFocus: close / return
     ActiveTurn --> ErrorRecovery: provider/tool failure
     ErrorRecovery --> Cockpit: retry / switch model / run doctor / continue
     ActiveTurn --> Cockpit: assistant result / cancelled
@@ -83,7 +111,7 @@ flowchart TD
     F -->|composer| G["ComposerAction<br/>edit/submit/queue/cancel"]
     F -->|palette| H["PaletteAction<br/>filter/select/close"]
     F -->|panel| I["PanelAction<br/>edit/select/apply/cancel"]
-    F -->|approval| J["ApprovalAction<br/>approve/deny/inspect"]
+    F -->|explicit approval focus| J["ApprovalAction<br/>approve once/deny/diff/close"]
     F -->|transcript| K["HistoryAction<br/>scroll/follow live"]
     F -->|side screen| L["SideAction<br/>focus/select/close"]
 
@@ -111,8 +139,8 @@ side screen。这能避免 Plan 模式和 provider turn 抢走键盘。
 
 ```mermaid
 flowchart TD
-    A["Input Event"] --> B{"Has modal approval?"}
-    B -->|yes| C["Approval keymap<br/>1-4/arrows/enter/esc"]
+    A["Input Event"] --> B{"Has explicit approval focus?"}
+    B -->|yes| C["Approval keymap<br/>y/n/d/arrows/enter/esc"]
     B -->|no| D{"Interaction panel open?"}
     D -->|yes| E["Panel keymap<br/>search/edit/select/save/cancel"]
     D -->|no| F{"Command palette open?"}
@@ -121,6 +149,8 @@ flowchart TD
     H -->|yes| I["History keymap<br/>page/wheel/ctrl-end"]
     H -->|no| J["Composer keymap"]
 
+    J --> Q{"Ctrl-G?"}
+    Q -->|yes| R["打开 Decisions<br/>选择具体 request"]
     J --> K{"Enter while active turn?"}
     K -->|yes| L["Queue follow-up<br/>clear composer"]
     K -->|no| M["Start new turn"]
@@ -131,30 +161,36 @@ flowchart TD
 
 ## Welcome 与配置流程
 
-Welcome 不是会话。配置 provider/model 后不应该跳到 cockpit，除非用户开始真实任务或恢复历史。
+Welcome 不是会话。TUI 0.3.0 会先协商 Core 0.3.2 基础契约；只有 handshake 与 snapshot
+都确认 `runtime.project_onboarding` 后，才请求 `ProbeProject`。缺少该 extension 时，
+Welcome 与 `/setup` 仍可使用，Setup panel 会说明 Core service unavailable，且 TUI 不发送
+onboarding transport command。event cursor 不是 session id。
 
 ```mermaid
 flowchart TD
-    A["Launch Viden"] --> B{"Has visible session content?"}
-    B -->|no| C["Welcome surface<br/>logo + composer + context row"]
-    B -->|yes| D["Cockpit"]
+    A["Launch Viden"] --> B["协商 Core base + extensions<br/>仅 capability 可用时 ProbeProject"]
+    B --> C{"已选择 Core lane/session<br/>或提交真实任务?"}
+    C -->|no| D["Welcome surface<br/>logo + composer + context row"]
+    C -->|yes| E["Unified cockpit"]
 
-    C --> E{"User action"}
-    E -->|/connect| F["Provider picker"]
-    E -->|/models| G["Configured model picker"]
-    E -->|/setup| H["Setup checklist"]
-    E -->|real prompt| I["Start session"]
+    D --> F{"User action"}
+    F -->|/setup| G["Setup selector<br/>编辑 D11 draft · PreviewProjectConfig"]
+    F -->|/lanes| H["Core lane board"]
+    F -->|real prompt| E
 
-    F --> J["Provider setup form<br/>auth/key/endpoint/default model"]
-    J --> K{"Save?"}
-    K -->|save| C
-    K -->|cancel/esc| C
-
-    G --> L["Switch active provider/model"]
-    L --> C
-    H --> C
-    I --> D
+    G --> I{"Core event?"}
+    I -->|ProjectConfigPreviewed| G
+    I -->|ProjectConfigConfirmed| J["Setup complete"]
+    J --> D
+    H --> K["选择 lane"]
+    K --> L["多个 session 时选择 Core active_session_id"]
+    L --> E
 ```
+
+TUI 只投影 Core onboarding facts，并且只通过 `CoreClient` 发送 typed command。
+它不会自行扫描项目、写入或确认配置，也不接收原始 credential bytes。它可以用 immutable
+preview id/hash 请求 Core 确认，但 Setup 只从 `ProjectConfigConfirmed` 得出完成状态；
+command receipt 不代表成功。
 
 ## Provider Turn 与排队 Follow-Up
 
@@ -193,29 +229,41 @@ sequenceDiagram
 
 ## Approval 流程
 
-Approval 是同一个事件循环里的 focus target，不能调用第二套阻塞式 input loop。
+Approval 是同一个事件循环里的 focus target，不能调用第二套阻塞式 input loop。Pending
+approval 只保持 pinned，不接管输入。操作者用 `Ctrl-G` 打开 Decisions 并选中一条具体
+request 前，composer 中的 `y`、`n`、`d`、`Enter` 都是普通草稿/提交输入。
 
 ```mermaid
 flowchart TD
     A["Runtime requests mutation"] --> B["Permission layer builds ApprovalRequest"]
     B --> C["TurnController emits PendingApproval"]
-    C --> D["TUI renders approval panel"]
-    D --> E{"User action"}
-    E -->|1 allow once| F["resolve_approval(once)"]
-    E -->|2 allow session| G["resolve_approval(session)"]
-    E -->|3 repo allowlist| H["resolve_approval(repo scope)"]
-    E -->|4 / esc / timeout| I["resolve_approval(deny)"]
-    E -->|inspect diff| J["Focus evidence/diff"]
-    E -->|scroll/resize/type| K["Still handled by main loop"]
-    J --> D
-    K --> D
-    F --> L["Runtime continues"]
-    G --> L
-    H --> L
-    I --> M["Runtime records denial"]
-    L --> N["LIVE WORK updates"]
-    M --> N
+    C --> D["Pin request<br/>composer 保持输入权"]
+    D --> E["Ctrl-G 打开 Decisions"]
+    E --> F["选择具体 request"]
+    F --> G["显式 approval focus"]
+    G -->|1 / y| H["转发 allow-once scope"]
+    G -->|2| H2["转发精确 session scope"]
+    G -->|3| H3["转发精确 repository allowlist"]
+    G -->|4 / n| I["转发 deny"]
+    G -->|d| J["打开 request diff/evidence"]
+    G -->|方向键| K["移动选中 action"]
+    K -->|Enter| L["执行选中 action"]
+    G -->|Esc| M["关闭 focus<br/>request 继续 pinned"]
+    J --> G
+    H --> N["Runtime continues"]
+    H2 --> N
+    H3 --> N
+    I --> O["Runtime records denial"]
+    L --> P["派发选中的当前 action"]
+    N --> Q["LIVE WORK updates"]
+    O --> Q
+    P --> Q
 ```
+
+Session 级允许和 repository allowlist 是按 request 开放的 Core action。只有该 request
+的 typed `allowed_scopes` 提供精确 payload 时，TUI 才暴露对应 choice，并通过原 request
+owner 原样转发后等待 Core resolution。过期 request 继续 pinned 且不可操作，直到
+`ApprovalResolved`；TUI 绝不本地合成拒绝或成功。
 
 ## Model 与 Provider 面板
 
@@ -224,15 +272,13 @@ Provider setup 和 model selection 都是直接操作面板，不应该隐藏在
 ```mermaid
 flowchart TD
     A["/connect"] --> B["Provider picker<br/>providers only"]
-    B --> C["Provider setup form"]
-    C --> D{"Auth mode"}
-    D -->|API key| E["Edit/delete masked key"]
-    D -->|web login| F["Open login / confirm token"]
-    D -->|local/no key| G["Show local status"]
-    C --> H["Endpoint edit"]
-    C --> I["Default model picker"]
+    B --> C["Core provider health"]
+    C --> D{"存在安全 credential handle?"}
+    D -->|yes| E["显示脱敏 handle 元数据"]
+    D -->|no| F["Trusted ingress unavailable<br/>只读"]
+    C --> I["Configured model picker"]
     I --> J["Provider-scoped model list"]
-    J --> K["Save provider config"]
+    J --> K["发送 Core-owned provider/model action"]
     K --> L["Return to previous surface"]
 
     M["/models"] --> N["Configured providers only"]
@@ -329,8 +375,9 @@ flowchart LR
 - Provider turn 期间输入：`Enter` 把 follow-up 入队并清空 composer。
 - Plan mode turn：provider 只产出需求、架构、实现方案、测试策略和开发计划；mutating tools
   被 permission/runtime policy 拦截；composer 不锁死。
-- Approval request：approval panel 处理 approve/deny/inspect，同时 resize、scroll 和
-  typed follow-up 仍走主循环。
+- Approval request：request 保持 pinned 且不接管 composer；`Ctrl-G` 打开 Decisions，选中
+  具体 request 后进入显式 focus，`y` 仅本次允许、`n` 拒绝、`d` 打开 diff/evidence、
+  `Enter` 执行选中 action，`Esc` 只关闭 focus。
 - Scrolled-up streaming：transcript badge 显示 new output；scrollback 不跳到底部。
 - Provider failure：inline recovery 显示具体下一步；TUI 保持打开，composer 可用。
 - `/connect`：provider 列表只显示供应商；选择后进入可编辑 key/endpoint/default-model flow。
@@ -341,7 +388,8 @@ flowchart LR
 ## 实现影响
 
 - 保持一个 interaction router 和一个 event loop。
-- 把 approval 提升成非阻塞 `InteractionPanel` 状态。
+- Pending approval 保持为 pinned runtime fact；只有 Decisions 选中具体 request 后才创建
+  非阻塞 `OverlayKind::Approval` 状态。
 - 用 `TurnController` 风格 runtime 边界集中 active turn state。
 - 所有 TUI 文案从稳定 view model 派生。
 - Preview 和 regression tests 覆盖 welcome、active turn、queued input、approval、

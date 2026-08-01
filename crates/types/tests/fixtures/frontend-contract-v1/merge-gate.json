@@ -1,0 +1,177 @@
+{
+  "fixture_id": "merge-gate",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.merge_gate",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_merge-gate",
+        "task_id": null,
+        "turn_id": "turn_merge-gate"
+      },
+      "cursor": {
+        "stream_id": "fixture:merge-gate",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000001,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "ev_patch",
+              "kind": "patch",
+              "summary": "patch applied",
+              "path": "artifacts/ev_patch.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_merge-gate",
+        "task_id": null,
+        "turn_id": "turn_merge-gate"
+      },
+      "cursor": {
+        "stream_id": "fixture:merge-gate",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000002,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "ev_test",
+              "kind": "test_result",
+              "summary": "tests passed",
+              "path": "artifacts/ev_test.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_merge-gate",
+        "task_id": null,
+        "turn_id": "turn_merge-gate"
+      },
+      "cursor": {
+        "stream_id": "fixture:merge-gate",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000003,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "ev_review",
+              "kind": "review",
+              "summary": "review passed",
+              "path": "artifacts/ev_review.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_merge-gate",
+        "task_id": null,
+        "turn_id": "turn_merge-gate"
+      },
+      "cursor": {
+        "stream_id": "fixture:merge-gate",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000004,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate_merge",
+              "task_id": "task_merge",
+              "status": "accepted",
+              "required_evidence": [
+                "patch",
+                "test_result",
+                "review"
+              ],
+              "evidence_ids": [
+                "ev_patch",
+                "ev_test",
+                "ev_review"
+              ],
+              "decision": "core facts satisfied gate",
+              "updated_at": 1700000050
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:merge-gate",
+    "sequence": 4
+  },
+  "expected_view_sha256": "41f4d842a12356586a461b173d072d7e7efedb4d7707471c99eb77dd37533321"
+}

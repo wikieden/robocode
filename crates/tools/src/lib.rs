@@ -6,7 +6,10 @@ use viden_types::{ToolCall, ToolInput, ToolResult, ToolSpec};
 
 mod files;
 mod git;
+pub mod lane;
 mod lsp;
+pub mod patch;
+pub mod process;
 mod search;
 mod shell;
 mod web;

@@ -1,4 +1,4 @@
-use crate::{EngineEvent, SessionEngine};
+use crate::{EngineEvent, RuntimeResumeRequest, SessionEngine};
 use viden_provider::ProviderHost;
 use viden_session::SessionStore;
 use viden_types::{
@@ -18,10 +18,7 @@ fn resume_restores_previous_session() {
         },
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine_a.session_id().to_string();
     engine_a
         .process_input_with_approval("hello", &mut approver)
@@ -56,10 +53,7 @@ fn resume_replays_provider_cost_usage_from_session_log() {
         }),
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine_a.session_id().to_string();
     let live_engine_events = engine_a
         .process_input_with_approval("track provider cost", &mut approver)
@@ -118,10 +112,7 @@ fn resume_replays_duplicate_cost_usage_id_once() {
         }),
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let session_id = engine_a.session_id().to_string();
     engine_a
         .process_input_with_approval("track duplicate cost", &mut approver)
@@ -170,10 +161,7 @@ fn resume_session_without_cost_usage_keeps_empty_cost_ledger() {
             message: Message::new(Role::User, "old session before costs"),
         })
         .unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let provider_b = Box::new(SequenceProvider::new(vec![]));
     let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
@@ -198,10 +186,7 @@ fn resume_restores_provider_runtime_selection() {
     let provider_a = Box::new(SequenceProvider::new(vec![]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
     engine_a.set_provider_runtime(ProviderHost::with_builtins(), Vec::new(), None, None, 90, 1);
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine_a
         .process_input_with_approval("/provider use fallback resumed-model", &mut approver)
@@ -233,10 +218,7 @@ fn sessions_command_lists_recent_sessions() {
         },
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine_a
         .process_input_with_approval("inspect the workspace", &mut approver)
         .unwrap();
@@ -265,10 +247,7 @@ fn sessions_command_includes_activity_metadata() {
         },
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine_a
         .process_input_with_approval("inspect metadata", &mut approver)
         .unwrap();
@@ -298,10 +277,7 @@ fn sessions_command_uses_structured_view_sections() {
         },
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine_a
         .process_input_with_approval("inspect structured sessions", &mut approver)
         .unwrap();
@@ -329,10 +305,7 @@ fn sessions_command_marks_current_session() {
     let cwd = temp_dir("sessions_current_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let output = engine
         .process_input_with_approval("/sessions", &mut approver)
         .unwrap();
@@ -346,10 +319,7 @@ fn sessions_command_marks_current_session() {
 fn ambiguous_resume_prefix_returns_session_list() {
     let home = temp_dir("resume_ambiguous_home");
     let cwd = temp_dir("resume_ambiguous_cwd");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let provider_a = Box::new(SequenceProvider::new(vec![vec![
         ModelEvent::AssistantText {
@@ -390,10 +360,7 @@ fn resume_without_selector_lists_sessions() {
         },
     ]]));
     let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     engine_a
         .process_input_with_approval("draft a plan", &mut approver)
         .unwrap();
@@ -416,10 +383,7 @@ fn resume_without_selector_lists_sessions() {
 fn resume_by_prefix_restores_matching_session() {
     let home = temp_dir("resume_prefix_home");
     let cwd = temp_dir("resume_prefix_cwd");
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let provider_a = Box::new(SequenceProvider::new(vec![vec![
         ModelEvent::AssistantText {
@@ -443,4 +407,75 @@ fn resume_by_prefix_restores_matching_session() {
         event,
         EngineEvent::Command(text) if text.contains(&session_id)
     )));
+}
+
+#[test]
+fn typed_resume_exact_session_restores_requested_id() {
+    let home = temp_dir("typed_resume_exact_home");
+    let cwd = temp_dir("typed_resume_exact_cwd");
+    let provider_a = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "reply a".to_string(),
+        },
+    ]]));
+    let mut engine_a = SessionEngine::new_with_home(&cwd, provider_a, Some(home.clone())).unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    engine_a
+        .process_input_with_approval("session alpha", &mut approver)
+        .unwrap();
+    let session_id = engine_a.session_id().to_string();
+
+    let provider_b = Box::new(SequenceProvider::new(vec![]));
+    let mut engine_b = SessionEngine::new_with_home(&cwd, provider_b, Some(home)).unwrap();
+    let resumed = engine_b
+        .resume_session(RuntimeResumeRequest::exact_session_id(session_id.clone()))
+        .unwrap();
+
+    assert_eq!(resumed.session_id, session_id);
+    assert_eq!(engine_b.session_id(), session_id);
+}
+
+#[test]
+fn typed_resume_missing_session_errors_without_switching_current_session() {
+    let home = temp_dir("typed_resume_missing_home");
+    let cwd = temp_dir("typed_resume_missing_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let original = engine.session_id().to_string();
+
+    let error = engine
+        .resume_session(RuntimeResumeRequest::exact_session_id("session_missing"))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("session_missing"));
+    assert!(error.to_string().contains("not found"));
+    assert_eq!(engine.session_id(), original);
+}
+
+#[test]
+fn typed_resume_ambiguous_selector_errors_without_switching_current_session() {
+    let home = temp_dir("typed_resume_ambiguous_home");
+    let cwd = temp_dir("typed_resume_ambiguous_cwd");
+    let store_a = SessionStore::new_with_home(&home, &cwd, Some("session_same_a".into())).unwrap();
+    store_a
+        .append_entry(&TranscriptEntry::Message {
+            message: Message::new(Role::User, "alpha".to_string()),
+        })
+        .unwrap();
+    let store_b = SessionStore::new_with_home(&home, &cwd, Some("session_same_b".into())).unwrap();
+    store_b
+        .append_entry(&TranscriptEntry::Message {
+            message: Message::new(Role::User, "beta".to_string()),
+        })
+        .unwrap();
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let original = engine.session_id().to_string();
+
+    let error = engine
+        .resume_session(RuntimeResumeRequest::selector("session_same"))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("ambiguous"));
+    assert_eq!(engine.session_id(), original);
 }

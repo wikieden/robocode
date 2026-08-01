@@ -2,7 +2,7 @@
 
 Chinese version: [parallel-development-plan.zh-CN.md](parallel-development-plan.zh-CN.md)
 
-Last updated: 2026-07-19
+Last updated: 2026-07-22
 
 ## Purpose
 
@@ -338,6 +338,23 @@ For design assets, shared `tokens.css`, SPEC, and DESIGN-REF changes are reviewe
 
 ## Phases And Deliverables
 
+### Current Native / ACP Interaction Checkpoint
+
+- The current local integration candidate combines Core `0.3.5`, TUI `0.3.3`,
+  and GUI `0.1.0-rc.3` on `codex/d1-cockpit-closed-loop`. TUI `0.3.3` was
+  originally certified from the immutable Core `0.3.4` checkpoint and is
+  compatibility-tested against the additive Core `0.3.5` contract here.
+- Core owns default Lane identity and workspace isolation selection through
+  `PreviewDefaultStarterLane` and `WorkspaceEligibilityUpdated`: valid Git
+  `HEAD` uses branch/worktree isolation; other existing directories use the
+  opened workspace directly.
+- Core owns native DeepSeek/OpenAI sessions and ACP Codex/Claude/Kiro sessions.
+  Follow-up, retry, exact-owner cancel, persistence, and recovery use
+  `SendAgentSessionInput`, `RetryAgentSession`, and `AgentSessionInputAccepted`.
+- TUI exposes ACP selection through the system command `/acp`; GUI exposes a
+  compact Zed-style new-Lane popup. Neither frontend implements a private
+  agent/session reducer.
+
 ### 0.3.0: Design And Contract Freeze
 
 - Resolve the shared product model.
@@ -418,6 +435,36 @@ cargo fmt --check
 ```
 
 Every behavior change updates the matching English and Chinese documentation and necessary code comments in the same branch. A release is complete only when the GitHub Release and Homebrew tap are validated at the same version as one release unit.
+
+### D1 Cockpit Integration Checkpoint
+
+The former local `codex/d1-cockpit-integration` checkpoint was a historical
+Core+GUI-only attempt. It remains useful negative evidence: it omitted the TUI
+branch, lacked the native/ACP parity gate, failed the workspace gate, and could
+not complete native Lane creation.
+
+The current local candidate is `codex/d1-cockpit-closed-loop`, rebuilt from
+`origin/main` at `aba8b05c5d334cf1a8424c8dc899819b4ecae0bb` in the required order:
+
+- Core `0.3.5`: source `f7fe1b31dfb237e4062209767a7051c2b2c68b93`,
+  merge `76f7f8e3a84ff38846023dda7dead0c50bfb2b68`;
+- TUI `0.3.3`: source `6260f183d19da27e61fdf068d67a9c481c68d829`,
+  merge `026736dc4c16b1d039b80e77b9fe8ff99788d51b`;
+- GUI `0.1.0-rc.3`: source
+  `1c44094dd29674e1cc585ff6c83302581440aeb0`, merge
+  `864966d0677e9d958396fac150f4701b2d14b0a1`.
+
+The candidate now passes the deterministic Core/TUI/GUI fixture parity,
+component suites, dependency boundary, full workspace, GUI build, and TUI
+smoke/regression gates. The unsigned standalone macOS app bundle also builds.
+After the Mac was unlocked, Computer Use completed the scoped native path:
+Welcome -> Open Project -> zero-Lane -> built-in Viden Agent -> exact
+application approval -> Lane/worktree/Native owner -> retained task and
+follow-up. Fallback transcript rows remain typed `Unavailable`, and
+locale/skin configuration, live providers, and ACP authentication remain
+explicit future gates.
+See `docs/release-gui-0.1.0-rc.3-status.md` and
+`docs/release-evidence/gui-d1-cockpit/checkpoints.md`.
 
 ## Explicit Non-Goals
 

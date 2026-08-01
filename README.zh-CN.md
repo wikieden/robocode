@@ -4,7 +4,7 @@ Viden 是一个本地优先的编程 Agent cockpit。它把模型对话、真实
 
 英文版： [README.md](README.md)
 
-![Viden TUI 主 cockpit](docs/previews/manual/0.1.30/readme/main.png)
+![Viden TUI 主 cockpit](docs/previews.old/manual/0.1.30/readme/main.png)
 
 ## 为什么做它
 
@@ -30,55 +30,55 @@ cockpit、resize/中文输入重绘、provider/model 配置、delegated lane 操
 
 ### 首次进入 Welcome
 
-![首次进入 Welcome](docs/previews/manual/0.1.30/readme/main-idle.png)
+![首次进入 Welcome](docs/previews.old/manual/0.1.30/readme/main-idle.png)
 
 ### Live provider turn
 
-![实时 provider 状态](docs/previews/manual/0.1.30/readme/live-turn.png)
+![实时 provider 状态](docs/previews.old/manual/0.1.30/readme/live-turn.png)
 
 ### Resize 后重绘
 
-![Resize 后重绘](docs/previews/manual/0.1.30/readme/resize.png)
+![Resize 后重绘](docs/previews.old/manual/0.1.30/readme/resize.png)
 
 ### 中文输入
 
-![中文输入](docs/previews/manual/0.1.30/readme/cjk-input.png)
+![中文输入](docs/previews.old/manual/0.1.30/readme/cjk-input.png)
 
 ### Slash command 提示
 
-![命令提示](docs/previews/manual/0.1.30/readme/command-palette.png)
+![命令提示](docs/previews.old/manual/0.1.30/readme/command-palette.png)
 
 ### 首次 Setup 向导
 
-![Setup wizard](docs/previews/manual/0.1.30/readme/setup-wizard.png)
+![Setup wizard](docs/previews.old/manual/0.1.30/readme/setup-wizard.png)
 
 ### Provider 配置选择器
 
-![Provider selector](docs/previews/manual/0.1.30/readme/provider-selector.png)
+![Provider selector](docs/previews.old/manual/0.1.30/readme/provider-selector.png)
 
 ### Provider 详情配置
 
-![Provider detail](docs/previews/manual/0.1.30/readme/provider-detail.png)
+![Provider detail](docs/previews.old/manual/0.1.30/readme/provider-detail.png)
 
 ### 按供应商分组的模型选择器
 
-![Model selector](docs/previews/manual/0.1.30/readme/model-selector.png)
+![Model selector](docs/previews.old/manual/0.1.30/readme/model-selector.png)
 
 ### Lane action selector
 
-![Lane selector](docs/previews/manual/0.1.30/readme/lane-selector.png)
+![Lane selector](docs/previews.old/manual/0.1.30/readme/lane-selector.png)
 
 ### Agent lane detail
 
-![Lane detail](docs/previews/manual/0.1.30/readme/lane-detail.png)
+![Lane detail](docs/previews.old/manual/0.1.30/readme/lane-detail.png)
 
 ### 副屏 side-1：Agent lanes
 
-![side-1 lanes](docs/previews/manual/0.1.30/readme/side-lanes.png)
+![side-1 lanes](docs/previews.old/manual/0.1.30/readme/side-lanes.png)
 
 ### 副屏 side-2：ops 与 evidence
 
-![side-2 ops](docs/previews/manual/0.1.30/readme/side-ops.png)
+![side-2 ops](docs/previews.old/manual/0.1.30/readme/side-ops.png)
 
 ## 安装
 
@@ -239,11 +239,16 @@ favorite_models = ["deepseek-v4-pro"]
 
 ```bash
 viden --config .viden/config.toml
-viden --resume latest
+viden --no-tui --resume latest
 viden --permissions plan
-viden --tui-theme aurora-cyan
-viden --tui-screen side-1
+viden --tui-theme aurora
+viden --provider fallback --model test-local --tui-startup-check
 ```
+
+V3 TUI 统一从 CoreClient cockpit 入口进入。为迁移兼容仍接受旧的
+`--tui-screen side-1|side-2` 参数，但不会再启动由前端自行管理的 lane/process
+监控进程。可用皮肤为 `aurora`、`ice`、`mono`、`amber`、`phosphor`；语言、
+明暗模式、密度与动效均读取 Core 持有的 UI preference snapshot。
 
 ## 当前实验边界
 

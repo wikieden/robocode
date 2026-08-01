@@ -5,6 +5,7 @@ use std::thread;
 use viden_lsp::{LspRuntime, SemanticProvider};
 use viden_tools::SemanticToolProvider;
 use viden_types::{LspDiagnostic, LspLocation, LspPosition, LspSymbol};
+use viden_types::{RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus};
 
 use crate::SessionEngine;
 use crate::presentation::{join_lines, render_section_title, render_subsection_title};
@@ -37,6 +38,47 @@ impl SemanticToolProvider for LspToolAdapter {
             .references(cwd, path, LspPosition { line, character })
             .map(|locations| render_lsp_locations(cwd, &locations))
     }
+}
+
+pub(crate) fn lsp_runtime_service_health(runtime: &LspRuntime) -> Vec<RuntimeServiceHealthView> {
+    let status = runtime.status();
+    if status.configured_servers.is_empty() {
+        return vec![RuntimeServiceHealthView {
+            id: "lsp-runtime".to_string(),
+            kind: RuntimeServiceKind::Lsp,
+            label: "LSP runtime".to_string(),
+            status: RuntimeServiceStatus::Unavailable,
+            detail_key: Some("lsp.not_configured".to_string()),
+        }];
+    }
+
+    status
+        .configured_servers
+        .into_iter()
+        .take(crate::frontend_status::MAX_COCKPIT_ROWS)
+        .map(|server_id| {
+            let running = status.running_servers.iter().any(|id| id == &server_id);
+            RuntimeServiceHealthView {
+                id: server_id.clone(),
+                kind: RuntimeServiceKind::Lsp,
+                label: server_id,
+                status: if running {
+                    RuntimeServiceStatus::Ready
+                } else if status.last_error.is_some() {
+                    RuntimeServiceStatus::Degraded
+                } else {
+                    RuntimeServiceStatus::Offline
+                },
+                detail_key: Some(if running {
+                    "lsp.running".to_string()
+                } else if status.last_error.is_some() {
+                    "lsp.last_operation_failed".to_string()
+                } else {
+                    "lsp.configured_not_running".to_string()
+                }),
+            }
+        })
+        .collect()
 }
 
 impl SessionEngine {

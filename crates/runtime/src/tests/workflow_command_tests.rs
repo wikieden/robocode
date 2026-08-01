@@ -9,10 +9,7 @@ fn workflow_task_commands_create_list_and_resume_context() {
     let cwd = temp_dir("workflow_task_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let created = engine
         .process_input_with_approval("/task add Build workflow commands", &mut approver)
@@ -54,10 +51,7 @@ fn memory_snapshot_exposes_operable_memory_entries() {
     let cwd = temp_dir("workflow_memory_snapshot_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval(
@@ -87,10 +81,7 @@ fn workflow_tasks_command_uses_structured_view_sections() {
     let cwd = temp_dir("workflow_task_structured_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let created = engine
         .process_input_with_approval("/task add Structured task rendering", &mut approver)
@@ -134,10 +125,7 @@ fn workflow_mutations_respect_plan_mode() {
     let cwd = temp_dir("workflow_plan_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     engine
         .process_input_with_approval("/plan on", &mut approver)
@@ -162,10 +150,7 @@ fn workflow_memory_suggest_confirm_and_project_list() {
     let cwd = temp_dir("workflow_memory_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let suggested = engine
         .process_input_with_approval(
@@ -206,10 +191,7 @@ fn workflow_memory_commands_use_structured_view_sections() {
     let cwd = temp_dir("workflow_memory_structured_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let suggested = engine
         .process_input_with_approval(
@@ -288,10 +270,7 @@ fn workflow_task_mutation_subcommands_are_routed() {
     let cwd = temp_dir("workflow_task_mutations_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let created = engine
         .process_input_with_approval("/task add Full task lifecycle", &mut approver)
@@ -350,10 +329,7 @@ fn workflow_memory_reject_prune_and_export_are_routed() {
     let cwd = temp_dir("workflow_memory_mutations_cwd");
     let provider = Box::new(SequenceProvider::new(vec![]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
-    let mut approver = |_prompt| ApprovalResponse {
-        approved: true,
-        feedback: None,
-    };
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
 
     let suggested = engine
         .process_input_with_approval("/memory suggest Reject later", &mut approver)

@@ -34,18 +34,25 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 
 - Use a canonical component vocabulary instead of each screen inventing its own
   terminal frame, status bar, lane row, approval gate, and overlay.
-- Status bar uses a ticker: fixed workspace/lane/provider on the left, scrolling
-  status metrics in the center, and fixed help/decision entry on the right.
-- Right rail uses Env / Lane / More tabs, is collapsible, and can be hidden;
-  when hidden, transcript fills the available space.
+- Status bar keeps project/lane identity fixed separately from actionable
+  permission/approval/gate/error facts. The center ticker is ambient-only and
+  may contain activity, event, token, or provider-health facts, never actions.
+- Right rail uses Env / Lane / More groups only when matching Core facts exist.
+  It is optional and closed by default; the transcript fills the available
+  space while it is closed.
 - Lane rows can expand to show subagents under the current lane.
 - Composer behavior follows the canonical T1c component: multiline editing,
   bracketed paste, bounded growth, then internal scroll. This document does not
   define a second row-count limit.
-- Welcome screen uses the Viden identity and command selector; configuration
-  actions return to welcome until real work starts.
-- Approval gate uses four decisions: allow once, allow for the session, add a
-  repository allowlist rule, or deny, with timeout-deny support.
+- Welcome screen uses the Viden identity and command selector. `/setup` opens
+  Core-backed onboarding, `/lanes` opens the Core lane board, and normal input
+  opens the unified cockpit.
+- Pending approvals stay pinned without owning composer input. `Ctrl-G` opens
+  Decisions; choosing a concrete request creates explicit approval focus.
+- The local supervision loop projects tasks/DAGs, active tools, queued input,
+  lane output/conflicts/recovery, merge gates, evidence decisions, context
+  pressure, cost visibility, and audit IDs from typed Core facts. A command
+  receipt is shown only as `pending Core fact`, never as inferred success.
 
 ## Main Screen
 
@@ -62,9 +69,59 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
 - Composer: always visible at the bottom, following the canonical T1c sizing
   and internal-scroll behavior, with a native blinking bar cursor, action
   hints, work mode chips, and permission level chips.
-- Bottom status: connection, session, event count, active lanes, context window,
-  theme/help hints. Token, cost, and rate metrics should appear only after real
-  provider telemetry is wired.
+- Bottom status: connection, session, event count, active lanes, context
+  pressure, and presentation/help hints. Cost is explicitly `metered`, `blind`,
+  or `unavailable`; token counts never fabricate money when Core has no actual
+  cost fact. Recovery and pending-command alerts remain pinned rather than
+  entering the ambient ticker.
+
+## Presentation Preferences
+
+- Locale, skin, color mode, density, motion, font scale, and accessibility are
+  shared presentation preferences owned and persisted by Core. TUI consumes
+  the resolved preference projection and does not maintain a private palette
+  or preference store.
+- Built-in locale support starts with `en` and `zh-CN`. User-facing labels must
+  remain translatable; stable command names, IDs, statuses, and audit facts are
+  not inferred from localized copy.
+- TUI copy lives in the key-compatible `apps/tui/i18n/en.json` and
+  `apps/tui/i18n/zh-CN.json` catalogs. Both catalogs must keep exact key and
+  interpolation-parameter parity. `zh-Hans-CN` system input resolves to
+  `zh-CN`, an unknown system locale resolves to English, and a missing key is
+  rendered visibly as the key instead of disappearing.
+- Runtime rendering derives the catalog from the current Core
+  `ResolvedUiPreferences` projection on every frame, including after snapshot,
+  replay, or `UiPreferencesUpdated`. CLI override, stored user preference,
+  system locale, and English fallback precedence is resolved by Core; the TUI
+  neither repeats that resolver nor accepts project data as a personal UI
+  preference source.
+- Stable Settings is selector-first and exposes locale, skin, mode, density,
+  motion, terminal color depth, Apply, and Reset. Persisted choices send only
+  `SetUiPreferences { patch: UiPreferencePatch }` or `ResetUiPreferences` and
+  remain pending through `CommandAccepted`; only the matching
+  `UiPreferencesUpdated` confirms success. Rejection preserves the draft and
+  renders Core's reason. Missing `ui.preference_persistence` keeps the surface
+  visible but unavailable with zero command transport.
+- Amber and Phosphor light choices remain visible but disabled with the
+  dark-only reason. Color depth is an explicitly unsaved session preview
+  because schema 1 does not persist that terminal-only axis. The TUI never
+  writes a private config or preference store.
+- The production TUI generates exactly eight complete semantic palettes from
+  `docs/viden-design/Viden/tokens.css` at build time: Aurora, Ice, and Mono in
+  dark/light plus dark-only Amber and Phosphor. Missing registered tokens fail
+  the build; an invalid or partial appearance falls back atomically to Aurora
+  dark/regular instead of combining axes from different profiles.
+- Terminal presentation resolves `auto | truecolor | ansi256 | ansi16` against
+  detected capabilities, applies compact/regular/comfy geometry, keeps reduced
+  motion indicators static, and substitutes registered one-cell ASCII glyphs
+  when Unicode is unavailable. A `UiPreferencesUpdated` projection refreshes
+  theme, density, and motion in memory without creating a TUI preference store.
+- Mouse capture remains disabled. It may be enabled only after the Core
+  resolved preference contract exposes and returns an explicit true value;
+  environment guesses and TUI-private persistence are not valid substitutes.
+- Adding a locale or skin requires paired copy/token coverage and deterministic
+  preview evidence. A frontend-only skin fork is not an accepted extension
+  path.
 
 ## Lane / Session Hierarchy
 
@@ -91,19 +148,17 @@ Requirements:
   setup hint instead of invented health, latency, cost, task, or diagnostic
   values.
 - Demo values are allowed only in explicit `--tui-preview*` fixture paths.
-- Right rail data sources:
-  - workspace: `WorkspaceSnapshot::load_current`.
-  - active tasks: pending approval plus the unified `AgentTask` view of running
-    or queued terminal lanes and delegated Codex jobs.
-  - diagnostics: `WorkspaceSnapshot.diagnostics`, populated from the persisted
-    `.viden/diagnostics.txt` cache after background LSP checks, real
-    `/lsp diagnostics <path>`, or post-edit LSP output; empty means
-    unavailable/0.
-  - provider health: `ProviderStatus` derived from `SessionEngine`
-    `ProviderTelemetry`; request count, success/failure count, last/average
-    latency, last event count, and last error are real values. Rate, token, and
-    cost stay hidden until their runtime sources exist.
-  - recent files: filesystem metadata modification time.
+- Every main-cockpit and right-rail fact comes from `RuntimeViewState` through
+  `CoreClient`. The TUI does not scan workspace files, read lane artifacts,
+  mutate configuration, or persist runtime facts independently.
+- Setup consumes `ProjectProbe`, `ProjectConfigPreview`,
+  `confirmed_project_config`, active provider health, and safe credential
+  handles. Raw secret ingress is unavailable through the Core 0.3.2 client and
+  must not be recreated as a slash command.
+- Startup requires only the frozen Core base contract. Every Core 0.3.2
+  extension is feature-gated independently and requires agreement between the
+  handshake and confirmed snapshot; an absent extension never blocks unrelated
+  cockpit use.
 - Any new cockpit metric must identify its runtime source in code or docs.
 
 ## Command Palette
@@ -123,9 +178,20 @@ They must not degrade into status-only pages unless the command is explicitly a
 diagnostic or details command such as `/config`, `/status`, or `/provider
 doctor`.
 
-`/setup` is the first-run wizard. It is not a passive help page: each row is a
-real next action, including provider config, model selection, permissions,
-theme, current-provider doctor, fallback smoke, and saving defaults.
+`/setup` opens the Core-backed Setup lens and sends `ProbeProject` only when
+`runtime.project_onboarding` is available. Otherwise it stays visible and
+read-only with a concrete unavailable reason and sends no setup command. The selector
+holds a secret-free presentation draft shaped as Core D11 `[project]` data with
+required `name` and `pack` fields. Preview sends its exact contents through
+`PreviewProjectConfig`; only a valid Core preview whose exact contents still
+match the draft enables `ConfirmProjectConfig` with its immutable id and hash.
+The UI stays pending until
+`ProjectConfigConfirmed`; local command acceptance cannot mark it complete.
+
+`/lanes` opens the Board lens from `RuntimeViewState.lanes`. Selecting a lane
+uses only its Core-owned `active_session_ids`; multiple ids open a second
+selector before entering the Session/Cockpit lens. Core 0.3.2 has no global
+session list, so the TUI does not invent one.
 
 `/lane` is the orchestration action selector. It lists lane launch commands and,
 when lanes are active, id-specific inspect, timeline, diff, and artifacts
@@ -138,9 +204,10 @@ Provider/model selectors have separate semantics:
 
 - `/provider` and `/connect` are the supplier connection flow. The first-level
   list shows supplier names such as `DeepSeek` and `OpenRouter`; it must not
-  include key, endpoint, or model explanations on the supplier rows. Selecting a
-  provider opens API-key entry when needed, masks the typed key, saves only the
-  env var name, and then opens that provider's model picker.
+  include credential, endpoint, or model explanations on the supplier rows.
+  TUI 0.3.0 never accepts credential bytes or repackages them as slash-command
+  text. It displays only Core-masked handle metadata; when no trusted Core
+  ingress is available, the detail surface says so and remains read-only.
 - `/models` is the cross-provider model selector. Rows are grouped by provider
   with models indented underneath, and it only shows providers/models that have
   already been configured or activated. Descriptor-only defaults for
@@ -185,20 +252,37 @@ Rendering contract:
 
 ## Approval Gate
 
-Approval is an interactive overlay in the same event loop, not a passive
+Approval uses an explicit-focus overlay in the same event loop, not a passive
 transcript card or a nested input loop.
 
-- `1` allows once, `2` allows for the current session, `3` adds the displayed
-  repository allowlist rule, and `4` denies.
-- Arrow keys move the selection and `Enter` activates it.
-- `Esc` and timeout deny safely. `Ctrl-C` remains the active-work interrupt and
-  is not an approval answer.
-- Mouse input is optional; when enabled, it selects the same four actions.
+- A pending approval remains pinned and does not own the composer. Composer
+  `y`, `n`, `d`, and `Enter` retain their normal edit/submission meaning.
+- `Ctrl-G` opens Decisions. Selecting a concrete pending request opens explicit
+  approval focus for that request only.
+- Explicit focus renders four typed choices: `1` allow once, `2` allow for the
+  Core-provided session, `3` add the exact Core-provided repository allowlist,
+  and `4` deny. Unavailable scopes remain visibly unavailable. `y`/`n` retain
+  allow-once/deny compatibility, `d` opens request diff/evidence, arrow keys
+  move the selected action, and `Enter` activates it.
+- `Esc` only closes explicit approval focus; it never denies or otherwise
+  resolves the request. After overlays and local selection are unwound,
+  Normal-mode `Esc`, `Ctrl-C`, and ExitConfirm send an active-work interrupt
+  only when `runtime.lane_owner_projection` exposes exactly one owner for the
+  selected active lane. Missing, ambiguous, mismatched, inactive, or stale
+  owner state is visibly unavailable and produces zero transport commands.
+- Session-scoped approval and repository allowlisting appear only when the
+  request's typed `allowed_scopes` contains the exact Core payload. The TUI
+  forwards that scope and the original request owner unchanged.
+- Mouse input is optional; when enabled, it selects the same current actions.
 - Inspecting diff/evidence never resolves the gate. The panel must render the
   request's real command, scope, risk, expiry/default action, and preview or
   evidence when present.
-- After approval or denial, the pending modal must disappear immediately and
-  the transcript/right rail should redraw without style residue.
+- After Core reports approval resolution, the pinned request and any matching
+  explicit focus must disappear, and the transcript/right rail should redraw
+  without style residue.
+- After the deadline, the request remains visible and inert with
+  `default Deny · awaiting Core ApprovalResolved`. TUI does not remove it or
+  synthesize a denial locally.
 
 ## Multi-Screen Direction
 

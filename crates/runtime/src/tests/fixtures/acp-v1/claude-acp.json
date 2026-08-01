@@ -1,0 +1,27 @@
+{
+  "agent_id": "claude-acp",
+  "permission_request": {
+    "jsonrpc": "2.0",
+    "id": 41,
+    "method": "session/request_permission",
+    "params": {
+      "sessionId": "claude-session",
+      "toolCall": {
+        "toolCallId": "claude-edit",
+        "title": "Edit source file",
+        "kind": "edit"
+      },
+      "options": [
+        { "optionId": "allow", "kind": "allow_once", "name": "Allow" },
+        { "optionId": "deny", "kind": "reject_once", "name": "Deny" }
+      ]
+    }
+  },
+  "tool_update": {
+    "type": "ToolCallUpdate",
+    "toolCallId": "claude-edit",
+    "title": "Edit source file",
+    "status": "completed",
+    "content": "updated src/lib.rs"
+  }
+}

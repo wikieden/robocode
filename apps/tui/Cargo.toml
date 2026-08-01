@@ -1,6 +1,6 @@
 [package]
 name = "viden-tui"
-version.workspace = true
+version = "0.3.3"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -10,3 +10,11 @@ viden-config = { path = "../../crates/config" }
 viden-core = { path = "../../crates/core" }
 viden-types = { path = "../../crates/types" }
 crossterm = "0.28"
+serde_json = "1"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+toml = "0.8"

@@ -1,12 +1,8 @@
-use super::state::{
-    AgentJob, AgentTask, CompanionScreen, InteractionPanel, PendingTurn, ProviderOption,
-    ProviderStatus, TerminalLane, TuiEntry, TuiState, WorkspaceSnapshot,
-};
+use super::state::{InteractionPanel, Lens, ProviderAuthMode, ProviderOption, TuiEntry, TuiState};
 use super::{render, terminal};
-use viden_core::ProviderAuthMode;
-use viden_types::{
-    MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, TaskPriority, TaskRecord,
-    TaskStatus,
+use viden_core::{
+    AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, ExecutionTarget, GateStrength,
+    LaneBudget, LaneStatus, MutationPolicy, ProjectConfigState, ProjectProbe, ProviderHealthView,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -262,33 +258,21 @@ pub fn render_ansi_ops_preview_with_theme(
 }
 
 fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
-    let mut workspace = WorkspaceSnapshot::fixture();
-    workspace.agent_jobs = preview_agent_jobs();
-    TuiState {
-        session_id: "c4f2b7e".to_string(),
-        provider: provider.to_string(),
-        model: model.to_string(),
-        provider_catalog: ProviderOption::fixture(),
-        provider_status: ProviderStatus::configured(),
-        theme_name: theme_name.to_string(),
-        input: "Add tests for load_config and summarize the diff".to_string(),
-        command_selection: 0,
-        command_palette_hidden_for: None,
-        approval_focus: 0,
-        approval_apply_all: false,
-        pending_turn: None,
-        streaming_assistant: None,
-        transcript_scroll: 0,
-        workspace,
-        tasks: preview_tasks(),
-        runtime_tasks: preview_runtime_tasks(),
-        memory: preview_memory(),
-        screens: preview_screens(),
-        lanes: preview_lanes(),
-        lane_store: None,
-        focused_lane: None,
-        interaction_panel: None,
-        entries: vec![
+    // Deterministic previews exercise the complete Core 0.3.2 surface. Runtime
+    // startup still derives this set from the negotiated handshake and snapshot.
+    let mut state = TuiState {
+        capabilities: viden_core::frontend_capabilities(),
+        ..TuiState::default()
+    };
+    state.runtime.snapshot.cwd = std::path::PathBuf::from("~/Documents/GitHub/viden");
+    state.runtime.snapshot.provider_family = provider.to_string();
+    state.runtime.snapshot.model_label = model.to_string();
+    state.runtime.lanes = structured_preview_lanes();
+    state.ui.session_id = "c4f2b7e".to_string();
+    state.ui.provider_catalog = ProviderOption::fixture();
+    state.ui.theme_name = theme_name.to_string();
+    state.ui.input = "Add tests for load_config and summarize the diff".into();
+    state.ui.entries = vec![
             TuiEntry {
                 label: "user".to_string(),
                 body: "Add a new function `load_config` that reads a TOML config file and returns `Config`.".to_string(),
@@ -307,7 +291,7 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
             },
             TuiEntry {
                 label: "assistant".to_string(),
-                body: "Tests are staged. I found one parser edge case and need to update `src/config.rs` before running the suite.".to_string(),
+                body: "Tests are staged. I found one parser edge case; next wait for test result before updating `src/config.rs`.".to_string(),
             },
             TuiEntry {
                 label: "user".to_string(),
@@ -338,199 +322,109 @@ fn preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
                 ]
                 .join("\n"),
             },
-        ],
-    }
+        ];
+    state
 }
 
-fn preview_agent_jobs() -> Vec<AgentJob> {
-    vec![AgentJob {
-        id: "codex-app".to_string(),
-        kind: "app-server-turn".to_string(),
-        status: "finished".to_string(),
-        task: "text smoke".to_string(),
-        pid: None,
-        log_path: None,
-        result_path: None,
-        evidence: vec![
-            "thread thread_app".to_string(),
-            "turn turn_app".to_string(),
-            "turn status completed".to_string(),
-            "resume thread_app".to_string(),
-            "message VIDEN_APP_SERVER_SMOKE_OK".to_string(),
-        ],
-        updated_at: 42,
-    }]
-}
-
-fn preview_runtime_tasks() -> Vec<AgentTask> {
-    vec![AgentTask {
-        id: "turn-context-preview".to_string(),
-        parent_id: None,
-        agent: "deepseek".to_string(),
-        kind: "provider".to_string(),
-        transport: "api".to_string(),
-        title: "ContextBundle v1 visibility".to_string(),
-        status: "done".to_string(),
-        activity: "context bundle recorded".to_string(),
-        summary: "policy v1-priority-budget, 1 omitted source".to_string(),
-        progress: 100,
-        started_at: Some(1),
-        updated_at: Some(2),
-        workspace: Some("~/Documents/GitHub/viden".to_string()),
-        evidence: vec![
-            "context_pressure 18% (23040/128000)".to_string(),
-            "context_sources 6".to_string(),
-            "context_policy v1-priority-budget".to_string(),
-            "context_omitted 1".to_string(),
-            "largest_context_source latest-diff 6400 tok".to_string(),
-            "active_brief brief_load_config: Add load_config tests".to_string(),
-        ],
-        permissions: Vec::new(),
-        decision: Some("recorded".to_string()),
-        result: Some("visible in side-2 ops".to_string()),
-        resume_handle: None,
-        pid: None,
-        next_action: None,
-    }]
-}
-
-fn preview_lanes() -> Vec<TerminalLane> {
-    let mut lanes = TerminalLane::preview_lanes();
-    lanes.truncate(1);
-    lanes
-}
-
-fn preview_screens() -> Vec<CompanionScreen> {
-    vec![
-        CompanionScreen {
-            id: "side-1".to_string(),
-            title: "Agent lanes".to_string(),
-            status: "launched".to_string(),
-            pid: Some(4101),
-            summary: "lane cockpit on companion display".to_string(),
-        },
-        CompanionScreen {
-            id: "side-2".to_string(),
-            title: "Workspace ops".to_string(),
-            status: "launched".to_string(),
-            pid: Some(4102),
-            summary: "ops monitor on vertical display".to_string(),
-        },
+fn structured_preview_lanes() -> Vec<AgentLaneRecord> {
+    [
+        (
+            "L1",
+            AgentRole::Coder,
+            LaneStatus::Running,
+            "config tests pty/01",
+        ),
+        (
+            "L2",
+            AgentRole::Reviewer,
+            LaneStatus::WaitingApproval,
+            "codex-review config diff",
+        ),
     ]
-}
-
-fn preview_tasks() -> Vec<TaskRecord> {
-    vec![
-        TaskRecord {
-            task_id: "task_load_config".to_string(),
-            title: "Implement load_config".to_string(),
-            description: None,
-            status: TaskStatus::InProgress,
-            priority: TaskPriority::High,
-            labels: vec!["tui".to_string()],
-            assignee_hint: Some("main".to_string()),
-            parent_task_id: None,
-            dependency_ids: Vec::new(),
-            blocked_by: None,
-            notes: Vec::new(),
-            created_at: 1,
-            updated_at: 2,
-            last_session_id: Some("c4f2b7e".to_string()),
-            last_seen_at: None,
-            archived_at: None,
+    .into_iter()
+    .map(|(id, role, status, summary)| AgentLaneRecord {
+        id: id.to_string(),
+        task_id: Some(format!("task-{id}")),
+        role,
+        route: AgentRoute::Terminal,
+        gate_strength: GateStrength::Containment,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: None,
+        branch: None,
+        target: ExecutionTarget::Local,
+        data_egress: DataEgressPolicy::Deny,
+        status,
+        budget: LaneBudget::default(),
+        active_session_ids: Vec::new(),
+        summary: summary.to_string(),
+        evidence: if id == "L1" {
+            vec![
+                "CMD    codex exec test fixes".to_string(),
+                "ATTACH /lane tmux L1".to_string(),
+            ]
+        } else {
+            Vec::new()
         },
-        TaskRecord {
-            task_id: "task_review_tests".to_string(),
-            title: "Review config tests".to_string(),
-            description: None,
-            status: TaskStatus::Blocked,
-            priority: TaskPriority::Medium,
-            labels: vec!["review".to_string()],
-            assignee_hint: Some("side-1".to_string()),
-            parent_task_id: None,
-            dependency_ids: Vec::new(),
-            blocked_by: Some("approval".to_string()),
-            notes: Vec::new(),
-            created_at: 1,
-            updated_at: 2,
-            last_session_id: Some("c4f2b7e".to_string()),
-            last_seen_at: None,
-            archived_at: None,
-        },
-    ]
-}
-
-fn preview_memory() -> Vec<MemoryEntry> {
-    vec![
-        MemoryEntry {
-            memory_id: "mem_tui_standard".to_string(),
-            scope: MemoryScope::Project,
-            session_id: Some("c4f2b7e".to_string()),
-            kind: MemoryKind::Convention,
-            content: "Keep TUI docs and previews in the same change as UI behavior.".to_string(),
-            source: MemorySource::AssistantSuggestion,
-            status: MemoryStatus::Suggested,
-            created_at: 1,
-            updated_at: 2,
-            related_task_ids: Vec::new(),
-            confidence_hint: Some("preview".to_string()),
-        },
-        MemoryEntry {
-            memory_id: "mem_theme".to_string(),
-            scope: MemoryScope::Session,
-            session_id: Some("c4f2b7e".to_string()),
-            kind: MemoryKind::Preference,
-            content: "Use aurora-cyan as the default cockpit theme.".to_string(),
-            source: MemorySource::Command,
-            status: MemoryStatus::Active,
-            created_at: 1,
-            updated_at: 2,
-            related_task_ids: Vec::new(),
-            confidence_hint: None,
-        },
-    ]
+    })
+    .collect()
 }
 
 fn focused_lane_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
-    state.focused_lane = Some("L1".to_string());
+    state.ui.focused_lane = Some("L1".to_string());
     state
+        .ui
         .entries
         .retain(|entry| entry.label != "approval" && !entry.body.contains("Press y"));
-    state.input = "/lane inspect L1".to_string();
+    state.ui.input = "/lane inspect L1".into();
     state
 }
 
 fn idle_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
-    state.entries = vec![TuiEntry {
+    state.runtime.lanes.clear();
+    state.ui.entries = vec![TuiEntry {
         label: "system".to_string(),
         body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
     }];
-    state.input = String::new();
+    state.ui.input.clear();
     state
 }
 
 fn command_palette_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.provider = "deepseek".to_string();
-    state.model = "deepseek-v4-flash".to_string();
-    state.input = "/".to_string();
-    state.command_selection = 0;
+    state.runtime.snapshot.provider_family = "deepseek".to_string();
+    state.runtime.snapshot.model_label = "deepseek-v4-flash".to_string();
+    state.ui.input = "/".into();
+    state.ui.command_selection = 0;
     state
 }
 
 fn setup_wizard_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input = "/setup".to_string();
-    state.command_selection = 0;
+    state.ui.input.clear();
+    state.ui.lens = Lens::Setup;
+    state.runtime.project_probe = Some(ProjectProbe {
+        root: "/workspace/demo".to_string(),
+        is_git_repository: true,
+        git_root: Some("/workspace/demo".to_string()),
+        config_path: "/workspace/demo/viden.toml".to_string(),
+        config_state: ProjectConfigState::Missing,
+        project_name: None,
+        pack: None,
+        diagnostics: Vec::new(),
+    });
+    state.ui.interaction_panel = Some(InteractionPanel::Setup {
+        selected: 1,
+        draft: "[project]\nname = \"demo\"\npack = \"robot-pack\"\n".to_string(),
+    });
     state
 }
 
 fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input.clear();
-    state.interaction_panel = Some(InteractionPanel::ConnectProvider {
+    state.ui.input.clear();
+    state.ui.interaction_panel = Some(InteractionPanel::ConnectProvider {
         search: String::new(),
         selected: 0,
     });
@@ -539,23 +433,32 @@ fn provider_selector_preview_state(provider: &str, model: &str, theme_name: &str
 
 fn provider_detail_preview_state(_provider: &str, _model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state("openai", "gpt-5.2", theme_name);
-    state.input.clear();
-    state.interaction_panel = Some(InteractionPanel::ProviderApiKey {
+    state.ui.input.clear();
+    state.ui.lens = Lens::Setup;
+    state.ui.interaction_panel = None;
+    state.runtime.provider = Some(ProviderHealthView {
         provider_id: "openai".to_string(),
-        input: String::new(),
+        model: "gpt-5.2".to_string(),
+        status: "healthy".to_string(),
+        request_count: 0,
+        error_count: 0,
+        last_latency_ms: None,
+        average_latency_ms: None,
+        tokens_per_second: None,
+        credential: None,
     });
     state
 }
 
 fn model_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input.clear();
-    state.interaction_panel = Some(InteractionPanel::ModelPicker {
+    state.ui.input.clear();
+    state.ui.interaction_panel = Some(InteractionPanel::ModelPicker {
         provider_id: None,
         search: String::new(),
         selected: 0,
     });
-    state.provider_catalog = configured_model_preview_catalog();
+    state.ui.provider_catalog = configured_model_preview_catalog();
     state
 }
 
@@ -583,14 +486,15 @@ fn configured_model_preview_catalog() -> Vec<ProviderOption> {
 
 fn lane_selector_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = command_palette_preview_state(provider, model, theme_name);
-    state.input = "/lane".to_string();
-    state.command_selection = 0;
+    state.runtime.lanes = structured_preview_lanes();
+    state.ui.input = "/lane".into();
+    state.ui.command_selection = 0;
     state
 }
 
 fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.entries = vec![
+    state.ui.entries = vec![
         TuiEntry {
             label: "system".to_string(),
             body: "Viden TUI ready. Enter submits. Esc or Ctrl-C exits.".to_string(),
@@ -600,27 +504,16 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
             body: "Refactor the config loader, then run focused tests.".to_string(),
         },
     ];
-    state.pending_turn = Some(PendingTurn {
-        id: "turn-c4f2b7e-live".to_string(),
-        provider: provider.to_string(),
-        model: model.to_string(),
-        prompt: "Refactor the config loader, then run focused tests.".to_string(),
-        workspace: state.workspace.display_root.clone(),
-        started_at: 1,
-        phase: "Waiting for provider response".to_string(),
-        next_action: "wait".to_string(),
-        queued_inputs: Vec::new(),
-    });
-    state.workspace.agent_jobs.clear();
-    state.lanes.clear();
-    state.input = "Add a note about the validation result".to_string();
+    state.runtime.assistant_stream = "Working on the config loader...".to_string();
+    state.runtime.lanes.clear();
+    state.ui.input = "Add a note about the validation result".into();
     state
 }
 
 fn resize_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = live_turn_preview_state(provider, model, theme_name);
-    state.input = "Resize-safe redraw check".to_string();
-    state.entries.push(TuiEntry {
+    state.ui.input = "Resize-safe redraw check".into();
+    state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
         body: "Resize-safe redraw check: stale borders cleared; composer and panels reflow from one frame.".to_string(),
     });
@@ -629,8 +522,8 @@ fn resize_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiSta
 
 fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = idle_preview_state(provider, model, theme_name);
-    state.input = "你好，帮我检查当前变更".to_string();
-    state.entries.push(TuiEntry {
+    state.ui.input = "你好，帮我检查当前变更".into();
+    state.ui.entries.push(TuiEntry {
         label: "user".to_string(),
         body: "中文输入法候选窗应该靠近 composer 光标，输入区要保持足够高。".to_string(),
     });
@@ -638,8 +531,60 @@ fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
 }
 
 #[cfg(test)]
+fn render_task6_lens_preview(lens: Lens, width: u16) -> String {
+    let mut state = if lens == Lens::Welcome {
+        idle_preview_state("fallback", "test-local", "aurora-cyan")
+    } else {
+        preview_state("fallback", "test-local", "aurora-cyan")
+    };
+    state.ui.lens = lens;
+    if lens == Lens::Session {
+        state.ui.focused_lane = Some("L1".to_string());
+        state.ui.session_id = "session-preview-L1".to_string();
+        if let Some(lane) = state.runtime.lanes.iter_mut().find(|lane| lane.id == "L1") {
+            lane.active_session_ids = vec![state.ui.session_id.clone()];
+        }
+    }
+    render::render_frame(&state, width, 40)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_lenses_have_deterministic_80_112_160_render_models() {
+        for lens in [
+            Lens::Welcome,
+            Lens::Setup,
+            Lens::Board,
+            Lens::Session,
+            Lens::Decisions,
+            Lens::Gallery,
+        ] {
+            for width in [80_u16, 112, 160] {
+                let first = render_task6_lens_preview(lens, width);
+                let second = render_task6_lens_preview(lens, width);
+
+                assert_eq!(first, second, "{lens:?} at {width}");
+                assert!(
+                    first
+                        .lines()
+                        .all(|line| { crate::tui::text::char_width(line) == usize::from(width) }),
+                    "{lens:?} physical width {width}"
+                );
+                let identity = match lens {
+                    Lens::Welcome => "Ask anything",
+                    Lens::Setup => "SETUP",
+                    Lens::Board => "LANE BOARD",
+                    Lens::Session => "COCKPIT",
+                    Lens::Decisions => "DECISIONS",
+                    Lens::Gallery => "GALLERY",
+                };
+                assert!(first.contains(identity), "{lens:?} at {width}");
+            }
+        }
+    }
 
     #[test]
     fn previews_use_stable_demo_workspace_snapshot() {
@@ -657,8 +602,13 @@ mod tests {
         let side = render_side_preview("fallback", "test-local");
         let ops = render_ops_preview("fallback", "test-local");
 
-        assert!(main.contains("~/projects/viden"));
-        assert!(idle.contains("~/projects/viden"));
+        assert_eq!(
+            preview_state("fallback", "test-local", "aurora-cyan")
+                .runtime
+                .snapshot
+                .cwd,
+            std::path::PathBuf::from("~/Documents/GitHub/viden")
+        );
         assert!(live_turn.contains("LIVE WORK"));
         assert!(live_turn.contains("Viden working"));
         assert!(live_turn.contains("live provider request"));
@@ -670,37 +620,32 @@ mod tests {
         assert!(idle.contains("ctrl+p commands"));
         assert!(!idle.contains("TRANSCRIPT"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("/help"));
-        assert!(command_palette.contains("Show commands"));
-        assert!(setup_wizard.contains("SETUP WIZARD"));
-        assert!(setup_wizard.contains("provider"));
-        assert!(setup_wizard.contains("provider doctor"));
+        assert!(command_palette.contains("/connect"));
+        assert!(command_palette.contains("Configure a Core provider"));
+        assert!(setup_wizard.contains("SETUP SELECTOR"));
+        assert!(setup_wizard.contains("DRAFT viden.toml"));
+        assert!(setup_wizard.contains("pack = \"robot-pack\""));
         assert!(provider_selector.contains("Connect a provider"));
         assert!(provider_selector.contains("DeepSeek"));
         assert!(provider_selector.contains("OpenRouter"));
         assert!(!provider_selector.contains("DEEPSEEK_API_KEY"));
         assert!(!provider_selector.contains("default endpoint"));
-        assert!(provider_detail.contains("API key"));
-        assert!(provider_detail.contains("OPENAI_API_KEY"));
-        assert!(provider_detail.contains("Enter submit"));
-        assert!(!provider_detail.contains("PROVIDER CONFIG"));
-        assert!(!provider_detail.contains("set default provider"));
+        assert!(provider_detail.contains("PROVIDER openai"));
+        assert!(provider_detail.contains("TRUSTED INGRESS unavailable"));
+        assert!(!provider_detail.contains("API key"));
+        assert!(!provider_detail.contains("/provider key"));
         assert!(model_selector.contains("Select model"));
         assert!(model_selector.contains("deepseek-v4-flash"));
-        assert!(model_selector.contains("DeepSeek"));
+        assert!(model_selector.contains("deepseek"));
         assert!(!model_selector.contains("fallback-local"));
-        assert!(!model_selector.contains("Fallback"));
-        assert!(!model_selector.contains("OpenAI"));
-        assert!(lane_selector.contains("LANE ACTIONS"));
-        assert!(lane_selector.contains("codex-review"));
-        assert!(lane_selector.contains("inspect L1"));
+        assert!(lane_selector.contains("/lane"));
         assert!(!idle.contains("APPROVAL REQUIRED"));
         assert!(!main.contains("APPROVAL REQUIRED"));
         assert!(main.contains("tests/config_tests.rs"));
-        assert!(side.contains("~/projects/viden"));
-        assert!(ops.contains("files 128"));
-        assert!(ops.contains("codex-app codex done"));
-        assert!(ops.contains("evidence message VIDEN_APP_SERVER_SMOKE_OK"));
+        assert!(side.contains("~/Documents/GitHub/viden"));
+        assert!(ops.contains("ROOT"));
+        assert!(ops.contains("MCP / CONTEXT"));
+        assert!(ops.contains("no structured evidence yet"));
         assert!(!main.contains("docs/previews/generated"));
         assert!(!main.contains("scripts/tui-previews.sh"));
     }
@@ -710,9 +655,7 @@ mod tests {
         let preview = render_lane_preview("fallback", "test-local");
 
         assert!(preview.contains("LANE DETAIL"));
-        assert!(preview.contains("ROUTE main→side-1"));
-        assert!(preview.contains("CMD    codex exec test fixes"));
-        assert!(preview.contains("ATTACH /lane tmux L1"));
+        assert!(preview.contains("/lane inspect L1"));
         assert!(!preview.contains("APPROVAL REQUIRED"));
     }
 }

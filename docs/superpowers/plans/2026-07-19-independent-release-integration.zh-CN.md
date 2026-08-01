@@ -95,7 +95,7 @@
 **文件：** 新增 `docs/integration/i0-contract.md` 与 `.zh-CN.md`；修改三份 manifest。
 
 - [ ] 对 Core 0.3.0 跑 types/runtime/core、migration、fixture digest、dependency boundary gate。
-- [ ] 提交 Core freeze，解析真实 SHA，写回三份 manifest 并提交 evidence，再创建不可变 `frontend-contract-v1` tag；tag commit 必须与前端 manifest 一致。
+- [ ] 提交 Core freeze，解析 payload SHA，把它写入成对兼容文档，再提交单独的 evidence checkpoint。验证每个前端 manifest 都记录 payload SHA，且每个前端分支都从 evidence checkpoint 起步。只有另获用户授权时才创建不可变 `frontend-contract-v1` tag。
 - [ ] 从该 SHA 创建 TUI/GUI worktree，运行 alpha fixture consumer 与 framework gate，不得用生产迁移捷径。
 - [ ] 运行 `scripts/frontend-fixture-parity.sh all`、manifest/doc checks，三端 normalized state/cursor digest 必须一致。
 - [ ] 提交 `git commit -m "docs(integration): certify I0 frontend contract"`。

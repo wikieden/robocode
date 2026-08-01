@@ -1,9 +1,9 @@
 use crate::{
-    CostUsageRecord, Message, Role, RuntimeEvent, ToolCall, ToolResult, decode_tool_input,
-    encode_tool_input,
+    CostUsageRecord, Message, Role, RuntimeEvent, SessionId, ToolCall, ToolResult,
+    decode_tool_input, encode_tool_input,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PermissionLogEntry {
     pub timestamp: u64,
     pub tool_name: String,
@@ -12,7 +12,7 @@ pub struct PermissionLogEntry {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CommandLogEntry {
     pub timestamp: u64,
     pub name: String,
@@ -20,7 +20,7 @@ pub struct CommandLogEntry {
     pub output: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SessionMetaEntry {
     pub timestamp: u64,
     pub key: String,
@@ -37,6 +37,120 @@ pub enum TranscriptEntry {
     SessionMeta { entry: SessionMetaEntry },
     CostUsage { cost: Box<CostUsageRecord> },
     RuntimeEvent { event: Box<RuntimeEvent> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptRowId(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptCursor {
+    pub session_id: SessionId,
+    pub ordinal: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TranscriptRowKind {
+    Message { message: Message },
+    ToolCall { call: ToolCall },
+    ToolResult { result: ToolResult },
+    Permission { entry: PermissionLogEntry },
+    Command { entry: CommandLogEntry },
+    SessionMeta { entry: SessionMetaEntry },
+    CostUsage { cost: Box<CostUsageRecord> },
+    RuntimeEvent { event: Box<RuntimeEvent> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptRow {
+    pub id: TranscriptRowId,
+    pub cursor: TranscriptCursor,
+    pub timestamp: Option<u64>,
+    pub kind: TranscriptRowKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptPageRequest {
+    pub session_id: SessionId,
+    pub before: Option<TranscriptCursor>,
+    pub limit: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TranscriptPage {
+    pub rows: Vec<TranscriptRow>,
+    pub older: Option<TranscriptCursor>,
+    pub newer: Option<TranscriptCursor>,
+    pub has_more: bool,
+}
+
+impl TranscriptRow {
+    pub fn from_entry(session_id: &str, ordinal: u64, entry: &TranscriptEntry) -> Self {
+        let cursor = TranscriptCursor {
+            session_id: session_id.to_string(),
+            ordinal,
+        };
+        Self {
+            id: TranscriptRowId(format!("{session_id}:{ordinal}")),
+            cursor,
+            timestamp: entry.timestamp(),
+            kind: TranscriptRowKind::from(entry),
+        }
+    }
+}
+
+impl TranscriptEntry {
+    pub fn coalescing_message_id(&self) -> Option<&str> {
+        match self {
+            TranscriptEntry::Message { message } if message.role == Role::Assistant => {
+                Some(&message.id)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn timestamp(&self) -> Option<u64> {
+        match self {
+            TranscriptEntry::Message { message } => Some(message.timestamp),
+            TranscriptEntry::Permission { entry } => Some(entry.timestamp),
+            TranscriptEntry::Command { entry } => Some(entry.timestamp),
+            TranscriptEntry::SessionMeta { entry } => Some(entry.timestamp),
+            TranscriptEntry::CostUsage { cost } => cost.recorded_at,
+            TranscriptEntry::RuntimeEvent { event } => event.timestamp,
+            TranscriptEntry::ToolCall { .. } | TranscriptEntry::ToolResult { .. } => None,
+        }
+    }
+}
+
+impl From<&TranscriptEntry> for TranscriptRowKind {
+    fn from(entry: &TranscriptEntry) -> Self {
+        match entry {
+            TranscriptEntry::Message { message } => TranscriptRowKind::Message {
+                message: message.clone(),
+            },
+            TranscriptEntry::ToolCall { call } => {
+                TranscriptRowKind::ToolCall { call: call.clone() }
+            }
+            TranscriptEntry::ToolResult { result } => TranscriptRowKind::ToolResult {
+                result: result.clone(),
+            },
+            TranscriptEntry::Permission { entry } => TranscriptRowKind::Permission {
+                entry: entry.clone(),
+            },
+            TranscriptEntry::Command { entry } => TranscriptRowKind::Command {
+                entry: entry.clone(),
+            },
+            TranscriptEntry::SessionMeta { entry } => TranscriptRowKind::SessionMeta {
+                entry: entry.clone(),
+            },
+            TranscriptEntry::CostUsage { cost } => TranscriptRowKind::CostUsage {
+                cost: Box::new((**cost).clone()),
+            },
+            TranscriptEntry::RuntimeEvent { event } => TranscriptRowKind::RuntimeEvent {
+                event: Box::new((**event).clone()),
+            },
+        }
+    }
 }
 
 impl TranscriptEntry {
@@ -101,8 +215,7 @@ impl TranscriptEntry {
     }
 
     pub fn from_json_line(line: &str) -> Result<Self, String> {
-        let kind =
-            extract_top_level_type_field(line).or_else(|_| extract_string_field(line, "type"))?;
+        let kind = transcript_entry_type(line).or_else(|_| extract_string_field(line, "type"))?;
         match kind.as_str() {
             "message" => Ok(TranscriptEntry::Message {
                 message: Message {
@@ -167,14 +280,84 @@ impl TranscriptEntry {
     }
 }
 
-fn extract_top_level_type_field(line: &str) -> Result<String, String> {
-    let value: serde_json::Value =
-        serde_json::from_str(line).map_err(|_| "Malformed transcript entry")?;
-    value
-        .get("type")
-        .and_then(|kind| kind.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| "Missing field `type`".to_string())
+/// Reads only the top-level transcript discriminator while discarding payload values.
+///
+/// This deliberately avoids materializing message bodies or nested runtime-event payloads.
+pub fn transcript_entry_type(line: &str) -> Result<String, String> {
+    use serde::de::{IgnoredAny, MapAccess, Visitor};
+
+    struct TranscriptTypeVisitor;
+
+    impl<'de> Visitor<'de> for TranscriptTypeVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a transcript entry object with a top-level type field")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut entry_type = None;
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "type" {
+                    entry_type = Some(map.next_value::<String>()?);
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            entry_type.ok_or_else(|| serde::de::Error::missing_field("type"))
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str(line);
+    let entry_type = serde::Deserializer::deserialize_map(&mut deserializer, TranscriptTypeVisitor)
+        .map_err(|_| "Malformed transcript entry".to_string())?;
+    deserializer
+        .end()
+        .map_err(|_| "Malformed transcript entry".to_string())?;
+    Ok(entry_type)
+}
+
+/// Reads the stable timestamp field for a transcript entry without materializing payloads.
+pub fn transcript_entry_timestamp(line: &str) -> Result<Option<u64>, String> {
+    #[derive(serde::Deserialize)]
+    struct TimestampField {
+        timestamp: Option<u64>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RuntimeEventEnvelope {
+        event: TimestampField,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RecordedAtField {
+        recorded_at: Option<u64>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct CostUsageEnvelope {
+        cost: RecordedAtField,
+    }
+
+    let entry_type = transcript_entry_type(line)?;
+    match entry_type.as_str() {
+        "message" | "permission" | "command" | "session_meta" => {
+            serde_json::from_str::<TimestampField>(line)
+                .map(|entry| entry.timestamp)
+                .map_err(|_| "Malformed transcript timestamp".to_string())
+        }
+        "runtime_event" => serde_json::from_str::<RuntimeEventEnvelope>(line)
+            .map(|entry| entry.event.timestamp)
+            .map_err(|_| "Malformed runtime event timestamp".to_string()),
+        "cost_usage" => serde_json::from_str::<CostUsageEnvelope>(line)
+            .map(|entry| entry.cost.recorded_at)
+            .map_err(|_| "Malformed cost usage timestamp".to_string()),
+        "tool_call" | "tool_result" => Ok(None),
+        _ => Err("Unknown transcript entry type".to_string()),
+    }
 }
 
 fn cost_usage_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String> {

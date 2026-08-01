@@ -14,6 +14,7 @@
 
 - `tasks`: task reducer and queries.
 - `memory`: project/session memory reducer and queries.
+- `lanes`: typed lane lifecycle reducer and legacy lane migration.
 - `resume_context`: builder for `/task resume-context`.
 - `stores`: workflow JSONL logs and derived SQLite bootstrap.
 
@@ -31,15 +32,20 @@ Owns `MemoryEvent`, `MemoryState`, and `reduce_memory_events`. Supports session 
 
 Owns `ResumeContextInput`, `ResumeContextBuild`, and `build_resume_context`. Produces `ResumeContextSnapshot`, suggested next steps, suggested session memory, and derived task `Seen` events. It must not change task business status or auto-confirm project memory.
 
+### `lanes`
+
+Owns `LaneEvent`, `LaneState`, and `reduce_lane_events`. Lane lifecycle facts are stored in `lanes.jsonl`. A legacy project `.viden/lanes.tsv` is accepted only as idempotent session-start or resume-activation migration input; runtime projection and status views read the typed event log afterwards.
+
 ### `stores`
 
-Owns `WorkflowStore`, `WorkflowPaths`, `WorkflowTaskEvent`, and `WorkflowMemoryEvent`. Stores canonical workflow logs in `tasks.jsonl` and `memory.jsonl`, creates `workflow.sqlite3`, and validates checked appends before writing.
+Owns `WorkflowStore`, `WorkflowPaths`, `WorkflowTaskEvent`, and `WorkflowMemoryEvent`. Stores canonical workflow logs in `tasks.jsonl`, `memory.jsonl`, and `lanes.jsonl`, creates `workflow.sqlite3`, and validates checked appends before writing. Lane load/reduce/append transactions use a project-scoped advisory lock so concurrent sessions cannot duplicate a legacy import or lose a lifecycle event.
 
 ## Invariants
 
 - Workflow JSONL is canonical.
 - SQLite is derived and rebuildable.
-- Invalid task/memory events must not be appended.
+- Invalid task, memory, or lane events must not be appended.
+- A corrupt lane log must remain visible as a recoverable runtime error; clients must not silently render an empty lane set.
 - Workflow state and transcript state are separate but share project identity.
 
 ## Reference Alignment

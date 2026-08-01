@@ -15,6 +15,8 @@
 - `SessionStore`
 - `SessionPaths`
 - `project_key_for_path`
+- `default_session_home_dir`
+- `SessionStore::query_recent_work`
 
 ## Invariants
 
@@ -22,6 +24,10 @@
 - SQLite index is derived and rebuildable.
 - Resume reconstructs history from transcript order.
 - Workflow state must not use this crate as source of truth.
+- Cross-project recent-work discovery scans only the shared
+  `<session-home>/projects` inventory and validates canonical root metadata.
+- Recent-work results are bounded whitelist DTOs; transcript paths, previews,
+  arbitrary metadata, and bodies never cross that boundary.
 
 ## Reference Alignment
 

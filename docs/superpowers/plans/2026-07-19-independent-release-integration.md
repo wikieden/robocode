@@ -130,7 +130,7 @@ Chinese: [2026-07-19-independent-release-integration.zh-CN.md](2026-07-19-indepe
 - Modify: all three component manifests
 
 - [ ] From Core `0.3.0`, run types/runtime/core tests, migration, fixture digest, and dependency-boundary gates.
-- [ ] Commit the Core freeze, resolve its SHA, write that exact SHA into all manifests, commit evidence, and create immutable `frontend-contract-v1` tag. Verify `git rev-parse refs/tags/frontend-contract-v1^{commit}` equals every frontend manifest.
+- [ ] Commit the Core freeze, resolve its payload SHA, write that SHA into the paired compatibility documents, and commit a separate evidence checkpoint. Verify every frontend manifest records the payload SHA and every frontend branch starts from the evidence checkpoint. Create an immutable `frontend-contract-v1` tag only with separate user authorization.
 - [ ] Create TUI/GUI worktrees from that commit; run their alpha fixture consumers and framework gate without production migration shortcuts.
 - [ ] Run `scripts/frontend-fixture-parity.sh all` plus manifest/doc checks; expect identical normalized state and cursor digests.
 - [ ] Commit with `git commit -m "docs(integration): certify I0 frontend contract"`.

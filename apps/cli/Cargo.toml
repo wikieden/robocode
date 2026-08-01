@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 viden-config = { path = "../../crates/config" }
+viden-core = { path = "../../crates/core" }
 viden-runtime = { path = "../../crates/runtime" }
 viden-provider = { path = "../../crates/provider" }
 viden-tools = { path = "../../crates/tools" }

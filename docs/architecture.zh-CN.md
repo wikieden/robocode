@@ -49,12 +49,15 @@ flowchart TB
 
 ## Workspace 布局
 
-- `apps/cli`：可执行入口、flags、config bootstrap，以及当前 CLI/TUI launcher
+- `apps/cli`：可执行入口、flags、preview commands，以及当前 CLI/TUI launcher
 - `apps/tui`：终端 frontend app 边界；完整 TUI render/input loop 后续应迁移到这里
-- `crates/core`：稳定 runtime facade，供客户端导入；重导出 core runtime 和共享
-  contract 类型，不引入 TUI 或 GUI 依赖
-- `crates/config`：配置加载、优先级合并和启动默认值
-- `crates/runtime`：会话引擎和 turn 编排
+- `crates/core`：稳定 runtime facade，供客户端导入；拥有内部 pre-release
+  `LocalCoreHost` workspace binding，并重导出共享 client/contract 类型，不引入
+  TUI 或 GUI 依赖；同时拥有可信的一次性 credential staging，保证 secret bytes
+  不进入序列化 commands、events、transcripts 或 workflow audit；Core 0.3.2 gate
+  前不把这些 host services 作为 frontend handshake capability 对外公布
+- `crates/config`：配置加载、优先级合并、启动默认值，以及保留未知字段的原子 user UI 偏好持久化
+- `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
 - `crates/plugin-api`：共享 plugin manifest、capability、permission、provider descriptor 和 ABI symbol
 - `crates/plugin-host`：plugin discovery、registry、validation 和 lifecycle 边界
@@ -77,6 +80,10 @@ flowchart TB
 3. 项目级 `.viden/config.toml`
 4. 全局配置文件
 5. 内置默认值
+
+这条通用链适用于 provider 与 runtime 配置。个人 UI 偏好使用独立优先级：安全 CLI UI
+override、已存储 user `[ui]`、system 解析、内置英文。项目级 `.viden/config.toml`
+不能选择或持久化个人 locale、skin/mode、density 或 motion。
 
 当前已覆盖的配置项：
 
@@ -171,7 +178,20 @@ Merge Gate 校验 canonical evidence，不能只信 compact summary。可选 ext
 版本归属为：`0.2.1` 原生 context/cost、`0.2.3` canonical evidence、`0.2.4`
 可选 adapter、`0.2.5` DeepSeek A/B gate。TUI/GUI app 只通过 `viden-core` 和
 shared contracts 消费状态，不能直接依赖 context、runtime、provider、tool 或 workflow
-internals；CLI 可以保留 bootstrap 所需的直接依赖。
+internals；CLI 现在使用与 `LocalCoreHost` 相同的 `viden-runtime` bootstrap
+路径，再由 Core host 把 supervisor 包装为 transport-neutral Core client。
+
+Credential ingress 也遵守同一边界。本地前端只能通过已绑定的 host client 暂存原始
+bytes，获得 opaque request id，然后经 runtime command path 发送
+`StoreCredentialHandle`。Runtime 只持久化安全的 `CredentialHandle` metadata；platform
+credential sink 只会在 workspace/provider/backend binding、TTL 和一次性消费检查后收到
+secret。
+
+个人 UI 偏好 mutation 也遵守 runtime 边界。`SetUiPreferences` 与
+`ResetUiPreferences` 会先校验，再进入 supervised permission，并在执行侧重新检查
+permission；随后原子更新 user config 并发出 `UiPreferencesUpdated`。Reducer 同步更新
+顶层 view fact 与 snapshot 副本。恢复权威仍是 user config，不会把该 event 再写入
+project workflow JSONL 形成第二套持久化权威。
 
 ## 终端展示
 
@@ -382,8 +402,9 @@ CLI 当前也通过 slash commands 暴露这些工具面：
   包含一个小 parser，用于提取常见 Rust/cargo 和 pytest failure-summary / file
   模式。
 - `/status` 也是只读 cockpit 快照：它会采集 git dirty files、active workflow
-  tasks，以及 `.viden/lanes.tsv` 中的 lane state；某个来源不可用时只降级该
-  collector，不让整个命令失败。
+  tasks，以及 `viden-workflows` `lanes.jsonl` 中的 typed lane state；某个来源
+  不可用时只降级该 collector，不让整个命令失败。旧 `.viden/lanes.tsv` 只作为
+  幂等的 session 启动或 resume activation 迁移输入。
 - 成功的 `write_file` 和 `edit_file` result 会结构化为 `path`、`size` 和 `effect`
   行，让 transcript 和 TUI surface 不必解析自由文本也能总结文件变更。
 - Lane inspect / apply / recovery 命令会把可审计 artifacts 存到

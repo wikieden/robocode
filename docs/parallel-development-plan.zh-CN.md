@@ -2,7 +2,7 @@
 
 英文版：[parallel-development-plan.md](parallel-development-plan.md)
 
-最后更新：2026-07-19
+最后更新：2026-07-22
 
 ## 目的
 
@@ -291,6 +291,20 @@ V3 规划基线之后，Core、TUI、GUI 各自维护独立产品版本号。仓
 
 ## 阶段与交付物
 
+### 当前 Native / ACP 交互检查点
+
+- 当前本地集成候选在 `codex/d1-cockpit-closed-loop` 上组合 Core `0.3.5`、
+  TUI `0.3.3` 与 GUI `0.1.0-rc.3`。TUI `0.3.3` 最初基于不可变的 Core
+  `0.3.4` 检查点认证，本候选验证其与增量 Core `0.3.5` contract 兼容。
+- Core 通过 `PreviewDefaultStarterLane` 与 `WorkspaceEligibilityUpdated` 独占默认
+  Lane identity 与 workspace isolation 选择：有效 Git `HEAD` 使用 branch/worktree
+  隔离，其他真实存在的目录直接使用已打开工作区。
+- Core 同时负责 DeepSeek/OpenAI 原生 session 与 Codex/Claude/Kiro ACP session；
+  `SendAgentSessionInput`、`RetryAgentSession`、`AgentSessionInputAccepted` 统一续聊、
+  retry、精确 owner cancel、持久化和恢复。
+- TUI 通过系统命令 `/acp` 打开选择列表；GUI 使用简洁的 Zed 风格新建 Lane 弹出菜单。
+  两个前端都不能实现私有 agent/session reducer。
+
 ### 0.3.0：设计与 contract freeze
 
 - 完成共同产品模型消歧。
@@ -371,6 +385,32 @@ cargo fmt --check
 ```
 
 每个行为变更都必须在同一分支更新对应中英文文档和必要代码注释。发布仍以 GitHub Release 与 Homebrew tap 同版本、同一验证单元完成。
+
+### D1 Cockpit 集成检查点
+
+原本地 `codex/d1-cockpit-integration` 是历史 Core+GUI-only 尝试。它保留为
+负向证据：遗漏 TUI 分支、缺少 native/ACP parity 门禁、workspace 门禁失败，并且
+无法完成 native Lane creation。
+
+当前本地候选是 `codex/d1-cockpit-closed-loop`，从 `origin/main`
+`aba8b05c5d334cf1a8424c8dc899819b4ecae0bb` 按固定顺序重建：
+
+- Core `0.3.5`：来源 `f7fe1b31dfb237e4062209767a7051c2b2c68b93`，
+  merge `76f7f8e3a84ff38846023dda7dead0c50bfb2b68`；
+- TUI `0.3.3`：来源 `6260f183d19da27e61fdf068d67a9c481c68d829`，
+  merge `026736dc4c16b1d039b80e77b9fe8ff99788d51b`；
+- GUI `0.1.0-rc.3`：来源 `1c44094dd29674e1cc585ff6c83302581440aeb0`，
+  merge `864966d0677e9d958396fac150f4701b2d14b0a1`。
+
+当前候选已通过确定性的 Core/TUI/GUI fixture parity、组件套件、dependency
+boundary、full workspace、GUI build 与 TUI smoke/regression 门禁，也成功构建
+unsigned standalone macOS app bundle。Mac 解锁后，Computer Use 完成了限定原生
+路径：Welcome -> Open Project -> zero-Lane -> 内置 Viden Agent -> 精确应用内
+授权 -> Lane/worktree/Native owner -> 保留任务与 follow-up。Fallback transcript
+rows 仍是 typed `Unavailable`；locale/skin 配置、live provider 与 ACP
+authentication 仍是明确的后续门禁。
+详见 `docs/release-gui-0.1.0-rc.3-status.zh-CN.md` 和
+`docs/release-evidence/gui-d1-cockpit/checkpoints.md`。
 
 ## 明确不做
 

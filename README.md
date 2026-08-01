@@ -6,7 +6,7 @@ delegated agents, and keep enough evidence to resume work later.
 
 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-![Viden TUI main cockpit](docs/previews/manual/0.1.30/readme/main.png)
+![Viden TUI main cockpit](docs/previews.old/manual/0.1.30/readme/main.png)
 
 ## Why It Exists
 
@@ -48,55 +48,55 @@ regression review.
 
 ### First-Launch Welcome
 
-![First-launch welcome](docs/previews/manual/0.1.30/readme/main-idle.png)
+![First-launch welcome](docs/previews.old/manual/0.1.30/readme/main-idle.png)
 
 ### Live Provider Turn
 
-![Live provider turn](docs/previews/manual/0.1.30/readme/live-turn.png)
+![Live provider turn](docs/previews.old/manual/0.1.30/readme/live-turn.png)
 
 ### Resize-Safe Redraw
 
-![Resize-safe redraw](docs/previews/manual/0.1.30/readme/resize.png)
+![Resize-safe redraw](docs/previews.old/manual/0.1.30/readme/resize.png)
 
 ### CJK Input
 
-![CJK input](docs/previews/manual/0.1.30/readme/cjk-input.png)
+![CJK input](docs/previews.old/manual/0.1.30/readme/cjk-input.png)
 
 ### Slash-Command Palette
 
-![Command palette](docs/previews/manual/0.1.30/readme/command-palette.png)
+![Command palette](docs/previews.old/manual/0.1.30/readme/command-palette.png)
 
 ### First-Run Setup Wizard
 
-![Setup wizard](docs/previews/manual/0.1.30/readme/setup-wizard.png)
+![Setup wizard](docs/previews.old/manual/0.1.30/readme/setup-wizard.png)
 
 ### Provider Configuration Selector
 
-![Provider selector](docs/previews/manual/0.1.30/readme/provider-selector.png)
+![Provider selector](docs/previews.old/manual/0.1.30/readme/provider-selector.png)
 
 ### Provider Detail Form
 
-![Provider detail](docs/previews/manual/0.1.30/readme/provider-detail.png)
+![Provider detail](docs/previews.old/manual/0.1.30/readme/provider-detail.png)
 
 ### Grouped Model Selector
 
-![Model selector](docs/previews/manual/0.1.30/readme/model-selector.png)
+![Model selector](docs/previews.old/manual/0.1.30/readme/model-selector.png)
 
 ### Lane Action Selector
 
-![Lane selector](docs/previews/manual/0.1.30/readme/lane-selector.png)
+![Lane selector](docs/previews.old/manual/0.1.30/readme/lane-selector.png)
 
 ### Agent Lane Detail
 
-![Lane detail](docs/previews/manual/0.1.30/readme/lane-detail.png)
+![Lane detail](docs/previews.old/manual/0.1.30/readme/lane-detail.png)
 
 ### Side Screen: Agent Lanes
 
-![Side screen lanes](docs/previews/manual/0.1.30/readme/side-lanes.png)
+![Side screen lanes](docs/previews.old/manual/0.1.30/readme/side-lanes.png)
 
 ### Side Screen: Ops And Evidence
 
-![Side screen ops](docs/previews/manual/0.1.30/readme/side-ops.png)
+![Side screen ops](docs/previews.old/manual/0.1.30/readme/side-ops.png)
 
 ## Install
 
@@ -291,11 +291,17 @@ Useful startup flags:
 
 ```bash
 viden --config .viden/config.toml
-viden --resume latest
+viden --no-tui --resume latest
 viden --permissions plan
-viden --tui-theme aurora-cyan
-viden --tui-screen side-1
+viden --tui-theme aurora
+viden --provider fallback --model test-local --tui-startup-check
 ```
+
+The V3 TUI always enters through the unified CoreClient cockpit. Legacy
+`--tui-screen side-1|side-2` values are accepted for transition compatibility,
+but they no longer start a frontend-owned lane/process monitor. Available
+skins are `aurora`, `ice`, `mono`, `amber`, and `phosphor`; locale, color mode,
+density, and motion come from the Core-owned UI preference snapshot.
 
 ## What Is Experimental
 
