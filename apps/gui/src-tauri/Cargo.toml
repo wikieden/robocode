@@ -78,3 +78,7 @@ toml = "0.8"
 [[test]]
 name = "d10_lane_monitor"
 path = "../tests/d10_lane_monitor.rs"
+
+[[test]]
+name = "d12_integration_gate"
+path = "../tests/d12_integration_gate.rs"

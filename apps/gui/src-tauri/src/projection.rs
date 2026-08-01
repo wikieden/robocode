@@ -2,12 +2,12 @@ use serde::Serialize;
 use viden_core::{
     AgentConversationRole, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionStatus,
     AgentStartability, AgentTaskStatus, ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk,
-    ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ContractDecision, ContractRecord,
-    CredentialHandle, EventCursor, GateStrength, LaneStatus, LocaleId, MutationPolicy,
-    ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
-    ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
-    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
-    WorkspaceSourceStatus,
+    ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ConflictBounceStatus,
+    ContractDecision, ContractRecord, CredentialHandle, EventCursor, GateStrength, LaneStatus,
+    LocaleId, MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
+    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
+    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -26,6 +26,10 @@ use crate::d2::{
 };
 use crate::d10::{
     D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
+};
+use crate::d12::{
+    D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -515,6 +519,116 @@ impl RuntimeProjection {
                     code: None,
                 },
             ],
+        })
+    }
+
+    /// Projects the D12 integration gate, its bounce timeline, and any
+    /// post-merge revert. `selected` is presentation state from the shell.
+    pub fn d12_integration_gate(
+        &self,
+        selected: Option<&str>,
+    ) -> Option<D12IntegrationGateProjection> {
+        let view = self.view()?;
+        let gates: Vec<D12GateProjection> = view
+            .merge_gates
+            .iter()
+            .map(|gate| D12GateProjection {
+                gate_id: gate.gate_id.clone(),
+                task_id: gate.task_id.clone(),
+                status: merge_gate_status(gate.status).to_string(),
+                gate_type: merge_gate_type(gate.gate_type).to_string(),
+                project_id: gate.owner.project_id.clone(),
+                lane_id: gate.owner.lane_id.clone(),
+                requires_independent_validator: gate.policy_snapshot.requires_independent_validator,
+                has_validator: gate.validator.is_some(),
+                required_evidence: gate.required_evidence.clone(),
+                evidence_ids: gate.evidence_ids.clone(),
+            })
+            .collect();
+
+        let selected_gate_id = selected
+            .filter(|id| gates.iter().any(|gate| gate.gate_id == *id))
+            .map(str::to_string)
+            .or_else(|| gates.first().map(|gate| gate.gate_id.clone()));
+
+        let detail = selected_gate_id.as_deref().and_then(|gate_id| {
+            let gate = gates.iter().find(|gate| gate.gate_id == gate_id)?.clone();
+            // A strong gate cannot be bypassed: `accept` opens only when Core
+            // has recorded every evidence id the gate policy requires.
+            let missing_evidence: Vec<String> = gate
+                .required_evidence
+                .iter()
+                .filter(|required| !gate.evidence_ids.contains(required))
+                .cloned()
+                .collect();
+            let bounces = view
+                .conflict_bounces
+                .iter()
+                .filter(|bounce| bounce.gate_id == gate_id)
+                .map(|bounce| D12BounceProjection {
+                    bounce_id: bounce.bounce_id.clone(),
+                    original_lane_id: bounce.original_lane_id.clone(),
+                    task_id: bounce.task_id.clone(),
+                    reason: bounce.reason.clone(),
+                    status: conflict_bounce_status(bounce.status).to_string(),
+                    evidence_ids: bounce.evidence_ids.clone(),
+                })
+                .collect();
+            let reverts = view
+                .reverts
+                .iter()
+                .filter(|revert| revert.gate_id == gate_id)
+                .map(|revert| D12RevertProjection {
+                    revert_id: revert.revert_id.clone(),
+                    applied_change_id: revert.applied_change_id.clone(),
+                    reason: revert.reason.clone(),
+                    restored_paths: revert.restored_paths.clone(),
+                    audit_id: revert.audit_id.clone(),
+                    reverted_at: revert.reverted_at,
+                })
+                .collect();
+            let checks = view
+                .check_runs
+                .iter()
+                .filter(|check| check.owner.task_id.as_deref() == Some(gate.task_id.as_str()))
+                .map(|check| D12CheckProjection {
+                    id: check.id.clone(),
+                    name: check.label.clone(),
+                    status: check_run_status(check.status).to_string(),
+                })
+                .collect();
+            let terminal = matches!(gate.status.as_str(), "merged" | "reverted" | "accepted");
+            Some(D12GateDetailProjection {
+                actions: vec![
+                    D12ActionProjection {
+                        kind: "accept".to_string(),
+                        available: missing_evidence.is_empty() && !terminal,
+                        code: None,
+                    },
+                    D12ActionProjection {
+                        kind: "reject".to_string(),
+                        available: !terminal,
+                        code: None,
+                    },
+                ],
+                gate,
+                missing_evidence,
+                bounces,
+                reverts,
+                checks,
+            })
+        });
+
+        Some(D12IntegrationGateProjection {
+            gates,
+            selected_gate_id,
+            detail,
+            // The design renders the conflicting hunk side by side. Schema 1
+            // carries no structured conflict content.
+            unavailable: vec![D2UnavailableProjection {
+                key: "d12.conflict.noStructuredHunk",
+                code: "GUI-CORE-015",
+            }],
         })
     }
 
@@ -1384,6 +1498,36 @@ fn check_run_status(status: CheckRunStatus) -> &'static str {
         CheckRunStatus::Passed => "passed",
         CheckRunStatus::Failed => "failed",
         CheckRunStatus::Cancelled => "cancelled",
+    }
+}
+
+fn merge_gate_status(status: MergeGateStatus) -> &'static str {
+    match status {
+        MergeGateStatus::Proposed => "proposed",
+        MergeGateStatus::CollectingEvidence => "collecting_evidence",
+        MergeGateStatus::Blocked => "blocked",
+        MergeGateStatus::NeedsChanges => "needs_changes",
+        MergeGateStatus::Accepted => "accepted",
+        MergeGateStatus::Merged => "merged",
+        MergeGateStatus::Reverted => "reverted",
+    }
+}
+
+fn merge_gate_type(gate_type: MergeGateType) -> &'static str {
+    match gate_type {
+        MergeGateType::Patch => "patch",
+        MergeGateType::Review => "review",
+        MergeGateType::Contract => "contract",
+        MergeGateType::Handoff => "handoff",
+        MergeGateType::Artifact => "artifact",
+    }
+}
+
+fn conflict_bounce_status(status: ConflictBounceStatus) -> &'static str {
+    match status {
+        ConflictBounceStatus::Pending => "pending",
+        ConflictBounceStatus::Revalidated => "revalidated",
+        ConflictBounceStatus::Resolved => "resolved",
     }
 }
 

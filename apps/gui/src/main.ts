@@ -17,6 +17,10 @@ import {
   type D10LaneMonitorProjection,
 } from "./screens/d10_lane_monitor";
 import {
+  renderD12IntegrationGate,
+  type D12IntegrationGateProjection,
+} from "./screens/d12_integration_gate";
+import {
   renderD2Decisions,
   type D2DecisionsProjection,
   type D2Intent,
@@ -268,6 +272,22 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         renderD10LaneMonitor(root, projection, locale, () => void showD2());
       };
 
+      // D12 is the integration-gate failure path. Accept opens only when Core
+      // says every required evidence id is present.
+      const showD12 = async (gateId?: string) => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D12IntegrationGateProjection | null>(
+          "d12_integration_gate",
+          { selectedGateId: gateId ?? null },
+        );
+        if (!projection) {
+          throw new Error("Core did not provide the D12 integration gate projection");
+        }
+        root.dataset.route = "d12";
+        renderD12IntegrationGate(root, projection, locale, (next) => void showD12(next));
+      };
+
       const openProject = async () => {
         const selected = await open({
           directory: true,
@@ -292,6 +312,8 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           await showD2();
         } else if (screen === "d10") {
           await showD10();
+        } else if (screen === "d12") {
+          await showD12();
         } else {
           await showD1();
         }

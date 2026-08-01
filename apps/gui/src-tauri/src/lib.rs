@@ -3,6 +3,7 @@
 mod adapter;
 mod d1;
 mod d10;
+mod d12;
 mod d2;
 mod d4;
 mod d6;
@@ -34,6 +35,10 @@ pub use d4::{
 pub use d6::{D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State};
 pub use d10::{
     D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
+};
+pub use d12::{
+    D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
 };
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
@@ -223,6 +228,24 @@ fn permission_poll(
 }
 
 #[tauri::command]
+fn d12_integration_gate(
+    selected_gate_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D12IntegrationGateProjection>, String> {
+    let guard = state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
+    let adapter = guard
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?;
+    Ok(match selected_gate_id {
+        Some(gate_id) => adapter.d12_integration_gate_for(&gate_id),
+        None => adapter.d12_integration_gate(),
+    })
+}
+
+#[tauri::command]
 fn d10_lane_monitor(
     state: tauri::State<'_, DesktopState>,
 ) -> Result<Option<D10LaneMonitorProjection>, String> {
@@ -316,6 +339,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d2_decisions,
             d2_send_intent,
             d10_lane_monitor,
+            d12_integration_gate,
             d6_recover
         ])
         .run(tauri::generate_context!())

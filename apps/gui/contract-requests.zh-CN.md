@@ -73,3 +73,13 @@ fixture 证明待确认契约经 `ConfirmContract` 转为已决时，关闭此�
 当 Core 发布有界、有序、按 Owner 限定的事件日志（或客户端可分页的 replay cursor），
 携带稳定事件 id、类型、Owner 与时间戳，且规范 fixture 证明跨两个项目的顺序时，
 关闭此请求。
+
+## GUI-CORE-015：结构化合并冲突内容
+
+`MergeGateRecord` 与 `ConflictBounce` 给出闸、原 Lane 与理由，但不携带冲突内容。
+D12 设计稿要求并排展示两条 Lane 的 hunk 与冲突标记。D12 只渲染 Core 的理由文本并
+声明 hunk 不可用；不得读取 worktree，也不得把理由字符串解析成 diff 行。
+
+当 Core 为被退回的闸发布结构化冲突内容（文件路径、带行号的 ours/theirs hunk、以及
+计算冲突所依据的基线），且规范 merge-gate fixture 覆盖单文件两 Lane 冲突时，
+关闭此请求。

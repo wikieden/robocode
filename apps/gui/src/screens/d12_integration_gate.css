@@ -1,0 +1,152 @@
+/* D12 integration gate. Values come from the shared token layer only. */
+
+.d12-stage {
+  min-height: 100%;
+  display: grid;
+  align-content: start;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-4);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+}
+
+.d12-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+
+.d12-title {
+  margin: 0;
+  color: var(--fg-primary);
+  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+}
+
+.d12-count,
+.d12-policy,
+.d12-muted {
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin-left: auto;
+}
+
+.d12-gchip,
+.d12-gbtn {
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-gchip[aria-pressed="true"] {
+  color: var(--fg-primary);
+  border-color: var(--border-active);
+  background: var(--bg-selected);
+}
+
+.d12-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0 var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.d12-banner[data-d12-banner="conflict"] {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.d12-banner[data-d12-banner="resolved"] {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.d12-strength {
+  margin-left: auto;
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-policy,
+.d12-missing,
+.d12-unavailable {
+  margin: 0 var(--sp-4);
+}
+
+/* Missing evidence is why accept stays closed; it is never hidden. */
+.d12-missing {
+  color: var(--warning);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-sec {
+  margin: 0 var(--sp-4);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.d12-timeline,
+.d12-checks,
+.d12-reverts {
+  margin: 0 var(--sp-4);
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.d12-timeline li,
+.d12-checks li,
+.d12-reverts li {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.d12-timeline li[data-d12-bounce-status="resolved"] {
+  border-color: var(--success);
+}
+
+.d12-gatebar {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0 var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.d12-gbtn:disabled {
+  cursor: not-allowed;
+  color: var(--fg-muted);
+}
+
+.d12-unavailable {
+  color: var(--warning);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-gchip:focus-visible,
+.d12-gbtn:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

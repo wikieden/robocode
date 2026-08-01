@@ -704,6 +704,18 @@ impl GuiCoreAdapter {
         self.projection.permission_dock()
     }
 
+    pub fn d12_integration_gate(&self) -> Option<crate::D12IntegrationGateProjection> {
+        self.projection.d12_integration_gate(None)
+    }
+
+    /// Projects the gate the shell selected without persisting the selection.
+    pub fn d12_integration_gate_for(
+        &self,
+        gate_id: &str,
+    ) -> Option<crate::D12IntegrationGateProjection> {
+        self.projection.d12_integration_gate(Some(gate_id))
+    }
+
     pub fn d10_lane_monitor(&self) -> Option<crate::D10LaneMonitorProjection> {
         self.projection.d10_lane_monitor()
     }

@@ -89,3 +89,16 @@ Close this request when Core publishes a bounded, ordered, owner-scoped event
 log — or a replay cursor the client can page — with a stable event id, kind,
 owner, and timestamp, and the canonical fixture proves ordering across two
 projects.
+
+## GUI-CORE-015: Structured merge-conflict content
+
+`MergeGateRecord` and `ConflictBounce` name the gate, the origin Lane, and the
+reason, but carry no conflict content. The D12 design shows both Lanes' hunks
+side by side with conflict markers. D12 renders the Core reason text and
+declares the hunk unavailable; it must not read the worktree or parse the
+reason string into diff rows.
+
+Close this request when Core publishes structured conflict content for a
+bounced gate — file path, ours/theirs hunks with line numbers, and the
+baseline the conflict was computed against — and the canonical merge-gate
+fixture covers a two-Lane conflict on one file.
