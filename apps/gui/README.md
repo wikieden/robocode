@@ -239,6 +239,10 @@ is visible and transport-enabled only when the selected Lane is active,
 `runtime.lane_owner_projection` is advertised, and exactly one matching
 `lane_runtime_owners` binding supplies the complete owner. Missing, mismatched,
 or ambiguous owners fail closed with zero sends.
+If another ordered Core command or Agent probe still owns the client command
+slot, one composer submission waits visibly as `Queue follow-up`, disables a
+duplicate Send, and dispatches as soon as that slot is released; input is never
+silently dropped.
 After a desktop restart, the sole terminal ACP session restored by Core may
 accept a follow-up through its exact durable session owner even though the
 process-local Lane binding has expired. Before the continuation starts, Core

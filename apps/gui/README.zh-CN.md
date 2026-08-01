@@ -198,6 +198,8 @@ CJK IME 组合阶段绝不提前提交。两种命令都使用 Core 发布的精
 live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 active、Core 宣告
 `runtime.lane_owner_projection`，并且 `lane_runtime_owners` 中恰好有一个完整匹配 owner 时，
 控件才可见且允许传输。owner 缺失、错配或歧义都 fail closed，保持零发送。
+若另一个有序 Core command 或 Agent probe 仍占用客户端命令槽，一条 composer 输入会以
+`Queue follow-up` 可见等待，同时禁用重复“发送”；槽位释放后自动投递，绝不静默丢弃输入。
 桌面端重启后，Core 恢复出的唯一 terminal ACP Session 即使已经没有进程内 Lane binding，
 仍可使用其精确、持久的 Session owner 接收后续输入。Continuation 启动前，Core 会为同一
 持久 owner 发布新的 `LaneRuntimeOwnerBound` 事实，因此 ACP 响应运行期间 Lane 会持续显示

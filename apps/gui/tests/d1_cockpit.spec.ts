@@ -1039,6 +1039,68 @@ describe("D1 canonical streaming cockpit", () => {
     );
   });
 
+  test("queues a completed ACP follow-up until the Core command slot is released", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const session = {
+      sessionId: "acp-completed",
+      laneId: "lane-core",
+      agentId: "codex-acp",
+      model: null,
+      status: "completed",
+      task: "inspect the project",
+      diagnostic: null,
+    };
+    const projection = {
+      ...D1_PROJECTION,
+      contextDock: {
+        ...D1_PROJECTION.contextDock,
+        laneAgent: { ...D1_PROJECTION.contextDock.laneAgent!, sessionId: session.sessionId },
+      },
+      composer: { ...D1_PROJECTION.composer, busy: false, canSubmitImmediately: true },
+      agentSessions: [session],
+    };
+    const result: D1IntentResult = {
+      projection,
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+    const send = vi.fn(async (_intent: D1Intent) => result);
+    const poll = vi.fn(async () => result);
+    const controller = renderD1Cockpit(
+      root,
+      projection,
+      send,
+      poll,
+      undefined,
+      undefined,
+      { poll: false },
+    );
+    controller.applyResult({
+      projection,
+      pendingCommandId: "command-finishing",
+      outcome: { state: "pending", reason: null },
+    });
+
+    const composer = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    composer.value = "hello after completion";
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-composer-send]")!.click();
+    expect(send).not.toHaveBeenCalled();
+
+    controller.applyResult(result);
+
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenCalledWith({
+        type: "send_agent_session_input",
+        laneId: "lane-core",
+        sessionId: "acp-completed",
+        content: "hello after completion",
+      }),
+    );
+    controller.dispose();
+  });
+
   test("Cancel is offered only from typed canCancel state", () => {
     const enabled = setup();
     enabled.root.querySelector<HTMLButtonElement>("[data-cancel-turn]")?.click();

@@ -180,6 +180,7 @@ export function renderD1Cockpit(
   let sending = false;
   let pendingCommandId: string | null = null;
   let submittedDraft: string | null = null;
+  let composerDispatchQueued = false;
   let errorMessage: string | null = null;
   let contextDrawerOpen = false;
   let laneRailOpen = false;
@@ -299,6 +300,7 @@ export function renderD1Cockpit(
       ) {
         render(false);
       }
+      releaseCommandSlotWaiters();
       queueMicrotask(maybeResumeLaneStart);
     },
     dispose: () => {
@@ -394,6 +396,21 @@ export function renderD1Cockpit(
     void sendAndWait(intent, onRejected);
   };
 
+  const sendComposerIntent = (intent: D1Intent, onRejected?: () => void): void => {
+    if (composerDispatchQueued) return;
+    composerDispatchQueued = true;
+    void (async () => {
+      try {
+        if (!commandSlotAvailable() && !(await waitForCommandSlot())) return;
+        await sendAndWait(intent, onRejected);
+      } finally {
+        composerDispatchQueued = false;
+        if (!disposed) render(true);
+      }
+    })();
+    render(true);
+  };
+
   const submitComposer = (content: string): void => {
     const mutationBlock = composerMutationBlockReason(projection, selectedLaneId);
     if (!shouldRouteComposerMutation(content, mutationBlock)) {
@@ -408,7 +425,7 @@ export function renderD1Cockpit(
     errorMessage = null;
     const route = conversationForLane(projection, selectedLaneId);
     if (route?.kind === "acp" && !projection.composer.busy) {
-      sendIntent(
+      sendComposerIntent(
         {
           type: "send_agent_session_input",
           laneId: route.laneId,
@@ -421,7 +438,7 @@ export function renderD1Cockpit(
       );
       return;
     }
-    sendIntent({ type: "submit", laneId: selectedLaneId, content }, () => {
+    sendComposerIntent({ type: "submit", laneId: selectedLaneId, content }, () => {
       draft = content;
     });
   };
@@ -842,7 +859,7 @@ export function renderD1Cockpit(
     const composerRegion = document.createElement("section");
     composerRegion.className = "d1-composer";
     const composerLabel = document.createElement("label");
-    composerLabel.textContent = projection.composer.busy
+    composerLabel.textContent = projection.composer.busy || composerDispatchQueued
       ? translate(locale, "d1.composer.queue", {})
       : translate(locale, "d1.composer.prompt", {});
     const composer = document.createElement("textarea");
@@ -871,7 +888,7 @@ export function renderD1Cockpit(
     composerRegion.append(composerLabel);
     const submit = button(translate(locale, "d1.composer.send", {}), "composerSend");
     submit.setAttribute("aria-label", translate(locale, "d1.composer.sendLabel", {}));
-    submit.disabled = composer.disabled;
+    submit.disabled = composer.disabled || composerDispatchQueued;
     submit.addEventListener("click", () => submitComposer(composer.value));
     composerRegion.append(submit);
     const canCancelAcp = focusedAcp
