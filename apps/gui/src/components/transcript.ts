@@ -25,7 +25,16 @@ export function appendTranscriptRows(root: HTMLElement, rows: D1TranscriptRow[])
     }
     const kind = document.createElement("span");
     kind.className = "d1-row-kind";
-    kind.textContent = row.kind.replaceAll("_", " ");
+    if (semanticKind) {
+      const avatar = document.createElement("span");
+      avatar.className = "d1-row-avatar";
+      avatar.textContent = semanticKind === "user" ? "U" : "V";
+      const label = document.createElement("span");
+      label.textContent = semanticKind === "user" ? "YOU" : "VIDEN";
+      kind.append(avatar, label);
+    } else {
+      kind.textContent = row.kind.replaceAll("_", " ");
+    }
     const content = document.createElement("pre");
     content.textContent = row.content;
     article.append(kind, content);

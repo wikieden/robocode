@@ -20,7 +20,7 @@ import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
 import type { D1Intent } from "../models/composer";
-import { BoundedTranscript } from "../models/transcript";
+import { BoundedTranscript, type D1TranscriptRow } from "../models/transcript";
 import type { D1CockpitProjection, D6RecoveryProjection } from "../models/workspace";
 import { renderD6Recovery } from "./d6_recovery";
 import "./d1_cockpit.css";
@@ -136,12 +136,29 @@ function appendAcpConversationRows(
   root: HTMLElement,
   session: D1CockpitProjection["agentSessions"][number],
 ): void {
+  const conversation = session.conversation ?? [];
+  if (conversation.length > 0) {
+    const offset = root.children.length;
+    appendTranscriptRows(
+      root,
+      conversation.map((message) => ({
+        id: message.messageId,
+        kind: message.role,
+        content: message.content,
+      })),
+    );
+    Array.from(root.children)
+      .slice(offset)
+      .forEach((element, index) => {
+        (element as HTMLElement).dataset.acpMessageId = conversation[index].messageId;
+      });
+    return;
+  }
+
+  // Older Core snapshots expose only the latest pair. Keep that pair visible
+  // without treating it as durable multi-turn history.
   appendTranscriptRows(root, [
-    {
-      id: `acp-task-${session.sessionId}`,
-      kind: "user",
-      content: session.task,
-    },
+    { id: `acp-task-${session.sessionId}`, kind: "user", content: session.task },
   ]);
   root.lastElementChild?.setAttribute("data-acp-task", "true");
   appendTranscriptRows(root, [
@@ -151,10 +168,26 @@ function appendAcpConversationRows(
       content: session.output ?? `${session.agentId} · ${session.status}`,
     },
   ]);
-  root.lastElementChild?.setAttribute(
-    session.output ? "data-acp-output" : "data-acp-status",
-    "true",
-  );
+  root.lastElementChild?.setAttribute(session.output ? "data-acp-output" : "data-acp-status", "true");
+}
+
+function duplicatesAcpConversation(
+  row: D1TranscriptRow,
+  conversation: NonNullable<D1CockpitProjection["agentSessions"][number]["conversation"]>,
+): boolean {
+  const role = row.kind.startsWith("user")
+    ? "user"
+    : row.kind.startsWith("assistant")
+      ? "assistant"
+      : null;
+  if (!role) return false;
+  const content = row.content.trim();
+  if (!content) return false;
+  return conversation.some((message) => {
+    if (message.role !== role) return false;
+    const canonical = message.content.trim();
+    return canonical === content || (content.length >= 8 && canonical.endsWith(content));
+  });
 }
 
 export function renderD1Cockpit(
@@ -789,7 +822,7 @@ export function renderD1Cockpit(
       transcriptRegion.setAttribute("aria-busy", String(projection.composer.busy));
       transcriptRegion.tabIndex = 0;
       const projectionMatchesSelectedLane = projection.selectedLaneId === selectedLaneId;
-      const visibleRows = projectionMatchesSelectedLane
+      let visibleRows = projectionMatchesSelectedLane
         ? transcript.visible(transcriptRegion.clientHeight || 720, 36)
         : [];
       const acpKinds = new Set<"user" | "assistant">();
@@ -797,6 +830,12 @@ export function renderD1Cockpit(
         acpKinds.add("user");
         acpKinds.add("assistant");
         appendAcpConversationRows(transcriptRegion, focusedAcp);
+        const conversation = focusedAcp.conversation ?? [];
+        if (conversation.length > 0) {
+          visibleRows = visibleRows.filter(
+            (row) => !duplicatesAcpConversation(row, conversation),
+          );
+        }
       }
       appendUnavailableTranscriptRows(
         transcriptRegion,

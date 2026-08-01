@@ -2468,6 +2468,7 @@ fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
     let completed = AgentSessionView {
         status: AgentSessionStatus::Completed,
         diagnostic: Some("evidence recorded".to_string()),
+        output: Some("first answer".to_string()),
         ..running.clone()
     };
     let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
@@ -2501,13 +2502,56 @@ fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
             session: completed.clone(),
         },
     ));
+    view.apply_event(&RuntimeEvent::new(
+        5,
+        RuntimeEventKind::AgentSessionInputAccepted {
+            session_id: running.session_id.clone(),
+            input_id: "agent-input-2".to_string(),
+        },
+    ));
+    let continued = AgentSessionView {
+        task: "second question".to_string(),
+        status: AgentSessionStatus::Running,
+        output: None,
+        diagnostic: None,
+        ..running.clone()
+    };
+    view.apply_event(&RuntimeEvent::new(
+        6,
+        RuntimeEventKind::AgentSessionStarted {
+            session: continued.clone(),
+        },
+    ));
+    let continued = AgentSessionView {
+        status: AgentSessionStatus::Completed,
+        output: Some("second answer".to_string()),
+        ..continued
+    };
+    view.apply_event(&RuntimeEvent::new(
+        7,
+        RuntimeEventKind::AgentSessionCompleted {
+            session: continued.clone(),
+        },
+    ));
 
     assert_eq!(view.agent_adapters.len(), 1);
     assert_eq!(
         view.agent_adapters[0].availability,
         AgentAvailability::Available
     );
-    assert_eq!(view.agent_sessions, vec![completed]);
+    assert_eq!(view.agent_sessions, vec![continued]);
+    assert_eq!(
+        view.agent_conversation
+            .iter()
+            .map(|message| (message.role, message.content.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (AgentConversationRole::User, "review the runtime contract"),
+            (AgentConversationRole::Assistant, "first answer"),
+            (AgentConversationRole::User, "second question"),
+            (AgentConversationRole::Assistant, "second answer"),
+        ]
+    );
 }
 
 #[test]
@@ -2570,11 +2614,16 @@ fn legacy_runtime_view_without_agent_extensions_defaults_to_empty_collections() 
     let mut encoded = serde_json::to_value(view).unwrap();
     encoded.as_object_mut().unwrap().remove("agent_adapters");
     encoded.as_object_mut().unwrap().remove("agent_sessions");
+    encoded
+        .as_object_mut()
+        .unwrap()
+        .remove("agent_conversation");
 
     let decoded: RuntimeViewState = serde_json::from_value(encoded).unwrap();
 
     assert!(decoded.agent_adapters.is_empty());
     assert!(decoded.agent_sessions.is_empty());
+    assert!(decoded.agent_conversation.is_empty());
 }
 
 #[test]

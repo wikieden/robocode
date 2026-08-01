@@ -1684,6 +1684,17 @@ impl SessionEngine {
                 },
             )),
         }
+        let tracked_runtime_events = tracked_agent_job_runtime_events(&self.runtime_snapshot.cwd);
+        for event in tracked_runtime_events {
+            let RuntimeEvent {
+                timestamp, kind, ..
+            } = event;
+            events.push(RuntimeEvent::with_timestamp(
+                next_sequence(&events),
+                timestamp,
+                kind,
+            ));
+        }
         for session in tracked_agent_job_sessions(&self.runtime_snapshot.cwd) {
             let kind = match session.status {
                 viden_types::AgentSessionStatus::Completed => {
@@ -1700,16 +1711,6 @@ impl SessionEngine {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
                 RuntimeEventKind::TaskUpdated { task },
-            ));
-        }
-        for event in tracked_agent_job_runtime_events(&self.runtime_snapshot.cwd) {
-            let RuntimeEvent {
-                timestamp, kind, ..
-            } = event;
-            events.push(RuntimeEvent::with_timestamp(
-                next_sequence(&events),
-                timestamp,
-                kind,
             ));
         }
         for task in self.agent_task_snapshot() {

@@ -2294,17 +2294,13 @@ fn start_typed_agent_session_attempt(
     };
     let mut start_events = Vec::new();
     if let Some(input_id) = accepted_input_id {
-        let input_event = RuntimeEvent::new(
+        start_events.push(RuntimeEvent::new(
             0,
             RuntimeEventKind::AgentSessionInputAccepted {
                 session_id: session_id.clone(),
                 input_id,
             },
-        );
-        // Accepted follow-up identity is a durable session fact. Append it
-        // before process spawn so a crash cannot acknowledge input only in UI.
-        append_acp_runtime_events(&runtime_event_path, std::slice::from_ref(&input_event))?;
-        start_events.push(input_event);
+        ));
     }
     start_events.push(RuntimeEvent::new(
         0,
@@ -2312,6 +2308,9 @@ fn start_typed_agent_session_attempt(
             session: session.clone(),
         },
     ));
+    // Persist the accepted input and its exact task before process spawn so
+    // snapshot reconstruction cannot collapse a multi-turn dialogue.
+    append_acp_runtime_events(&runtime_event_path, &start_events)?;
     runtime_event_sink(start_events);
 
     let monitor_cwd = cwd.to_path_buf();
@@ -2403,7 +2402,12 @@ fn start_typed_agent_session_attempt(
         };
         monitor_record.updated_at = timestamp_millis();
         let _ = append_codex_job_record(&monitor_cwd, "completed", &monitor_record);
-        terminal_sink(vec![RuntimeEvent::new(0, kind)]);
+        let terminal_event = RuntimeEvent::new(0, kind);
+        let _ = append_acp_runtime_events(
+            &monitor_runtime_event_path,
+            std::slice::from_ref(&terminal_event),
+        );
+        terminal_sink(vec![terminal_event]);
     });
 
     Ok(session)
@@ -2854,11 +2858,23 @@ pub(crate) fn tracked_agent_job_runtime_events(cwd: &Path) -> Vec<RuntimeEvent> 
                 .is_some_and(|name| name.ends_with(".runtime-events.jsonl"))
         })
         .collect::<Vec<_>>();
-    paths.sort();
+    paths.sort_by(|left, right| {
+        acp_artifact_ordinal(left)
+            .cmp(&acp_artifact_ordinal(right))
+            .then_with(|| left.cmp(right))
+    });
     paths
         .into_iter()
         .flat_map(|path| read_acp_runtime_events(&path))
         .collect()
+}
+
+fn acp_artifact_ordinal(path: &Path) -> Option<u128> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.split_once('_'))
+        .and_then(|(_, suffix)| suffix.split('.').next())
+        .and_then(|ordinal| ordinal.parse().ok())
 }
 
 fn read_acp_runtime_events(path: &Path) -> Vec<RuntimeEvent> {

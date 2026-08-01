@@ -199,6 +199,11 @@ export interface D1CockpitProjection {
     task: string;
     diagnostic: string | null;
     output?: string | null;
+    conversation?: Array<{
+      messageId: string;
+      role: "user" | "assistant";
+      content: string;
+    }>;
   }>;
   composer: {
     editable: boolean;

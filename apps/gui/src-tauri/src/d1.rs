@@ -298,6 +298,15 @@ pub struct D1AgentSessionProjection {
     pub diagnostic: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    pub conversation: Vec<D1AgentConversationMessageProjection>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1AgentConversationMessageProjection {
+    pub message_id: String,
+    pub role: &'static str,
+    pub content: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

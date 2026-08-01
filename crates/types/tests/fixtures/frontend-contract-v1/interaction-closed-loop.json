@@ -988,5 +988,5 @@
     "stream_id": "fixture:interaction-closed-loop",
     "sequence": 22
   },
-  "expected_view_sha256": "46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0"
+  "expected_view_sha256": "c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d"
 }

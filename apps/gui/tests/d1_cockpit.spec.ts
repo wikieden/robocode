@@ -1039,6 +1039,84 @@ describe("D1 canonical streaming cockpit", () => {
     );
   });
 
+  test("renders the complete Core-owned ACP conversation in dialogue order", () => {
+    const session = {
+      sessionId: "acp-conversation",
+      laneId: "lane-core",
+      agentId: "codex-acp",
+      model: null,
+      status: "completed",
+      task: "second question",
+      diagnostic: null,
+      output: "second answer",
+      conversation: [
+        { messageId: "message-1", role: "user" as const, content: "first question" },
+        { messageId: "message-2", role: "assistant" as const, content: "first answer" },
+        { messageId: "message-3", role: "user" as const, content: "second question" },
+        { messageId: "message-4", role: "assistant" as const, content: "second answer" },
+      ],
+    };
+    const { root, controller } = setup({
+      ...D1_PROJECTION,
+      contextDock: {
+        ...D1_PROJECTION.contextDock,
+        laneAgent: { ...D1_PROJECTION.contextDock.laneAgent!, sessionId: session.sessionId },
+      },
+      agentSessions: [session],
+    });
+
+    expect(
+      Array.from(root.querySelectorAll<HTMLElement>("[data-acp-message-id]")).map(
+        (row) => [row.dataset.transcriptRow, row.textContent],
+      ),
+    ).toEqual([
+      ["user", expect.stringContaining("first question")],
+      ["assistant", expect.stringContaining("first answer")],
+      ["user", expect.stringContaining("second question")],
+      ["assistant", expect.stringContaining("second answer")],
+    ]);
+    controller.dispose();
+  });
+
+  test("does not repeat completed ACP dialogue from reconstructed transcript rows", () => {
+    const session = {
+      sessionId: "acp-reconstructed",
+      laneId: "lane-core",
+      agentId: "codex-acp",
+      model: null,
+      status: "completed",
+      task: "first question",
+      diagnostic: null,
+      output: "first answer",
+      conversation: [
+        { messageId: "message-1", role: "user" as const, content: "first question" },
+        {
+          messageId: "message-2",
+          role: "assistant" as const,
+          content: "diagnostic prelude\n\nfirst answer",
+        },
+      ],
+    };
+    const { root, controller } = setup({
+      ...D1_PROJECTION,
+      contextDock: {
+        ...D1_PROJECTION.contextDock,
+        laneAgent: { ...D1_PROJECTION.contextDock.laneAgent!, sessionId: session.sessionId },
+      },
+      agentSessions: [session],
+      transcript: [
+        { id: "replayed-answer", kind: "assistant_stream", content: "first answer" },
+        { id: "lane-output", kind: "lane_output", content: "prepared worktree" },
+      ],
+    });
+
+    expect(root.querySelectorAll('[data-transcript-row="assistant"]')).toHaveLength(1);
+    expect(root.querySelector('[data-row-id="lane-output"]')?.textContent).toContain(
+      "prepared worktree",
+    );
+    controller.dispose();
+  });
+
   test("queues a completed ACP follow-up until the Core command slot is released", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;

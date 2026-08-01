@@ -159,6 +159,21 @@ pub struct AgentSessionInputView {
     pub input_id: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentConversationRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentConversationMessageView {
+    pub message_id: String,
+    pub session_id: SessionId,
+    pub role: AgentConversationRole,
+    pub content: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSessionView {
     pub session_id: SessionId,

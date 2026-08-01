@@ -221,6 +221,7 @@ enum PendingD1Kind {
     StartAgentSession {
         lane_id: String,
         agent_id: String,
+        matching_sessions_before: usize,
     },
     SendAgentSessionInput {
         session_id: String,
@@ -247,6 +248,23 @@ enum D1Observation {
 }
 
 impl PendingD1 {
+    fn is_satisfied_by_agent_sessions(&self, sessions: &[viden_core::AgentSessionView]) -> bool {
+        match &self.kind {
+            PendingD1Kind::StartAgentSession {
+                lane_id,
+                agent_id,
+                matching_sessions_before,
+            } => {
+                sessions
+                    .iter()
+                    .filter(|session| session.lane_id == *lane_id && session.agent_id == *agent_id)
+                    .count()
+                    > *matching_sessions_before
+            }
+            _ => false,
+        }
+    }
+
     fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> D1Observation {
         let RuntimeWireEvent::Known(event) = &envelope.event else {
             return D1Observation::Continue;
@@ -385,7 +403,9 @@ impl PendingD1 {
                 RuntimeEventKind::StarterLaneCreated { receipt },
             ) => receipt.preview_id == *preview_id && receipt.content_sha256 == *content_sha256,
             (
-                PendingD1Kind::StartAgentSession { lane_id, agent_id },
+                PendingD1Kind::StartAgentSession {
+                    lane_id, agent_id, ..
+                },
                 RuntimeEventKind::AgentSessionStarted { session },
             ) => session.lane_id == *lane_id && session.agent_id == *agent_id,
             (
@@ -1017,6 +1037,11 @@ impl GuiCoreAdapter {
                 if !ready {
                     return Err(format!("ACP agent `{agent_id}` is not startable"));
                 }
+                let matching_sessions_before = view
+                    .agent_sessions
+                    .iter()
+                    .filter(|session| session.lane_id == lane_id && session.agent_id == agent_id)
+                    .count();
                 (
                     RuntimeOwner {
                         lane_id: Some(lane_id.clone()),
@@ -1031,7 +1056,11 @@ impl GuiCoreAdapter {
                             task,
                         },
                     },
-                    PendingD1Kind::StartAgentSession { lane_id, agent_id },
+                    PendingD1Kind::StartAgentSession {
+                        lane_id,
+                        agent_id,
+                        matching_sessions_before,
+                    },
                 )
             }
             D1Intent::SendAgentSessionInput {
@@ -1168,6 +1197,21 @@ impl GuiCoreAdapter {
         if received && !receive_failed {
             self.refresh_projection()
                 .map_err(|error| error.to_string())?;
+        }
+        let pending_satisfied = self
+            .pending_d1
+            .as_ref()
+            .zip(self.projection.view())
+            .is_some_and(|(pending, view)| {
+                pending.is_satisfied_by_agent_sessions(&view.agent_sessions)
+            });
+        if pending_satisfied {
+            // The reducer can publish the typed session before this adapter
+            // observes the matching business event. Reconcile the accepted
+            // command from Core state so a completed start never blocks the
+            // next composer turn until the desktop process restarts.
+            self.pending_d1 = None;
+            self.d1_outcome = D1OutcomeProjection::confirmed();
         }
         let selected = selected_lane_id.or_else(|| {
             self.pending_d1
@@ -1583,11 +1627,11 @@ mod tests {
     use std::process::Command;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use viden_core::{LocalCoreHost, RuntimeOwner};
+    use viden_core::{AgentSessionStatus, AgentSessionView, LocalCoreHost, RuntimeOwner};
 
     use crate::{D6ConnectionState, D11Intent, PermissionChoice, PermissionIntent};
 
-    use super::{PendingD1Kind, open_workspace_with_host};
+    use super::{PendingD1, PendingD1Kind, open_workspace_with_host};
 
     fn temp_dir(label: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -1622,6 +1666,38 @@ mod tests {
                 .expect("run git fixture command");
             assert!(status.success(), "git fixture command must succeed");
         }
+    }
+
+    #[test]
+    fn agent_start_reconciles_from_the_projected_session() {
+        let lane_id = "lane-reconciled".to_string();
+        let agent_id = "codex-acp".to_string();
+        let pending = PendingD1 {
+            command_id: "start-reconciled".to_string(),
+            owner: RuntimeOwner {
+                lane_id: Some(lane_id.clone()),
+                ..RuntimeOwner::default()
+            },
+            kind: PendingD1Kind::StartAgentSession {
+                lane_id: lane_id.clone(),
+                agent_id: agent_id.clone(),
+                matching_sessions_before: 0,
+            },
+            accepted: false,
+        };
+        let sessions = vec![AgentSessionView {
+            session_id: "session-reconciled".to_string(),
+            lane_id,
+            agent_id,
+            model: None,
+            status: AgentSessionStatus::Completed,
+            owner: RuntimeOwner::default(),
+            task: "reply".to_string(),
+            diagnostic: None,
+            output: Some("done".to_string()),
+        }];
+
+        assert!(pending.is_satisfied_by_agent_sessions(&sessions));
     }
 
     #[test]

@@ -30,6 +30,7 @@ pub const FRONTEND_V1_CAPABILITIES: &[&str] = &[
 pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "core.workspace_host",
     "runtime.agent_adapters",
+    "runtime.agent_conversation",
     "runtime.agent_permission_bridge",
     "runtime.agent_session_input",
     "runtime.agent_sessions",

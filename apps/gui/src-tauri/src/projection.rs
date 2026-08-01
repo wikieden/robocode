@@ -1,20 +1,21 @@
 use serde::Serialize;
 use viden_core::{
-    AgentLaneRecord, AgentRoute, AgentSessionStatus, AgentStartability, AgentTaskStatus,
-    ApprovalDefaultAction, ApprovalRisk, ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus,
-    CredentialHandle, EventCursor, LaneStatus, LocaleId, ProjectConfigPreview, ProjectProbe,
-    ProviderHealthView, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
-    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
-    WorkspaceSourceStatus,
+    AgentConversationRole, AgentLaneRecord, AgentRoute, AgentSessionStatus, AgentStartability,
+    AgentTaskStatus, ApprovalDefaultAction, ApprovalRisk, ApprovalScope,
+    COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, CredentialHandle, EventCursor, LaneStatus,
+    LocaleId, ProjectConfigPreview, ProjectProbe, ProviderHealthView, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
+    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::d1::{
-    D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentSessionProjection, D1ApprovalProjection,
-    D1ChecklistItemProjection, D1CockpitProjection, D1ComposerProjection, D1ContextDockProjection,
-    D1CostUsageProjection, D1CursorProjection, D1EnvironmentProjection, D1LaneAgentProjection,
-    D1LaneProjection, D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
-    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1TranscriptRowProjection,
-    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
+    D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentConversationMessageProjection,
+    D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
+    D1ComposerProjection, D1ContextDockProjection, D1CostUsageProjection, D1CursorProjection,
+    D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection,
+    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLanePreviewProjection,
+    D1StarterLaneReceiptProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
+    D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -804,6 +805,19 @@ impl RuntimeProjection {
                     task: session.task.clone(),
                     diagnostic: session.diagnostic.clone(),
                     output: session.output.clone(),
+                    conversation: view
+                        .agent_conversation
+                        .iter()
+                        .filter(|message| message.session_id == session.session_id)
+                        .map(|message| D1AgentConversationMessageProjection {
+                            message_id: message.message_id.clone(),
+                            role: match message.role {
+                                AgentConversationRole::User => "user",
+                                AgentConversationRole::Assistant => "assistant",
+                            },
+                            content: message.content.clone(),
+                        })
+                        .collect(),
                 })
                 .collect(),
             // Session-input views do not carry a RuntimeOwner. Exclude them rather
@@ -1061,11 +1075,12 @@ mod tests {
     use std::path::PathBuf;
 
     use viden_core::{
-        AgentLaneRecord, AgentRole, AgentRoute, AgentSessionStatus, AgentSessionView,
-        COCKPIT_CONTEXT_CAPABILITY, CapabilityId, DataEgressPolicy, EventCursor, ExecutionTarget,
-        FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneStatus, MutationPolicy, PermissionLevel,
-        PermissionMode, ResolvedUiPreferences, RuntimeOwner, RuntimeSnapshot,
-        RuntimeSnapshotEnvelope, RuntimeViewState, WorkMode,
+        AgentConversationMessageView, AgentConversationRole, AgentLaneRecord, AgentRole,
+        AgentRoute, AgentSessionStatus, AgentSessionView, COCKPIT_CONTEXT_CAPABILITY, CapabilityId,
+        DataEgressPolicy, EventCursor, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength,
+        LaneBudget, LaneStatus, MutationPolicy, PermissionLevel, PermissionMode,
+        ResolvedUiPreferences, RuntimeOwner, RuntimeSnapshot, RuntimeSnapshotEnvelope,
+        RuntimeViewState, WorkMode,
     };
 
     use crate::d1::D1_OWNER_CAPABILITY;
@@ -1123,6 +1138,20 @@ mod tests {
             diagnostic: None,
             output: Some("ACP-GUI-CLOSED-LOOP-OK".to_string()),
         });
+        view.agent_conversation.extend([
+            AgentConversationMessageView {
+                message_id: "session-acp-message-1".to_string(),
+                session_id: "session-acp".to_string(),
+                role: AgentConversationRole::User,
+                content: "Return an exact response".to_string(),
+            },
+            AgentConversationMessageView {
+                message_id: "session-acp-message-2".to_string(),
+                session_id: "session-acp".to_string(),
+                role: AgentConversationRole::Assistant,
+                content: "ACP-GUI-CLOSED-LOOP-OK".to_string(),
+            },
+        ]);
         let mut projection = RuntimeProjection::default();
         projection.replace(RuntimeSnapshotEnvelope {
             schema_version: FRONTEND_SCHEMA_V1,
@@ -1145,6 +1174,17 @@ mod tests {
         assert_eq!(
             cockpit.agent_sessions[0].output.as_deref(),
             Some("ACP-GUI-CLOSED-LOOP-OK")
+        );
+        assert_eq!(
+            cockpit.agent_sessions[0]
+                .conversation
+                .iter()
+                .map(|message| (message.role, message.content.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("user", "Return an exact response"),
+                ("assistant", "ACP-GUI-CLOSED-LOOP-OK"),
+            ]
         );
         assert_eq!(
             cockpit

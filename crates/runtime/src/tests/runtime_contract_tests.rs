@@ -8,13 +8,14 @@ use viden_context::{ContextEngine, ContextPutRequest};
 use viden_provider::ModelProvider;
 use viden_session::SessionStore;
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, AgentRoute, AgentTaskKind, AgentTaskStatus, ApprovalDecision,
-    ApprovalResponse, CanonicalEvidenceReference, CapabilityId, ContextContentKind,
-    ContextHandleRecord, ContextItemRecord, ContextReductionRecord, ContextScope, CostScope,
-    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
-    EvidenceView, LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage,
-    PermissionBehavior, PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeViewState, ToolCall, ToolInput,
+    AgentConversationRole, AgentDagTaskSpec, AgentRole, AgentRoute, AgentSessionStatus,
+    AgentSessionView, AgentTaskKind, AgentTaskStatus, ApprovalDecision, ApprovalResponse,
+    CanonicalEvidenceReference, CapabilityId, ContextContentKind, ContextHandleRecord,
+    ContextItemRecord, ContextReductionRecord, ContextScope, CostScope, EvidenceProducer,
+    EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
+    LaneStatus, MergeGateStatus, ModelEvent, ModelRequest, ModelUsage, PermissionBehavior,
+    PermissionLevel, PermissionRule, PermissionRuleSource, PermissionRuleValue, RuntimeCommand,
+    RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeViewState, ToolCall, ToolInput,
     TranscriptEntry, TranscriptPageRequest, WorkMode,
 };
 use viden_workflows::lanes::LaneEvent;
@@ -4806,6 +4807,27 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
         agent_dir.join("acp-1.runtime-events.jsonl"),
         [
             serde_json::to_string(&RuntimeEvent::new(
+                0,
+                RuntimeEventKind::AgentSessionStarted {
+                    session: AgentSessionView {
+                        session_id: "acp-1".to_string(),
+                        lane_id: "lane-acp".to_string(),
+                        agent_id: "kiro-acp".to_string(),
+                        model: None,
+                        status: AgentSessionStatus::Running,
+                        owner: RuntimeOwner {
+                            lane_id: Some("lane-acp".to_string()),
+                            session_id: Some("acp-1".to_string()),
+                            ..RuntimeOwner::default()
+                        },
+                        task: "implement adapter".to_string(),
+                        diagnostic: None,
+                        output: None,
+                    },
+                },
+            ))
+            .unwrap(),
+            serde_json::to_string(&RuntimeEvent::new(
                 1,
                 RuntimeEventKind::AssistantDelta {
                     message_id: "acp-session-session_1".to_string(),
@@ -4826,6 +4848,27 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
                         canonical: None,
                         metadata: None,
                         timestamp: None,
+                    },
+                },
+            ))
+            .unwrap(),
+            serde_json::to_string(&RuntimeEvent::new(
+                3,
+                RuntimeEventKind::AgentSessionCompleted {
+                    session: AgentSessionView {
+                        session_id: "acp-1".to_string(),
+                        lane_id: "lane-acp".to_string(),
+                        agent_id: "kiro-acp".to_string(),
+                        model: None,
+                        status: AgentSessionStatus::Completed,
+                        owner: RuntimeOwner {
+                            lane_id: Some("lane-acp".to_string()),
+                            session_id: Some("acp-1".to_string()),
+                            ..RuntimeOwner::default()
+                        },
+                        task: "implement adapter".to_string(),
+                        diagnostic: None,
+                        output: Some("implemented adapter".to_string()),
                     },
                 },
             ))
@@ -4870,6 +4913,16 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
     assert!(view.latest_evidence.iter().any(|evidence| {
         evidence.kind == "acp_turn_end" && evidence.summary.contains("completed")
     }));
+    assert_eq!(
+        view.agent_conversation
+            .iter()
+            .map(|message| (message.role, message.content.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (AgentConversationRole::User, "implement adapter"),
+            (AgentConversationRole::Assistant, "implemented adapter"),
+        ]
+    );
 }
 
 #[test]

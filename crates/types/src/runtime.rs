@@ -1,14 +1,15 @@
 use crate::{
-    AgentAdapterView, AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord,
-    AgentSessionInput, AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId,
-    AgentTaskRecord, ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk,
-    ApprovalScope, ApprovalTarget, CheckRunView, ConflictBounce, ContextBudgetRecord,
-    ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord,
-    ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord, ContextScope,
-    ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord,
-    CredentialHandle, DependencyRecord, DependencyState, EvidenceCanonicalizationRecord,
-    EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord,
-    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    AgentAdapterView, AgentConversationMessageView, AgentConversationRole, AgentDagRecord,
+    AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentSessionInput, AgentSessionInputView,
+    AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
+    CheckRunView, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
+    ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
+    ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
+    ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
+    DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
+    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
+    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
     RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
     RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner,
     RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
@@ -784,6 +785,9 @@ pub struct RuntimeViewState {
     pub agent_sessions: Vec<AgentSessionView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_session_inputs: Vec<AgentSessionInputView>,
+    /// Ordered user/assistant messages reduced from typed Agent session events.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_conversation: Vec<AgentConversationMessageView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_projects: Vec<RecentProjectSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -883,6 +887,7 @@ impl RuntimeViewState {
             agent_adapters: Vec::new(),
             agent_sessions: Vec::new(),
             agent_session_inputs: Vec::new(),
+            agent_conversation: Vec::new(),
             recent_projects: Vec::new(),
             recent_sessions: Vec::new(),
             recent_work_diagnostics: Vec::new(),
@@ -953,19 +958,67 @@ impl RuntimeViewState {
             | RuntimeEventKind::AgentSessionUpdated { session }
             | RuntimeEventKind::AgentSessionCompleted { session }
             | RuntimeEventKind::AgentSessionFailed { session } => {
-                let existing_session = self
+                let existing_session_owner_matches = self
                     .agent_sessions
                     .iter()
-                    .find(|existing| existing.session_id == session.session_id);
+                    .find(|existing| existing.session_id == session.session_id)
+                    .is_some_and(|existing| existing.owner == session.owner);
+                let session_is_new = self
+                    .agent_sessions
+                    .iter()
+                    .all(|existing| existing.session_id != session.session_id);
                 let lane_is_unbound = self
                     .agent_sessions
                     .iter()
                     .all(|existing| existing.lane_id != session.lane_id);
                 // A Lane's first session identity is authoritative during replay.
                 // Later sessions cannot silently join or replace that projection.
-                if existing_session.is_some_and(|existing| existing.owner == session.owner)
-                    || (existing_session.is_none() && lane_is_unbound)
-                {
+                if existing_session_owner_matches || (session_is_new && lane_is_unbound) {
+                    if matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }) {
+                        let accepted_inputs = self
+                            .agent_session_inputs
+                            .iter()
+                            .filter(|input| input.session_id == session.session_id)
+                            .count();
+                        let user_messages = self
+                            .agent_conversation
+                            .iter()
+                            .filter(|message| {
+                                message.session_id == session.session_id
+                                    && message.role == AgentConversationRole::User
+                            })
+                            .count();
+                        // Initial task + accepted follow-ups define user-message count.
+                        // Retry events carry the same task without an accepted input.
+                        if user_messages < accepted_inputs.saturating_add(1) {
+                            append_agent_conversation_message(
+                                &mut self.agent_conversation,
+                                &session.session_id,
+                                AgentConversationRole::User,
+                                &session.task,
+                            );
+                        }
+                    }
+                    if matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. })
+                        && let Some(output) = session.output.as_deref()
+                        && !output.trim().is_empty()
+                        && !self
+                            .agent_conversation
+                            .iter()
+                            .rev()
+                            .find(|message| message.session_id == session.session_id)
+                            .is_some_and(|message| {
+                                message.role == AgentConversationRole::Assistant
+                                    && message.content == output
+                            })
+                    {
+                        append_agent_conversation_message(
+                            &mut self.agent_conversation,
+                            &session.session_id,
+                            AgentConversationRole::Assistant,
+                            output,
+                        );
+                    }
                     upsert_by_id(&mut self.agent_sessions, session.clone(), |existing| {
                         existing.session_id == session.session_id
                     });
@@ -1420,6 +1473,30 @@ impl RuntimeViewState {
             }
         }
     }
+}
+
+fn append_agent_conversation_message(
+    messages: &mut Vec<AgentConversationMessageView>,
+    session_id: &str,
+    role: AgentConversationRole,
+    content: &str,
+) {
+    let prefix = format!("{session_id}-message-");
+    let ordinal = messages
+        .iter()
+        .filter(|message| message.session_id == session_id)
+        .filter_map(|message| message.message_id.strip_prefix(&prefix))
+        .filter_map(|ordinal| ordinal.parse::<usize>().ok())
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    messages.push(AgentConversationMessageView {
+        message_id: format!("{session_id}-message-{ordinal}"),
+        session_id: session_id.to_string(),
+        role,
+        content: content.to_string(),
+    });
+    cap_vec(messages);
 }
 
 fn cap_vec<T>(items: &mut Vec<T>) {

@@ -116,7 +116,7 @@ self-referential inside the payload commit.
 | Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
-| Native and ACP agent sessions | built-in DeepSeek/OpenAI work and Codex/Claude/Kiro ACP sessions | `AgentAdapterView.startability`, `AgentSessionView`, `RuntimeViewState.agent_session_inputs` | `StartAgentSession`, `SendAgentSessionInput`, `RetryAgentSession`, `CancelAgentSession` | Core `0.3.4` extensions `runtime.agent_adapters`, `runtime.agent_sessions`, `runtime.agent_session_input` |
+| Native and ACP agent sessions | built-in DeepSeek/OpenAI work and Codex/Claude/Kiro ACP sessions | `AgentAdapterView.startability`, `AgentSessionView`, `RuntimeViewState.agent_session_inputs`, ordered `agent_conversation` | `StartAgentSession`, `SendAgentSessionInput`, `RetryAgentSession`, `CancelAgentSession` | Core `0.3.5` extensions `runtime.agent_adapters`, `runtime.agent_sessions`, `runtime.agent_session_input`, `runtime.agent_conversation` |
 | Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | Core `0.3.2` extension `runtime.lane_owner_projection` |
 | Reviewed starter Lane | first-run starter choice and reviewed isolation target | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview`; Git workspaces carry branch/worktree facts, while direct workspaces carry neither |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
@@ -139,6 +139,14 @@ the Core host is dropped.
 snapshot/replay restores both the session and accepted
 inputs after a restart. A retry is a new attempt of the same logical session, not
 a new frontend session inferred from display text.
+
+`RuntimeViewState.agent_conversation` is the bounded, ordered dialogue source
+for Agent-session clients. Core reduces the initial `AgentSessionStarted` task,
+each accepted follow-up start, and each non-empty completed response into stable
+`AgentConversationMessageView` rows. A retry does not duplicate the user row.
+Frontends must render these rows in order and may use the latest `task`/`output`
+pair only as a compatibility fallback for an older snapshot that does not
+advertise `runtime.agent_conversation`.
 
 Frontend acknowledgement remains event-driven and should appear as soon as the
 ordered input/start facts arrive. Warm ACP turns must not pay another

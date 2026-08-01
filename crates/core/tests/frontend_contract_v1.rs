@@ -165,6 +165,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
     let extensions = [
         "core.workspace_host",
         "runtime.agent_adapters",
+        "runtime.agent_conversation",
         "runtime.agent_permission_bridge",
         "runtime.agent_session_input",
         "runtime.agent_sessions",
@@ -306,7 +307,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     let fixture_bytes = fs::read(root.join(name)).expect("read interaction fixture bytes");
     assert_eq!(
         format!("{:x}", Sha256::digest(&fixture_bytes)),
-        "78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5"
+        "a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891"
     );
     let fixture = read_fixture(&root, name);
     assert_fixture_identity(name, &fixture);
@@ -1619,6 +1620,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         &[
             "core.workspace_host",
             "runtime.agent_adapters",
+            "runtime.agent_conversation",
             "runtime.agent_permission_bridge",
             "runtime.agent_session_input",
             "runtime.agent_sessions",

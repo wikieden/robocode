@@ -111,7 +111,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
-| 原生与 ACP agent session | 内置 DeepSeek/OpenAI 工作，以及 Codex/Claude/Kiro ACP session | `AgentAdapterView.startability`、`AgentSessionView`、`RuntimeViewState.agent_session_inputs` | `StartAgentSession`、`SendAgentSessionInput`、`RetryAgentSession`、`CancelAgentSession` | Core `0.3.4` extensions `runtime.agent_adapters`、`runtime.agent_sessions`、`runtime.agent_session_input` |
+| 原生与 ACP agent session | 内置 DeepSeek/OpenAI 工作，以及 Codex/Claude/Kiro ACP session | `AgentAdapterView.startability`、`AgentSessionView`、`RuntimeViewState.agent_session_inputs`、有序 `agent_conversation` | `StartAgentSession`、`SendAgentSessionInput`、`RetryAgentSession`、`CancelAgentSession` | Core `0.3.5` extensions `runtime.agent_adapters`、`runtime.agent_sessions`、`runtime.agent_session_input`、`runtime.agent_conversation` |
 | Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | Core `0.3.2` extension `runtime.lane_owner_projection` |
 | 已审阅 starter Lane | 首启 starter 选择与隔离目标审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | Core `0.3.2` extension `runtime.starter_lane_preview`；Git 工作区携带 branch/worktree facts，直接工作区两者均为空 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
@@ -128,6 +128,12 @@ owner，并在适用时回收空闲的常驻连接。该优化最多保留八个
 `AgentSessionInputAccepted` 在 ACP 启动或复用前追加，
 重启后的 snapshot/replay 会恢复 session 及已接受输入。Retry 是同一逻辑 session 的新
 attempt，前端不能从显示文本推断出一个新 session。
+
+`RuntimeViewState.agent_conversation` 是 Agent Session 客户端使用的有界、有序对话真源。
+Core 将首次 `AgentSessionStarted` task、每次已接受续聊的 start，以及每次非空完成回复，
+归约为稳定的 `AgentConversationMessageView` 行；retry 不会重复追加用户消息。前端必须按序
+渲染这些行。只有旧快照未声明 `runtime.agent_conversation` 能力时，才可使用最新
+`task`/`output` 对作为兼容回退。
 
 前端确认仍由有序事件驱动，并应在 input/start 事实到达时立即显示。热 ACP turn 不得再次
 承担 `initialize` 或 `session/load` 往返；模型排队、上下文处理与推理耗时仍属于

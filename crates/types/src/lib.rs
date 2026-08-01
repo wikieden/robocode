@@ -17,9 +17,9 @@ mod ui_preferences;
 mod workflow;
 
 pub use agent::{
-    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentSessionInput,
-    AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
-    AgentStartability,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability,
+    AgentConversationMessageView, AgentConversationRole, AgentSessionInput, AgentSessionInputView,
+    AgentSessionRequest, AgentSessionStatus, AgentSessionView, AgentStartability,
 };
 pub use context::{
     ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,
