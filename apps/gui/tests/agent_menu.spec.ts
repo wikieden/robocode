@@ -10,6 +10,7 @@ const MODEL: AgentMenuModel = {
   usesGitIsolation: true,
   probing: false,
   eligibilityDiagnostic: null,
+  discoveryDiagnostic: null,
   adapters: [
     {
       agentId: "codex-acp",

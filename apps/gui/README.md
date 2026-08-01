@@ -232,7 +232,11 @@ input is not detached mid-composition. Create dispatches the
 existing ordered path: `preview_default_lane`, `create_starter_lane`, then
 native `submit` or ACP `start_agent_session` only after the exact Core Lane is
 projected. Transport or Core rejection preserves the draft and uses the typed
-D1 rejection surface.
+D1 rejection surface. ACP discovery runs automatically once per cockpit
+lifetime; reopening the popover reuses that result. A failed discovery exits
+the busy state, displays the exact diagnostic in the popover, and retries only
+after the operator chooses `Retry ACP check`. ACP startup rejection remains
+visible on the typed D1 rejection surface after its Lane is created.
 
 The composer remains editable while an assistant stream, tool, task, approval,
 or queued input is active. Enter sends `QueueFollowUp` in that state and

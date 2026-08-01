@@ -1940,6 +1940,89 @@ describe("D1 canonical streaming cockpit", () => {
     });
   });
 
+  test("renders the ACP startup rejection after its Lane is created", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const initial = { ...D1_PROJECTION, selectedLaneId: null, lanes: [] };
+    const preview = {
+      previewId: "preview-acp-rejected",
+      contentSha256: "f".repeat(64),
+      laneId: "lane-acp-rejected",
+      branch: "codex/lane-acp-rejected",
+      diagnostics: [],
+    };
+    const lane = {
+      ...D1_PROJECTION.lanes[0]!,
+      id: preview.laneId,
+      branch: preview.branch,
+    };
+    const created = {
+      ...initial,
+      selectedLaneId: preview.laneId,
+      lanes: [lane],
+      starterLanePreviews: [preview],
+    };
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      if (intent.type === "preview_default_lane") {
+        return {
+          projection: { ...initial, starterLanePreviews: [preview] },
+          pendingCommandId: null,
+          outcome: { state: "confirmed", reason: null },
+        };
+      }
+      if (intent.type === "create_starter_lane") {
+        return {
+          projection: created,
+          pendingCommandId: null,
+          outcome: { state: "confirmed", reason: null },
+        };
+      }
+      if (intent.type === "start_agent_session") {
+        return {
+          projection: created,
+          pendingCommandId: null,
+          outcome: { state: "rejected", reason: "Codex is not signed in" },
+        };
+      }
+      return {
+        projection: initial,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+    });
+    renderD1Cockpit(
+      root,
+      initial,
+      send,
+      async () => ({
+        projection: initial,
+        pendingCommandId: null,
+        outcome: { state: "idle", reason: null },
+      }),
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe(
+        "false",
+      ),
+    );
+    root.querySelector<HTMLButtonElement>('[data-agent-id="codex-acp"]')?.click();
+    const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
+    task.value = "review with Codex";
+    task.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-d1-rejection]")?.textContent).toBe(
+        "Codex is not signed in",
+      ),
+    );
+  });
+
   test("waits for Lane creation confirmation before starting the selected ACP Agent", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;
@@ -2212,6 +2295,116 @@ describe("D1 canonical streaming cockpit", () => {
     );
 
     expect(root.querySelector("[data-agent-session-id]")).toBeNull();
+  });
+
+  test("reuses the completed ACP discovery result when New Lane is reopened", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const sent: D1Intent[] = [];
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      sent.push(intent);
+      return {
+        projection: D1_PROJECTION,
+        pendingCommandId: null,
+        outcome: { state: "confirmed", reason: null },
+      };
+    });
+    renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      send,
+      async () => ({
+        projection: D1_PROJECTION,
+        pendingCommandId: null,
+        outcome: { state: "idle", reason: null },
+      }),
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe(
+        "false",
+      ),
+    );
+    expect(sent).toEqual([{ type: "query_agent_adapters" }]);
+
+    root.querySelector<HTMLButtonElement>(".agent-menu-close")?.click();
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe(
+        "false",
+      ),
+    );
+
+    expect(sent).toEqual([{ type: "query_agent_adapters" }]);
+  });
+
+  test("surfaces ACP discovery failure in New Lane and retries only on request", async () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    const sent: D1Intent[] = [];
+    let queryAttempt = 0;
+    let resolveRetry!: (result: D1IntentResult) => void;
+    const retryResult = new Promise<D1IntentResult>((resolve) => {
+      resolveRetry = resolve;
+    });
+    const send = vi.fn(async (intent: D1Intent): Promise<D1IntentResult> => {
+      sent.push(intent);
+      queryAttempt += 1;
+      if (queryAttempt > 1) return retryResult;
+      return {
+        projection: D1_PROJECTION,
+        pendingCommandId: null,
+        outcome: { state: "rejected", reason: "ACP discovery unavailable" },
+      };
+    });
+    renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      send,
+      async () => ({
+        projection: D1_PROJECTION,
+        pendingCommandId: null,
+        outcome: { state: "idle", reason: null },
+      }),
+      undefined,
+      undefined,
+      { poll: false },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-create-lane]")?.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe(
+        "false",
+      );
+      expect(root.querySelector("[data-agent-discovery-error]")?.textContent).toContain(
+        "ACP discovery unavailable",
+      );
+      expect(root.querySelector("[data-agent-discovery-retry]")).not.toBeNull();
+    });
+    expect(sent).toEqual([{ type: "query_agent_adapters" }]);
+
+    root.querySelector<HTMLButtonElement>("[data-agent-discovery-retry]")?.click();
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(root.querySelectorAll("[data-new-lane-popover]")).toHaveLength(1);
+    resolveRetry({
+      projection: D1_PROJECTION,
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    });
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe(
+        "false",
+      ),
+    );
+    expect(sent).toEqual([
+      { type: "query_agent_adapters" },
+      { type: "query_agent_adapters" },
+    ]);
+    expect(root.querySelector("[data-agent-discovery-error]")).toBeNull();
   });
 
   test("blocks a native direct-workspace Lane until ACP discovery completes", async () => {

@@ -10,6 +10,7 @@ export interface AgentMenuModel {
   usesGitIsolation: boolean;
   probing: boolean;
   eligibilityDiagnostic: string | null;
+  discoveryDiagnostic: string | null;
   selected?: AgentMenuSelection;
   taskDraft?: string;
   submitting?: boolean;
@@ -71,6 +72,7 @@ export function renderAgentMenu(
   onTaskChange: (task: string) => void = () => undefined,
   onFullSetup: () => void = () => undefined,
   onCompositionChange: (composing: boolean, task: string) => void = () => undefined,
+  onRetryDiscovery: () => void = () => undefined,
 ): AgentMenuController {
   const menu = document.createElement("div");
   menu.className = "agent-menu new-lane-popover";
@@ -103,6 +105,15 @@ export function renderAgentMenu(
   const diagnostic = document.createElement("p");
   diagnostic.className = "agent-menu-diagnostic";
   diagnostic.setAttribute("role", "status");
+  const retryDiscovery = document.createElement("button");
+  retryDiscovery.type = "button";
+  retryDiscovery.className = "agent-menu-retry-discovery";
+  retryDiscovery.dataset.agentDiscoveryRetry = "true";
+  retryDiscovery.textContent = translate(model.locale, "d1.agentMenu.retryDiscovery", {});
+  retryDiscovery.addEventListener("click", onRetryDiscovery);
+  const diagnosticRow = document.createElement("div");
+  diagnosticRow.className = "agent-menu-diagnostic-row";
+  diagnosticRow.append(diagnostic, retryDiscovery);
 
   const agentGrid = document.createElement("div");
   agentGrid.className = "agent-menu-agents";
@@ -182,7 +193,10 @@ export function renderAgentMenu(
       item(
         adapter.displayName,
         status,
-        model.canCreateLane && !model.probing && adapter.startability === "ready",
+        model.canCreateLane &&
+          !model.probing &&
+          model.discoveryDiagnostic === null &&
+          adapter.startability === "ready",
         { kind: "acp", agentId: adapter.agentId },
         resolveAgentLogoKind(adapter.agentId, adapter.displayName),
         "ACP",
@@ -234,7 +248,7 @@ export function renderAgentMenu(
   create.textContent = translate(model.locale, "d1.task.submit", {});
   actions.append(fullSetup, create);
 
-  menu.append(header, diagnostic, agentLabel, agentGrid, taskLabel, hint, actions);
+  menu.append(header, diagnosticRow, agentLabel, agentGrid, taskLabel, hint, actions);
 
   anchor.setAttribute("aria-expanded", "true");
   const anchorRect = anchor.getBoundingClientRect();
@@ -263,13 +277,19 @@ export function renderAgentMenu(
     create.disabled =
       model.submitting === true ||
       model.probing ||
+      (selected?.kind === "acp" && model.discoveryDiagnostic !== null) ||
       selected === undefined ||
       taskDraft.trim().length === 0;
     create.textContent = translate(model.locale, "d1.task.submit", {});
     diagnostic.textContent =
+      model.discoveryDiagnostic ??
       model.eligibilityDiagnostic ??
       (model.probing ? translate(model.locale, "d1.agentMenu.probing", {}) : "");
-    diagnostic.hidden = diagnostic.textContent.length === 0;
+    if (model.discoveryDiagnostic) diagnostic.dataset.agentDiscoveryError = "true";
+    else delete diagnostic.dataset.agentDiscoveryError;
+    diagnostic.setAttribute("role", model.discoveryDiagnostic ? "alert" : "status");
+    diagnosticRow.hidden = diagnostic.textContent.length === 0;
+    retryDiscovery.hidden = model.discoveryDiagnostic === null;
   }
 
   const enabledItems = (): HTMLButtonElement[] =>

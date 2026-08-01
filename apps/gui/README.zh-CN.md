@@ -194,7 +194,10 @@ Git 工作区预览由任务文本派生的 branch/worktree；非 Git 目录明�
 候选输入过程中节点被移除。
 创建时沿用现有有序路径：`preview_default_lane`、`create_starter_lane`，并且只有在精确
 Core Lane 已投影后才发送原生 `submit` 或 ACP `start_agent_session`。Transport 或 Core
-拒绝会保留 draft，并使用 D1 已有 typed rejection surface。
+拒绝会保留 draft，并使用 D1 已有 typed rejection surface。ACP 发现只在当前驾驶舱生命
+周期内自动执行一次；重新打开弹层会复用结果。发现失败会结束忙碌态，在弹层中显示精确
+诊断，并且只有用户点击“重试 ACP 检测”才再次执行。ACP 启动被拒绝时，其 Lane 创建后仍
+会在 D1 typed rejection surface 上显示原因。
 
 当 assistant stream、tool、task、approval 或 queued input 仍活跃时，composer 仍可编辑。
 此时 Enter 发送 `QueueFollowUp`，空闲时发送 `SubmitUserInput`；Shift+Enter 保留多行输入，

@@ -50,10 +50,27 @@
   font: 500 var(--fs-lead)/1 var(--font-sans);
 }
 
+.agent-menu-diagnostic-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
 .agent-menu-diagnostic {
   margin: 0;
   color: var(--warning);
   font-size: var(--fs-xs);
+}
+
+.agent-menu-retry-discovery {
+  flex: none;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--accent-bright);
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--r-xs);
+  font: var(--fs-micro)/var(--lh-ui) var(--font-mono);
 }
 
 .agent-menu-label {

@@ -235,6 +235,7 @@ export function renderD1Cockpit(
   let agentDiscoveryStarted = false;
   let agentDiscoveryComplete = true;
   let agentQueryComplete = false;
+  let agentDiscoveryDiagnostic: string | null = null;
   let discoveryDispatching = false;
   let discoveryInFlight:
     | { kind: "query" }
@@ -572,6 +573,7 @@ export function renderD1Cockpit(
           projection.workspaceEligibility?.hasHead === true,
         probing: discoveryIsProbing(),
         eligibilityDiagnostic: projection.workspaceEligibility?.diagnostic ?? null,
+        discoveryDiagnostic: agentDiscoveryDiagnostic,
         selected: newLaneSelection,
         taskDraft: pendingAgentTaskDraft,
         submitting: creatingLane,
@@ -629,6 +631,9 @@ export function renderD1Cockpit(
           });
         }
       },
+      () => {
+        restartAgentDiscovery();
+      },
     );
   }
 
@@ -638,7 +643,14 @@ export function renderD1Cockpit(
     discoveryInFlight = null;
     if (completed.kind === "query") {
       agentQueryComplete = result.outcome.state !== "rejected";
-      if (!agentQueryComplete) agentDiscoveryComplete = true;
+      if (!agentQueryComplete) {
+        agentDiscoveryDiagnostic =
+          result.outcome.reason ?? translate(locale, "d1.agentMenu.discoveryFailed", {});
+        agentDiscoveryComplete = true;
+      }
+    } else if (result.outcome.state === "rejected") {
+      agentDiscoveryDiagnostic =
+        result.outcome.reason ?? translate(locale, "d1.agentMenu.probeFailed", {});
     }
     queueMicrotask(advanceAgentDiscovery);
     return true;
@@ -675,6 +687,7 @@ export function renderD1Cockpit(
       discoveryInFlight = null;
       root.dataset.d1Error = String(error);
       errorMessage = String(error);
+      agentDiscoveryDiagnostic = String(error);
       if (failed?.kind === "query") agentDiscoveryComplete = true;
       render(false);
     } finally {
@@ -719,20 +732,29 @@ export function renderD1Cockpit(
     render(false);
   }
 
+  function restartAgentDiscovery(): void {
+    if (disposed || discoveryIsProbing()) return;
+    if (errorMessage === agentDiscoveryDiagnostic) errorMessage = null;
+    agentDiscoveryStarted = true;
+    agentDiscoveryComplete = false;
+    agentQueryComplete = false;
+    agentDiscoveryDiagnostic = null;
+    discoveryInFlight = null;
+    attemptedAgentProbes.clear();
+    render(false);
+    advanceAgentDiscovery();
+  }
+
   function openAgentMenu(): void {
     if (agentMenuOpen) {
       menuController?.close();
       return;
     }
     agentMenuOpen = true;
-    if (!agentDiscoveryStarted || agentDiscoveryComplete) {
-      agentDiscoveryStarted = true;
-      agentDiscoveryComplete = false;
-      agentQueryComplete = false;
-      discoveryInFlight = null;
-      attemptedAgentProbes.clear();
-      mountAgentMenu();
-      advanceAgentDiscovery();
+    // Adapter discovery is cached for this cockpit lifetime. A second probe is
+    // an explicit recovery action, never a side effect of reopening the menu.
+    if (!agentDiscoveryStarted) {
+      restartAgentDiscovery();
       return;
     }
     mountAgentMenu();
