@@ -24,6 +24,7 @@ This plan replaces the previous assumption that the GUI should immediately proce
 
 The current sources of truth are:
 
+- `docs/viden-design/Viden/index.html`
 - `docs/viden-design/Viden/docs/SPEC.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
 - `docs/viden-design/Viden/docs/screens-status.js`
@@ -40,6 +41,21 @@ Two uses of Core must remain distinct:
 - The Core development branch owns the Rust engine/runtime, cross-frontend contracts, and authoritative product state.
 
 They align through design decisions and contracts, not through a mechanical directory mapping.
+
+Before planning or implementing TUI or GUI work, review the design package from
+the unified entry point rather than opening an isolated page directly:
+
+1. Start at `docs/viden-design/Viden/index.html` to confirm the active design
+   set and avoid archived pages.
+2. For TUI, open `docs/viden-design/Viden/TUI/Viden - 设计稿索引 (TUI).html`,
+   then `docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html`, then the TUI
+   component library.
+3. For GUI, open `docs/viden-design/Viden/GUI/Viden - 设计稿索引 (GUI).html`,
+   then `docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html`, then the GUI
+   component library.
+4. Treat `GUI/pages/**`, `TUI/pages/**`, and archived pages as supporting
+   evidence only after the index, unified prototype, cockpit, and component
+   libraries are understood.
 
 ## Shared Product Model
 
@@ -100,6 +116,27 @@ Core owns authoritative facts and every side effect. States shown in the TUI and
    - Approval publishes risk, target, scope, policy reason, expiry/default action, and a stable audit id.
    - Transcript facts are paged or streamed as message/tool rows rather than only one accumulated string, enabling stable scroll anchors, history loading, and bounded virtualization.
 
+7. **Internationalization and appearance contract**
+   - Define a shared `UserPresentationPreferences` contract with language,
+     locale, skin, mode, density, font scale, terminal color capability, and
+     accessibility flags.
+   - Ship built-in locale catalogs for `en` and `zh-CN`, with `system` as a
+     resolver input; clients
+     may render local strings, but Core owns the persisted preference and emits
+     preference-change events.
+   - Support skin/mode values derived from `tokens.css`, not hard-coded client
+     palettes. The valid built-in pairs are `aurora`, `ice`, and `mono` in
+     dark/light modes plus dark-only `amber` and `phosphor` (eight pairs total).
+     `system` resolves to an effective dark/light mode and must never create an
+     invalid light variant.
+   - Keep `compact`, `regular`, and `comfy` density plus `system`, `reduced`,
+     and `full` motion as configurable user preferences. The schema is open for
+     future registered locales and skins, but unknown or invalid values fall
+     back safely instead of becoming private client palettes.
+   - Expose effective preferences in `RuntimeViewState` and replay fixtures so
+     TUI and GUI render the same business state under the same language and
+     appearance settings.
+
 #### Core P1: Single-Operator Supervision Loop
 
 - Add `handoff`, `review_request`, `contract`, and `dependency` as cross-lane primitives.
@@ -131,6 +168,16 @@ The TUI is a high-density terminal client. It no longer owns runtime lifecycle o
 - Support multiline composition, internal scrolling, and bracketed paste. Paste preserves newlines and never auto-submits, and CJK double-width cursor placement remains correct.
 - Align T1/T1c/T1d/T3/T4 behavior: the composer stays editable, active turns support queue/cancel, actionable permission state stays pinned, and the ambient ticker contains no actions.
 - Replay every shared fixture and assert the critical terminal render model.
+- Read the TUI design through the unified entry path: root index -> TUI design
+  index -> unified TUI prototype -> TUI component library. Do not use individual
+  TUI pages as the starting point for interaction decisions.
+- Consume Core presentation preferences for language, locale, skin, mode, and
+  density. The TUI maps shared skin tokens to terminal capabilities with
+  truecolor -> ANSI 256 -> ANSI 16 fallback and must not introduce a private
+  theme registry.
+- Keep bilingual and CJK layout support in the baseline: all selector labels,
+  approval text, status rows, and narrow-screen fallbacks must be tested in
+  English and Simplified Chinese where the string is user-visible.
 
 #### TUI P1: Multi-Lane Supervision And Evidence
 
@@ -162,6 +209,15 @@ The GUI is a desktop client of the same runtime. It may not directly depend on p
 - Provider/model configuration and credential handles, with every mutation mediated by Core approval.
 - D6 empty, disconnected, provider error, context overflow, and reconnect recovery states.
 - Bilingual UI, theme, density, CJK IME, keyboard-only operation, visible focus, and baseline accessibility semantics.
+- Read the GUI design through the unified entry path: root index -> GUI design
+  index -> desktop cockpit -> GUI component library. The desktop cockpit is the
+  P0 visual target; D11, D4, D2, and D6 pages refine specific flows.
+- Consume Core presentation preferences for language, locale, skin, mode,
+  density, font scale, and accessibility flags. GUI implementation imports or
+  derives from shared tokens and does not ship a parallel skin palette.
+- Expose language and appearance as user-configurable settings in the first
+  operable GUI loop, even if only the default values are fully polished in the
+  first vertical slice.
 
 #### GUI P1: Decisions, Supervision, And Trusted Delivery
 
@@ -223,6 +279,52 @@ Execution order:
 5. Later Core changes are backward-compatible or include a schema version, migration, and fixtures.
 6. TUI and GUI regularly integrate Core checkpoints and never invent private runtime state to bypass a missing contract.
 7. Integration order is fixed: Core -> TUI -> GUI.
+
+## Independent Version Lines
+
+Core, TUI, and GUI carry independent product version numbers after the V3
+planning baseline. The repository release can still publish an aggregate
+workspace version, but branch planning and acceptance are tracked independently:
+
+| Track | Version prefix | First planning target | Version owner |
+| --- | --- | --- | --- |
+| Core | `core-v0.3.x` | `core-v0.3.0` contract freeze | Core branch |
+| TUI | `tui-v0.3.x` | `tui-v0.3.0-alpha.1` thin-client parity | TUI branch |
+| GUI | `gui-v0.1.x` | `gui-v0.1.0-alpha.1` local cockpit vertical slice | GUI branch |
+
+Rules:
+
+- Core versions describe contract/runtime capability. A Core version can ship
+  without a new TUI or GUI version if no client behavior changes.
+- TUI versions describe terminal interaction and render parity against a named
+  Core checkpoint.
+- GUI versions describe desktop interaction, framework decision state, visual
+  parity, and platform readiness against a named Core checkpoint.
+- TUI and GUI version plans must declare their required Core checkpoint and all
+  Core contract requests. Core records whether each request is accepted,
+  deferred, or replaced by an existing contract.
+- Integration reports include four values: workspace release candidate, Core
+  version, TUI version, and GUI version.
+
+## Parallel Development Cadence
+
+Each iteration starts with a short joint planning pass, then splits into
+parallel track work:
+
+1. TUI and GUI each select their next user-visible version goal from the design
+   entry path above.
+2. Core derives a version goal from the combined TUI/GUI contract needs and its
+   own runtime requirements.
+3. Core implements or rejects the required contract changes first and publishes
+   a checkpoint.
+4. TUI and GUI branch or rebase onto that checkpoint and implement their local
+   surfaces without changing Core-owned facts.
+5. Integration runs Core fixtures first, then TUI fixture/render parity, then
+   GUI fixture/render parity.
+
+If TUI and GUI request incompatible Core behavior, Core does not add two
+frontend-specific contracts. The joint plan either chooses one shared contract
+or records one request as deferred.
 
 ## File Ownership
 

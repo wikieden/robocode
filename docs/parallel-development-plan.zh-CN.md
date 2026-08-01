@@ -26,6 +26,7 @@
 
 计划依据以下当前设计真源：
 
+- `docs/viden-design/Viden/index.html`
 - `docs/viden-design/Viden/docs/SPEC.md`
 - `docs/viden-design/Viden/docs/DESIGN-REF.md`
 - `docs/viden-design/Viden/docs/screens-status.js`
@@ -42,6 +43,15 @@
 - 开发分支的 Core 是 Rust engine/runtime、跨前端 contract 和权威业务状态。
 
 它们通过设计决策和 contract 对齐，不能按目录名机械映射。
+
+规划或实现 TUI/GUI 前，必须从统一入口看设计包，而不是直接打开某个孤立页面：
+
+1. 从 `docs/viden-design/Viden/index.html` 开始，确认当前生效的设计集合，避免误用归档页。
+2. TUI 依次打开 `docs/viden-design/Viden/TUI/Viden - 设计稿索引 (TUI).html`、
+   `docs/viden-design/Viden/TUI/Viden - 统一原型 (TUI).html`，再看 TUI 组件库。
+3. GUI 依次打开 `docs/viden-design/Viden/GUI/Viden - 设计稿索引 (GUI).html`、
+   `docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html`，再看 GUI 组件库。
+4. `GUI/pages/**`、`TUI/pages/**` 和归档页只能作为补充证据；必须先理解索引、统一原型、桌面驾驶舱和组件库。
 
 ## 共同产品模型
 
@@ -102,6 +112,13 @@ Core 独占权威事实和所有副作用。设计包中的 TUI/GUI 状态不能
    - Approval 至少发布 risk、target、scope、policy reason、expiry/default action 和稳定 audit id。
    - Transcript 必须按 message/tool row 分页或流式发布，不能只提供单一累加字符串，否则前端无法实现稳定 scroll anchor、历史加载和有界虚拟化。
 
+7. **多语言与外观配置 contract**
+   - 定义共享 `UserPresentationPreferences` contract，覆盖 language、locale、skin、mode、density、font scale、terminal color capability 和 accessibility flags。
+   - 内置 locale catalog 为 `en` 和 `zh-CN`，`system` 只作为解析输入；客户端可以本地渲染字符串，但 Core 负责持久化偏好并发出 preference-change event。
+   - skin/mode 从 `tokens.css` 派生，禁止客户端硬编码私有配色。有效内置组合固定为 `aurora`、`ice`、`mono` 的 dark/light，加上仅 dark 的 `amber`、`phosphor`，共 8 组；`system` 解析为 effective dark/light，不能产生无效的 light 变体。
+   - density 支持 `compact`、`regular`、`comfy`，motion 支持 `system`、`reduced`、`full`，均作为可配置的个人偏好。schema 为后续注册 locale/skin 保留扩展口，但未知或无效值必须安全回退，不能演变为客户端私有主题。
+   - `RuntimeViewState` 和 replay fixtures 必须暴露 effective preferences，保证 TUI/GUI 在同一语言与外观设置下渲染相同业务事实。
+
 #### Core P1：单人监督闭环
 
 - 增加 `handoff`、`review_request`、`contract`、`dependency` 四个跨 Lane 原语。
@@ -133,6 +150,9 @@ TUI 是高密度终端客户端，不再拥有 runtime 生命周期或 lane 副�
 - composer 支持多行、内部滚动和 bracketed paste；粘贴保留换行且不自动发送，CJK 双宽光标必须正确。
 - 对齐设计 T1/T1c/T1d/T3/T4：composer 始终可输入、active turn 可 queue/cancel、permission 项固定可操作，ambient ticker 不携带操作项。
 - replay 全部共享 fixtures，并对关键 terminal render model 做断言。
+- TUI 设计必须按统一入口读取：根 index -> TUI 设计稿索引 -> 统一 TUI 原型 -> TUI 组件库。不能从单个 TUI 页面开始做交互决策。
+- 消费 Core presentation preferences 中的 language、locale、skin、mode 和 density。TUI 把共享 skin token 映射到 terminal 能力，按 truecolor -> ANSI 256 -> ANSI 16 降级，不建立私有主题注册表。
+- 双语和 CJK 布局进入基线：selector label、approval 文案、status row 和窄屏回退中凡是用户可见字符串，都要覆盖英文和简体中文。
 
 #### TUI P1：多 Lane 监督与证据
 
@@ -164,6 +184,9 @@ GUI 是同一 runtime 的桌面客户端。它不能直接依赖 provider、tool
 - Provider/model 配置和 credential handle；所有 mutation 通过 Core approval。
 - D6 空态、断线、provider error、context overflow 和 reconnect recovery。
 - 双语、主题、密度、CJK IME、keyboard-only、visible focus 和最低可访问性语义。
+- GUI 设计必须按统一入口读取：根 index -> GUI 设计稿索引 -> 桌面驾驶舱 -> GUI 组件库。桌面驾驶舱是 P0 视觉目标；D11、D4、D2、D6 页面用于细化具体流程。
+- 消费 Core presentation preferences 中的 language、locale、skin、mode、density、font scale 和 accessibility flags。GUI 实现必须 import 或派生共享 tokens，不交付第二套皮肤配色。
+- 首个可操作 GUI 闭环必须暴露语言与外观配置入口；即使第一条 vertical slice 只精修默认值，也要保留可配置结构。
 
 #### GUI P1：决策、监督和可信交付
 
@@ -225,6 +248,36 @@ flowchart TD
 5. Core 后续只做向后兼容扩展，或带 schema version、migration 和 fixture 的变更。
 6. TUI/GUI 定期合入 Core checkpoint，不允许用私有 runtime state 绕过缺失 contract。
 7. 集成顺序固定为 Core -> TUI -> GUI。
+
+## 独立版本线
+
+V3 规划基线之后，Core、TUI、GUI 各自维护独立产品版本号。仓库仍可发布聚合 workspace 版本，但分支计划和验收按各自版本跟踪：
+
+| 轨道 | 版本前缀 | 首个规划目标 | 版本 owner |
+| --- | --- | --- | --- |
+| Core | `core-v0.3.x` | `core-v0.3.0` contract freeze | Core 分支 |
+| TUI | `tui-v0.3.x` | `tui-v0.3.0-alpha.1` thin-client parity | TUI 分支 |
+| GUI | `gui-v0.1.x` | `gui-v0.1.0-alpha.1` local cockpit vertical slice | GUI 分支 |
+
+规则：
+
+- Core 版本描述 contract/runtime 能力。如果客户端行为无变化，Core 可以单独发一个版本。
+- TUI 版本描述基于某个 Core checkpoint 的终端交互与渲染 parity。
+- GUI 版本描述基于某个 Core checkpoint 的桌面交互、框架决策状态、视觉 parity 和平台就绪度。
+- TUI/GUI 版本计划必须声明依赖的 Core checkpoint 和所有 Core contract requests。Core 逐项记录 accepted、deferred 或由现有 contract 替代。
+- 集成报告必须同时列出四个值：workspace release candidate、Core version、TUI version、GUI version。
+
+## 并发开发节奏
+
+每轮迭代先做一次联合计划，再拆成并发轨道：
+
+1. TUI 和 GUI 分别从上述设计入口路径选择下一个用户可见版本目标。
+2. Core 根据 TUI/GUI 的 contract 需求和自身 runtime 要求定义本轮 Core 版本目标。
+3. Core 先实现或拒绝必要 contract 变更，并发布 checkpoint。
+4. TUI 和 GUI 从该 checkpoint 创建或同步分支，只实现各自本地表面，不修改 Core 权威事实。
+5. 集成先跑 Core fixtures，再跑 TUI fixture/render parity，最后跑 GUI fixture/render parity。
+
+如果 TUI 和 GUI 提出互相冲突的 Core 行为，Core 不新增两套 frontend-specific contract。联合计划必须选择一个共享 contract，或把其中一个请求记录为 deferred。
 
 ## 文件所有权
 

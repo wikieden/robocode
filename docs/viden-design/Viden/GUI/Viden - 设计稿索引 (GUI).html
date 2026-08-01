@@ -191,7 +191,9 @@ syncSkins();
 
 var start; try{ start=localStorage.getItem(KEY); }catch(e){}
 show(start || flat[0].it[3]);
-ric(prewarm);
+/* file:// 下避免一次性预热所有 iframe：部分子页仍含外部 text/babel src，浏览器会阻止
+   Babel 读取本地 JSX。静态打开时只加载当前页，HTTP 预览时继续保活秒切。 */
+if (location.protocol !== 'file:') ric(prewarm);
 </script>
 </body>
 </html>

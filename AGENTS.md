@@ -258,6 +258,10 @@ following as execution rules for that plan:
 
 - Use at most three concurrent implementation owners: Core, TUI, and GUI. A
   read-only coordination task does not own an implementation scope.
+- Track versions independently: Core uses `core-v0.3.x`, TUI uses
+  `tui-v0.3.x`, and GUI uses `gui-v0.1.x` until the plan is revised. Reports
+  must name the workspace candidate plus the Core, TUI, and GUI versions when
+  integration is discussed.
 - Start `codex/v3-core-runtime` from synchronized `origin/main`. Core must
   publish an immutable `frontend-contract-v1` checkpoint before production
   TUI or GUI implementation begins.
@@ -270,6 +274,14 @@ following as execution rules for that plan:
   snapshot, and replay contracts.
 - A missing frontend capability is a Core contract request. Do not bypass it
   with a frontend-private reducer, direct runtime access, or inferred success.
+- Language, locale, skin, mode, density, font scale, and accessibility settings
+  are shared presentation preferences owned by Core and consumed by frontends.
+  Frontends may own local rendering, but not independent preference persistence
+  or private skin palettes.
+- Review design from `docs/viden-design/Viden/index.html` first. For TUI,
+  continue through the TUI design index, unified prototype, and component
+  library. For GUI, continue through the GUI design index, desktop cockpit,
+  and component library.
 - Integrate in the fixed order Core -> TUI -> GUI. Run parity fixtures and the
   relevant branch gate after each step.
 - Every handoff must report the branch, worktree, HEAD, changed ownership

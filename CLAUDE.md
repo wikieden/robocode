@@ -143,6 +143,9 @@ origin/main
 Rules:
 
 - At most three implementation owners run concurrently: Core, TUI, and GUI.
+- Core, TUI, and GUI have independent version lines: `core-v0.3.x`,
+  `tui-v0.3.x`, and `gui-v0.1.x`. Integration reports also name the aggregate
+  workspace candidate when relevant.
 - Core starts first and publishes the exact checkpoint SHA.
 - TUI and GUI start from that SHA. Without it, they remain in design,
   interaction/reference confirmation, framework-spike planning, or contract-gap
@@ -150,6 +153,10 @@ Rules:
 - Overlapping write scopes serialize. Do not let multiple tasks repair the same
   shared manifest, contract, fixture, token, or design decision independently.
 - Missing client data or actions become Core contract requests.
+- Language, locale, skin, mode, density, font scale, terminal color capability,
+  and accessibility settings flow through a shared Core-owned presentation
+  preference contract. Frontends must not persist a second preference model or
+  ship private palettes.
 - Integrate Core -> TUI -> GUI and rerun parity evidence after each step.
 - Do not merge or push `main` unless the user explicitly requests it.
 
@@ -161,6 +168,10 @@ read its local `AGENTS.md`, local `CLAUDE.md`, `docs/SPEC.md`, and
 
 - `tokens.css` is the token source of truth.
 - Registered components and icons are reused rather than copied.
+- Start visual review from `docs/viden-design/Viden/index.html`. For TUI, open
+  the TUI design index, unified prototype, and component library. For GUI, open
+  the GUI design index, desktop cockpit, and component library before using
+  lower-level pages.
 - TUI uses the canonical TUI kit and registered glyphs; do not add emoji.
 - GUI remains framework-neutral until the Tauri/GPUI vertical-slice gate is
   decided.

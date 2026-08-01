@@ -9,7 +9,8 @@ This file applies to `apps/tui/**`. Read the repository-root `AGENTS.md`,
 ## Start Gate
 
 For V3 production implementation, the task must name the immutable
-`frontend-contract-v1` Core checkpoint SHA.
+`frontend-contract-v1` Core checkpoint SHA and the intended TUI version,
+starting with `tui-v0.3.0` for thin-client parity.
 
 - Create `codex/v3-tui-client` in `.worktrees/v3-tui-client` from that exact
   checkpoint.
@@ -17,6 +18,9 @@ For V3 production implementation, the task must name the immutable
   and Core contract-gap analysis. Do not begin the production migration.
 - Confirm TUI interaction decisions and reference screens with the user before
   changing the production UI.
+- Read design in this order: `docs/viden-design/Viden/index.html`, then the TUI
+  design index, then `Viden - 统一原型 (TUI).html`, then the TUI component
+  library. Individual TUI pages are supporting evidence, not the starting point.
 
 ## Ownership And Client Boundary
 
@@ -48,6 +52,11 @@ design:
 - Approval actions stay pinned and operable; ambient ticker content carries no
   actions.
 - Shared Core fixtures replay to the same business facts as GUI.
+- Language, locale, skin, mode, density, and terminal color capability come from
+  Core presentation preferences. Map shared design tokens to terminal truecolor,
+  ANSI 256, and ANSI 16 fallbacks; do not create a private TUI theme registry.
+- User-visible selector labels, approval text, status rows, and narrow-screen
+  fallbacks must remain valid in English and Simplified Chinese.
 
 ## Development And Verification
 

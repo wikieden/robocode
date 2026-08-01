@@ -10,7 +10,8 @@ the GPUI feasibility research, and the current design sources under
 ## Start Gate
 
 For V3 production implementation, the task must name the immutable
-`frontend-contract-v1` Core checkpoint SHA.
+`frontend-contract-v1` Core checkpoint SHA and the intended GUI version,
+starting with `gui-v0.1.0` for the local cockpit vertical slice.
 
 - Create `codex/v3-gui-client` in `.worktrees/v3-gui-client` from that exact
   checkpoint.
@@ -18,6 +19,10 @@ For V3 production implementation, the task must name the immutable
   framework-spike planning, and Core contract-gap analysis.
 - Confirm GUI interactions and reference screens with the user before building
   the production client.
+- Read design in this order: `docs/viden-design/Viden/index.html`, then the GUI
+  design index, then `Viden - 桌面驾驶舱 (GUI).html`, then the GUI component
+  library. D11, D4, D2, and D6 pages refine flows after the cockpit is
+  understood.
 
 ## Framework Gate
 
@@ -66,6 +71,11 @@ Implement the first local operator loop in this order:
 Use the latest GUI design directory as the only visual reference. Reuse shared
 tokens, registered components, and brand assets; prototype Babel runtime, mock
 data, and window scaffolding are not production runtime.
+
+Language, locale, skin, mode, density, font scale, and accessibility flags come
+from Core presentation preferences. The GUI exposes language and appearance as
+configuration options and imports or derives from shared tokens instead of
+shipping a second skin palette.
 
 Verify fixture parity with TUI, CJK IME, keyboard-only operation, visible
 focus, accessibility semantics, event-to-visible latency, bounded transcript

@@ -22,7 +22,7 @@
 ## 计划组
 
 1. [Core 0.3 runtime contract](2026-07-19-core-0.3-runtime-contract.zh-CN.md)
-2. [TUI 0.2 thin client](2026-07-19-tui-0.2-thin-client.zh-CN.md)
+2. [TUI 0.3 thin client](2026-07-19-tui-0.3-thin-client.zh-CN.md)
 3. [GUI 0.1 desktop cockpit](2026-07-19-gui-0.1-desktop-cockpit.zh-CN.md)
 4. [Independent release integration](2026-07-19-independent-release-integration.zh-CN.md)
 
@@ -34,11 +34,11 @@
 main@baseline
   └─ codex/v3-core-runtime
        ├─ I0: Core 0.3.0 / frontend-contract-v1 / immutable SHA
-       ├─ codex/v3-tui-client  -> TUI 0.2.0-alpha.1 -> 0.2.0 -> 0.2.1
+       ├─ codex/v3-tui-client  -> TUI 0.3.0-alpha.1 -> 0.3.0 -> 0.3.1
        └─ codex/v3-gui-client  -> GUI 0.1.0-alpha.1 -> beta.1 -> 0.1.0
 
-integration: Core 0.3.0 -> I0 -> Core 0.3.1 + TUI 0.2.0 + GUI beta.1 -> I1
-             -> Core 0.3.2 + TUI 0.2.1 + GUI 0.1.0 -> I2
+integration: Core 0.3.0 -> I0 -> Core 0.3.1 + TUI 0.3.0 + GUI beta.1 -> I1
+             -> Core 0.3.2 + TUI 0.3.1 + GUI 0.1.0 -> I2
 ```
 
 ## 完成定义

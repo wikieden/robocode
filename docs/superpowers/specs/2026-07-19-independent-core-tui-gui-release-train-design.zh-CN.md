@@ -33,7 +33,7 @@ Viden 后续按 Core、TUI、GUI 三条独立 SemVer 版本线开发和发布。
 
 必须区分：
 
-1. 组件 SemVer，例如 Core `0.3.0`、TUI `0.2.0`、GUI `0.1.0`。
+1. 组件 SemVer，例如 Core `0.3.0`、TUI `0.3.0`、GUI `0.1.0`。
 2. wire/schema 版本，例如 `frontend-contract-v1`、`schema_version = 1`。
 3. 不可变实现 checkpoint，即精确 Git SHA。
 
@@ -55,9 +55,9 @@ Viden 后续按 Core、TUI、GUI 三条独立 SemVer 版本线开发和发布。
 
 | 集成基线 | Core | TUI | GUI | 共同结果 |
 | --- | --- | --- | --- | --- |
-| `I0 · Contract` | `0.3.0` | `0.2.0-alpha.1` | `0.1.0-alpha.1` | 冻结 `frontend-contract-v1`；两端可重放同一 fixture；GUI 完成框架闸，TUI 完成 client spike |
-| `I1 · Operable` | `0.3.1` | `0.2.0` | `0.1.0-beta.1` | Core 多 Lane 与副作用上收；TUI 主 Cockpit 可用；GUI 桌面驾驶舱主壳和 D11/D4/D1/permission/recovery 垂直路径可用 |
-| `I2 · Local Loop` | `0.3.2` | `0.2.1` | `0.1.0` | request → work → test/review → evidence → gate → apply/recovery 的本地闭环，三端事实一致 |
+| `I0 · Contract` | `0.3.0` | `0.3.0-alpha.1` | `0.1.0-alpha.1` | 冻结 `frontend-contract-v1`；两端可重放同一 fixture；GUI 完成框架闸，TUI 完成 client spike |
+| `I1 · Operable` | `0.3.1` | `0.3.0` | `0.1.0-beta.1` | Core 多 Lane 与副作用上收；TUI 主 Cockpit 可用；GUI 桌面驾驶舱主壳和 D11/D4/D1/permission/recovery 垂直路径可用 |
+| `I2 · Local Loop` | `0.3.2` | `0.3.1` | `0.1.0` | request → work → test/review → evidence → gate → apply/recovery 的本地闭环，三端事实一致 |
 
 这些版本号是本轮计划的目标线。某条线因修复产生 patch 版本时，不需要推动另外两条线改号；只更新兼容矩阵与集成基线记录。
 
@@ -88,13 +88,13 @@ Viden 后续按 Core、TUI、GUI 三条独立 SemVer 版本线开发和发布。
 
 ## 6. TUI 版本包
 
-### TUI 0.2.0-alpha.1：CoreClient 验证
+### TUI 0.3.0-alpha.1：CoreClient 验证
 
 - 从 Core 0.3.0 checkpoint 创建分支。
 - 重放共享 fixtures，并证明可归约出与 Core 相同的 `RuntimeViewState`。
 - 不做生产视觉迁移，不新增 TUI 私有业务事实。
 
-### TUI 0.2.0：统一原型主 Cockpit
+### TUI 0.3.0：统一原型主 Cockpit
 
 - TUI 只发送 `RuntimeCommand`、消费 `RuntimeEvent`、渲染 `RuntimeViewState`。
 - 移除对 engine、provider、permission store、Git、process 和 Lane 权威副作用的直接调用。
@@ -103,7 +103,7 @@ Viden 后续按 Core、TUI、GUI 三条独立 SemVer 版本线开发和发布。
 - 支持多行 composer、内部滚动、bracketed paste、CJK 双宽和独立 scrollback。
 - 保留 0.1.30 的 zero-bug 回归基线。
 
-### TUI 0.2.1：本地监督闭环
+### TUI 0.3.1：本地监督闭环
 
 - 完成 lane/session 切换、selector-first、全局 jump、approval、task/DAG、evidence、MergeGate、context/cost 和 recovery action。
 - Changes、Evidence、Context 是核心详情面；Inbox/Fleet 只显示本轮可支持的摘要。

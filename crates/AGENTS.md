@@ -17,13 +17,15 @@ ownership area. Read the repository-root `AGENTS.md`, `PLAN.md`, and
 ## C0 Contract Freeze
 
 Before production TUI or GUI implementation starts, deliver an immutable
-`frontend-contract-v1` checkpoint containing:
+`frontend-contract-v1` checkpoint for `core-v0.3.0` containing:
 
 - the versioned `RuntimeCommand -> RuntimeEvent -> RuntimeViewState` protocol;
 - `schema_version`, capability discovery, event cursors, snapshot/replay, and
   sequence-gap recovery;
 - typed lane, task, gate, route, gate-strength, and mutation-policy records;
 - a transport-neutral Core client contract;
+- a shared presentation preference contract for language, locale, skin, mode,
+  density, font scale, terminal color capability, and accessibility flags;
 - migration coverage for legacy persisted records and fixtures;
 - parity fixtures shared by Core, TUI, and GUI.
 
@@ -43,6 +45,9 @@ GUI branches have started from it.
 - Preserve append-only JSONL facts and rebuildable SQLite indexes.
 - Plan mode must reject mutation before file, shell, Git, workflow, memory, or
   task state changes.
+- Core owns persistence and eventing for user presentation preferences. TUI and
+  GUI may render those preferences differently, but Core defines the accepted
+  values and emits effective preference state through the frontend contract.
 
 ## Development And Verification
 

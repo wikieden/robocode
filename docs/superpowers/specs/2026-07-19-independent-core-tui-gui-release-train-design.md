@@ -33,7 +33,7 @@ A unified product version was rejected because it couples UI cadence to Core int
 
 Distinguish:
 
-1. Component SemVer, such as Core `0.3.0`, TUI `0.2.0`, and GUI `0.1.0`.
+1. Component SemVer, such as Core `0.3.0`, TUI `0.3.0`, and GUI `0.1.0`.
 2. Wire/schema version, such as `frontend-contract-v1` and `schema_version = 1`.
 3. Immutable implementation checkpoint, represented by an exact Git SHA.
 
@@ -55,9 +55,9 @@ All TUI and GUI requirements, acceptance work, and visual review follow this ord
 
 | Integration baseline | Core | TUI | GUI | Joint outcome |
 | --- | --- | --- | --- | --- |
-| `I0 · Contract` | `0.3.0` | `0.2.0-alpha.1` | `0.1.0-alpha.1` | Freeze `frontend-contract-v1`; both clients replay shared fixtures; GUI completes the framework gate and TUI completes the client spike |
-| `I1 · Operable` | `0.3.1` | `0.2.0` | `0.1.0-beta.1` | Core owns multi-lane effects; TUI cockpit works; GUI desktop shell and D11/D4/D1/permission/recovery vertical path work |
-| `I2 · Local Loop` | `0.3.2` | `0.2.1` | `0.1.0` | A local request → work → test/review → evidence → gate → apply/recovery loop with identical facts across all surfaces |
+| `I0 · Contract` | `0.3.0` | `0.3.0-alpha.1` | `0.1.0-alpha.1` | Freeze `frontend-contract-v1`; both clients replay shared fixtures; GUI completes the framework gate and TUI completes the client spike |
+| `I1 · Operable` | `0.3.1` | `0.3.0` | `0.1.0-beta.1` | Core owns multi-lane effects; TUI cockpit works; GUI desktop shell and D11/D4/D1/permission/recovery vertical path work |
+| `I2 · Local Loop` | `0.3.2` | `0.3.1` | `0.1.0` | A local request → work → test/review → evidence → gate → apply/recovery loop with identical facts across all surfaces |
 
 These are target release lines for the round. A patch release on one line does not force the other lines to change version; only the compatibility matrix and integration baseline record are updated.
 
@@ -88,13 +88,13 @@ These are target release lines for the round. A patch release on one line does n
 
 ## 6. TUI Release Packages
 
-### TUI 0.2.0-alpha.1: CoreClient Proof
+### TUI 0.3.0-alpha.1: CoreClient Proof
 
 - Branch from the Core 0.3.0 checkpoint.
 - Replay shared fixtures and prove the same `RuntimeViewState` facts as Core.
 - Do not perform the production visual migration or create private TUI business facts.
 
-### TUI 0.2.0: Canonical Cockpit
+### TUI 0.3.0: Canonical Cockpit
 
 - Send only `RuntimeCommand`, consume `RuntimeEvent`, and render `RuntimeViewState`.
 - Remove direct engine, provider, permission store, Git, process, and authoritative lane side effects.
@@ -103,7 +103,7 @@ These are target release lines for the round. A patch release on one line does n
 - Support multiline composer, internal scroll, bracketed paste, CJK width, and independent scrollback.
 - Preserve the 0.1.30 zero-bug regression baseline.
 
-### TUI 0.2.1: Local Supervision Loop
+### TUI 0.3.1: Local Supervision Loop
 
 - Add lane/session switching, selector-first navigation, global jump, approval, task/DAG, evidence, MergeGate, context/cost, and recovery actions.
 - Changes, Evidence, and Context are the primary detail surfaces; Inbox and Fleet only show summaries supported in this round.

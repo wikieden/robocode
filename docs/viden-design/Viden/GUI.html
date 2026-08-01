@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>viden · GUI 快捷入口</title>
+<title>viden · GUI 入口</title>
 <link rel="icon" href="brand-assets/favicon-64.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -62,14 +62,14 @@ h1 .ac{color:var(--accent);}
     <span class="t">viden — GUI · Tauri desktop</span>
   </div>
   <div class="body">
-    <div class="kick">Shortcut · 快捷入口</div>
+    <div class="kick">GUI Index · 桌面入口</div>
     <h1 data-i18n="h1">桌面 <span class="ac">驾驶舱</span></h1>
-    <p class="sub" data-i18n="sub">Rust + Tauri 多栏窗口化驾驶舱。正在打开 D1 旗舰原型……</p>
-    <a class="launch" id="go" href="GUI/Viden - 桌面驾驶舱 (GUI).html">
-      <span data-i18n="btn">打开驾驶舱</span><span class="ar">→</span>
+    <p class="sub" data-i18n="sub">Rust + Tauri 多栏窗口化驾驶舱。先从 GUI 设计稿索引进入，再选择 D1 驾驶舱或其他屏幕。</p>
+    <a class="launch" id="go" href="GUI/Viden - 设计稿索引 (GUI).html">
+      <span data-i18n="btn">进入 GUI 设计稿索引</span><span class="ar">→</span>
     </a>
     <div class="alt">
-      <a href="GUI/Viden - 设计稿索引 (GUI).html"><span class="dot"></span><span data-i18n="a1">设计稿索引</span></a>
+      <a href="GUI/Viden - 桌面驾驶舱 (GUI).html"><span class="dot"></span><span data-i18n="a1">直接打开驾驶舱</span></a>
       <a href="GUI/Viden - 组件库 (GUI).html"><span class="dot"></span><span data-i18n="a2">组件库</span></a>
     </div>
     <div class="cd" data-i18n="cd">← 返回 <b><a href="index.html">原型总览 index.html</a></b></div>
@@ -78,15 +78,13 @@ h1 .ac{color:var(--accent);}
 <script>
 var copy={
   h1:['Desktop <span class="ac">cockpit</span>','桌面 <span class="ac">驾驶舱</span>'],
-  sub:['Rust + Tauri windowed multi-pane cockpit. Launching the D1 flagship prototype…','Rust + Tauri 多栏窗口化驾驶舱。正在打开 D1 旗舰原型……'],
-  btn:['Open cockpit','打开驾驶舱'],
-  a1:['Design docs','设计稿索引'], a2:['Component kit','组件库'],
+  sub:['Rust + Tauri windowed multi-pane cockpit. Enter the GUI design index first, then choose D1 cockpit or another screen.','Rust + Tauri 多栏窗口化驾驶舱。先从 GUI 设计稿索引进入，再选择 D1 驾驶舱或其他屏幕。'],
+  btn:['Enter GUI design index','进入 GUI 设计稿索引'],
+  a1:['Open cockpit directly','直接打开驾驶舱'], a2:['Component kit','组件库'],
   cd:['← Back to <b><a href="index.html">prototype index</a></b>','← 返回 <b><a href="index.html">原型总览 index.html</a></b>']
 };
 function L(a){return window.t?window.t(a[0],a[1]):a[1];}
 Object.keys(copy).forEach(function(k){var el=document.querySelector('[data-i18n="'+k+'"]');if(el)el.innerHTML=L(copy[k]);});
-var target=document.getElementById('go').getAttribute('href');
-setTimeout(function(){location.replace(encodeURI(target));},700);
 </script>
 </body>
 </html>
