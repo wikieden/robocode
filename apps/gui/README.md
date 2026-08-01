@@ -52,6 +52,12 @@ VIDEN_GUI_WORKSPACE=/absolute/project/path \
   ../../target/debug/bundle/macos/Viden.app/Contents/MacOS/viden-gui
 ```
 
+Before Core bootstrap, the desktop host prepends existing standard user tool
+directories such as `~/.local/bin`, Bun, Volta, asdf, mise/fnm, and Homebrew to
+the inherited `PATH`. This keeps agent discovery and the later ACP spawn on the
+same command path when the App is opened through Finder, without executing a
+login shell or embedding a machine-specific absolute path.
+
 ## Frozen input
 
 | Field | Value |

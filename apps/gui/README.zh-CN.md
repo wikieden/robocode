@@ -43,6 +43,11 @@ VIDEN_GUI_WORKSPACE=/absolute/project/path \
   ../../target/debug/bundle/macos/Viden.app/Contents/MacOS/viden-gui
 ```
 
+桌面宿主会在 Core bootstrap 前，将实际存在的标准用户工具目录（如 `~/.local/bin`、Bun、
+Volta、asdf、mise/fnm 与 Homebrew）加入继承的 `PATH` 前部。这样从 Finder 打开 App 时，
+Agent 可用性探测与后续 ACP spawn 使用同一命令路径；整个过程不执行 login shell，也不写死
+当前机器的绝对路径。
+
 ## 冻结输入
 
 | 字段 | 值 |

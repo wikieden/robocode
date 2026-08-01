@@ -10,6 +10,7 @@ mod projection;
 
 use std::sync::Mutex;
 use std::time::Duration;
+use std::{env, ffi::OsString, path::Path};
 
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
 pub use d1::{
@@ -225,6 +226,7 @@ fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProject
 }
 
 pub fn run() {
+    install_desktop_command_path();
     let adapter = match adapter::default_local_adapter() {
         Ok(adapter) => adapter,
         Err(error) => {
@@ -259,4 +261,70 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run the Viden desktop client");
+}
+
+fn install_desktop_command_path() {
+    let current = env::var_os("PATH");
+    let home = env::var_os("HOME").map(std::path::PathBuf::from);
+    let path = desktop_command_path(current.clone(), home.as_deref());
+    if Some(&path) != current.as_ref() {
+        // Startup is still single-threaded here. Core discovery and every ACP
+        // child spawned afterward must observe the same resolved command path.
+        unsafe { env::set_var("PATH", path) };
+    }
+}
+
+fn desktop_command_path(current: Option<OsString>, home: Option<&Path>) -> OsString {
+    let mut entries = Vec::new();
+    if let Some(home) = home {
+        for relative in [
+            ".local/bin",
+            ".bun/bin",
+            ".volta/bin",
+            ".asdf/shims",
+            ".local/share/mise/shims",
+            ".local/share/fnm/aliases/default/bin",
+        ] {
+            let candidate = home.join(relative);
+            if candidate.is_dir() && !entries.contains(&candidate) {
+                entries.push(candidate);
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    for candidate in [Path::new("/opt/homebrew/bin"), Path::new("/usr/local/bin")] {
+        if candidate.is_dir() && !entries.iter().any(|entry| entry == candidate) {
+            entries.push(candidate.to_path_buf());
+        }
+    }
+    if let Some(current) = current.as_deref() {
+        for entry in env::split_paths(current) {
+            if !entries.contains(&entry) {
+                entries.push(entry);
+            }
+        }
+    }
+    env::join_paths(entries).unwrap_or_else(|_| current.unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env, fs};
+
+    use super::desktop_command_path;
+
+    #[test]
+    fn desktop_command_path_recovers_user_local_bin_from_restricted_path() {
+        let home = env::temp_dir().join(format!("viden-gui-desktop-path-{}", std::process::id()));
+        let user_bin = home.join(".local/bin");
+        fs::create_dir_all(&user_bin).expect("create user-local bin fixture");
+
+        let path = desktop_command_path(Some("/usr/bin:/bin".into()), Some(&home));
+        let entries = env::split_paths(&path).collect::<Vec<_>>();
+
+        assert_eq!(entries.first(), Some(&user_bin));
+        assert!(entries.contains(&"/usr/bin".into()));
+        assert!(entries.contains(&"/bin".into()));
+        fs::remove_dir_all(home).expect("remove desktop path fixture");
+    }
 }
