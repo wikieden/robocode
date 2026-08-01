@@ -1,12 +1,13 @@
 use serde::Serialize;
 use viden_core::{
-    AgentConversationRole, AgentLaneRecord, AgentRoute, AgentSessionStatus, AgentStartability,
-    AgentTaskStatus, ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk, ApprovalScope,
-    COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ContractDecision, ContractRecord, CredentialHandle,
-    EventCursor, LaneStatus, LocaleId, ProjectConfigPreview, ProjectProbe, ProviderHealthView,
-    ReviewRequestRecord, ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus,
-    RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
-    WorkspaceChangeKind, WorkspaceSourceStatus,
+    AgentConversationRole, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionStatus,
+    AgentStartability, AgentTaskStatus, ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk,
+    ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ContractDecision, ContractRecord,
+    CredentialHandle, EventCursor, GateStrength, LaneStatus, LocaleId, MutationPolicy,
+    ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
+    ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
+    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
+    WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -22,6 +23,9 @@ use crate::d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
     D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection,
     D2QueueItemProjection, D2UnavailableProjection,
+};
+use crate::d10::{
+    D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -511,6 +515,93 @@ impl RuntimeProjection {
                     code: None,
                 },
             ],
+        })
+    }
+
+    /// Projects the D10 lane monitor across every Core Lane and project.
+    pub fn d10_lane_monitor(&self) -> Option<D10LaneMonitorProjection> {
+        let view = self.view()?;
+        let lanes: Vec<D10LaneProjection> = view
+            .lanes
+            .iter()
+            .map(|lane| {
+                // Project binding comes only from the Core owner binding. A
+                // lane Core has not bound reports no project at all.
+                let project_id = view
+                    .lane_runtime_owners
+                    .iter()
+                    .find(|binding| binding.lane_id == lane.id)
+                    .map(|binding| binding.owner.project_id.clone());
+                let progress = lane.task_id.as_ref().and_then(|task_id| {
+                    view.tasks
+                        .iter()
+                        .find(|task| &task.id == task_id)
+                        .map(|task| task.progress)
+                });
+                let agents = lane
+                    .active_session_ids
+                    .iter()
+                    .filter_map(|session_id| {
+                        view.agent_sessions
+                            .iter()
+                            .find(|session| &session.session_id == session_id)
+                    })
+                    .map(|session| D10AgentProjection {
+                        session_id: session.session_id.clone(),
+                        agent_id: session.agent_id.clone(),
+                        model: session.model.clone(),
+                        status: agent_session_status(session.status).to_string(),
+                    })
+                    .collect();
+                let evidence = lane
+                    .evidence
+                    .iter()
+                    .filter_map(|id| view.latest_evidence.iter().find(|entry| &entry.id == id))
+                    .map(|entry| D10EvidenceProjection {
+                        id: entry.id.clone(),
+                        kind: entry.kind.clone(),
+                        summary: entry.summary.clone(),
+                    })
+                    .collect();
+                D10LaneProjection {
+                    id: lane.id.clone(),
+                    project_id,
+                    summary: lane.summary.clone(),
+                    role: agent_role(lane.role).to_string(),
+                    route: agent_route(lane.route).to_string(),
+                    gate_strength: gate_strength(lane.gate_strength).to_string(),
+                    mutation_policy: mutation_policy(lane.mutation_policy).to_string(),
+                    status: lane_status(lane.status).to_string(),
+                    awaits_human: lane_awaits_human(lane.status),
+                    branch: lane.branch.clone(),
+                    worktree: lane.worktree.clone(),
+                    progress,
+                    agents,
+                    evidence,
+                    token_limit: lane.budget.token_limit,
+                    cost_limit_micro_usd: lane.budget.cost_limit_micro_usd,
+                }
+            })
+            .collect();
+
+        let mut projects: Vec<&String> = lanes
+            .iter()
+            .filter_map(|lane| lane.project_id.as_ref())
+            .collect();
+        projects.sort();
+        projects.dedup();
+
+        Some(D10LaneMonitorProjection {
+            total_lanes: lanes.len(),
+            total_projects: projects.len(),
+            awaiting_total: lanes.iter().filter(|lane| lane.awaits_human).count(),
+            lanes,
+            // The design shows a scribe-compiled event ticker; schema 1
+            // publishes no ordered event log in the view state.
+            unavailable: vec![D2UnavailableProjection {
+                key: "d10.events.noOrderedLog",
+                code: "GUI-CORE-014",
+            }],
         })
     }
 
@@ -1294,6 +1385,52 @@ fn check_run_status(status: CheckRunStatus) -> &'static str {
         CheckRunStatus::Failed => "failed",
         CheckRunStatus::Cancelled => "cancelled",
     }
+}
+
+fn agent_role(role: AgentRole) -> &'static str {
+    match role {
+        AgentRole::Planner => "planner",
+        AgentRole::Coder => "coder",
+        AgentRole::Reviewer => "reviewer",
+        AgentRole::Tester => "tester",
+        AgentRole::DocWriter => "doc_writer",
+        AgentRole::Researcher => "researcher",
+        AgentRole::ReleaseOperator => "release_operator",
+    }
+}
+
+fn agent_route(route: AgentRoute) -> &'static str {
+    match route {
+        AgentRoute::BuiltIn => "built_in",
+        AgentRoute::Acp => "acp",
+        AgentRoute::Terminal => "terminal",
+        AgentRoute::Tmux => "tmux",
+    }
+}
+
+fn gate_strength(strength: GateStrength) -> &'static str {
+    match strength {
+        GateStrength::Full => "full",
+        GateStrength::Cooperative => "cooperative",
+        GateStrength::Containment => "containment",
+    }
+}
+
+fn mutation_policy(policy: MutationPolicy) -> &'static str {
+    match policy {
+        MutationPolicy::Autonomous => "autonomous",
+        MutationPolicy::ProposeOnly => "propose_only",
+        MutationPolicy::ReadOnly => "read_only",
+    }
+}
+
+/// Core statuses that block on a person. Every other status is progress the
+/// monitor must not escalate into the "awaiting you" count.
+fn lane_awaits_human(status: LaneStatus) -> bool {
+    matches!(
+        status,
+        LaneStatus::WaitingApproval | LaneStatus::NeedsInput | LaneStatus::Blocked
+    )
 }
 
 fn approval_risk(risk: ApprovalRisk) -> &'static str {

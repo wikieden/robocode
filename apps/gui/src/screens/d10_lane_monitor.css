@@ -1,0 +1,169 @@
+/* D10 Lane monitor. Values come from the shared token layer only. */
+
+.d10-stage {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+}
+
+.d10-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+
+.d10-title {
+  margin: 0;
+  color: var(--fg-primary);
+  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+}
+
+.d10-counts {
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-fchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin-left: auto;
+}
+
+.d10-fchip,
+.d10-action {
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-fchip[aria-pressed="true"] {
+  color: var(--fg-primary);
+  border-color: var(--border-active);
+  background: var(--bg-selected);
+}
+
+.d10-grid {
+  overflow-y: auto;
+  padding: var(--sp-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-content: start;
+  gap: var(--sp-3);
+}
+
+.d10-card {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+}
+
+/* A lane Core says is blocking on a person is the only escalated card. */
+.d10-card[data-d10-attention="true"] {
+  border-color: var(--border-active);
+}
+
+.d10-chead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.d10-lid {
+  color: var(--accent);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-summary {
+  color: var(--fg-primary);
+  font: var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.d10-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-chip,
+.d10-gate,
+.d10-status,
+.d10-project {
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-full);
+}
+
+.d10-gate[data-d10-gate="full"] {
+  color: var(--success);
+}
+
+.d10-gate[data-d10-gate="cooperative"] {
+  color: var(--warning);
+}
+
+.d10-gate[data-d10-gate="containment"] {
+  color: var(--fg-muted);
+}
+
+.d10-progress {
+  height: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+
+.d10-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* A lane with no Core task shows the fact, not an empty bar at zero. */
+.d10-progress[data-d10-progress="none"] {
+  height: auto;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-evidence {
+  margin: 0;
+  color: var(--fg-secondary);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.d10-muted {
+  color: var(--fg-muted);
+}
+
+.d10-unavailable {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border-soft);
+  color: var(--warning);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-action:focus-visible,
+.d10-fchip:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

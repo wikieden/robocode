@@ -2,6 +2,7 @@
 
 mod adapter;
 mod d1;
+mod d10;
 mod d2;
 mod d4;
 mod d6;
@@ -31,6 +32,9 @@ pub use d4::{
     D4LaneRequest, D4Preset,
 };
 pub use d6::{D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State};
+pub use d10::{
+    D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
+};
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
@@ -219,6 +223,19 @@ fn permission_poll(
 }
 
 #[tauri::command]
+fn d10_lane_monitor(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D10LaneMonitorProjection>, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d10_lane_monitor())
+}
+
+#[tauri::command]
 fn d2_decisions(
     selected_id: Option<String>,
     state: tauri::State<'_, DesktopState>,
@@ -298,6 +315,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             permission_poll,
             d2_decisions,
             d2_send_intent,
+            d10_lane_monitor,
             d6_recover
         ])
         .run(tauri::generate_context!())

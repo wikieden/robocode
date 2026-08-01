@@ -704,6 +704,10 @@ impl GuiCoreAdapter {
         self.projection.permission_dock()
     }
 
+    pub fn d10_lane_monitor(&self) -> Option<crate::D10LaneMonitorProjection> {
+        self.projection.d10_lane_monitor()
+    }
+
     pub fn d2_decisions(&self) -> Option<crate::D2DecisionsProjection> {
         self.projection.d2_decisions(self.d2_selected.as_deref())
     }

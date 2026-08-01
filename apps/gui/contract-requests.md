@@ -77,3 +77,15 @@ Close this request when Core publishes a pending contract-confirmation fact
 with its proposer, target contract version, subscribers, and audit id, and the
 canonical fixture proves that a pending contract becomes decided through
 `ConfirmContract`.
+
+## GUI-CORE-014: Ordered event log in the view state
+
+`RuntimeViewState` publishes current facts but no ordered event log. The D10
+design shows a scribe-compiled event stream across projects, and D14 needs the
+same ordered history. D10 renders no ticker and declares the gap with this
+code; it must not rebuild a timeline by diffing successive snapshots.
+
+Close this request when Core publishes a bounded, ordered, owner-scoped event
+log — or a replay cursor the client can page — with a stable event id, kind,
+owner, and timestamp, and the canonical fixture proves ordering across two
+projects.

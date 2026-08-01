@@ -74,3 +74,7 @@ tauri-build = { version = "2.5.6", features = [] }
 [dev-dependencies]
 serde_json = "1"
 toml = "0.8"
+
+[[test]]
+name = "d10_lane_monitor"
+path = "../tests/d10_lane_monitor.rs"

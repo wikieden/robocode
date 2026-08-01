@@ -13,6 +13,10 @@ import {
   type D1IntentResult,
 } from "./screens/d1_cockpit";
 import {
+  renderD10LaneMonitor,
+  type D10LaneMonitorProjection,
+} from "./screens/d10_lane_monitor";
+import {
   renderD2Decisions,
   type D2DecisionsProjection,
   type D2Intent,
@@ -251,6 +255,19 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         );
       };
 
+      // D10 watches every Lane across projects. It is read-only: every
+      // actionable decision routes back into D2.
+      const showD10 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D10LaneMonitorProjection | null>("d10_lane_monitor");
+        if (!projection) {
+          throw new Error("Core did not provide the D10 lane monitor projection");
+        }
+        root.dataset.route = "d10";
+        renderD10LaneMonitor(root, projection, locale, () => void showD2());
+      };
+
       const openProject = async () => {
         const selected = await open({
           directory: true,
@@ -273,6 +290,8 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           await showD4();
         } else if (screen === "d2") {
           await showD2();
+        } else if (screen === "d10") {
+          await showD10();
         } else {
           await showD1();
         }
