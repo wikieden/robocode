@@ -1,13 +1,14 @@
 use serde::Serialize;
 use viden_core::{
-    AgentConversationRole, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionStatus,
-    AgentStartability, AgentTaskStatus, ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk,
-    ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ConflictBounceStatus,
-    ContractDecision, ContractRecord, CredentialHandle, EventCursor, GateStrength, LaneStatus,
-    LocaleId, MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
-    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
-    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
+    AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
+    AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalRisk, ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus,
+    ConflictBounceStatus, ContractDecision, ContractRecord, CredentialHandle, DependencyState,
+    EventCursor, GateStrength, LaneStatus, LocaleId, MergeGateStatus, MergeGateType,
+    MutationPolicy, ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
+    ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
+    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
+    WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -30,6 +31,10 @@ use crate::d10::{
 use crate::d12::{
     D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
     D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
+};
+use crate::d13::{
+    D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
+    D13WorkflowProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -519,6 +524,75 @@ impl RuntimeProjection {
                     code: None,
                 },
             ],
+        })
+    }
+
+    /// Projects the D13 fleet view: every Core workflow DAG and the handoffs
+    /// Core recorded between Lanes.
+    pub fn d13_fleet_workflow(&self) -> Option<D13FleetWorkflowProjection> {
+        let view = self.view()?;
+        let workflows = view
+            .agent_dags
+            .iter()
+            .map(|dag| D13WorkflowProjection {
+                dag_id: dag.dag_id.clone(),
+                goal: dag.goal.clone(),
+                status: agent_dag_status(dag.status).to_string(),
+                created_at: dag.created_at,
+                updated_at: dag.updated_at,
+                nodes: dag
+                    .tasks
+                    .iter()
+                    .map(|spec| {
+                        let live = view.tasks.iter().find(|task| task.id == spec.task_id);
+                        let blockers: Vec<D13BlockerProjection> = view
+                            .dependencies
+                            .iter()
+                            .filter(|dependency| {
+                                dependency.task_id == spec.task_id
+                                    && dependency.state == DependencyState::Blocked
+                            })
+                            .map(|dependency| D13BlockerProjection {
+                                dependency_id: dependency.dependency_id.clone(),
+                                depends_on_task_id: dependency.depends_on_task_id.clone(),
+                                reason: dependency.reason.clone(),
+                                audit_id: dependency.audit_id.clone(),
+                                updated_at: dependency.updated_at,
+                            })
+                            .collect();
+                        D13NodeProjection {
+                            task_id: spec.task_id.clone(),
+                            title: spec.title.clone(),
+                            objective: spec.objective.clone(),
+                            role: agent_role(spec.role).to_string(),
+                            depends_on: spec.dependencies.clone(),
+                            required_evidence: spec.required_evidence.clone(),
+                            permission_policy: spec.permission_policy.clone(),
+                            // A planned spec with no Core task is not running.
+                            status: live.map(|task| agent_task_status(task.status).to_string()),
+                            progress: live.map(|task| task.progress),
+                            blocked: !blockers.is_empty(),
+                            blockers,
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Some(D13FleetWorkflowProjection {
+            workflows,
+            handoffs: view
+                .handoffs
+                .iter()
+                .map(|handoff| D13HandoffProjection {
+                    handoff_id: handoff.handoff_id.clone(),
+                    task_id: handoff.task_id.clone(),
+                    from_lane_id: handoff.from_lane_id.clone(),
+                    to_lane_id: handoff.to_lane_id.clone(),
+                    summary: handoff.summary.clone(),
+                    audit_id: handoff.audit_id.clone(),
+                })
+                .collect(),
         })
     }
 
@@ -1498,6 +1572,40 @@ fn check_run_status(status: CheckRunStatus) -> &'static str {
         CheckRunStatus::Passed => "passed",
         CheckRunStatus::Failed => "failed",
         CheckRunStatus::Cancelled => "cancelled",
+    }
+}
+
+fn agent_task_status(status: AgentTaskStatus) -> &'static str {
+    match status {
+        AgentTaskStatus::Queued => "queued",
+        AgentTaskStatus::Thinking => "thinking",
+        AgentTaskStatus::Streaming => "streaming",
+        AgentTaskStatus::Editing => "editing",
+        AgentTaskStatus::RunningTool => "running_tool",
+        AgentTaskStatus::Testing => "testing",
+        AgentTaskStatus::WaitingApproval => "waiting_approval",
+        AgentTaskStatus::NeedsInput => "needs_input",
+        AgentTaskStatus::Blocked => "blocked",
+        AgentTaskStatus::Reviewing => "reviewing",
+        AgentTaskStatus::Running => "running",
+        AgentTaskStatus::Attached => "attached",
+        AgentTaskStatus::Done => "done",
+        AgentTaskStatus::Applied => "applied",
+        AgentTaskStatus::Discarded => "discarded",
+        AgentTaskStatus::Failed => "failed",
+        AgentTaskStatus::Cancelled => "cancelled",
+        AgentTaskStatus::Archived => "archived",
+    }
+}
+
+fn agent_dag_status(status: AgentDagStatus) -> &'static str {
+    match status {
+        AgentDagStatus::Draft => "draft",
+        AgentDagStatus::Active => "active",
+        AgentDagStatus::Paused => "paused",
+        AgentDagStatus::Blocked => "blocked",
+        AgentDagStatus::Completed => "completed",
+        AgentDagStatus::Cancelled => "cancelled",
     }
 }
 

@@ -770,6 +770,10 @@ impl GuiCoreAdapter {
         })
     }
 
+    pub fn d13_fleet_workflow(&self) -> Option<crate::D13FleetWorkflowProjection> {
+        self.projection.d13_fleet_workflow()
+    }
+
     pub fn d12_integration_gate(&self) -> Option<crate::D12IntegrationGateProjection> {
         self.projection.d12_integration_gate(None)
     }

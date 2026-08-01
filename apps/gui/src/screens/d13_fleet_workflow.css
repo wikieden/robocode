@@ -1,0 +1,134 @@
+/* D13 fleet and workflow. Values come from the shared token layer only. */
+
+.d13-stage {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+}
+
+.d13-head {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+
+.d13-title {
+  margin: 0;
+  color: var(--fg-primary);
+  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+}
+
+.d13-board {
+  overflow: auto;
+  padding: var(--sp-4);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(280px, 1fr);
+  align-items: start;
+  gap: var(--sp-4);
+}
+
+.d13-column {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.d13-goal {
+  margin: 0;
+  color: var(--fg-primary);
+  font: var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.d13-node {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+}
+
+/* Only a Core-recorded blocked dependency escalates a node. */
+.d13-node[data-d13-blocked="true"] {
+  border-color: var(--warning);
+}
+
+.d13-nhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.d13-ntitle {
+  color: var(--fg-primary);
+  font: var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.d13-chip,
+.d13-status {
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-full);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d13-status[data-d13-status="none"] {
+  color: var(--fg-muted);
+}
+
+.d13-status[data-d13-status="blocked"],
+.d13-status[data-d13-status="waiting_approval"],
+.d13-status[data-d13-status="needs_input"] {
+  color: var(--warning);
+}
+
+.d13-objective,
+.d13-meta,
+.d13-muted {
+  margin: 0;
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.d13-blocker {
+  margin: 0;
+  color: var(--warning);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d13-progress {
+  height: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+
+.d13-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.d13-handoffs {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.d13-sec {
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.d13-handoff {
+  margin: 0;
+  color: var(--fg-secondary);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}

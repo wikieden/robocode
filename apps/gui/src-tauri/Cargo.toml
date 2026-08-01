@@ -89,3 +89,7 @@ path = "../tests/d12_integration_gate.rs"
 [[test]]
 name = "d14_audit_timeline"
 path = "../tests/d14_audit_timeline.rs"
+
+[[test]]
+name = "d13_fleet_workflow"
+path = "../tests/d13_fleet_workflow.rs"

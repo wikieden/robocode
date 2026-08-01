@@ -21,6 +21,10 @@ import {
   type D12IntegrationGateProjection,
 } from "./screens/d12_integration_gate";
 import {
+  renderD13FleetWorkflow,
+  type D13FleetWorkflowProjection,
+} from "./screens/d13_fleet_workflow";
+import {
   renderD14AuditTimeline,
   type D14AuditTimelineProjection,
 } from "./screens/d14_audit_timeline";
@@ -307,6 +311,19 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         renderD14AuditTimeline(root, projection, locale, (after) => page(after));
       };
 
+      // D13 is the fleet board. It is read-only: workflow mutations stay with
+      // the Core commands that own the DAG.
+      const showD13 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D13FleetWorkflowProjection | null>("d13_fleet_workflow");
+        if (!projection) {
+          throw new Error("Core did not provide the D13 fleet projection");
+        }
+        root.dataset.route = "d13";
+        renderD13FleetWorkflow(root, projection, locale);
+      };
+
       const openProject = async () => {
         const selected = await open({
           directory: true,
@@ -333,6 +350,8 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           await showD10();
         } else if (screen === "d12") {
           await showD12();
+        } else if (screen === "d13") {
+          await showD13();
         } else if (screen === "d14") {
           await showD14();
         } else {
