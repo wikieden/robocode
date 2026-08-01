@@ -39,12 +39,12 @@ export function renderLaneRail(options: LaneRailOptions): HTMLElement {
   lanes.dataset.shellLandmark = "lane-rail";
   lanes.dataset.cockpitRole = "lanes";
   lanes.setAttribute("aria-label", translate(locale, "d1.lanes", {}));
-  lanes.addEventListener("keydown", (event) => {
+  lanes.onkeydown = (event) => {
     if (event.key !== "Escape" || !options.open) return;
     event.preventDefault();
     event.stopPropagation();
     options.onDismiss();
-  });
+  };
 
   const laneTitle = document.createElement("h2");
   laneTitle.textContent = translate(locale, "d1.lanes", {});

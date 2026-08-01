@@ -50,6 +50,17 @@ export interface D1Controller {
   dispose: () => void;
 }
 
+function refreshPersistentRail(current: HTMLElement, next: HTMLElement): void {
+  for (const attribute of Array.from(current.attributes)) {
+    if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+  }
+  for (const attribute of Array.from(next.attributes)) {
+    current.setAttribute(attribute.name, attribute.value);
+  }
+  current.replaceChildren(...Array.from(next.childNodes));
+  current.onkeydown = next.onkeydown;
+}
+
 export interface D1RenderOptions {
   onOpenProject?: () => void | Promise<void>;
   onCreateLane?: () => void;
@@ -1060,18 +1071,61 @@ export function renderD1Cockpit(
     });
     right.tabIndex = -1;
 
-    if (showWelcome) {
-      body.append(activity, main);
-    } else {
-      body.append(activity, lanes, main, right);
-    }
     const status = document.createElement("footer");
     status.className = "statusbar d1-status";
     status.dataset.shellLandmark = "statusbar";
     status.dataset.statusbar = "true";
     status.textContent = `${projection.environment.workMode} · ${projection.environment.permissionLevel} · ${projection.preferences.skin}/${projection.preferences.mode}`;
-    frame.append(titlebar, body, status);
-    root.replaceChildren(frame);
+    const currentFrame = root.querySelector<HTMLElement>('[data-screen="d1-cockpit"]');
+    const currentBody = currentFrame?.querySelector<HTMLElement>(":scope > .d1-body");
+    const currentActivity = currentBody?.querySelector<HTMLElement>(
+      ':scope > [data-shell-landmark="activity-rail"]',
+    );
+    const currentLanes = currentBody?.querySelector<HTMLElement>(
+      ':scope > [data-shell-landmark="lane-rail"]',
+    );
+    const currentTopbar = currentFrame?.querySelector<HTMLElement>(
+      ':scope > [data-shell-landmark="topbar"]',
+    );
+    const currentMain = currentBody?.querySelector<HTMLElement>(
+      ':scope > [data-shell-landmark="lane-work-surface"]',
+    );
+    const currentRight = currentBody?.querySelector<HTMLElement>(
+      ':scope > [data-shell-landmark="context-dock"]',
+    );
+    const currentStatus = currentFrame?.querySelector<HTMLElement>(
+      ':scope > [data-shell-landmark="statusbar"]',
+    );
+    if (
+      !showWelcome &&
+      currentFrame &&
+      currentBody &&
+      currentActivity &&
+      currentLanes &&
+      currentTopbar &&
+      currentMain &&
+      currentRight &&
+      currentStatus
+    ) {
+      // These two hover roots control the floating Lane rail. Keeping their
+      // identity stable prevents ordered Core refreshes from dropping :hover
+      // for a frame and flashing the entire sidebar.
+      refreshPersistentRail(currentActivity, activity);
+      refreshPersistentRail(currentLanes, lanes);
+      currentTopbar.replaceWith(titlebar);
+      currentMain.replaceWith(main);
+      currentRight.replaceWith(right);
+      currentStatus.replaceWith(status);
+      currentFrame.className = frame.className;
+      currentFrame.dataset.nativeWindowShell = frame.dataset.nativeWindowShell;
+      currentBody.className = body.className;
+      currentBody.dataset.cockpitLayout = body.dataset.cockpitLayout;
+    } else {
+      if (showWelcome) body.append(activity, main);
+      else body.append(activity, lanes, main, right);
+      frame.append(titlebar, body, status);
+      root.replaceChildren(frame);
+    }
 
     if (agentMenuOpen) mountAgentMenu();
 

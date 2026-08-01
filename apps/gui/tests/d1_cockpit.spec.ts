@@ -1272,6 +1272,37 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector('[aria-label="Transcript"]')).toBe(transcript);
   });
 
+  test("keeps the hover rails mounted while Core refreshes Lane Agent status", () => {
+    const startingSession = {
+      sessionId: "session-lane-core",
+      laneId: "lane-core",
+      agentId: "codex-acp",
+      model: null,
+      status: "starting" as const,
+      task: "Review the project",
+      diagnostic: null,
+    };
+    const projection = { ...D1_PROJECTION, agentSessions: [startingSession] };
+    const { root, controller } = setup(projection);
+    const activityRail = root.querySelector<HTMLElement>('[data-cockpit-role="activity"]')!;
+    const laneRail = root.querySelector<HTMLElement>("#d1-lane-rail")!;
+
+    controller.applyResult({
+      projection: {
+        ...projection,
+        agentSessions: [{ ...startingSession, status: "completed" as const }],
+      },
+      pendingCommandId: null,
+      outcome: { state: "confirmed", reason: null },
+    });
+
+    expect(root.querySelector('[data-cockpit-role="activity"]')).toBe(activityRail);
+    expect(root.querySelector("#d1-lane-rail")).toBe(laneRail);
+    expect(laneRail.querySelector('[data-lane-id="lane-core"]')?.textContent).toContain(
+      "completed",
+    );
+  });
+
   test("transport rejection restores the exact composer draft", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;

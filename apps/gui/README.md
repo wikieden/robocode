@@ -216,7 +216,10 @@ transcript/tool rows, queue state, evidence, and composer are transport-safe
 projections of Core's latest `RuntimeViewState`.
 The webview owns only focus, draft, layout, bounded-row, and scroll-anchor
 state. It does not parse display strings, persist a second workspace model, or
-claim command acceptance as business success.
+claim command acceptance as business success. Ordered Core refreshes update the
+activity and Lane rails in place so their hover roots remain mounted while
+volatile Lane/Agent status changes; this prevents the floating sidebar from
+flashing without hiding fresh Core facts.
 
 `New Lane` opens one compact, anchored popover with the built-in Viden Agent
 selected by default, discovered ACP Agents, the task draft, branded Agent

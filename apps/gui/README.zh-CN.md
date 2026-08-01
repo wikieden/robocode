@@ -182,7 +182,9 @@ D11 只用于显式配置。Activity rail、Lane rail、Environment、Live Work�
 transcript/tool rows、排队状态、evidence 与 composer 都是 Core 最新
 `RuntimeViewState` 的 transport-safe 投影。Webview 只持有焦点、draft、布局、有界行窗口
 与滚动锚点，不解析显示字符串，不持久化第二套 workspace 模型，也不会把 command
-acceptance 当作业务成功。
+acceptance 当作业务成功。有序 Core 刷新会原位更新 activity 与 Lane rail，让它们的
+hover 根节点在易变的 Lane/Agent 状态变化期间保持挂载；这样既不会隐藏最新 Core 事实，
+也不会让浮动侧栏反复闪烁。
 
 “新建 Lane”会打开一个紧凑的锚定弹层，默认选中内置 Viden Agent，并包含已发现的 ACP
 Agents、品牌身份、任务 draft、Core 投影的 eligibility/probe 诊断，以及只作呈现的
