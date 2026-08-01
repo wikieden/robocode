@@ -4,6 +4,7 @@ mod adapter;
 mod d1;
 mod d10;
 mod d12;
+mod d14;
 mod d2;
 mod d4;
 mod d6;
@@ -40,6 +41,7 @@ pub use d12::{
     D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
     D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
 };
+pub use d14::{D14AuditTimelineProjection, D14RowProjection};
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
@@ -228,6 +230,21 @@ fn permission_poll(
 }
 
 #[tauri::command]
+fn d14_audit_timeline(
+    after: Option<String>,
+    limit: u32,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D14AuditTimelineProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d14_audit_timeline(after.as_deref(), limit)
+}
+
+#[tauri::command]
 fn d12_integration_gate(
     selected_gate_id: Option<String>,
     state: tauri::State<'_, DesktopState>,
@@ -340,6 +357,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d2_send_intent,
             d10_lane_monitor,
             d12_integration_gate,
+            d14_audit_timeline,
             d6_recover
         ])
         .run(tauri::generate_context!())

@@ -1,0 +1,110 @@
+/* D14 audit and timeline. Values come from the shared token layer only. */
+
+.d14-stage {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+}
+
+.d14-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+
+.d14-title {
+  margin: 0;
+  color: var(--fg-primary);
+  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+}
+
+.d14-count,
+.d14-muted {
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+/* A truncated audit trail must never read as a complete one. */
+.d14-error {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--error);
+  border-bottom: 1px solid var(--error);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d14-list {
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  list-style: none;
+  display: grid;
+  align-content: start;
+  gap: var(--sp-1);
+}
+
+.d14-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d14-row[data-d14-unknown="true"] {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.d14-seq {
+  color: var(--accent);
+}
+
+.d14-kind {
+  color: var(--fg-primary);
+}
+
+.d14-scope {
+  color: var(--fg-muted);
+}
+
+.d14-time {
+  margin-left: auto;
+  color: var(--fg-muted);
+}
+
+.d14-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.d14-more {
+  cursor: pointer;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d14-more:disabled {
+  cursor: progress;
+  color: var(--fg-muted);
+}
+
+.d14-more:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

@@ -21,6 +21,10 @@ import {
   type D12IntegrationGateProjection,
 } from "./screens/d12_integration_gate";
 import {
+  renderD14AuditTimeline,
+  type D14AuditTimelineProjection,
+} from "./screens/d14_audit_timeline";
+import {
   renderD2Decisions,
   type D2DecisionsProjection,
   type D2Intent,
@@ -288,6 +292,21 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         renderD12IntegrationGate(root, projection, locale, (next) => void showD12(next));
       };
 
+      // D14 is the audit trail. It pages the Core replay cursor and never
+      // reconstructs history from the current view state.
+      const showD14 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const page = async (after: string | null) =>
+          await invoke<D14AuditTimelineProjection>("d14_audit_timeline", {
+            after,
+            limit: 200,
+          });
+        const projection = await page(null);
+        root.dataset.route = "d14";
+        renderD14AuditTimeline(root, projection, locale, (after) => page(after));
+      };
+
       const openProject = async () => {
         const selected = await open({
           directory: true,
@@ -314,6 +333,8 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           await showD10();
         } else if (screen === "d12") {
           await showD12();
+        } else if (screen === "d14") {
+          await showD14();
         } else {
           await showD1();
         }

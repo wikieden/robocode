@@ -63,6 +63,9 @@ path = "../tests/d2_decisions.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+# Used to read the canonical serde tag of a Core event kind instead of
+# duplicating Core's 117-variant vocabulary in the client.
+serde_json = "1"
 sha2 = "0.10"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-dialog = "2.7.2"
@@ -82,3 +85,7 @@ path = "../tests/d10_lane_monitor.rs"
 [[test]]
 name = "d12_integration_gate"
 path = "../tests/d12_integration_gate.rs"
+
+[[test]]
+name = "d14_audit_timeline"
+path = "../tests/d14_audit_timeline.rs"

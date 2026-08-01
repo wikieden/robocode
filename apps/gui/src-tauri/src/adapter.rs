@@ -704,6 +704,72 @@ impl GuiCoreAdapter {
         self.projection.permission_dock()
     }
 
+    /// Pages the audit trail through the Core replay cursor.
+    ///
+    /// `after` is the opaque `stream:sequence` cursor returned by the previous
+    /// page. A replay failure is reported rather than rendered as a shorter
+    /// trail, because a truncated audit view reads as a complete one.
+    pub fn d14_audit_timeline(
+        &mut self,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<crate::D14AuditTimelineProjection, String> {
+        let cursor = match after {
+            Some(raw) => parse_audit_cursor(raw)?,
+            None => self
+                .projection
+                .cursor()
+                .cloned()
+                .map(|cursor| viden_core::EventCursor {
+                    stream_id: cursor.stream_id,
+                    sequence: 0,
+                })
+                .unwrap_or(viden_core::EventCursor {
+                    stream_id: String::new(),
+                    sequence: 0,
+                }),
+        };
+        let batch = self
+            .client
+            .replay(viden_core::ReplayRequest {
+                after: cursor,
+                limit,
+            })
+            .map_err(|error| format!("Core replay failed: {error}"))?;
+        let rows = batch
+            .events
+            .iter()
+            .map(|envelope| {
+                let (kind, known, timestamp) = match &envelope.event {
+                    viden_core::RuntimeWireEvent::Known(event) => (
+                        // The canonical name is Core's own serde discriminant,
+                        // so the client never keeps a second event vocabulary.
+                        core_event_kind(&event.kind),
+                        true,
+                        event.timestamp,
+                    ),
+                    _ => ("unknown".to_string(), false, None),
+                };
+                crate::D14RowProjection {
+                    sequence: envelope.cursor.sequence,
+                    stream_id: envelope.cursor.stream_id.clone(),
+                    kind,
+                    known,
+                    timestamp,
+                    project_id: envelope.owner.project_id.clone(),
+                    lane_id: envelope.owner.lane_id.clone(),
+                    session_id: envelope.owner.session_id.clone(),
+                    task_id: envelope.owner.task_id.clone(),
+                }
+            })
+            .collect();
+        Ok(crate::D14AuditTimelineProjection {
+            rows,
+            next_cursor: Some(format!("{}:{}", batch.next.stream_id, batch.next.sequence)),
+            complete: batch.complete,
+        })
+    }
+
     pub fn d12_integration_gate(&self) -> Option<crate::D12IntegrationGateProjection> {
         self.projection.d12_integration_gate(None)
     }
@@ -2175,5 +2241,33 @@ mod tests {
         drop(host);
         std::fs::remove_dir_all(session_home).expect("remove temporary session home");
         std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+}
+
+/// Parses the opaque `stream:sequence` audit cursor the client handed out.
+fn parse_audit_cursor(raw: &str) -> Result<viden_core::EventCursor, String> {
+    let (stream_id, sequence) = raw
+        .rsplit_once(':')
+        .ok_or_else(|| format!("malformed audit cursor `{raw}`"))?;
+    Ok(viden_core::EventCursor {
+        stream_id: stream_id.to_string(),
+        sequence: sequence
+            .parse()
+            .map_err(|_| format!("malformed audit cursor `{raw}`"))?,
+    })
+}
+
+/// Reads the canonical Core discriminant for an event kind.
+///
+/// Core owns the event vocabulary; serializing the tag keeps the client from
+/// mirroring a 117-variant enum that would drift on the next Core change.
+fn core_event_kind(kind: &viden_core::RuntimeEventKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::Object(map)) => map
+            .get("type")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "unknown".to_string()),
+        _ => "unknown".to_string(),
     }
 }
