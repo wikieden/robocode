@@ -57,6 +57,10 @@ path = "../tests/d6_recovery.rs"
 name = "reconnect"
 path = "../tests/reconnect.rs"
 
+[[test]]
+name = "d2_decisions"
+path = "../tests/d2_decisions.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"

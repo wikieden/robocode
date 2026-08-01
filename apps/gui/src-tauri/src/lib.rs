@@ -2,6 +2,7 @@
 
 mod adapter;
 mod d1;
+mod d2;
 mod d4;
 mod d6;
 mod permission;
@@ -19,6 +20,11 @@ pub use d1::{
     D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
     D1LaneAgentProjection, D1OutcomeProjection, D1ProviderHealthProjection,
     D1RuntimeServiceProjection, D1StarterLaneReceiptProjection, D1WorkspaceSourceProjection,
+};
+pub use d2::{
+    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
+    D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection, D2Intent,
+    D2IntentResult, D2QueueItemProjection, D2UnavailableProjection,
 };
 pub use d4::{
     D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,
@@ -213,6 +219,39 @@ fn permission_poll(
 }
 
 #[tauri::command]
+fn d2_decisions(
+    selected_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D2DecisionsProjection>, String> {
+    let guard = state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
+    let adapter = guard
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?;
+    Ok(match selected_id {
+        Some(id) => adapter.d2_decisions_for(&id),
+        None => adapter.d2_decisions(),
+    })
+}
+
+#[tauri::command]
+fn d2_send_intent(
+    command_id: String,
+    intent: D2Intent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D2IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d2_send_intent(&command_id, intent)
+}
+
+#[tauri::command]
 fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProjection, String> {
     let mut guard = state
         .adapter
@@ -257,6 +296,8 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d1_poll,
             permission_send_intent,
             permission_poll,
+            d2_decisions,
+            d2_send_intent,
             d6_recover
         ])
         .run(tauri::generate_context!())

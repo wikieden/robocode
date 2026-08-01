@@ -40,6 +40,9 @@ pub struct GuiCoreAdapter {
     permission_outcome: PermissionOutcomeProjection,
     connection: D6ConnectionState,
     connection_detail: Option<String>,
+    /// D2 queue selection. Presentation state only: it never gates a Core
+    /// command and is dropped when Core stops publishing the decision.
+    d2_selected: Option<String>,
 }
 
 struct HostedCoreClient {
@@ -623,6 +626,7 @@ impl GuiCoreAdapter {
             permission_outcome: PermissionOutcomeProjection::idle(),
             connection: D6ConnectionState::Disconnected,
             connection_detail: None,
+            d2_selected: None,
         }
     }
 
@@ -698,6 +702,106 @@ impl GuiCoreAdapter {
 
     pub fn permission_dock(&self) -> Option<PermissionDockProjection> {
         self.projection.permission_dock()
+    }
+
+    pub fn d2_decisions(&self) -> Option<crate::D2DecisionsProjection> {
+        self.projection.d2_decisions(self.d2_selected.as_deref())
+    }
+
+    /// Projects the queue with an explicit selection without persisting it.
+    pub fn d2_decisions_for(&self, id: &str) -> Option<crate::D2DecisionsProjection> {
+        self.projection.d2_decisions(Some(id))
+    }
+
+    /// Sends one D2 decision. Selection is local; every real decision travels
+    /// as the Core command that owns that fact family.
+    pub fn d2_send_intent(
+        &mut self,
+        command_id: &str,
+        intent: crate::D2Intent,
+    ) -> Result<crate::D2IntentResult, String> {
+        let outcome = match intent {
+            crate::D2Intent::Select { id } => {
+                self.d2_selected = Some(id);
+                PermissionOutcomeProjection::idle()
+            }
+            crate::D2Intent::RespondApproval {
+                request_id,
+                choice,
+                feedback,
+            } => {
+                let envelope = self.permission_envelope(
+                    command_id,
+                    PermissionIntent::Respond {
+                        request_id: request_id.clone(),
+                        choice,
+                        feedback,
+                    },
+                )?;
+                self.client.send(envelope).map_err(|e| e.to_string())?;
+                self.d2_selected = Some(request_id);
+                PermissionOutcomeProjection::pending()
+            }
+            crate::D2Intent::DecideContract {
+                contract_id,
+                accept,
+            } => {
+                let envelope = self.d2_contract_envelope(command_id, &contract_id, accept)?;
+                self.client.send(envelope).map_err(|e| e.to_string())?;
+                self.d2_selected = Some(contract_id);
+                PermissionOutcomeProjection::pending()
+            }
+        };
+        let projection = self
+            .d2_decisions()
+            .ok_or_else(|| "Core has not published a decision projection".to_string())?;
+        Ok(crate::D2IntentResult {
+            projection,
+            pending_command_id: match outcome.state {
+                "pending" => Some(command_id.to_string()),
+                _ => None,
+            },
+            outcome,
+        })
+    }
+
+    /// Replays the contract identity Core recorded. The GUI never rebuilds an
+    /// owner or task id from display text.
+    fn d2_contract_envelope(
+        &self,
+        command_id: &str,
+        contract_id: &str,
+        accept: bool,
+    ) -> Result<RuntimeCommandEnvelope, String> {
+        let view = self
+            .projection
+            .view()
+            .ok_or_else(|| "Core has not published a decision projection".to_string())?;
+        if view.snapshot.work_mode == WorkMode::Plan {
+            return Err("Plan mode blocks contract decisions".to_string());
+        }
+        let contract = view
+            .contracts
+            .iter()
+            .find(|entry| entry.contract_id == contract_id)
+            .ok_or_else(|| format!("contract `{contract_id}` is not published by Core"))?;
+        Ok(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "viden-gui".to_string(),
+            command_id: command_id.to_string(),
+            owner: contract.owner.clone(),
+            command: RuntimeCommand::ConfirmContract {
+                contract_id: contract.contract_id.clone(),
+                task_id: contract.task_id.clone(),
+                owner: contract.owner.clone(),
+                summary: contract.summary.clone(),
+                decision: if accept {
+                    viden_core::ContractDecision::Confirmed
+                } else {
+                    viden_core::ContractDecision::Rejected
+                },
+            },
+        })
     }
 
     pub fn d6_recovery(&self) -> D6RecoveryProjection {

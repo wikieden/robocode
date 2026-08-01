@@ -1,11 +1,12 @@
 use serde::Serialize;
 use viden_core::{
     AgentConversationRole, AgentLaneRecord, AgentRoute, AgentSessionStatus, AgentStartability,
-    AgentTaskStatus, ApprovalDefaultAction, ApprovalRisk, ApprovalScope,
-    COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, CredentialHandle, EventCursor, LaneStatus,
-    LocaleId, ProjectConfigPreview, ProjectProbe, ProviderHealthView, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
-    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
+    AgentTaskStatus, ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk, ApprovalScope,
+    COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ContractDecision, ContractRecord, CredentialHandle,
+    EventCursor, LaneStatus, LocaleId, ProjectConfigPreview, ProjectProbe, ProviderHealthView,
+    ReviewRequestRecord, ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
+    WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -16,6 +17,11 @@ use crate::d1::{
     D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLanePreviewProjection,
     D1StarterLaneReceiptProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
     D1WorkspaceSourceProjection, unavailable_features,
+};
+use crate::d2::{
+    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
+    D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection,
+    D2QueueItemProjection, D2UnavailableProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -284,6 +290,227 @@ impl RuntimeProjection {
             work_mode: view.snapshot.work_mode.cli_name().to_string(),
             permission_level: view.snapshot.permission_level.cli_name().to_string(),
             request,
+        })
+    }
+
+    /// Projects the D2 decision queue.
+    ///
+    /// `selected` is presentation state supplied by the shell. When it does not
+    /// name a live decision the projection falls back to the first pending
+    /// item, so the card never renders a decision Core no longer holds.
+    pub fn d2_decisions(&self, selected: Option<&str>) -> Option<D2DecisionsProjection> {
+        let view = self.view()?;
+        let blocked_by_plan = view.snapshot.work_mode == WorkMode::Plan;
+
+        let gate_items: Vec<D2QueueItemProjection> =
+            view.pending_approvals.iter().map(gate_queue_item).collect();
+        let contract_items: Vec<D2QueueItemProjection> =
+            view.contracts.iter().map(contract_queue_item).collect();
+        let review_items: Vec<D2QueueItemProjection> =
+            view.review_requests.iter().map(review_queue_item).collect();
+
+        // Only approvals and pending reviews are actually awaiting a human.
+        let pending_total = gate_items.len()
+            + review_items
+                .iter()
+                .filter(|item| item.status == "pending")
+                .count();
+
+        let groups = vec![
+            D2GroupProjection {
+                kind: D2_KIND_GATE.to_string(),
+                items: gate_items,
+                unavailable: None,
+            },
+            D2GroupProjection {
+                kind: D2_KIND_REVIEW.to_string(),
+                items: review_items,
+                unavailable: None,
+            },
+            D2GroupProjection {
+                kind: D2_KIND_CONTRACT.to_string(),
+                items: contract_items,
+                unavailable: Some(D2UnavailableProjection {
+                    key: "d2.contract.noPendingFact",
+                    code: "GUI-CORE-013",
+                }),
+            },
+        ];
+
+        let selected_id = selected
+            .filter(|id| {
+                groups
+                    .iter()
+                    .any(|group| group.items.iter().any(|item| item.id == *id))
+            })
+            .map(str::to_string)
+            .or_else(|| {
+                groups
+                    .iter()
+                    .flat_map(|group| group.items.iter())
+                    .next()
+                    .map(|item| item.id.clone())
+            });
+
+        let detail = selected_id
+            .as_deref()
+            .and_then(|id| self.d2_detail(view, id, blocked_by_plan));
+
+        Some(D2DecisionsProjection {
+            work_mode: view.snapshot.work_mode.cli_name().to_string(),
+            permission_level: view.snapshot.permission_level.cli_name().to_string(),
+            pending_total,
+            selected_id,
+            groups,
+            detail,
+        })
+    }
+
+    fn d2_detail(
+        &self,
+        view: &RuntimeViewState,
+        id: &str,
+        blocked_by_plan: bool,
+    ) -> Option<D2DetailProjection> {
+        if let Some(approval) = view.pending_approvals.iter().find(|entry| entry.id == id) {
+            let mut actions: Vec<D2ActionProjection> = approval
+                .allowed_scopes
+                .iter()
+                .map(|scope| match scope {
+                    ApprovalScope::Once => D2ActionProjection {
+                        kind: "once".to_string(),
+                        available: !blocked_by_plan,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: None,
+                    },
+                    ApprovalScope::Session { session_id } => D2ActionProjection {
+                        kind: "session".to_string(),
+                        available: !blocked_by_plan,
+                        session_id: Some(session_id.clone()),
+                        paths: Vec::new(),
+                        code: None,
+                    },
+                    ApprovalScope::RepoAllowlist { paths } => D2ActionProjection {
+                        kind: "repo_allowlist".to_string(),
+                        available: !blocked_by_plan,
+                        session_id: None,
+                        paths: paths.clone(),
+                        code: None,
+                    },
+                })
+                .collect();
+            actions.push(D2ActionProjection {
+                kind: "deny".to_string(),
+                available: !blocked_by_plan,
+                session_id: None,
+                paths: Vec::new(),
+                code: None,
+            });
+
+            return Some(D2DetailProjection {
+                id: approval.id.clone(),
+                kind: D2_KIND_GATE.to_string(),
+                title: approval.title.clone(),
+                project_id: approval.owner.project_id.clone(),
+                lane_id: approval.owner.lane_id.clone(),
+                task_id: approval.owner.task_id.clone(),
+                audit_id: approval.audit_id.clone(),
+                policy_reason_key: Some(approval.policy_reason_key.clone()),
+                blocked_by_plan,
+                context: D2ContextProjection {
+                    source: "approval_input_preview",
+                    text: approval.input_preview.clone(),
+                    // The design shows line-level diff rows. Schema 1 carries
+                    // only this opaque preview, so the rows stay unavailable.
+                    unavailable: Some(D2UnavailableProjection {
+                        key: "d2.context.noStructuredDiff",
+                        code: "GUI-CORE-012",
+                    }),
+                },
+                evidence: owner_evidence(view, approval.owner.lane_id.as_deref()),
+                actions,
+            });
+        }
+
+        if let Some(review) = view
+            .review_requests
+            .iter()
+            .find(|entry| entry.review_id == id)
+        {
+            return Some(D2DetailProjection {
+                id: review.review_id.clone(),
+                kind: D2_KIND_REVIEW.to_string(),
+                title: review.review_id.clone(),
+                project_id: review.owner.project_id.clone(),
+                lane_id: review.owner.lane_id.clone(),
+                task_id: Some(review.task_id.clone()),
+                audit_id: review.audit_id.clone(),
+                policy_reason_key: None,
+                blocked_by_plan,
+                context: D2ContextProjection {
+                    source: "review_request",
+                    text: review.gate_id.clone(),
+                    unavailable: None,
+                },
+                evidence: evidence_by_ids(view, &review.evidence_ids),
+                // frontend-contract-v1 has RequestReview but no command that
+                // records a review decision, so the action fails closed.
+                actions: vec![
+                    D2ActionProjection {
+                        kind: "accept_review".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-011"),
+                    },
+                    D2ActionProjection {
+                        kind: "reject_review".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-011"),
+                    },
+                ],
+            });
+        }
+
+        let contract = view
+            .contracts
+            .iter()
+            .find(|entry| entry.contract_id == id)?;
+        Some(D2DetailProjection {
+            id: contract.contract_id.clone(),
+            kind: D2_KIND_CONTRACT.to_string(),
+            title: contract.summary.clone(),
+            project_id: contract.owner.project_id.clone(),
+            lane_id: contract.owner.lane_id.clone(),
+            task_id: Some(contract.task_id.clone()),
+            audit_id: contract.audit_id.clone(),
+            policy_reason_key: None,
+            blocked_by_plan,
+            context: D2ContextProjection {
+                source: "contract_summary",
+                text: contract.summary.clone(),
+                unavailable: None,
+            },
+            evidence: owner_evidence(view, contract.owner.lane_id.as_deref()),
+            actions: vec![
+                D2ActionProjection {
+                    kind: "confirm_contract".to_string(),
+                    available: !blocked_by_plan,
+                    session_id: None,
+                    paths: Vec::new(),
+                    code: None,
+                },
+                D2ActionProjection {
+                    kind: "reject_contract".to_string(),
+                    available: !blocked_by_plan,
+                    session_id: None,
+                    paths: Vec::new(),
+                    code: None,
+                },
+            ],
         })
     }
 
@@ -1067,6 +1294,111 @@ fn check_run_status(status: CheckRunStatus) -> &'static str {
         CheckRunStatus::Failed => "failed",
         CheckRunStatus::Cancelled => "cancelled",
     }
+}
+
+fn approval_risk(risk: ApprovalRisk) -> &'static str {
+    match risk {
+        ApprovalRisk::Low => "low",
+        ApprovalRisk::Medium => "medium",
+        ApprovalRisk::High => "high",
+        ApprovalRisk::Critical => "critical",
+    }
+}
+
+fn gate_queue_item(approval: &ApprovalRequestView) -> D2QueueItemProjection {
+    D2QueueItemProjection {
+        id: approval.id.clone(),
+        kind: D2_KIND_GATE.to_string(),
+        title: approval.title.clone(),
+        project_id: approval.owner.project_id.clone(),
+        lane_id: approval.owner.lane_id.clone(),
+        session_id: approval.owner.session_id.clone(),
+        task_id: approval.owner.task_id.clone(),
+        risk: Some(approval_risk(approval.risk).to_string()),
+        status: "pending".to_string(),
+        audit_id: approval.audit_id.clone(),
+        updated_at: None,
+        expires_at: Some(approval.expires_at),
+    }
+}
+
+fn contract_queue_item(contract: &ContractRecord) -> D2QueueItemProjection {
+    D2QueueItemProjection {
+        id: contract.contract_id.clone(),
+        kind: D2_KIND_CONTRACT.to_string(),
+        title: contract.summary.clone(),
+        project_id: contract.owner.project_id.clone(),
+        lane_id: contract.owner.lane_id.clone(),
+        session_id: contract.owner.session_id.clone(),
+        task_id: Some(contract.task_id.clone()),
+        risk: None,
+        status: match contract.decision {
+            ContractDecision::Confirmed => "confirmed",
+            ContractDecision::Rejected => "rejected",
+        }
+        .to_string(),
+        audit_id: contract.audit_id.clone(),
+        updated_at: Some(contract.updated_at),
+        expires_at: None,
+    }
+}
+
+fn review_queue_item(review: &ReviewRequestRecord) -> D2QueueItemProjection {
+    D2QueueItemProjection {
+        id: review.review_id.clone(),
+        kind: D2_KIND_REVIEW.to_string(),
+        title: review.review_id.clone(),
+        project_id: review.owner.project_id.clone(),
+        lane_id: review.owner.lane_id.clone(),
+        session_id: review.owner.session_id.clone(),
+        task_id: Some(review.task_id.clone()),
+        risk: None,
+        status: match review.status {
+            ReviewRequestStatus::Pending => "pending",
+            ReviewRequestStatus::Accepted => "accepted",
+            ReviewRequestStatus::Rejected => "rejected",
+        }
+        .to_string(),
+        audit_id: review.audit_id.clone(),
+        updated_at: Some(review.updated_at),
+        expires_at: None,
+    }
+}
+
+fn evidence_projection(evidence: &viden_core::EvidenceView) -> D2EvidenceProjection {
+    D2EvidenceProjection {
+        id: evidence.id.clone(),
+        kind: evidence.kind.clone(),
+        summary: evidence.summary.clone(),
+        path: evidence.path.clone(),
+        source: evidence.source.clone(),
+        timestamp: evidence.timestamp,
+    }
+}
+
+/// Evidence named by a review request, in the order Core recorded the ids.
+fn evidence_by_ids(view: &RuntimeViewState, ids: &[String]) -> Vec<D2EvidenceProjection> {
+    ids.iter()
+        .filter_map(|id| {
+            view.latest_evidence
+                .iter()
+                .find(|evidence| &evidence.id == id)
+        })
+        .map(evidence_projection)
+        .collect()
+}
+
+/// Evidence attributed to a lane by its Core-recorded `source`. Evidence
+/// without a source is not guessed onto a lane.
+fn owner_evidence(view: &RuntimeViewState, lane_id: Option<&str>) -> Vec<D2EvidenceProjection> {
+    let Some(lane_id) = lane_id else {
+        return Vec::new();
+    };
+    view.latest_evidence
+        .iter()
+        .filter(|evidence| evidence.source.as_deref() == Some(lane_id))
+        .map(evidence_projection)
+        .collect()
 }
 
 #[cfg(test)]

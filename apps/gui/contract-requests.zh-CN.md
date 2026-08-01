@@ -35,3 +35,31 @@ D1 fixture 必须证明两个 Lane 的行不会跨 Owner 泄漏。
 
 当每一项实时工作事实都携带完整 `RuntimeOwner`，且规范 D1 fixture 证明两个并发
 Owner 的选中 Lane 投影时，关闭此请求。
+
+## GUI-CORE-011：评审决定命令
+
+`frontend-contract-v1` 发布了带 `Pending` 状态的 `ReviewRequestRecord`，也提供
+`RuntimeCommand::RequestReview`，但没有任何命令用于记录评审决定。因此 D2 会列出
+待处理评审及其 Core 证据，并把接受/驳回动作以该编码置为禁用；不得用
+`AcceptLaneOutput` 或审批响应冒充评审结论。
+
+当 Core 发布携带评审 id、结论、可选反馈与审计 id 的评审决定命令，且规范 fixture
+证明 `ReviewRequestStatus` 的状态迁移时，关闭此请求。
+
+## GUI-CORE-012：审批的结构化决策上下文
+
+`ApprovalRequestView` 只携带 `input_preview` 这一不透明展示字符串。D2 设计稿要求
+按行渲染待执行变更的 diff。D2 原样渲染该预览并声明 diff 不可用，而不是把展示文本
+解析成 diff 行。
+
+当 Core 发布审批的类型化决策上下文（带文件路径、行号与变更类型的有序 hunk，或
+客户端可解析的不可变内容引用），且规范审批 fixture 覆盖多文件变更时，关闭此请求。
+
+## GUI-CORE-013：待确认契约事实
+
+`ContractRecord.decision` 只有 `Confirmed` 与 `Rejected`，因此发布出来的契约都已
+决定。D2 设计稿展示的是等待人确认的契约队列。D2 把契约记录列为已决历史并给该分组
+打上此编码；不得把已决记录当成待办积压。
+
+当 Core 发布携带提议方、目标契约版本、订阅方与审计 id 的待确认契约事实，且规范
+fixture 证明待确认契约经 `ConfirmContract` 转为已决时，关闭此请求。

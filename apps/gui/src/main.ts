@@ -13,6 +13,12 @@ import {
   type D1IntentResult,
 } from "./screens/d1_cockpit";
 import {
+  renderD2Decisions,
+  type D2DecisionsProjection,
+  type D2Intent,
+  type D2IntentResult,
+} from "./screens/d2_decisions";
+import {
   renderD4LaneCreate,
   type D4Intent,
   type D4IntentResult,
@@ -221,6 +227,30 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         });
       };
 
+      // D2 is the cross-Lane decision queue. It reads the same Core facts as
+      // the D1 permission dock, so it never keeps a second decision model.
+      const showD2 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D2DecisionsProjection | null>("d2_decisions", {
+          selectedId: null,
+        });
+        if (!projection) {
+          throw new Error("Core did not provide the D2 decision projection");
+        }
+        root.dataset.route = "d2";
+        renderD2Decisions(
+          root,
+          projection,
+          async (intent: D2Intent) =>
+            await invoke<D2IntentResult>("d2_send_intent", {
+              commandId: `gui-d2-${crypto.randomUUID()}`,
+              intent,
+            }),
+          locale,
+        );
+      };
+
       const openProject = async () => {
         const selected = await open({
           directory: true,
@@ -238,8 +268,11 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       if (initialProjection) {
         // D4 remains an explicit compatibility surface; normal project entry
         // and the D1 `+` action use the compact native/ACP menu.
-        if (new URLSearchParams(window.location.search).get("screen") === "d4") {
+        const screen = new URLSearchParams(window.location.search).get("screen");
+        if (screen === "d4") {
           await showD4();
+        } else if (screen === "d2") {
+          await showD2();
         } else {
           await showD1();
         }

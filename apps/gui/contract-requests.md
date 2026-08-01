@@ -40,3 +40,40 @@ from a selected Lane rather than attributing them by timing or label.
 Close this request when each live-work fact carries a full `RuntimeOwner` and
 the canonical D1 fixture proves selected-Lane projection for two concurrent
 owners.
+
+## GUI-CORE-011: Review decision command
+
+`frontend-contract-v1` publishes `ReviewRequestRecord` with a `Pending` status
+and exposes `RuntimeCommand::RequestReview`, but no command records a review
+decision. D2 therefore lists pending reviews with their Core evidence and
+renders the accept/reject actions disabled with this code; it must not reuse
+`AcceptLaneOutput` or an approval response as a substitute review verdict.
+
+Close this request when Core publishes a review-decision command carrying the
+review id, verdict, optional feedback, and audit id, and the canonical fixture
+proves the resulting `ReviewRequestStatus` transition.
+
+## GUI-CORE-012: Structured decision context for an approval
+
+`ApprovalRequestView` carries only `input_preview`, an opaque display string.
+The D2 design shows line-level diff rows for the pending mutation. D2 renders
+the preview verbatim and declares the diff unavailable rather than parsing
+display text into diff rows.
+
+Close this request when Core publishes a typed decision context for an
+approval — ordered hunks with file path, line numbers, and change kind, or an
+immutable content reference the client can resolve — and the canonical
+approval fixture covers a multi-file mutation.
+
+## GUI-CORE-013: Pending contract-confirmation fact
+
+`ContractRecord.decision` has only `Confirmed` and `Rejected`, so every
+published contract is already decided. The D2 design shows a contract
+confirmation queue awaiting a human. D2 lists contract records as decided
+history and marks the group with this code; it must not treat a decided record
+as a backlog item.
+
+Close this request when Core publishes a pending contract-confirmation fact
+with its proposer, target contract version, subscribers, and audit id, and the
+canonical fixture proves that a pending contract becomes decided through
+`ConfirmContract`.
