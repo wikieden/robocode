@@ -157,6 +157,48 @@ function appendUnavailableTranscriptRows(
   }
 }
 
+/// Renders the typed content parts Core published with a message.
+///
+/// Text already arrives in the message body, so only non-text parts render
+/// here. A part kind this build cannot draw is still named: an operator must
+/// see that content exists rather than read prose about content that appears
+/// to be missing.
+function appendContentParts(
+  row: HTMLElement,
+  parts: NonNullable<
+    NonNullable<D1CockpitProjection["agentSessions"][number]["conversation"]>[number]["parts"]
+  >,
+): void {
+  for (const part of parts) {
+    if (part.kind === "text") continue;
+    const holder = document.createElement("figure");
+    holder.className = "d1-content-part";
+    holder.dataset.contentPart = part.kind;
+
+    if (part.kind === "image" && part.reference) {
+      const image = document.createElement("img");
+      // The reference is rendered exactly as Core published it; the client
+      // never rewrites or resolves it into another location.
+      image.src = part.reference;
+      image.alt = part.label ?? "";
+      image.loading = "lazy";
+      holder.append(image);
+      if (part.label) {
+        const caption = document.createElement("figcaption");
+        caption.textContent = part.label;
+        holder.append(caption);
+      }
+    } else {
+      const note = document.createElement("figcaption");
+      note.textContent = [part.kind, part.mediaType, part.label, part.reference]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ");
+      holder.append(note);
+    }
+    row.append(holder);
+  }
+}
+
 function appendAcpConversationRows(
   root: HTMLElement,
   session: D1CockpitProjection["agentSessions"][number],
@@ -175,7 +217,9 @@ function appendAcpConversationRows(
     Array.from(root.children)
       .slice(offset)
       .forEach((element, index) => {
-        (element as HTMLElement).dataset.acpMessageId = conversation[index].messageId;
+        const message = conversation[index];
+        (element as HTMLElement).dataset.acpMessageId = message.messageId;
+        appendContentParts(element as HTMLElement, message.parts ?? []);
       });
     return;
   }

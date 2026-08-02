@@ -21,7 +21,7 @@ pub use host::{
 };
 pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
-    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
     AgentConversationMessageView, AgentConversationRole, AgentDagRecord, AgentDagStatus,
     AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionInput,
     AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,

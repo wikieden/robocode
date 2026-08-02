@@ -376,3 +376,53 @@ describe("working feedback", () => {
     expect(root.querySelector("[data-work-status='busy']")).toBeNull();
   });
 });
+
+describe("agent message content parts", () => {
+  function withParts(parts: unknown[]): D1CockpitProjection {
+    const next = laneProjection("lane-1", 0);
+    next.agentSessions = [
+      {
+        sessionId: "session-1",
+        laneId: "lane-1",
+        agentId: "codex",
+        model: "gpt-5-codex",
+        status: "running",
+        task: "draw a cat",
+        diagnostic: null,
+        conversation: [
+          { messageId: "turn-1", role: "assistant", content: "here is the cat", parts },
+        ],
+      },
+    ] as never;
+    next.contextDock = {
+      ...next.contextDock,
+      laneAgent: { laneId: "lane-1", sessionId: "session-1", agentId: "codex", model: null },
+    } as never;
+    return next;
+  }
+
+  test("an image part renders next to the text Core published", () => {
+    const { root } = mount(
+      withParts([
+        { kind: "image", mediaType: "image/png", reference: "file:///tmp/cat.png", text: null, label: "an orange cat" },
+      ]),
+    );
+    const image = root.querySelector<HTMLImageElement>("[data-content-part='image'] img");
+    expect(image?.getAttribute("src")).toBe("file:///tmp/cat.png");
+    expect(image?.alt).toBe("an orange cat");
+  });
+
+  test("a part this build cannot render is named rather than dropped", () => {
+    const { root } = mount(
+      withParts([{ kind: "hologram", mediaType: null, reference: null, text: null, label: null }]),
+    );
+    const part = root.querySelector<HTMLElement>("[data-content-part='hologram']");
+    expect(part).not.toBeNull();
+    expect(part?.textContent).toContain("hologram");
+  });
+
+  test("a message with no parts renders exactly as before", () => {
+    const { root } = mount(withParts([]));
+    expect(root.querySelector("[data-content-part]")).toBeNull();
+  });
+});

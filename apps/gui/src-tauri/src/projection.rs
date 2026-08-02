@@ -14,11 +14,11 @@ use viden_core::{
 use crate::d1::{
     D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentConversationMessageProjection,
     D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
-    D1ComposerProjection, D1ContextDockProjection, D1CostUsageProjection, D1CursorProjection,
-    D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection,
-    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLanePreviewProjection,
-    D1StarterLaneReceiptProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
-    D1WorkspaceSourceProjection, unavailable_features,
+    D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection, D1CostUsageProjection,
+    D1CursorProjection, D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection,
+    D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
+    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1TranscriptRowProjection,
+    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
@@ -1322,6 +1322,7 @@ impl RuntimeProjection {
                                 AgentConversationRole::Assistant => "assistant",
                             },
                             content: message.content.clone(),
+                            parts: message.parts.iter().map(content_part).collect(),
                         })
                         .collect(),
                 })
@@ -1636,6 +1637,51 @@ fn conflict_bounce_status(status: ConflictBounceStatus) -> &'static str {
         ConflictBounceStatus::Pending => "pending",
         ConflictBounceStatus::Revalidated => "revalidated",
         ConflictBounceStatus::Resolved => "resolved",
+    }
+}
+
+/// Projects a Core content part. Nothing is resolved or fetched here: the
+/// reference stays exactly as Core published it.
+fn content_part(part: &viden_core::AgentContentPart) -> D1ContentPartProjection {
+    match part {
+        viden_core::AgentContentPart::Text { text } => D1ContentPartProjection {
+            kind: "text".to_string(),
+            media_type: None,
+            reference: None,
+            text: Some(text.clone()),
+            label: None,
+        },
+        viden_core::AgentContentPart::Image {
+            media_type,
+            reference,
+            alt,
+        } => D1ContentPartProjection {
+            kind: "image".to_string(),
+            media_type: Some(media_type.clone()),
+            reference: Some(reference.clone()),
+            text: None,
+            label: alt.clone(),
+        },
+        viden_core::AgentContentPart::File {
+            media_type,
+            reference,
+            name,
+        } => D1ContentPartProjection {
+            kind: "file".to_string(),
+            media_type: Some(media_type.clone()),
+            reference: Some(reference.clone()),
+            text: None,
+            label: name.clone(),
+        },
+        // Preserved rather than dropped: the operator learns content exists
+        // that this build cannot render.
+        viden_core::AgentContentPart::Unknown { kind, .. } => D1ContentPartProjection {
+            kind: kind.clone(),
+            media_type: None,
+            reference: None,
+            text: None,
+            label: None,
+        },
     }
 }
 

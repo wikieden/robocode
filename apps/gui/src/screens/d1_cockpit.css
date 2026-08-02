@@ -600,3 +600,31 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* Typed content parts an Agent returned alongside its text. */
+.d1-content-part {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.d1-content-part img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-sm);
+}
+
+.d1-content-part figcaption {
+  margin-top: var(--sp-1);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* A part this build cannot draw is still visible as a named placeholder. */
+.d1-content-part:not([data-content-part="image"]) {
+  border-style: dashed;
+}

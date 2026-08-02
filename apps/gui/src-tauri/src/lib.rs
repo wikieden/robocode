@@ -21,10 +21,11 @@ use std::{env, ffi::OsString, path::Path};
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
 pub use d1::{
     D1_OWNER_CAPABILITY, D1AgentSessionInputProjection, D1AgentSessionProjection,
-    D1ChecklistItemProjection, D1CockpitProjection, D1ContextDockProjection,
-    D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
-    D1LaneAgentProjection, D1OutcomeProjection, D1ProviderHealthProjection,
-    D1RuntimeServiceProjection, D1StarterLaneReceiptProjection, D1WorkspaceSourceProjection,
+    D1ChecklistItemProjection, D1CockpitProjection, D1ContentPartProjection,
+    D1ContextDockProjection, D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection,
+    D1Intent, D1IntentResult, D1LaneAgentProjection, D1OutcomeProjection,
+    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLaneReceiptProjection,
+    D1WorkspaceSourceProjection,
 };
 pub use d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,

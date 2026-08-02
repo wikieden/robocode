@@ -225,6 +225,7 @@ fn emit_capture_projections() {
         RuntimeEventKind::AssistantDelta {
             message_id: "message-1".to_string(),
             task_id: None,
+            session_id: None,
             content: "widening the cancel window".to_string(),
         },
     );

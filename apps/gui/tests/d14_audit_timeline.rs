@@ -82,6 +82,7 @@ fn d14_pages_the_audit_timeline_through_the_core_replay_cursor() {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "message-1".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "hello".to_string(),
                     },
                 ),
@@ -119,6 +120,7 @@ fn d14_labels_each_row_with_the_canonical_core_event_kind() {
             RuntimeEventKind::AssistantDelta {
                 message_id: "message-7".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "chunk".to_string(),
             },
         )],
