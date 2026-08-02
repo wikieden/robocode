@@ -105,6 +105,7 @@
   "d1.checkRun": "检查结果",
   "d1.checkRun.emptyCommand": "没有可用的已类型化检查命令。",
   "d1.checkRun.emptyResult": "没有可用的已类型化检查结果。",
+    "d1.mutation.noLaneSelected": "创建或选择一个 Lane 开始。",
   "d1.mutation.noOwner": "选中的 Lane 没有唯一的 Core 执行身份。",
   "d1.mutation.duplicateSession": "选中的 Lane 存在重复 Agent 会话；请从 Core 状态恢复。",
   "d1.mutation.ownerMismatch": "选中的 Lane 会话与其 Core 执行身份不匹配。",

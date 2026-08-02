@@ -105,6 +105,7 @@
   "d1.checkRun": "Check result",
   "d1.checkRun.emptyCommand": "No typed check command is available.",
   "d1.checkRun.emptyResult": "No typed check result is available.",
+    "d1.mutation.noLaneSelected": "Create or select a Lane to start.",
   "d1.mutation.noOwner": "The selected Lane has no sole Core execution owner.",
   "d1.mutation.duplicateSession": "The selected Lane has duplicate Agent sessions; recover from Core state.",
   "d1.mutation.ownerMismatch": "The selected Lane session does not match its Core owner.",

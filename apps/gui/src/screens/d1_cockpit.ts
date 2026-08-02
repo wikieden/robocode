@@ -91,12 +91,18 @@ function composerMutationBlockReason(
   projection: D1CockpitProjection,
   laneId: string | null,
 ):
+  | "d1.mutation.noLaneSelected"
   | "d1.mutation.noOwner"
   | "d1.mutation.duplicateSession"
   | "d1.mutation.ownerMismatch"
   | "d1.mutation.staleLane"
   | null {
-  if (!laneId || !projection.lanes.some((lane) => lane.id === laneId)) {
+  // No selection at all is an invitation, not a failure; a selection that
+  // Core no longer publishes stays fail-closed.
+  if (!laneId) {
+    return "d1.mutation.noLaneSelected";
+  }
+  if (!projection.lanes.some((lane) => lane.id === laneId)) {
     return "d1.mutation.staleLane";
   }
   if (projection.contextDock.laneAgent?.laneId !== laneId) {
@@ -255,6 +261,9 @@ export function renderD1Cockpit(
   const attemptedAgentProbes = new Set<string>();
   const transcript = new BoundedTranscript(240);
   transcript.replace(initial.transcript);
+  // Reader scroll position survives the full-surface refresh: renders rebuild
+  // the transcript element, so the position is model state, not DOM state.
+  let transcriptScrollTop = 0;
 
   const shouldShowWelcome = (): boolean =>
     options.showWelcome ??
@@ -287,6 +296,15 @@ export function renderD1Cockpit(
       if (nextKey === projectionKey) return;
       projection = next;
       if (!selectedLaneId) selectedLaneId = next.selectedLaneId;
+      if (
+        selectedLaneId &&
+        next.lanes.length === 0 &&
+        !next.lanes.some((lane) => lane.id === selectedLaneId)
+      ) {
+        // The whole project is back to zero Lanes; a stale selection would
+        // pin the composer on a fail-closed notice forever.
+        selectedLaneId = next.selectedLaneId;
+      }
       focusedConversation = conversationForLane(next, selectedLaneId);
       projectionKey = nextKey;
       locale = next.preferences.locale;
@@ -323,6 +341,18 @@ export function renderD1Cockpit(
       if (projectionChanged) {
         projection = result.projection;
         if (!selectedLaneId) selectedLaneId = result.projection.selectedLaneId;
+        {
+          const next = result.projection;
+          if (
+            selectedLaneId &&
+            next.lanes.length === 0 &&
+            !next.lanes.some((lane) => lane.id === selectedLaneId)
+          ) {
+            // The whole project is back to zero Lanes; a stale selection would
+            // pin the composer on a fail-closed notice forever.
+            selectedLaneId = next.selectedLaneId;
+          }
+        }
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
         projectionKey = nextKey;
         locale = result.projection.preferences.locale;
@@ -392,7 +422,7 @@ export function renderD1Cockpit(
         return;
       }
       pollInFlight = true;
-      void poll(selectedLaneId ?? undefined)
+      void poll(selectedLaneId ?? undefined, true)
         .then((result) => {
           if (!disposed) controller.applyResult(result);
         })
@@ -928,6 +958,7 @@ export function renderD1Cockpit(
         const atBottom = transcriptAtBottom(transcriptRegion);
         const first = transcriptRegion.querySelector<HTMLElement>("[data-row-id]")?.dataset.rowId;
         transcript.setFollowLatest(atBottom, first);
+        transcriptScrollTop = transcriptRegion.scrollTop;
       });
       if (transcript.newOutputCount > 0) {
         const latest = button(
@@ -1125,6 +1156,15 @@ export function renderD1Cockpit(
       else body.append(activity, lanes, main, right);
       frame.append(titlebar, body, status);
       root.replaceChildren(frame);
+    }
+
+    const mountedTranscript = root.querySelector<HTMLElement>(".d1-transcript");
+    if (mountedTranscript) {
+      // Following readers stay pinned to the newest output; readers in
+      // history keep the exact position they scrolled to.
+      mountedTranscript.scrollTop = transcript.followLatest
+        ? mountedTranscript.scrollHeight
+        : transcriptScrollTop;
     }
 
     if (agentMenuOpen) mountAgentMenu();

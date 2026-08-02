@@ -22,6 +22,10 @@ export function renderCockpitTopbar(
   titlebar.dataset.shellLandmark = "topbar";
   titlebar.dataset.tauriDragRegion = "true";
 
+  // Inside the native shell the OS overlay supplies the real window controls;
+  // rendering the design-kit lights as well duplicates the chrome. The HTML
+  // lights exist only for browser-hosted harnesses and previews.
+  const nativeShell = "__TAURI_INTERNALS__" in window;
   const lights = document.createElement("span");
   lights.className = "tl";
   lights.ariaHidden = "true";
@@ -74,6 +78,7 @@ export function renderCockpitTopbar(
   const tools = document.createElement("span");
   tools.className = "tbtools";
   tools.append(contextDrawerToggle);
-  titlebar.append(lights, brand, project, laneSummary, tools);
+  if (!nativeShell) titlebar.append(lights);
+  titlebar.append(brand, project, laneSummary, tools);
   return { element: titlebar, contextDrawerToggle };
 }

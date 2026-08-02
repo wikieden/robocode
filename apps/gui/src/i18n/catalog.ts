@@ -110,6 +110,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.checkRun": [],
   "d1.checkRun.emptyCommand": [],
   "d1.checkRun.emptyResult": [],
+  "d1.mutation.noLaneSelected": [],
   "d1.mutation.noOwner": [],
   "d1.mutation.duplicateSession": [],
   "d1.mutation.ownerMismatch": [],
