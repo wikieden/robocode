@@ -662,7 +662,9 @@ fn cancel_active_native_turn_keeps_its_lane_routable() {
             },
         )
         .unwrap();
-    wait_until(Duration::from_secs(2), || entered.load(Ordering::SeqCst));
+    wait_until(Duration::from_secs(5), "native turn provider entry", || {
+        entered.load(Ordering::SeqCst)
+    });
 
     supervisor
         .send_command_from_owner(
@@ -2747,9 +2749,14 @@ fn lane_supervisor_rejects_duplicate_start_and_retires_archived_worker() {
             },
         )
         .unwrap();
-    wait_until(Duration::from_secs(2), || {
-        supervisor.active_lane_worker_count_for_test() == 0
-    });
+    // Commands are queued asynchronously, so an empty worker registry is also
+    // true before `create_retire` is processed. Wait on the retirement signal
+    // instead, which is only recorded once the archived worker exited.
+    wait_until(
+        Duration::from_secs(5),
+        "lane `lane-retire` worker retirement after archive",
+        || supervisor.lane_worker_retired_for_test("lane-retire"),
+    );
     assert_eq!(supervisor.active_lane_worker_count_for_test(), 0);
     supervisor
         .send_command_from_owner(
@@ -2780,6 +2787,7 @@ fn lane_supervisor_rejects_duplicate_start_and_retires_archived_worker() {
             }) if command_id == "start_retire_duplicate"
         )
     }));
+    assert!(supervisor.lane_worker_retired_for_test("lane-retire"));
     assert!(supervisor.lane_worker_finished_for_test("lane-retire"));
     supervisor
         .send_command_from_owner(
@@ -3238,13 +3246,17 @@ fn lane_supervisor_compensates_create_and_start_and_preserves_cleanup_intent() {
     });
     // The recovery event is observable just before the same worker performs shutdown
     // compensation, so wait for that effect instead of racing the worker thread.
-    wait_until(Duration::from_secs(2), || {
-        effects
-            .calls
-            .lock()
-            .map(|calls| calls.iter().any(|call| call == "stop:lane-start-fail"))
-            .unwrap_or(false)
-    });
+    wait_until(
+        Duration::from_secs(5),
+        "lane `lane-start-fail` shutdown compensation effect",
+        || {
+            effects
+                .calls
+                .lock()
+                .map(|calls| calls.iter().any(|call| call == "stop:lane-start-fail"))
+                .unwrap_or(false)
+        },
+    );
     let calls = effects.calls.lock().unwrap();
     assert_eq!(
         calls
@@ -3901,7 +3913,7 @@ fn collect_envelopes_until(
     panic!("timed out waiting for lane envelopes: {events:#?}");
 }
 
-fn wait_until(timeout: Duration, done: impl Fn() -> bool) {
+fn wait_until(timeout: Duration, condition: &str, done: impl Fn() -> bool) {
     let started = Instant::now();
     while started.elapsed() < timeout {
         if done() {
@@ -3909,7 +3921,7 @@ fn wait_until(timeout: Duration, done: impl Fn() -> bool) {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    panic!("timed out waiting for lane condition");
+    panic!("timed out after {timeout:?} waiting for {condition}");
 }
 
 fn owner(lane_id: &str) -> RuntimeOwner {

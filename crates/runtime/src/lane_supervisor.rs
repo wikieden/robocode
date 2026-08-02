@@ -346,6 +346,27 @@ impl LaneSupervisor {
             .unwrap_or(true)
     }
 
+    /// Explicit retirement signal for a lane worker that reached a durable
+    /// terminal state. The reaper records the terminal kind before removing
+    /// (and therefore dropping and joining) the worker handle, so requiring
+    /// both conditions proves the worker thread already exited. Unlike an
+    /// empty-registry check, this predicate is monotone: it cannot be
+    /// satisfied before the lane's worker was ever spawned.
+    #[cfg(test)]
+    pub(crate) fn worker_retired_for_test(&self, lane_id: &str) -> bool {
+        let recorded_terminal = self
+            .terminal_lanes
+            .lock()
+            .map(|terminal| terminal.contains_key(lane_id))
+            .unwrap_or(false);
+        recorded_terminal
+            && self
+                .lanes
+                .lock()
+                .map(|lanes| !lanes.contains_key(lane_id))
+                .unwrap_or(false)
+    }
+
     #[cfg(test)]
     pub(crate) fn active_worker_count_for_test(&self) -> usize {
         self.lanes

@@ -662,6 +662,11 @@ impl RuntimeSupervisor {
     }
 
     #[cfg(test)]
+    pub(crate) fn lane_worker_retired_for_test(&self, lane_id: &str) -> bool {
+        self.lane_supervisor.worker_retired_for_test(lane_id)
+    }
+
+    #[cfg(test)]
     pub(crate) fn active_lane_worker_count_for_test(&self) -> usize {
         self.lane_supervisor.active_worker_count_for_test()
     }
