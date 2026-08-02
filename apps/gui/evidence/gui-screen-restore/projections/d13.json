@@ -1,0 +1,39 @@
+{
+  "workflows": [
+    {
+      "dagId": "dag_blocker",
+      "goal": "freeze frontend contract v1",
+      "status": "blocked",
+      "createdAt": 1700000000,
+      "updatedAt": 1700000030,
+      "nodes": [
+        {
+          "taskId": "task_blocked",
+          "title": "resolve blocker",
+          "objective": "recover dependency",
+          "role": "coder",
+          "dependsOn": [
+            "task_dependency"
+          ],
+          "requiredEvidence": [
+            "test_result"
+          ],
+          "permissionPolicy": "ask_before_mutation",
+          "status": "blocked",
+          "progress": 40,
+          "blocked": true,
+          "blockers": [
+            {
+              "dependencyId": "dependency-1",
+              "dependsOnTaskId": "task-upstream",
+              "reason": "waits for the upstream contract",
+              "auditId": "audit-dependency-1",
+              "updatedAt": 1700000400
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "handoffs": []
+}

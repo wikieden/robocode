@@ -1,0 +1,79 @@
+{
+  "gates": [
+    {
+      "gateId": "gate_merge",
+      "taskId": "task_merge",
+      "status": "needs_changes",
+      "gateType": "artifact",
+      "projectId": "",
+      "laneId": null,
+      "requiresIndependentValidator": false,
+      "hasValidator": false,
+      "requiredEvidence": [
+        "replay-regression"
+      ],
+      "evidenceIds": []
+    }
+  ],
+  "selectedGateId": "gate_merge",
+  "detail": {
+    "gate": {
+      "gateId": "gate_merge",
+      "taskId": "task_merge",
+      "status": "needs_changes",
+      "gateType": "artifact",
+      "projectId": "",
+      "laneId": null,
+      "requiresIndependentValidator": false,
+      "hasValidator": false,
+      "requiredEvidence": [
+        "replay-regression"
+      ],
+      "evidenceIds": []
+    },
+    "missingEvidence": [
+      "replay-regression"
+    ],
+    "bounces": [
+      {
+        "bounceId": "bounce-1",
+        "originalLaneId": "lane-3",
+        "taskId": "task-lane-3",
+        "reason": "src/player/dash.gd conflicts with the merged baseline",
+        "status": "revalidated",
+        "evidenceIds": []
+      }
+    ],
+    "reverts": [
+      {
+        "revertId": "revert-1",
+        "appliedChangeId": "change-1",
+        "reason": "cancel window regressed after merge",
+        "restoredPaths": [
+          "src/player/dash.gd"
+        ],
+        "auditId": "audit-revert-1",
+        "revertedAt": 1700000900
+      }
+    ],
+    "checks": [],
+    "actions": [
+      {
+        "kind": "accept",
+        "available": false,
+        "code": null
+      },
+      {
+        "kind": "reject",
+        "available": true,
+        "code": null
+      }
+    ]
+  },
+  "unavailable": [
+    {
+      "key": "d12.conflict.noStructuredHunk",
+      "code": "GUI-CORE-015"
+    }
+  ]
+}
