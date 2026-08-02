@@ -278,6 +278,10 @@ pub(super) struct TuiUiState {
     pub(super) idle_ctrl_c_armed: bool,
     pub(super) color_depth: ColorDepth,
     pub(super) preference_diagnostics: Vec<String>,
+    /// Animation phase for the live-activity pulse. The render model must stay a
+    /// pure function of state, so the frame is sampled from the clock once per
+    /// draw in the event loop instead of being read inside `render_frame`.
+    pub(super) pulse_frame: usize,
 }
 
 impl Default for TuiUiState {
@@ -305,6 +309,7 @@ impl Default for TuiUiState {
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,
             preference_diagnostics: Vec::new(),
+            pulse_frame: 0,
         }
     }
 }

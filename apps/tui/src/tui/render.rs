@@ -341,7 +341,7 @@ fn operation_center_rows(state: &TuiState, width: usize) -> Vec<String> {
             &format!(
                 "     ┊  ✦ {} {}",
                 status.summary,
-                thinking_indicator(state, pulse_frame())
+                thinking_indicator(state, state.ui.pulse_frame)
             ),
             width,
         )];
@@ -437,7 +437,7 @@ fn live_work_strip_rows(
         truncate(
             &format!(
                 "     ╭─ {title} {} {header_rule}",
-                thinking_indicator(state, pulse_frame())
+                thinking_indicator(state, state.ui.pulse_frame)
             ),
             width,
         ),
@@ -796,7 +796,10 @@ fn activity_separator(width: usize) -> String {
     )
 }
 
-fn pulse_frame() -> usize {
+/// Samples the current animation phase from the wall clock. Called once per draw
+/// by the event loop, never from the render model, so a rendered frame stays a
+/// pure function of `TuiState`.
+pub(super) fn sampled_pulse_frame() -> usize {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())

@@ -552,6 +552,20 @@ fn render_task6_lens_preview(lens: Lens, width: u16) -> String {
 mod tests {
     use super::*;
 
+    /// The render model must not read the wall clock: two renders of the same
+    /// state separated by more than one animation period have to be identical,
+    /// otherwise every render-equality assertion is a latent flake.
+    #[test]
+    fn lens_render_models_ignore_elapsed_wall_clock_time() {
+        for lens in [Lens::Board, Lens::Session] {
+            let first = render_task6_lens_preview(lens, 160);
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            let second = render_task6_lens_preview(lens, 160);
+
+            assert_eq!(first, second, "{lens:?} render drifted with wall clock");
+        }
+    }
+
     #[test]
     fn all_lenses_have_deterministic_80_112_160_render_models() {
         for lens in [
