@@ -1119,7 +1119,14 @@ export function renderD1Cockpit(
         locale,
         acpKinds,
       );
-      appendTranscriptRows(transcriptRegion, visibleRows);
+      // A Lane whose Agent session Core confirmed produced these rows too. The
+      // ACP conversation is not always published yet, so leaving them
+      // unattributed put the shell's name on the agent's own output.
+      appendTranscriptRows(
+        transcriptRegion,
+        visibleRows,
+        focusedAcp ? transcriptAgent(projection, focusedAcp) : undefined,
+      );
       if (projectionMatchesSelectedLane) {
         appendTypedWorkCards(transcriptRegion, projection.contextDock.checklist, locale);
       }

@@ -540,18 +540,55 @@ describe("agent identity on a reply", () => {
         { agentId: "codex-acp", displayName: "Codex", startability: "ready", diagnostics: [] },
       ]),
     );
-    expect(assistantIdentity(root)).toEqual({ label: "CODEX", avatar: "C", agent: "codex-acp" });
+    const identity = assistantIdentity(root);
+    expect(identity.label).toBe("CODEX");
+    expect(identity.agent).toBe("codex-acp");
   });
 
   test("an agent with no adapter falls back to the id Core scoped the session by", () => {
     const { root } = mount(acpProjection("claude-acp", []));
     // Inventing a friendly name for an agent Core did not describe would
     // assert an identity the client cannot vouch for.
-    expect(assistantIdentity(root)).toEqual({
-      label: "CLAUDE-ACP",
-      avatar: "C",
-      agent: "claude-acp",
-    });
+    const identity = assistantIdentity(root);
+    expect(identity.label).toBe("CLAUDE-ACP");
+    expect(identity.agent).toBe("claude-acp");
+  });
+
+  test("a known agent shows its registered brand mark, not a letter", () => {
+    const { root } = mount(
+      acpProjection("codex-acp", [
+        { agentId: "codex-acp", displayName: "Codex", startability: "ready", diagnostics: [] },
+      ]),
+    );
+    const row = root.querySelector<HTMLElement>("[data-transcript-row='assistant']");
+    expect(row?.querySelector<HTMLElement>("[data-agent-logo]")?.dataset.agentLogo).toBe("codex");
+  });
+
+  test("an agent with no registered mark keeps the letter avatar", () => {
+    const { root } = mount(acpProjection("mystery-acp", []));
+    const row = root.querySelector<HTMLElement>("[data-transcript-row='assistant']");
+    expect(row?.querySelector("[data-agent-logo]")).toBeNull();
+    expect(row?.querySelector<HTMLElement>(".d1-row-avatar")?.textContent).toBe("M");
+  });
+
+  test("a Lane's own output rows carry the agent that owns the Lane", () => {
+    // A native transcript row for a Lane whose Agent session Core confirmed is
+    // that agent's output. Leaving it as VIDEN put the shell's name on Codex's
+    // reply whenever the ACP conversation had not been published yet.
+    const next = acpProjection("codex-acp", [
+      { agentId: "codex-acp", displayName: "Codex", startability: "ready", diagnostics: [] },
+    ]);
+    (next.agentSessions as unknown as Array<{ conversation: unknown[] }>)[0].conversation = [];
+    next.transcript = [
+      { id: "row-0", kind: "assistant", content: "drawing the cat" },
+    ] as never;
+
+    const { root } = mount(next);
+    const labels = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-transcript-row='assistant'] [data-row-label]"),
+    ).map((element) => element.textContent);
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels).not.toContain("VIDEN");
   });
 
   test("a row with no agent behind it stays the shell's own reply", () => {

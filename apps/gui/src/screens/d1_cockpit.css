@@ -295,6 +295,16 @@
   background: color-mix(in srgb, var(--gold) 18%, transparent);
 }
 
+/* A registered brand mark carries its own colour. The letter chip's tint and
+   rounding would recolour it, so only the letter avatar keeps them. */
+.d1-row .d1-row-avatar[data-agent-logo],
+.d1-row[data-transcript-row="assistant"] .d1-row-avatar[data-agent-logo] {
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  background: none;
+  border-radius: 0;
+}
+
 .d1-row pre {
   margin: 0 0 0 calc(1.125rem + var(--sp-2));
   color: var(--fg-primary);

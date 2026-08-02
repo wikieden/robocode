@@ -1,4 +1,5 @@
 import type { D1TranscriptRow } from "../models/transcript";
+import { createAgentLogo, resolveAgentLogoKind } from "./agent_logo";
 
 export function transcriptAtBottom(element: HTMLElement, tolerance = 24): boolean {
   return element.scrollTop + element.clientHeight >= element.scrollHeight - tolerance;
@@ -48,9 +49,16 @@ export function appendTranscriptRows(
       if (semanticKind === "assistant" && agent) {
         article.dataset.agentId = agent.id;
       }
-      const avatar = document.createElement("span");
-      avatar.className = "d1-row-avatar";
-      avatar.textContent = name.slice(0, 1);
+      // A registered brand mark identifies its agent faster than a letter.
+      // An agent with no registered mark keeps the letter avatar rather than
+      // borrowing another agent's.
+      const logoKind =
+        semanticKind === "assistant" && agent
+          ? resolveAgentLogoKind(agent.id, agent.displayName)
+          : null;
+      const avatar = logoKind ? createAgentLogo(logoKind) : document.createElement("span");
+      avatar.classList.add("d1-row-avatar");
+      if (!logoKind) avatar.textContent = name.slice(0, 1);
       const label = document.createElement("span");
       label.dataset.rowLabel = "true";
       label.textContent = name;
