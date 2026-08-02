@@ -93,10 +93,28 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
   return svg;
 }
 
+/// Rail slots that open a restored screen.
+///
+/// `worktree` follows the D12 design page, whose own rail highlights that slot
+/// for the integration gate. The remaining three are a provisional routing
+/// decision, not a design-backed one: the accepted rail has no `decide`,
+/// `gallery`, or `monitor` slot, so the screens are reachable here rather than
+/// staying unreachable outside a URL.
+export const D1_RAIL_ROUTES: Partial<Record<string, string>> = {
+  "d1.activity.search": "d12",
+  "d1.activity.git": "d2",
+  "d1.activity.evidence": "d14",
+  "d1.activity.diagnostics": "d10",
+  "d1.activity.inbox": "d13",
+};
+
 export interface ActivityRailOptions {
   lanesAvailable: boolean;
   lanesOpen: boolean;
   onToggleLanes: () => void;
+  /// Opens a restored screen. Absent while no Core projection is bound, which
+  /// keeps every routing slot disabled rather than opening an empty screen.
+  onNavigate?: (route: string) => void;
 }
 
 export function renderActivityRail(
@@ -131,6 +149,10 @@ export function renderActivityRail(
           item.click();
         });
       }
+    } else if (D1_RAIL_ROUTES[activityItem.key] && options.onNavigate) {
+      const route = D1_RAIL_ROUTES[activityItem.key] as string;
+      item.dataset.railRoute = route;
+      item.addEventListener("click", () => options.onNavigate?.(route));
     } else {
       item.disabled = true;
     }

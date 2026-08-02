@@ -66,6 +66,8 @@ export interface D1RenderOptions {
   onOpenProject?: () => void | Promise<void>;
   onCreateLane?: () => void;
   onFullSetup?: () => void;
+  /// Opens a restored screen from the activity rail.
+  onNavigate?: (route: string) => void;
   showWelcome?: boolean;
   poll?: boolean;
   /**
@@ -958,6 +960,7 @@ export function renderD1Cockpit(
     const activity = renderActivityRail(locale, {
       lanesAvailable: !showWelcome,
       lanesOpen: laneRailOpen,
+      onNavigate: options.onNavigate,
       onToggleLanes: () => {
         laneRailOpen = !laneRailOpen;
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";

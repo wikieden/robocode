@@ -243,7 +243,19 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           pollD1,
           sendPermission,
           recoverD6,
-          { onFullSetup: () => void showD4(), onCoreWake },
+          {
+            onFullSetup: () => void showD4(),
+            onCoreWake,
+            onNavigate: (route: string) => {
+              // Every restored screen re-reads its own Core projection before
+              // it renders; the rail only names the route.
+              if (route === "d2") void showD2();
+              else if (route === "d10") void showD10();
+              else if (route === "d12") void showD12();
+              else if (route === "d13") void showD13();
+              else if (route === "d14") void showD14();
+            },
+          },
         );
       };
 

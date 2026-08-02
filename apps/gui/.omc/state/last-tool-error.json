@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"rtk curl -s -o /dev/null -w \\\"1420:%{http_code}\\\\n\\\" http://localhost:1420/; rtk wc -c /private/tmp/claude-501/-Users-wiki-Documents-GitHub-viden/2b696ffe-57f6-42c5-9330-9851564fb3af/tasks...",
-  "error": "Exit code 1\n1420:200\n2453",
-  "timestamp": "2026-08-02T04:08:34.130Z",
+  "tool_input_preview": "{\"command\":\"cd apps/gui && rtk proxy npx vitest run 2>&1 | rtk proxy grep -E \\\"Tests|×\\\" | tail -4\",\"timeout\":400000,\"description\":\"Confirm full frontend suite with rail navigation\"}",
+  "error": "Exit code 1\n(eval):cd:1: no such file or directory: apps/gui",
+  "timestamp": "2026-08-02T05:59:25.673Z",
   "retry_count": 1
 }

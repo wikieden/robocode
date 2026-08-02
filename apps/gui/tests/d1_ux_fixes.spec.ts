@@ -426,3 +426,32 @@ describe("agent message content parts", () => {
     expect(root.querySelector("[data-content-part]")).toBeNull();
   });
 });
+
+describe("activity rail navigation", () => {
+  test("a routing slot opens its restored screen", () => {
+    const navigated: string[] = [];
+    document.body.innerHTML = '<div id="app"></div>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    renderD1Cockpit(
+      root,
+      laneProjection("lane-1", 1),
+      vi.fn(async () => idleResult(laneProjection("lane-1", 1))),
+      vi.fn(async () => idleResult(laneProjection("lane-1", 1))),
+      undefined,
+      undefined,
+      { poll: false, onNavigate: (route: string) => navigated.push(route) },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-rail-route='d12']")!.click();
+    root.querySelector<HTMLButtonElement>("[data-rail-route='d10']")!.click();
+    expect(navigated).toEqual(["d12", "d10"]);
+  });
+
+  test("without a navigation handler the routing slots stay disabled", () => {
+    const { root } = mount(laneProjection("lane-1", 1));
+    const routed = root.querySelectorAll("[data-rail-route]");
+    expect(routed).toHaveLength(0);
+    // The slots remain visible but inert rather than opening an empty screen.
+    expect(root.querySelectorAll(".d1-activity button:disabled").length).toBeGreaterThan(0);
+  });
+});
