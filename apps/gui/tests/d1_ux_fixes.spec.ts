@@ -255,3 +255,47 @@ describe("core event wake", () => {
     controller.dispose();
   });
 });
+
+describe("partitioned refresh", () => {
+  test("an unrelated Core change leaves the context dock element identity intact", () => {
+    const first = laneProjection("lane-1", 4);
+    const { root, controller } = mount(first);
+    const dockBefore = root.querySelector('[data-shell-landmark="context-dock"]');
+    const statusBefore = root.querySelector('[data-shell-landmark="statusbar"]');
+
+    // Only the transcript grows; the dock and status facts are untouched.
+    controller.applyProjection(laneProjection("lane-1", 5));
+
+    // Rebuilding a region whose facts did not change is the cost this
+    // partitioning removes, and it is what drops :hover and focus mid-stream.
+    expect(root.querySelector('[data-shell-landmark="context-dock"]')).toBe(dockBefore);
+    expect(root.querySelector('[data-shell-landmark="statusbar"]')).toBe(statusBefore);
+  });
+
+  test("the drawer toggle drives the mounted dock after a partial refresh", () => {
+    const { root, controller } = mount(laneProjection("lane-1", 4));
+    // Grow only the transcript so the dock is skipped while the topbar is
+    // rebuilt; the toggle must still reach the dock that is mounted.
+    controller.applyProjection(laneProjection("lane-1", 5));
+
+    const toggle = root.querySelector<HTMLButtonElement>("[data-context-drawer-toggle]")!;
+    toggle.click();
+    const dock = root.querySelector<HTMLElement>('[data-shell-landmark="context-dock"]')!;
+    expect(dock.dataset.drawerOpen).toBe("true");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("a changed region is still replaced", () => {
+    const { root, controller } = mount(laneProjection("lane-1", 4));
+    const statusBefore = root.querySelector('[data-shell-landmark="statusbar"]');
+
+    const next = laneProjection("lane-1", 4);
+    next.preferences = { ...next.preferences, mode: "light", skin: "ice" };
+    controller.applyProjection(next);
+
+    expect(root.querySelector('[data-shell-landmark="statusbar"]')).not.toBe(statusBefore);
+    expect(root.querySelector('[data-shell-landmark="statusbar"]')?.textContent).toContain(
+      "ice/light",
+    );
+  });
+});

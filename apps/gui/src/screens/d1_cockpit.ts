@@ -272,6 +272,15 @@ export function renderD1Cockpit(
   // Reader scroll position survives the full-surface refresh: renders rebuild
   // the transcript element, so the position is model state, not DOM state.
   let transcriptScrollTop = 0;
+  // Signature per shell region. A refresh only replaces the regions whose
+  // own facts changed, so a streaming transcript cannot drop :hover, focus,
+  // or scroll in the dock and status bar it never touched.
+  const regionSignatures = new Map<string, string>();
+  const regionChanged = (region: string, signature: string): boolean => {
+    if (regionSignatures.get(region) === signature) return false;
+    regionSignatures.set(region, signature);
+    return true;
+  };
 
   const shouldShowWelcome = (): boolean =>
     options.showWelcome ??
@@ -1122,13 +1131,6 @@ export function renderD1Cockpit(
     );
     right.dataset.drawerOpen = String(contextDrawerOpen);
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
-    topbar.contextDrawerToggle.addEventListener("click", () => {
-      contextDrawerOpen = !contextDrawerOpen;
-      right.dataset.drawerOpen = String(contextDrawerOpen);
-      topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
-      topbar.contextDrawerToggle.classList.toggle("on", contextDrawerOpen);
-      if (contextDrawerOpen) right.focus();
-    });
     right.tabIndex = -1;
 
     const status = document.createElement("footer");
@@ -1172,10 +1174,12 @@ export function renderD1Cockpit(
       // for a frame and flashing the entire sidebar.
       refreshPersistentRail(currentActivity, activity);
       refreshPersistentRail(currentLanes, lanes);
-      currentTopbar.replaceWith(titlebar);
+      if (regionChanged("topbar", titlebar.outerHTML)) currentTopbar.replaceWith(titlebar);
+      // The work surface holds the live transcript and the composer, so it is
+      // always refreshed; its scroll and focus are restored explicitly below.
       currentMain.replaceWith(main);
-      currentRight.replaceWith(right);
-      currentStatus.replaceWith(status);
+      if (regionChanged("dock", right.outerHTML)) currentRight.replaceWith(right);
+      if (regionChanged("status", status.outerHTML)) currentStatus.replaceWith(status);
       currentFrame.className = frame.className;
       currentFrame.dataset.nativeWindowShell = frame.dataset.nativeWindowShell;
       currentBody.className = body.className;
@@ -1185,6 +1189,25 @@ export function renderD1Cockpit(
       else body.append(activity, lanes, main, right);
       frame.append(titlebar, body, status);
       root.replaceChildren(frame);
+      regionSignatures.set("topbar", titlebar.outerHTML);
+      regionSignatures.set("dock", right.outerHTML);
+      regionSignatures.set("status", status.outerHTML);
+    }
+
+    // The dock and the topbar refresh independently, so the toggle must drive
+    // the dock that is actually mounted rather than the one built this pass.
+    const mountedDock = root.querySelector<HTMLElement>(
+      '[data-shell-landmark="context-dock"]',
+    );
+    if (mountedDock) {
+      mountedDock.dataset.drawerOpen = String(contextDrawerOpen);
+      topbar.contextDrawerToggle.addEventListener("click", () => {
+        contextDrawerOpen = !contextDrawerOpen;
+        mountedDock.dataset.drawerOpen = String(contextDrawerOpen);
+        topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
+        topbar.contextDrawerToggle.classList.toggle("on", contextDrawerOpen);
+        if (contextDrawerOpen) mountedDock.focus();
+      });
     }
 
     const mountedTranscript = root.querySelector<HTMLElement>(".d1-transcript");
