@@ -255,6 +255,9 @@ impl SessionEngine {
                         RuntimeEventKind::AssistantDelta {
                             message_id: format!("assistant-{identity_sequence}"),
                             task_id: None,
+                            // The built-in engine has no Agent session; its
+                            // deltas stay in the unscoped assistant stream.
+                            session_id: None,
                             content: content.clone(),
                         },
                     ));

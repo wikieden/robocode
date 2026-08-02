@@ -4832,6 +4832,7 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
                 RuntimeEventKind::AssistantDelta {
                     message_id: "acp-session-session_1".to_string(),
                     task_id: None,
+                    session_id: None,
                     content: "implemented adapter".to_string(),
                 },
             ))

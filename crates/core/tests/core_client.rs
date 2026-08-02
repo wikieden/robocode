@@ -159,6 +159,7 @@ fn known_event(stream_id: &str, sequence: u64, content: &str) -> RuntimeEventEnv
             RuntimeEventKind::AssistantDelta {
                 message_id: format!("message-{sequence}"),
                 task_id: None,
+                session_id: None,
                 content: content.to_string(),
             },
         )),

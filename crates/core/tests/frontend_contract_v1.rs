@@ -1744,6 +1744,7 @@ fn to_runtime_event_kind(kind: RuntimeEventKindExt) -> viden_types::RuntimeEvent
             viden_types::RuntimeEventKind::AssistantDelta {
                 message_id: message_id.to_string(),
                 task_id: None,
+                session_id: None,
                 content: content.to_string(),
             }
         }
