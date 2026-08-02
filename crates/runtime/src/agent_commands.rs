@@ -967,7 +967,43 @@ where
     permission_context: PermissionContext,
     runtime_event_sink: Option<RuntimeEventSink>,
     resident_session_id: Option<String>,
+    /// Session id Core publishes this Agent session under.
+    ///
+    /// The ACP session id is the agent's own protocol handle. Every other
+    /// Core fact — the session view, its accepted inputs, its conversation —
+    /// is keyed by the Viden session id, so a streamed reply scoped by the
+    /// protocol handle can never join the conversation a client renders.
+    owner_session_id: Option<String>,
+    /// Artifact id of this prompt turn, unique across the session's turns.
+    ///
+    /// A resumed turn reuses the remote session and restarts ACP request ids,
+    /// so the request id alone cannot keep two turns from sharing a message.
+    turn_id: Option<String>,
     on_pid: P,
+}
+
+/// Picks the session id runtime facts are scoped by.
+///
+/// Falls back to the ACP protocol handle only where Core has not published a
+/// session of its own, which is the ad-hoc probe path rather than a supervised
+/// Agent session.
+fn acp_scoped_session_id<'a>(
+    owner_session_id: Option<&'a str>,
+    acp_session_id: &'a str,
+) -> &'a str {
+    owner_session_id.unwrap_or(acp_session_id)
+}
+
+/// Builds the assistant message id every chunk of one prompt turn shares.
+fn acp_turn_message_id(
+    scoped_session_id: &str,
+    turn_id: Option<&str>,
+    prompt_request_id: u64,
+) -> String {
+    match turn_id {
+        Some(turn_id) => format!("acp-message-{scoped_session_id}-turn-{turn_id}"),
+        None => format!("acp-message-{scoped_session_id}-turn-{prompt_request_id}"),
+    }
 }
 
 fn parse_acp_run_args(args: &[String]) -> Result<AcpRunArgs, String> {
@@ -2328,6 +2364,10 @@ fn start_typed_agent_session_attempt(
     let protocol_sink = Arc::clone(&runtime_event_sink);
     let pid_slot = Arc::new(Mutex::new(None::<u32>));
     let pid_slot_for_thread = Arc::clone(&pid_slot);
+    // Both ids are captured before the runner starts: the session id Core
+    // published this Agent session under, and the artifact id of this turn.
+    let monitor_owner_session_id = session_id.clone();
+    let monitor_turn_id = artifact_id.clone();
     std::thread::spawn(move || {
         let resident_session_id = monitor_record.id.clone();
         let result = run_acp_session_prompt_for_agent_with_log(
@@ -2343,6 +2383,8 @@ fn start_typed_agent_session_attempt(
                 permission_context: PermissionContext::default(),
                 runtime_event_sink: Some(protocol_sink),
                 resident_session_id: Some(resident_session_id),
+                owner_session_id: Some(monitor_owner_session_id),
+                turn_id: Some(monitor_turn_id),
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -2519,6 +2561,8 @@ fn start_acp_session_job(
                 permission_context: PermissionContext::default(),
                 runtime_event_sink,
                 resident_session_id: None,
+                owner_session_id: None,
+                turn_id: None,
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -4187,6 +4231,8 @@ fn run_acp_session_prompt_for_agent_with_permissions(
             permission_context,
             runtime_event_sink,
             resident_session_id: None,
+            owner_session_id: None,
+            turn_id: None,
             on_pid: |_| {},
         },
     )
@@ -4211,6 +4257,8 @@ where
         permission_context,
         runtime_event_sink,
         resident_session_id,
+        owner_session_id,
+        turn_id,
         mut on_pid,
     } = context;
     let mut log_entries = Vec::new();
@@ -4388,9 +4436,11 @@ where
     if let Err(error) = write_acp_request(&mut stdin, &prompt_request, &mut log_entries) {
         return Err(finish_failed_probe(child, log_path, log_entries, error));
     }
-    // One assistant message per prompt turn. The prompt request id is unique
-    // within the session, so replies from different turns never merge.
-    let turn_message_id = format!("acp-message-{session_id}-turn-{prompt_request_id}");
+    // One assistant message per prompt turn, scoped to the session Core
+    // publishes rather than the agent's own protocol handle.
+    let scoped_session_id = acp_scoped_session_id(owner_session_id.as_deref(), &session_id);
+    let turn_message_id =
+        acp_turn_message_id(scoped_session_id, turn_id.as_deref(), prompt_request_id);
     let mut message = String::new();
     let mut tool_calls = Vec::new();
     let mut runtime_events = Vec::new();
@@ -4520,7 +4570,7 @@ where
                 append_acp_update_runtime_events(
                     &mut runtime_events,
                     &mut runtime_sequence,
-                    &session_id,
+                    scoped_session_id,
                     &turn_message_id,
                     &mut acp_gate_evidence_ids,
                     Some(cwd),
@@ -10065,6 +10115,47 @@ mod agent_streaming_tests {
             "content-addressed bytes must not fork into two references"
         );
         let _ = fs::remove_dir_all(&cwd);
+    }
+
+    /// GUI-CORE-016: facts are scoped by the session Core published, not by
+    /// the agent's own protocol handle.
+    ///
+    /// Every other fact about an Agent session — its view, its accepted
+    /// inputs, its conversation — is keyed by the Viden session id. Scoping a
+    /// streamed reply by the ACP handle produced a parallel conversation no
+    /// client could see, which is exactly the "replies only appear when the
+    /// turn ends" symptom.
+    #[test]
+    fn a_streamed_reply_is_scoped_by_the_session_core_published() {
+        assert_eq!(
+            acp_scoped_session_id(Some("agent-session_17855"), "019fbc86-35da-7d33"),
+            "agent-session_17855",
+            "the Viden session id must win over the ACP protocol handle"
+        );
+        assert_eq!(
+            acp_scoped_session_id(None, "019fbc86-35da-7d33"),
+            "019fbc86-35da-7d33",
+            "an ad-hoc probe with no Core session keeps the protocol handle"
+        );
+    }
+
+    /// A resumed turn reuses the remote session and restarts ACP request ids,
+    /// so two turns would otherwise grow into one message.
+    #[test]
+    fn two_turns_of_one_session_never_share_a_message_id() {
+        let first = acp_turn_message_id("session-1", Some("agent-input_1"), 6);
+        let second = acp_turn_message_id("session-1", Some("agent-input_2"), 6);
+        assert_ne!(first, second);
+        assert_eq!(
+            acp_turn_message_id("session-1", Some("agent-input_1"), 9),
+            first,
+            "chunks of one turn share a message id regardless of request id"
+        );
+        assert_eq!(
+            acp_turn_message_id("session-1", None, 6),
+            "acp-message-session-1-turn-6",
+            "without a turn artifact the request id still separates turns"
+        );
     }
 
     /// A later turn in the same session must not append to the earlier reply.
