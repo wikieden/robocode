@@ -67,6 +67,9 @@ serde = { version = "1", features = ["derive"] }
 # duplicating Core's 117-variant vocabulary in the client.
 serde_json = "1"
 sha2 = "0.10"
+# A webview cannot load a workspace path, so persisted Agent content is handed
+# to the frontend as an inline data URL.
+base64 = "0.22"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-dialog = "2.7.2"
 viden-core = { path = "../../../crates/core" }
@@ -101,3 +104,7 @@ path = "../tests/capture_projections.rs"
 [[test]]
 name = "event_pump"
 path = "../tests/event_pump.rs"
+
+[[test]]
+name = "agent_content"
+path = "../tests/agent_content.rs"

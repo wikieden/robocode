@@ -97,6 +97,11 @@ D1 因此按整条消息渲染，并用工作状态条表达「仍在进行」�
 当 Core 发布携带会话 id、所属消息 id、追加文本与终止标记的有序分片事件，且规范
 fixture 证明重放分片可精确重建最终消息时，关闭此请求。
 
+状态：Core 已实现，fixture 仍缺。`AssistantDelta` 现在携带可选会话 id，ACP 适配器在
+整个提示轮次内保持同一个消息 id，reducer 因此增长单条归属明确的消息。crate 测试证明
+重放分片可精确重建回复，且完成事件不会重复它。在规范 `frontend-contract-v1` fixture
+覆盖一次流式轮次之前，此请求保持开启。
+
 ## GUI-CORE-017：Agent 消息的非文本内容
 
 `AgentConversationMessageView.content` 是单个 `String`，且 `acp_message_chunk_text`
@@ -108,3 +113,10 @@ D1 只渲染 Core 发布的文本，不合成附件。
 
 当会话消息携带类型化内容分部（文本，加上带媒体类型与客户端可解析的不可变内容引用的
 图像/文件分部），且规范 fixture 覆盖一次返回图像分部与文本的 ACP 轮次时，关闭此请求。
+
+状态：Core 已实现，fixture 仍缺。会话消息现在携带类型化内容分部，`AgentMessagePart`
+把分部挂到它所属的消息上；内联字节按内容摘要写入 `.viden/agents/parts/`，因此引用不可
+变，字节同时作为证据发布。Core 未建模的分部类型无损往返，而不是被丢弃。桌面外壳通过
+`agent_content` 命令解析工作区引用——webview 无法直接打开工作区路径——并拒绝 parts 目录
+之外的任何引用。在规范 `frontend-contract-v1` fixture 覆盖一次返回图像分部与文本的 ACP
+轮次之前，此请求保持开启。

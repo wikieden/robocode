@@ -425,6 +425,79 @@ describe("agent message content parts", () => {
     const { root } = mount(withParts([]));
     expect(root.querySelector("[data-content-part]")).toBeNull();
   });
+
+  test("a workspace reference is resolved through the host before it renders", async () => {
+    const asked: string[] = [];
+    const resolveContent = vi.fn(async (reference: string) => {
+      asked.push(reference);
+      return "data:image/png;base64,Y2F0";
+    });
+    const { root } = mount(
+      withParts([
+        {
+          kind: "image",
+          mediaType: "image/png",
+          reference: ".viden/agents/parts/abc.png",
+          text: null,
+          label: null,
+        },
+      ]),
+      undefined,
+      { resolveContent },
+    );
+
+    expect(asked).toEqual([".viden/agents/parts/abc.png"]);
+    await vi.waitFor(() => {
+      const image = root.querySelector<HTMLImageElement>("[data-content-part='image'] img");
+      expect(image?.getAttribute("src")).toBe("data:image/png;base64,Y2F0");
+    });
+  });
+
+  test("a reference the host already serves is not re-resolved", () => {
+    const resolveContent = vi.fn(async () => "data:image/png;base64,Y2F0");
+    const { root } = mount(
+      withParts([
+        {
+          kind: "image",
+          mediaType: "image/png",
+          reference: "https://example.test/cat.png",
+          text: null,
+          label: null,
+        },
+      ]),
+      undefined,
+      { resolveContent },
+    );
+
+    expect(resolveContent).not.toHaveBeenCalled();
+    const image = root.querySelector<HTMLImageElement>("[data-content-part='image'] img");
+    expect(image?.getAttribute("src")).toBe("https://example.test/cat.png");
+  });
+
+  test("content the host cannot read is named instead of rendering a broken image", async () => {
+    const resolveContent = vi.fn(async () => {
+      throw new Error("gui.agentContent.unreadable");
+    });
+    const { root } = mount(
+      withParts([
+        {
+          kind: "image",
+          mediaType: "image/png",
+          reference: ".viden/agents/parts/gone.png",
+          text: null,
+          label: null,
+        },
+      ]),
+      undefined,
+      { resolveContent },
+    );
+
+    await vi.waitFor(() => {
+      const holder = root.querySelector<HTMLElement>("[data-content-part='image']");
+      expect(holder?.dataset.contentUnresolved).toBe("true");
+      expect(holder?.textContent).toContain(".viden/agents/parts/gone.png");
+    });
+  });
 });
 
 describe("activity rail navigation", () => {

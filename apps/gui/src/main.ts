@@ -212,6 +212,11 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
             };
           };
 
+      // Content Core persisted lives in the workspace, which the webview
+      // cannot open. The host reads it and returns an inline data URL.
+      const resolveContent = async (reference: string) =>
+        await invoke<string>("agent_content", { reference });
+
       const showD1 = async (laneId?: string) => {
         const projection = await invoke<D1CockpitProjection | null>("d1_cockpit", {
           selectedLaneId: laneId ?? null,
@@ -246,6 +251,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           {
             onFullSetup: () => void showD4(),
             onCoreWake,
+            resolveContent,
             onNavigate: (route: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the rail only names the route.

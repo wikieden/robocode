@@ -1,6 +1,7 @@
 //! Viden's production desktop client boundary.
 
 mod adapter;
+mod agent_content;
 mod d1;
 mod d10;
 mod d12;
@@ -19,6 +20,7 @@ use std::time::Duration;
 use std::{env, ffi::OsString, path::Path};
 
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
+pub use agent_content::{agent_content_data_url, resolve_agent_content_reference};
 pub use d1::{
     D1_OWNER_CAPABILITY, D1AgentSessionInputProjection, D1AgentSessionProjection,
     D1ChecklistItemProjection, D1CockpitProjection, D1ContentPartProjection,
@@ -264,6 +266,27 @@ fn d14_audit_timeline(
         .d14_audit_timeline(after.as_deref(), limit)
 }
 
+/// Reads the Agent content Core persisted for a message part.
+///
+/// The webview cannot load a workspace path, so the shell reads the file Core
+/// wrote and returns an inline data URL. The workspace root comes from Core's
+/// own project probe, never from the caller.
+#[tauri::command]
+fn agent_content(
+    reference: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<String, String> {
+    let root = state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .workspace_root()
+        .ok_or_else(|| "gui.agentContent.noWorkspace".to_string())?;
+    agent_content::agent_content_data_url(Path::new(&root), &reference)
+}
+
 #[tauri::command]
 fn d12_integration_gate(
     selected_gate_id: Option<String>,
@@ -379,6 +402,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d12_integration_gate,
             d13_fleet_workflow,
             d14_audit_timeline,
+            agent_content,
             d6_recover
         ])
         .setup(|app| {

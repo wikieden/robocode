@@ -674,6 +674,19 @@ impl GuiCoreAdapter {
         &self.projection
     }
 
+    /// Workspace root Core probed, when Core has published one.
+    ///
+    /// The client keeps no second copy of where the workspace lives; reading
+    /// Core's probe keeps a reopened workspace from resolving against the
+    /// previous root.
+    pub fn workspace_root(&self) -> Option<String> {
+        self.projection
+            .view()?
+            .project_probe
+            .as_ref()
+            .map(|probe| probe.root.clone())
+    }
+
     pub fn supports(&self, capability: &str) -> bool {
         self.capabilities.contains(capability)
     }

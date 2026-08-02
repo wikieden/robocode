@@ -119,6 +119,13 @@ session id, the message id the chunk belongs to, the appended text, and a
 terminal marker, and the canonical fixture proves that replaying the chunks
 reconstructs exactly the final message.
 
+Status: implemented in Core, fixture outstanding. `AssistantDelta` now carries
+an optional session id, the ACP adapter keeps one message id for a whole
+prompt turn, and the reducer grows a single owner-scoped message. Crate tests
+prove that replaying the chunks reconstructs the reply exactly and that the
+completion event does not duplicate it. This request stays open until the
+canonical `frontend-contract-v1` fixture covers a streamed turn.
+
 ## GUI-CORE-017: Non-text Agent message content
 
 `AgentConversationMessageView.content` is a single `String`, and
@@ -133,3 +140,15 @@ Close this request when a conversation message carries typed content parts —
 text plus image or file parts with a media type and an immutable content
 reference the client can resolve — and the canonical fixture covers an ACP
 turn that returns an image part alongside text.
+
+Status: implemented in Core, fixture outstanding. A conversation message now
+carries typed content parts, `AgentMessagePart` attaches a part to the message
+it belongs to, and inline Agent bytes are persisted under
+`.viden/agents/parts/` with the content digest as their file name, so the
+reference is immutable and the bytes are also published as evidence. A part
+kind Core does not model round-trips losslessly rather than being dropped. The
+desktop shell resolves a workspace reference through the `agent_content`
+command, because a webview cannot open a workspace path; it refuses any
+reference outside the parts directory. This request stays open until the
+canonical `frontend-contract-v1` fixture covers an ACP turn returning an image
+part alongside text.

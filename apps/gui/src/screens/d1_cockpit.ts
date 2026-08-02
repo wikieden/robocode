@@ -76,6 +76,12 @@ export interface D1RenderOptions {
    * timer; hosts without a wake fall back to the bounded long poll.
    */
   onCoreWake?: (handler: () => void) => () => void;
+  /**
+   * Reads content Core persisted in the workspace and returns something the
+   * page can load. A webview cannot open a workspace path, so a reference
+   * without its own scheme is unreadable until the host resolves it.
+   */
+  resolveContent?: (reference: string) => Promise<string>;
 }
 
 type FocusedConversation =
@@ -170,6 +176,7 @@ function appendContentParts(
   parts: NonNullable<
     NonNullable<D1CockpitProjection["agentSessions"][number]["conversation"]>[number]["parts"]
   >,
+  resolveContent?: (reference: string) => Promise<string>,
 ): void {
   for (const part of parts) {
     if (part.kind === "text") continue;
@@ -178,14 +185,38 @@ function appendContentParts(
     holder.dataset.contentPart = part.kind;
 
     if (part.kind === "image" && part.reference) {
+      const reference = part.reference;
       const image = document.createElement("img");
-      // The reference is rendered exactly as Core published it; the client
-      // never rewrites or resolves it into another location.
-      image.src = part.reference;
       image.alt = part.label ?? "";
       image.loading = "lazy";
+      if (hasOwnScheme(reference)) {
+        // A reference the page can already load is used exactly as Core
+        // published it; the client never rewrites it into another location.
+        image.src = reference;
+      } else {
+        // Core persisted these bytes inside the workspace, which the webview
+        // cannot open. Only the host may turn that reference into something
+        // loadable, and until it does the part stays named rather than broken.
+        holder.dataset.contentUnresolved = "true";
+        void resolveContent?.(reference)
+          .then((resolved) => {
+            image.src = resolved;
+            delete holder.dataset.contentUnresolved;
+            holder.querySelector("[data-content-reference]")?.remove();
+          })
+          .catch(() => {
+            /* the unresolved note already names the content. */
+          });
+      }
       holder.append(image);
-      if (part.label) {
+      if (holder.dataset.contentUnresolved) {
+        const note = document.createElement("figcaption");
+        note.dataset.contentReference = "true";
+        note.textContent = [part.mediaType, part.label, reference]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ");
+        holder.append(note);
+      } else if (part.label) {
         const caption = document.createElement("figcaption");
         caption.textContent = part.label;
         holder.append(caption);
@@ -201,9 +232,15 @@ function appendContentParts(
   }
 }
 
+/// Whether a reference already names something the page can load itself.
+function hasOwnScheme(reference: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(reference);
+}
+
 function appendAcpConversationRows(
   root: HTMLElement,
   session: D1CockpitProjection["agentSessions"][number],
+  resolveContent?: (reference: string) => Promise<string>,
 ): void {
   const conversation = session.conversation ?? [];
   if (conversation.length > 0) {
@@ -221,7 +258,7 @@ function appendAcpConversationRows(
       .forEach((element, index) => {
         const message = conversation[index];
         (element as HTMLElement).dataset.acpMessageId = message.messageId;
-        appendContentParts(element as HTMLElement, message.parts ?? []);
+        appendContentParts(element as HTMLElement, message.parts ?? [], resolveContent);
       });
     return;
   }
@@ -1038,7 +1075,7 @@ export function renderD1Cockpit(
       if (focusedAcp) {
         acpKinds.add("user");
         acpKinds.add("assistant");
-        appendAcpConversationRows(transcriptRegion, focusedAcp);
+        appendAcpConversationRows(transcriptRegion, focusedAcp, options.resolveContent);
         const conversation = focusedAcp.conversation ?? [];
         if (conversation.length > 0) {
           visibleRows = visibleRows.filter(
