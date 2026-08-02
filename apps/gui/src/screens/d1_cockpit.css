@@ -523,3 +523,80 @@
     width: min(var(--rail-left), calc(100% - var(--rail-act)));
   }
 }
+
+/* Live turn feedback: motion, elapsed clock, and the cancel affordance. */
+.d1-work-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d1-work-status[data-work-status="busy"] {
+  border-color: var(--border-active);
+  color: var(--fg-secondary);
+}
+
+.d1-work-marker {
+  width: var(--sp-2);
+  height: var(--sp-2);
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+.d1-work-marker[data-motion="animated"] {
+  animation: d1-work-pulse 1.1s ease-in-out infinite;
+}
+
+/* A Core-owned reduced-motion preference gets a steady marker, not a pulse. */
+@keyframes d1-work-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d1-work-marker[data-motion="animated"] {
+    animation: none;
+  }
+}
+
+.d1-work-label {
+  color: var(--fg-primary);
+}
+
+.d1-work-task {
+  overflow: hidden;
+  max-width: 42ch;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.d1-work-elapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.d1-work-cancel {
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--warning);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d1-work-cancel:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

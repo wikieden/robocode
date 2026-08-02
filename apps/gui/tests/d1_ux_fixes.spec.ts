@@ -299,3 +299,80 @@ describe("partitioned refresh", () => {
     );
   });
 });
+
+describe("working feedback", () => {
+  function busyLane(seconds: number, status = "running"): D1CockpitProjection {
+    const next = laneProjection("lane-1", 2);
+    next.composer = { ...next.composer, busy: true, canCancel: true };
+    next.agentSessions = [
+      {
+        sessionId: "session-1",
+        laneId: "lane-1",
+        agentId: "codex",
+        model: "gpt-5-codex",
+        status,
+        task: "draw a cat",
+        diagnostic: null,
+        conversation: [],
+      },
+    ] as never;
+    next.contextDock = {
+      ...next.contextDock,
+      laneAgent: {
+        laneId: "lane-1",
+        sessionId: "session-1",
+        agentId: "codex",
+        model: "gpt-5-codex",
+        status,
+      },
+    } as never;
+    void seconds;
+    return next;
+  }
+
+  test("a busy turn shows a live activity marker instead of a static line", () => {
+    const { root, controller } = mount(laneProjection("lane-1", 2));
+    controller.applyProjection(busyLane(0));
+    const strip = root.querySelector<HTMLElement>("[data-work-status]");
+    expect(strip).not.toBeNull();
+    expect(strip?.dataset.workStatus).toBe("busy");
+    expect(strip?.querySelector("[data-work-marker]")).not.toBeNull();
+  });
+
+  test("the strip reports the Core session status rather than an invented narrative", () => {
+    const { root, controller } = mount(laneProjection("lane-1", 2));
+    controller.applyProjection(busyLane(0, "waiting_approval"));
+    const strip = root.querySelector<HTMLElement>("[data-work-status]");
+    expect(strip?.dataset.workCoreStatus).toBe("waiting_approval");
+    expect(strip?.textContent).not.toContain("Thinking");
+  });
+
+  test("elapsed time ticks and is labelled as client-observed", async () => {
+    vi.useFakeTimers();
+    const { root, controller } = mount(laneProjection("lane-1", 2));
+    controller.applyProjection(busyLane(0));
+    const timer = () => root.querySelector<HTMLElement>("[data-work-elapsed]");
+    expect(timer()?.textContent).toBe("0:00");
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(timer()?.textContent).toBe("1:05");
+    // The anchor is the moment the client observed work start, because the
+    // owner-scoped Core start timestamp is unavailable (GUI-CORE-010).
+    expect(timer()?.title).toContain("GUI-CORE-010");
+  });
+
+  test("cancel is reachable from the strip and names its shortcut", () => {
+    const { root, controller } = mount(laneProjection("lane-1", 2));
+    controller.applyProjection(busyLane(0));
+    const cancel = root.querySelector<HTMLButtonElement>("[data-work-cancel]");
+    expect(cancel).not.toBeNull();
+    expect(cancel?.textContent).toContain("Esc");
+  });
+
+  test("the strip disappears when Core reports the turn is no longer busy", () => {
+    const { root, controller } = mount(laneProjection("lane-1", 2));
+    controller.applyProjection(busyLane(0));
+    expect(root.querySelector("[data-work-status='busy']")).not.toBeNull();
+    controller.applyProjection(laneProjection("lane-1", 3));
+    expect(root.querySelector("[data-work-status='busy']")).toBeNull();
+  });
+});

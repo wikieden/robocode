@@ -16,6 +16,7 @@ import {
   type PermissionIntent,
 } from "../components/permission_dock";
 import { appendTranscriptRows, transcriptAtBottom } from "../components/transcript";
+import { renderWorkStatus, workStatusModel, type WorkStatusStrip } from "../components/work_status";
 import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
@@ -272,6 +273,10 @@ export function renderD1Cockpit(
   // Reader scroll position survives the full-surface refresh: renders rebuild
   // the transcript element, so the position is model state, not DOM state.
   let transcriptScrollTop = 0;
+  // Elapsed is anchored to the moment the client first observed Core report
+  // the turn busy: frontend-contract-v1 has no owner-scoped start timestamp.
+  let busySince: number | null = null;
+  let workStatusStrip: WorkStatusStrip | null = null;
   // Signature per shell region. A refresh only replaces the regions whose
   // own facts changed, so a streaming transcript cannot drop :hover, focus,
   // or scroll in the dock and status bar it never touched.
@@ -298,6 +303,15 @@ export function renderD1Cockpit(
     event.preventDefault();
     root.querySelector<HTMLButtonElement>("[data-open-project]")?.click();
   };
+  const handleCancelShortcut = (event: KeyboardEvent): void => {
+    // Esc cancels the running turn, matching the affordance the strip names.
+    if (event.key !== "Escape" || event.repeat || composing) return;
+    if (!projection.composer.busy) return;
+    if (!root.querySelector("[data-work-cancel]")) return;
+    event.preventDefault();
+    cancelActiveTurn();
+  };
+  window.addEventListener("keydown", handleCancelShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   const handleWindowResize = (): void => {
     const grid = root.querySelector<HTMLElement>("[data-cockpit-grid]");
@@ -323,6 +337,7 @@ export function renderD1Cockpit(
         selectedLaneId = next.selectedLaneId;
       }
       focusedConversation = conversationForLane(next, selectedLaneId);
+      busySince = next.composer.busy ? (busySince ?? Date.now()) : null;
       projectionKey = nextKey;
       locale = next.preferences.locale;
       if (next.selectedLaneId === selectedLaneId) {
@@ -371,6 +386,7 @@ export function renderD1Cockpit(
           }
         }
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
+        busySince = result.projection.composer.busy ? (busySince ?? Date.now()) : null;
         projectionKey = nextKey;
         locale = result.projection.preferences.locale;
         if (result.projection.selectedLaneId === selectedLaneId) {
@@ -408,6 +424,9 @@ export function renderD1Cockpit(
       unsubscribeCoreWake = null;
       commandSlotWaiters.splice(0).forEach((resolve) => resolve());
       window.removeEventListener("keydown", handleWindowKeydown);
+      window.removeEventListener("keydown", handleCancelShortcut);
+      workStatusStrip?.dispose();
+      workStatusStrip = null;
       window.removeEventListener("resize", handleWindowResize);
     },
   };
@@ -506,6 +525,21 @@ export function renderD1Cockpit(
     } finally {
       sending = false;
       schedulePoll();
+    }
+  };
+
+  const cancelActiveTurn = (): void => {
+    const commandBlock = composerMutationBlockReason(projection, selectedLaneId);
+    const route = conversationForLane(projection, selectedLaneId);
+    if (commandBlock) {
+      errorMessage = translate(locale, commandBlock, {});
+      render(false);
+      return;
+    }
+    if (route?.kind === "acp") {
+      sendIntent({ type: "cancel_agent_session", laneId: route.laneId, sessionId: route.sessionId });
+    } else if (selectedLaneId) {
+      sendIntent({ type: "cancel", laneId: selectedLaneId });
     }
   };
 
@@ -983,15 +1017,20 @@ export function renderD1Cockpit(
       }
       const liveWork = projectionMatchesSelectedLane ? renderLiveWorkBar(projection, locale) : null;
       if (liveWork) transcriptRegion.append(liveWork);
-      const streamState = document.createElement("div");
-      streamState.className = "d1-stream-state";
-      streamState.setAttribute("role", "status");
-      streamState.textContent = projection.composer.busy
-        ? translate(locale, "d1.stream.active", {
-            lane: selectedLaneId ?? "—",
-          })
-        : translate(locale, "d1.stream.idle", {});
-      transcriptRegion.append(streamState);
+      workStatusStrip?.dispose();
+      const canCancelTurn =
+        !composerMutationBlockReason(projection, selectedLaneId) &&
+        (focusedAcp
+          ? ["starting", "running", "waiting_approval"].includes(focusedAcp.status)
+          : Boolean(projection.composer.canCancel && selectedLaneId));
+      workStatusStrip = renderWorkStatus(
+        workStatusModel(projection, selectedLaneId, canCancelTurn),
+        locale,
+        busySince ?? Date.now(),
+        () => Date.now(),
+        () => cancelActiveTurn(),
+      );
+      transcriptRegion.append(workStatusStrip.element);
       transcriptRegion.addEventListener("scroll", () => {
         const atBottom = transcriptAtBottom(transcriptRegion);
         const first = transcriptRegion.querySelector<HTMLElement>("[data-row-id]")?.dataset.rowId;
