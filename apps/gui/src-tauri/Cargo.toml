@@ -108,3 +108,7 @@ path = "../tests/event_pump.rs"
 [[test]]
 name = "agent_content"
 path = "../tests/agent_content.rs"
+
+[[test]]
+name = "agent_streaming"
+path = "../tests/agent_streaming.rs"
