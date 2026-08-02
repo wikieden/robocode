@@ -219,3 +219,39 @@ describe("poll cadence", () => {
     controller.dispose();
   });
 });
+
+describe("core event wake", () => {
+  test("a Core wake refreshes immediately instead of waiting for the next tick", async () => {
+    vi.useFakeTimers();
+    const listeners: Array<() => void> = [];
+    const poll = vi.fn(async (..._args: unknown[]) => idleResult(projection()));
+    const { controller } = mount(projection(), poll, {
+      poll: true,
+      onCoreWake: (handler: () => void) => {
+        listeners.push(handler);
+        return () => undefined;
+      },
+    });
+    expect(listeners).toHaveLength(1);
+
+    listeners[0]();
+    await vi.advanceTimersByTimeAsync(0);
+    // The wake drives the read; no timer had to elapse first.
+    expect(poll).toHaveBeenCalledTimes(1);
+    controller.dispose();
+  });
+
+  test("the drain timer stops once Core pushes wakes", async () => {
+    vi.useFakeTimers();
+    const poll = vi.fn(async (..._args: unknown[]) => idleResult(projection()));
+    const { controller } = mount(projection(), poll, {
+      poll: true,
+      onCoreWake: () => () => undefined,
+    });
+    await vi.advanceTimersByTimeAsync(2000);
+    // With a push subscription the shell must not keep its own 250ms drain
+    // loop; that loop is the fallback for hosts without the wake.
+    expect(poll).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+});

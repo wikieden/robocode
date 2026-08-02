@@ -1661,6 +1661,40 @@ impl GuiCoreAdapter {
         Ok(event)
     }
 
+    /// Drains ordered Core events with one bounded wait and refreshes the
+    /// projection when anything arrived.
+    ///
+    /// Returns whether observable state advanced. The desktop event pump uses
+    /// this from a background thread to wake the frontend with a push instead
+    /// of leaving every screen on its own drain timer; a quiet pump must
+    /// therefore report `false` so idle loops stay silent.
+    pub fn pump_events(&mut self, event_timeout: Duration) -> bool {
+        let mut received = false;
+        for _ in 0..16 {
+            let event = match self.receive_event_until(if received {
+                Duration::ZERO
+            } else {
+                event_timeout
+            }) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    // The transport state is already classified by
+                    // receive_event; a connection change is progress too.
+                    return true;
+                }
+            };
+            received = true;
+            self.observe_pending_permission(&event);
+            self.observe_pending(&event);
+            self.observe_d4(&event);
+        }
+        if received {
+            let _ = self.refresh_projection();
+        }
+        received
+    }
+
     fn receive_event_until(
         &mut self,
         timeout: Duration,

@@ -14,6 +14,7 @@ mod presentation;
 mod projection;
 
 use std::sync::Mutex;
+use std::thread;
 use std::time::Duration;
 use std::{env, ffi::OsString, path::Path};
 
@@ -379,8 +380,51 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d14_audit_timeline,
             d6_recover
         ])
+        .setup(|app| {
+            spawn_core_event_pump(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("failed to run the Viden desktop client");
+}
+
+/// Name of the ordered-event wake the frontend listens for.
+///
+/// The payload carries nothing: a wake means "Core advanced, re-read the
+/// projection you care about". Screens stay the only readers of their own
+/// projection, so the pump never has to know which screen is mounted.
+pub const CORE_EVENT_WAKE: &str = "viden://core-advanced";
+
+/// Drains ordered Core events off the UI thread and wakes the frontend.
+///
+/// The adapter lock is held only for the bounded drain, never across an emit,
+/// so a command issued from the UI thread cannot be blocked behind a wake.
+fn spawn_core_event_pump(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        loop {
+            let advanced = {
+                use tauri::Manager;
+                let state = app.state::<DesktopState>();
+                let Ok(mut guard) = state.adapter.lock() else {
+                    break;
+                };
+                match guard.as_mut() {
+                    Some(adapter) => adapter.pump_events(Duration::from_millis(250)),
+                    // No workspace is bound yet; wait for one without burning
+                    // the CPU on an empty lock.
+                    None => {
+                        drop(guard);
+                        thread::sleep(Duration::from_millis(250));
+                        continue;
+                    }
+                }
+            };
+            if advanced {
+                use tauri::Emitter;
+                let _ = app.emit(CORE_EVENT_WAKE, ());
+            }
+        }
+    });
 }
 
 fn install_desktop_command_path() {

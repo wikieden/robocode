@@ -97,3 +97,7 @@ path = "../tests/d13_fleet_workflow.rs"
 [[test]]
 name = "capture_projections"
 path = "../tests/capture_projections.rs"
+
+[[test]]
+name = "event_pump"
+path = "../tests/event_pump.rs"

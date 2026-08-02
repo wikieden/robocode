@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { translate } from "./i18n/catalog";
@@ -189,6 +190,27 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const recoverD6 = async () =>
         await invoke<D6RecoveryProjection>("d6_recover");
       let activeD1: D1Controller | null = null;
+      // The desktop host drains ordered Core events off the UI thread and
+      // emits this wake, so the cockpit reads on a push instead of holding a
+      // drain timer. The unlisten is awaited lazily; dispose only needs the
+      // handler to stop firing.
+      // Only the desktop host publishes the wake. In a browser harness the
+      // event bridge is absent, so the cockpit keeps its bounded long poll
+      // instead of throwing on a subscription that cannot exist.
+      const nativeShell = "__TAURI_INTERNALS__" in window;
+      const onCoreWake = !nativeShell
+        ? undefined
+        : (handler: () => void): (() => void) => {
+            const pending = listen("viden://core-advanced", () => handler());
+            let stopped = false;
+            void pending.then((unlisten) => {
+              if (stopped) unlisten();
+            });
+            return () => {
+              stopped = true;
+              void pending.then((unlisten) => unlisten());
+            };
+          };
 
       const showD1 = async (laneId?: string) => {
         const projection = await invoke<D1CockpitProjection | null>("d1_cockpit", {
@@ -221,7 +243,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           pollD1,
           sendPermission,
           recoverD6,
-          { onFullSetup: () => void showD4() },
+          { onFullSetup: () => void showD4(), onCoreWake },
         );
       };
 

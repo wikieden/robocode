@@ -67,6 +67,12 @@ export interface D1RenderOptions {
   onFullSetup?: () => void;
   showWelcome?: boolean;
   poll?: boolean;
+  /**
+   * Subscribes to the host's ordered-Core-event wake and returns an
+   * unsubscribe. When present the shell reads on a push and keeps no drain
+   * timer; hosts without a wake fall back to the bounded long poll.
+   */
+  onCoreWake?: (handler: () => void) => () => void;
 }
 
 type FocusedConversation =
@@ -229,6 +235,8 @@ export function renderD1Cockpit(
   let disposed = false;
   let pollTimer: number | null = null;
   let pollInFlight = false;
+  let coreWakeActive = false;
+  let unsubscribeCoreWake: (() => void) | null = null;
   let sending = false;
   let pendingCommandId: string | null = null;
   let submittedDraft: string | null = null;
@@ -387,6 +395,8 @@ export function renderD1Cockpit(
       agentMenuOpen = false;
       menuController?.close();
       if (pollTimer !== null) window.clearTimeout(pollTimer);
+      unsubscribeCoreWake?.();
+      unsubscribeCoreWake = null;
       commandSlotWaiters.splice(0).forEach((resolve) => resolve());
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("resize", handleWindowResize);
@@ -412,7 +422,26 @@ export function renderD1Cockpit(
     return !disposed;
   };
 
+  const drainOnce = (): void => {
+    if (disposed || pollInFlight || !document.contains(root)) return;
+    if (sending || discoveryDispatching) return;
+    pollInFlight = true;
+    void poll(selectedLaneId ?? undefined, false)
+      .then((result) => {
+        if (!disposed) controller.applyResult(result);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        pollInFlight = false;
+        if (disposed) return;
+        releaseCommandSlotWaiters();
+        queueMicrotask(maybeResumeLaneStart);
+        queueMicrotask(advanceAgentDiscovery);
+      });
+  };
+
   const schedulePoll = (): void => {
+    if (coreWakeActive) return;
     if (disposed || pollTimer !== null || pollInFlight) return;
     pollTimer = window.setTimeout(() => {
       pollTimer = null;
@@ -1184,6 +1213,15 @@ export function renderD1Cockpit(
   };
 
   render(true);
-  if (options.poll !== false) schedulePoll();
+  if (options.poll !== false) {
+    if (options.onCoreWake) {
+      // A host push replaces the drain timer outright: reading on the wake
+      // removes the average half-interval the timer added to every reply.
+      coreWakeActive = true;
+      unsubscribeCoreWake = options.onCoreWake(() => drainOnce());
+    } else {
+      schedulePoll();
+    }
+  }
   return controller;
 }
