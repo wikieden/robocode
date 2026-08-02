@@ -15,7 +15,11 @@ import {
   renderPermissionDock,
   type PermissionIntent,
 } from "../components/permission_dock";
-import { appendTranscriptRows, transcriptAtBottom } from "../components/transcript";
+import {
+  appendTranscriptRows,
+  transcriptAtBottom,
+  type TranscriptAgent,
+} from "../components/transcript";
 import { renderWorkStatus, workStatusModel, type WorkStatusStrip } from "../components/work_status";
 import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
@@ -237,9 +241,25 @@ function hasOwnScheme(reference: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(reference);
 }
 
+/// Names the agent behind a session from the adapters Core published.
+///
+/// Core owns agent display names, so the client never carries its own table.
+/// An agent Core did not describe keeps the id Core scoped the session by
+/// rather than a friendlier name the client cannot vouch for.
+function transcriptAgent(
+  projection: D1CockpitProjection,
+  session: D1CockpitProjection["agentSessions"][number],
+): TranscriptAgent {
+  const adapter = projection.agentAdapters.find(
+    (candidate) => candidate.agentId === session.agentId,
+  );
+  return { id: session.agentId, displayName: adapter?.displayName ?? session.agentId };
+}
+
 function appendAcpConversationRows(
   root: HTMLElement,
   session: D1CockpitProjection["agentSessions"][number],
+  agent: TranscriptAgent,
   resolveContent?: (reference: string) => Promise<string>,
 ): void {
   const conversation = session.conversation ?? [];
@@ -252,6 +272,7 @@ function appendAcpConversationRows(
         kind: message.role,
         content: message.content,
       })),
+      agent,
     );
     Array.from(root.children)
       .slice(offset)
@@ -269,13 +290,17 @@ function appendAcpConversationRows(
     { id: `acp-task-${session.sessionId}`, kind: "user", content: session.task },
   ]);
   root.lastElementChild?.setAttribute("data-acp-task", "true");
-  appendTranscriptRows(root, [
-    {
-      id: `acp-output-${session.sessionId}`,
-      kind: session.output ? "assistant" : "assistant_status",
-      content: session.output ?? `${session.agentId} · ${session.status}`,
-    },
-  ]);
+  appendTranscriptRows(
+    root,
+    [
+      {
+        id: `acp-output-${session.sessionId}`,
+        kind: session.output ? "assistant" : "assistant_status",
+        content: session.output ?? `${session.agentId} · ${session.status}`,
+      },
+    ],
+    agent,
+  );
   root.lastElementChild?.setAttribute(session.output ? "data-acp-output" : "data-acp-status", "true");
 }
 
@@ -1075,7 +1100,12 @@ export function renderD1Cockpit(
       if (focusedAcp) {
         acpKinds.add("user");
         acpKinds.add("assistant");
-        appendAcpConversationRows(transcriptRegion, focusedAcp, options.resolveContent);
+        appendAcpConversationRows(
+          transcriptRegion,
+          focusedAcp,
+          transcriptAgent(projection, focusedAcp),
+          options.resolveContent,
+        );
         const conversation = focusedAcp.conversation ?? [];
         if (conversation.length > 0) {
           visibleRows = visibleRows.filter(

@@ -500,6 +500,70 @@ describe("agent message content parts", () => {
   });
 });
 
+describe("agent identity on a reply", () => {
+  function acpProjection(agentId: string, adapters: unknown[]): D1CockpitProjection {
+    const next = laneProjection("lane-1", 0);
+    next.agentAdapters = adapters as never;
+    next.agentSessions = [
+      {
+        sessionId: "session-1",
+        laneId: "lane-1",
+        agentId,
+        model: "gpt-5-codex",
+        status: "running",
+        task: "draw a cat",
+        diagnostic: null,
+        conversation: [
+          { messageId: "turn-1", role: "assistant", content: "here is the cat", parts: [] },
+        ],
+      },
+    ] as never;
+    next.contextDock = {
+      ...next.contextDock,
+      laneAgent: { laneId: "lane-1", sessionId: "session-1", agentId, model: null },
+    } as never;
+    return next;
+  }
+
+  function assistantIdentity(root: HTMLElement) {
+    const row = root.querySelector<HTMLElement>("[data-transcript-row='assistant']");
+    return {
+      label: row?.querySelector<HTMLElement>("[data-row-label]")?.textContent,
+      avatar: row?.querySelector<HTMLElement>(".d1-row-avatar")?.textContent,
+      agent: row?.dataset.agentId,
+    };
+  }
+
+  test("a reply names the agent Core published, not the shell", () => {
+    const { root } = mount(
+      acpProjection("codex-acp", [
+        { agentId: "codex-acp", displayName: "Codex", startability: "ready", diagnostics: [] },
+      ]),
+    );
+    expect(assistantIdentity(root)).toEqual({ label: "CODEX", avatar: "C", agent: "codex-acp" });
+  });
+
+  test("an agent with no adapter falls back to the id Core scoped the session by", () => {
+    const { root } = mount(acpProjection("claude-acp", []));
+    // Inventing a friendly name for an agent Core did not describe would
+    // assert an identity the client cannot vouch for.
+    expect(assistantIdentity(root)).toEqual({
+      label: "CLAUDE-ACP",
+      avatar: "C",
+      agent: "claude-acp",
+    });
+  });
+
+  test("a row with no agent behind it stays the shell's own reply", () => {
+    const { root } = mount(laneProjection("lane-1", 2));
+    expect(assistantIdentity(root)).toEqual({
+      label: "VIDEN",
+      avatar: "V",
+      agent: undefined,
+    });
+  });
+});
+
 describe("activity rail navigation", () => {
   test("a routing slot opens its restored screen", () => {
     const navigated: string[] = [];
