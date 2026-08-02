@@ -139,6 +139,7 @@ mod tests {
                 RuntimeEventKind::AssistantDelta {
                     message_id: format!("msg-{sequence}"),
                     task_id: None,
+                    session_id: None,
                     content: format!("e{sequence}"),
                 },
             )),

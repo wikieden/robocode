@@ -17,7 +17,7 @@ mod ui_preferences;
 mod workflow;
 
 pub use agent::{
-    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
     AgentConversationMessageView, AgentConversationRole, AgentSessionInput, AgentSessionInputView,
     AgentSessionRequest, AgentSessionStatus, AgentSessionView, AgentStartability,
 };

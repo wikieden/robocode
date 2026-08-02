@@ -1618,6 +1618,7 @@ fn runtime_v1_envelopes_roundtrip_owner_cursor_and_capabilities() {
         RuntimeEventKind::AssistantDelta {
             message_id: "message-a".to_string(),
             task_id: owner.task_id.clone(),
+            session_id: None,
             content: "hello".to_string(),
         },
     );
@@ -4029,6 +4030,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
             RuntimeEventKind::AssistantDelta {
                 message_id: "msg_1".to_string(),
                 task_id: Some(task.id.clone()),
+                session_id: None,
                 content: "Working on the contract.".to_string(),
             },
         ),
@@ -4219,4 +4221,277 @@ fn runtime_contract_fixture_replays_phase2_cross_frontend_facts() {
         Some(RuntimeCommand::SelectModel { provider_id, model })
             if provider_id == "deepseek" && model == "deepseek-reasoner"
     ));
+}
+
+/// GUI-CORE-016: an ACP turn arrives as ordered chunks. The reducer must grow
+/// one owner-scoped assistant message so a client can render the reply while
+/// it is produced, instead of only seeing the completed paragraph.
+#[test]
+fn assistant_deltas_grow_one_owner_scoped_conversation_message() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-viden".to_string(),
+        project_id: "project-viden".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: Some("agent-session-1".to_string()),
+        ..Default::default()
+    };
+    let session = AgentSessionView {
+        session_id: "agent-session-1".to_string(),
+        lane_id: "lane-agent".to_string(),
+        agent_id: "codex".to_string(),
+        model: None,
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "draw a cat".to_string(),
+        diagnostic: None,
+        output: None,
+    };
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentSessionStarted {
+            session: session.clone(),
+        },
+    ));
+
+    for (sequence, chunk) in ["I will ", "draw ", "a cat."].into_iter().enumerate() {
+        view.apply_event(&RuntimeEvent::new(
+            sequence as u64 + 2,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "acp-message-agent-session-1-turn-1".to_string(),
+                task_id: Some("acp-session-agent-session-1".to_string()),
+                session_id: Some("agent-session-1".to_string()),
+                content: chunk.to_string(),
+            },
+        ));
+    }
+
+    let assistant: Vec<&AgentConversationMessageView> = view
+        .agent_conversation
+        .iter()
+        .filter(|message| message.role == AgentConversationRole::Assistant)
+        .collect();
+    assert_eq!(
+        assistant.len(),
+        1,
+        "chunks of one turn must grow one message, not one message per chunk"
+    );
+    assert_eq!(assistant[0].content, "I will draw a cat.");
+    assert_eq!(assistant[0].session_id, "agent-session-1");
+    // The unscoped stream stays intact for existing consumers.
+    assert_eq!(view.assistant_stream, "I will draw a cat.");
+}
+
+/// A delta Core did not scope to a session cannot be attributed to one.
+#[test]
+fn an_unscoped_assistant_delta_never_joins_a_session_conversation() {
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AssistantDelta {
+            message_id: "msg_1".to_string(),
+            task_id: None,
+            session_id: None,
+            content: "global stream only".to_string(),
+        },
+    ));
+    assert!(view.agent_conversation.is_empty());
+    assert_eq!(view.assistant_stream, "global stream only");
+}
+
+/// The completion event must not duplicate a reply the chunks already grew.
+#[test]
+fn a_completed_session_does_not_duplicate_the_streamed_reply() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-viden".to_string(),
+        project_id: "project-viden".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: Some("agent-session-1".to_string()),
+        ..Default::default()
+    };
+    let mut session = AgentSessionView {
+        session_id: "agent-session-1".to_string(),
+        lane_id: "lane-agent".to_string(),
+        agent_id: "codex".to_string(),
+        model: None,
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "draw a cat".to_string(),
+        diagnostic: None,
+        output: None,
+    };
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentSessionStarted {
+            session: session.clone(),
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::AssistantDelta {
+            message_id: "acp-message-agent-session-1-turn-1".to_string(),
+            task_id: None,
+            session_id: Some("agent-session-1".to_string()),
+            content: "here is the cat".to_string(),
+        },
+    ));
+    session.status = AgentSessionStatus::Completed;
+    session.output = Some("here is the cat".to_string());
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::AgentSessionCompleted { session },
+    ));
+
+    let assistant = view
+        .agent_conversation
+        .iter()
+        .filter(|message| message.role == AgentConversationRole::Assistant)
+        .count();
+    assert_eq!(
+        assistant, 1,
+        "the completed output repeats the streamed text"
+    );
+}
+
+/// GUI-CORE-017: an ACP turn can return an image. The message must carry the
+/// typed part so a client can render it, instead of only prose claiming an
+/// image exists.
+#[test]
+fn a_conversation_message_carries_typed_content_parts() {
+    let message = AgentConversationMessageView {
+        message_id: "acp-message-session-1-turn-1".to_string(),
+        session_id: "session-1".to_string(),
+        role: AgentConversationRole::Assistant,
+        content: "here is the cat".to_string(),
+        parts: vec![
+            AgentContentPart::Text {
+                text: "here is the cat".to_string(),
+            },
+            AgentContentPart::Image {
+                media_type: "image/png".to_string(),
+                reference: "evidence://acp/session-1/cat.png".to_string(),
+                alt: Some("an orange cat".to_string()),
+            },
+        ],
+    };
+
+    let wire = serde_json::to_value(&message).unwrap();
+    assert_eq!(wire["parts"][1]["type"], "image");
+    assert_eq!(wire["parts"][1]["mediaType"], "image/png");
+    let decoded: AgentConversationMessageView = serde_json::from_value(wire).unwrap();
+    assert_eq!(decoded, message);
+}
+
+/// A producer that predates content parts must still decode: `parts` is
+/// additive, so an older record keeps its text and reports no parts.
+#[test]
+fn a_message_without_parts_still_decodes() {
+    let legacy = serde_json::json!({
+        "message_id": "m1",
+        "session_id": "s1",
+        "role": "assistant",
+        "content": "plain text only"
+    });
+    let decoded: AgentConversationMessageView = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.content, "plain text only");
+    assert!(decoded.parts.is_empty());
+}
+
+/// A part kind this build does not know must survive the round trip rather
+/// than being dropped, so a newer Core never loses content on an older client.
+#[test]
+fn an_unknown_content_part_is_preserved() {
+    let wire = serde_json::json!({
+        "message_id": "m1",
+        "session_id": "s1",
+        "role": "assistant",
+        "content": "",
+        "parts": [{ "type": "hologram", "payload": { "frames": 3 } }]
+    });
+    let decoded: AgentConversationMessageView = serde_json::from_value(wire).unwrap();
+    assert_eq!(decoded.parts.len(), 1);
+    assert!(matches!(
+        &decoded.parts[0],
+        AgentContentPart::Unknown { kind, .. } if kind == "hologram"
+    ));
+}
+
+/// GUI-CORE-017: a non-text block an Agent returned reaches the message it
+/// belongs to, so a client can render it next to the streamed text.
+#[test]
+fn an_agent_message_part_attaches_to_its_streamed_message() {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace-viden".to_string(),
+        project_id: "project-viden".to_string(),
+        lane_id: Some("lane-agent".to_string()),
+        session_id: Some("agent-session-1".to_string()),
+        ..Default::default()
+    };
+    let session = AgentSessionView {
+        session_id: "agent-session-1".to_string(),
+        lane_id: "lane-agent".to_string(),
+        agent_id: "codex".to_string(),
+        model: None,
+        status: AgentSessionStatus::Running,
+        owner,
+        task: "draw a cat".to_string(),
+        diagnostic: None,
+        output: None,
+    };
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentSessionStarted { session },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::AssistantDelta {
+            message_id: "turn-1".to_string(),
+            task_id: None,
+            session_id: Some("agent-session-1".to_string()),
+            content: "here is the cat".to_string(),
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::AgentMessagePart {
+            session_id: "agent-session-1".to_string(),
+            message_id: "turn-1".to_string(),
+            part: AgentContentPart::Image {
+                media_type: "image/png".to_string(),
+                reference: "evidence://acp/agent-session-1/cat.png".to_string(),
+                alt: None,
+            },
+        },
+    ));
+
+    let message = view
+        .agent_conversation
+        .iter()
+        .find(|message| message.message_id == "turn-1")
+        .expect("the streamed message");
+    assert_eq!(message.content, "here is the cat");
+    assert_eq!(message.parts.len(), 1);
+    assert!(matches!(
+        &message.parts[0],
+        AgentContentPart::Image { media_type, .. } if media_type == "image/png"
+    ));
+}
+
+/// A part for a message Core never published must not fabricate one.
+#[test]
+fn an_orphan_message_part_is_dropped() {
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentMessagePart {
+            session_id: "unknown-session".to_string(),
+            message_id: "unknown-message".to_string(),
+            part: AgentContentPart::Text {
+                text: "orphan".to_string(),
+            },
+        },
+    ));
+    assert!(view.agent_conversation.is_empty());
 }

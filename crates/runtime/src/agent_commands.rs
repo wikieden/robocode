@@ -18,9 +18,9 @@ use viden_plugin_api::{
 use viden_plugin_host::builtin_agent_descriptors;
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentCapabilityRecord,
-    AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest, AgentSessionStatus,
-    AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus,
-    ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecisionOutcome,
+    AgentContentPart, AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest,
+    AgentSessionStatus, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
+    AgentTaskStatus, ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionDecision,
     PermissionLogEntry, RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec,
     TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
@@ -4388,6 +4388,9 @@ where
     if let Err(error) = write_acp_request(&mut stdin, &prompt_request, &mut log_entries) {
         return Err(finish_failed_probe(child, log_path, log_entries, error));
     }
+    // One assistant message per prompt turn. The prompt request id is unique
+    // within the session, so replies from different turns never merge.
+    let turn_message_id = format!("acp-message-{session_id}-turn-{prompt_request_id}");
     let mut message = String::new();
     let mut tool_calls = Vec::new();
     let mut runtime_events = Vec::new();
@@ -4518,6 +4521,7 @@ where
                     &mut runtime_events,
                     &mut runtime_sequence,
                     &session_id,
+                    &turn_message_id,
                     &mut acp_gate_evidence_ids,
                     update,
                 );
@@ -4706,6 +4710,53 @@ fn acp_message_chunk_text(update: &Value) -> Option<String> {
             .get("text")
             .and_then(Value::as_str)
             .map(str::to_string),
+    }
+}
+
+/// Reads a non-text ACP content block as a typed message part.
+///
+/// Text is already carried by `acp_message_chunk_text`, so this returns `None`
+/// for it. A block whose bytes are inline rather than referenced is preserved
+/// verbatim as an unknown part: dropping it would lose content, and inventing
+/// a reference for bytes Core has not persisted would be worse.
+fn acp_message_chunk_part(update: &Value) -> Option<AgentContentPart> {
+    let content = update.get("content")?;
+    let kind = content.get("type").and_then(Value::as_str)?;
+    let media_type = content
+        .get("mimeType")
+        .or_else(|| content.get("mediaType"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let reference = content
+        .get("uri")
+        .or_else(|| content.get("reference"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    match (kind, reference) {
+        ("text", _) => None,
+        ("image", Some(reference)) => Some(AgentContentPart::Image {
+            media_type,
+            reference,
+            alt: content
+                .get("alt")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }),
+        ("resource_link", Some(reference)) | ("resource", Some(reference)) => {
+            Some(AgentContentPart::File {
+                media_type,
+                reference,
+                name: content
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            })
+        }
+        _ => Some(AgentContentPart::Unknown {
+            kind: kind.to_string(),
+            payload: content.clone(),
+        }),
     }
 }
 
@@ -4941,6 +4992,9 @@ fn append_acp_update_runtime_events(
     events: &mut Vec<RuntimeEvent>,
     sequence: &mut u64,
     session_id: &str,
+    // Assistant message id for the whole turn. Chunks of one reply must share
+    // it so the reducer grows one message instead of one per chunk.
+    turn_message_id: &str,
     gate_evidence_ids: &mut Vec<String>,
     update: &Value,
 ) {
@@ -4951,9 +5005,24 @@ fn append_acp_update_runtime_events(
                     events,
                     sequence,
                     RuntimeEventKind::AssistantDelta {
-                        message_id: format!("acp-message-{session_id}-{sequence}"),
+                        message_id: turn_message_id.to_string(),
                         task_id: Some(format!("acp-session-{session_id}")),
+                        session_id: Some(session_id.to_string()),
                         content: text,
+                    },
+                );
+            }
+            // Content the text extractor cannot represent still belongs to the
+            // reply. Publishing it as a typed part keeps an image or a file the
+            // Agent returned from disappearing into prose about it.
+            if let Some(part) = acp_message_chunk_part(update) {
+                push_acp_runtime_event(
+                    events,
+                    sequence,
+                    RuntimeEventKind::AgentMessagePart {
+                        session_id: session_id.to_string(),
+                        message_id: turn_message_id.to_string(),
+                        part,
                     },
                 );
             }
@@ -8355,6 +8424,7 @@ mod tests {
                 &mut events,
                 &mut sequence,
                 agent_id,
+                &format!("acp-message-{agent_id}-turn-1"),
                 &mut evidence_ids,
                 &fixture["tool_update"],
             );
@@ -9618,4 +9688,170 @@ mod tests {
 
     #[cfg(not(unix))]
     fn make_executable(_path: &Path) {}
+}
+
+#[cfg(test)]
+mod agent_streaming_tests {
+    use super::*;
+
+    fn chunk(text: &str) -> Value {
+        serde_json::json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": { "type": "text", "text": text }
+        })
+    }
+
+    /// GUI-CORE-016: every chunk of one prompt turn carries the same message id
+    /// and its session, so the reducer grows a single owner-scoped reply that a
+    /// client can render while it is still being produced.
+    #[test]
+    fn chunks_of_one_turn_share_a_stable_scoped_message_id() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        let turn_message_id = "acp-message-session_1-turn-7";
+
+        for text in ["I will ", "draw ", "a cat."] {
+            append_acp_update_runtime_events(
+                &mut events,
+                &mut sequence,
+                "session_1",
+                turn_message_id,
+                &mut evidence_ids,
+                &chunk(text),
+            );
+        }
+
+        let deltas: Vec<(&str, Option<&str>, &str)> = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RuntimeEventKind::AssistantDelta {
+                    message_id,
+                    session_id,
+                    content,
+                    ..
+                } => Some((message_id.as_str(), session_id.as_deref(), content.as_str())),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(deltas.len(), 3, "each chunk stays its own ordered event");
+        assert!(
+            deltas
+                .iter()
+                .all(|(id, session, _)| *id == turn_message_id && *session == Some("session_1")),
+            "chunks of one turn must not fan out into separate messages: {deltas:?}"
+        );
+        assert_eq!(
+            deltas
+                .iter()
+                .map(|(_, _, content)| *content)
+                .collect::<String>(),
+            "I will draw a cat.",
+            "replaying the chunks reconstructs the reply exactly"
+        );
+    }
+
+    /// GUI-CORE-017: an image block reaches the reply as a typed part instead
+    /// of being dropped while the text claims an image exists.
+    #[test]
+    fn an_image_block_becomes_a_typed_message_part() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "turn-1",
+            &mut evidence_ids,
+            &serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "uri": "file:///tmp/cat.png",
+                    "alt": "an orange cat"
+                }
+            }),
+        );
+
+        let part = events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart {
+                    message_id, part, ..
+                } if message_id == "turn-1" => Some(part.clone()),
+                _ => None,
+            })
+            .expect("the image block must publish a typed part");
+        assert!(matches!(
+            part,
+            AgentContentPart::Image { ref media_type, ref reference, .. }
+                if media_type == "image/png" && reference == "file:///tmp/cat.png"
+        ));
+    }
+
+    /// Inline bytes have no reference Core has persisted, so the block is kept
+    /// verbatim rather than dropped or given an invented reference.
+    #[test]
+    fn an_inline_image_block_is_preserved_as_unknown() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "turn-1",
+            &mut evidence_ids,
+            &serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=" }
+            }),
+        );
+
+        let part = events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart { part, .. } => Some(part.clone()),
+                _ => None,
+            })
+            .expect("the block must not disappear");
+        assert!(matches!(part, AgentContentPart::Unknown { ref kind, .. } if kind == "image"));
+    }
+
+    /// A later turn in the same session must not append to the earlier reply.
+    #[test]
+    fn a_later_turn_uses_its_own_message_id() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "acp-message-session_1-turn-7",
+            &mut evidence_ids,
+            &chunk("first"),
+        );
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "acp-message-session_1-turn-8",
+            &mut evidence_ids,
+            &chunk("second"),
+        );
+
+        let ids: Vec<&str> = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RuntimeEventKind::AssistantDelta { message_id, .. } => Some(message_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1], "turns are separate replies");
+    }
 }

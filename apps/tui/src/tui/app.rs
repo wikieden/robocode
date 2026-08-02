@@ -3028,6 +3028,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "assistant-1".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "working".to_string(),
                     },
                 )]),
