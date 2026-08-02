@@ -102,3 +102,34 @@ Close this request when Core publishes structured conflict content for a
 bounced gate — file path, ours/theirs hunks with line numbers, and the
 baseline the conflict was computed against — and the canonical merge-gate
 fixture covers a two-Lane conflict on one file.
+
+## GUI-CORE-016: Streaming Agent message chunks
+
+The ACP adapter already receives `agent_message_chunk` updates, but
+`crates/runtime/src/agent_commands.rs` accumulates them into a local string
+and publishes one `AgentConversationMessageView` at turn end. No ordered event
+carries a partial message, so the GUI cannot render a reply as it is produced;
+it can only show the completed paragraph.
+
+D1 therefore renders whole messages and shows the work-status strip for
+liveness. It must not fake a typewriter effect over a completed message.
+
+Close this request when Core publishes ordered chunk events carrying the
+session id, the message id the chunk belongs to, the appended text, and a
+terminal marker, and the canonical fixture proves that replaying the chunks
+reconstructs exactly the final message.
+
+## GUI-CORE-017: Non-text Agent message content
+
+`AgentConversationMessageView.content` is a single `String`, and
+`acp_message_chunk_text` extracts only `content.type == "text"`. An ACP agent
+that returns an image block therefore reaches the client as prose claiming an
+image exists, with no image fact behind it — exactly what an operator sees as
+"the agent says it drew something and nothing is there".
+
+D1 renders the text Core published and does not synthesize an attachment.
+
+Close this request when a conversation message carries typed content parts —
+text plus image or file parts with a media type and an immutable content
+reference the client can resolve — and the canonical fixture covers an ACP
+turn that returns an image part alongside text.

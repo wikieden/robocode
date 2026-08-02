@@ -83,3 +83,28 @@ D12 设计稿要求并排展示两条 Lane 的 hunk 与冲突标记。D12 只渲
 当 Core 为被退回的闸发布结构化冲突内容（文件路径、带行号的 ours/theirs hunk、以及
 计算冲突所依据的基线），且规范 merge-gate fixture 覆盖单文件两 Lane 冲突时，
 关闭此请求。
+
+## GUI-CORE-016：Agent 消息的流式分片
+
+ACP 适配器已经收到 `agent_message_chunk` 更新，但
+`crates/runtime/src/agent_commands.rs` 只是把它们累加进一个局部字符串，在轮次结束
+时发布单条 `AgentConversationMessageView`。没有任何有序事件承载部分消息，因此 GUI
+无法边生成边渲染，只能显示已完成的整段。
+
+D1 因此按整条消息渲染，并用工作状态条表达「仍在进行」。不得对一条已完成的消息伪造
+打字机效果。
+
+当 Core 发布携带会话 id、所属消息 id、追加文本与终止标记的有序分片事件，且规范
+fixture 证明重放分片可精确重建最终消息时，关闭此请求。
+
+## GUI-CORE-017：Agent 消息的非文本内容
+
+`AgentConversationMessageView.content` 是单个 `String`，且 `acp_message_chunk_text`
+只提取 `content.type == "text"`。因此当 ACP agent 返回图像块时，到达客户端的只是一段
+声称「图已画好」的文字，背后没有任何图像事实——这正是操作者看到的「agent 说画了，
+但什么都没有」。
+
+D1 只渲染 Core 发布的文本，不合成附件。
+
+当会话消息携带类型化内容分部（文本，加上带媒体类型与客户端可解析的不可变内容引用的
+图像/文件分部），且规范 fixture 覆盖一次返回图像分部与文本的 ACP 轮次时，关闭此请求。
