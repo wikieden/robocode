@@ -149,7 +149,6 @@
   "d1.permission.policy.requiresApproval": "Approval required",
   "d1.newOutput": "{count} new outputs",
   "d1.queued": "Queued",
-  "d1.stream.active": "Live Core work continues on {lane}. Waiting for the next ordered event.",
   "d1.stream.idle": "Waiting for the next ordered Core event.",
   "d1.title": "Streaming cockpit",
   "d1.transcript": "Transcript",

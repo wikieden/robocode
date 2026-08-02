@@ -154,7 +154,6 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.permission.policy.requiresApproval": [],
   "d1.newOutput": ["count"],
   "d1.queued": [],
-  "d1.stream.active": ["lane"],
   "d1.stream.idle": [],
   "d1.title": [],
   "d1.transcript": [],

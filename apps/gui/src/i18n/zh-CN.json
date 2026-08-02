@@ -149,7 +149,6 @@
   "d1.permission.policy.requiresApproval": "需要批准",
   "d1.newOutput": "{count} 条新输出",
   "d1.queued": "已排队",
-  "d1.stream.active": "{lane} 上的 Core 工作仍在继续，等待下一条有序事件。",
   "d1.stream.idle": "等待下一条有序 Core 事件。",
   "d1.title": "流式驾驶舱",
   "d1.transcript": "转录",
