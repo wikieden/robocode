@@ -4523,6 +4523,7 @@ where
                     &session_id,
                     &turn_message_id,
                     &mut acp_gate_evidence_ids,
+                    Some(cwd),
                     update,
                 );
                 if let Some(path) = runtime_event_log_path.as_deref()
@@ -4716,48 +4717,162 @@ fn acp_message_chunk_text(update: &Value) -> Option<String> {
 /// Reads a non-text ACP content block as a typed message part.
 ///
 /// Text is already carried by `acp_message_chunk_text`, so this returns `None`
-/// for it. A block whose bytes are inline rather than referenced is preserved
-/// verbatim as an unknown part: dropping it would lose content, and inventing
-/// a reference for bytes Core has not persisted would be worse.
-fn acp_message_chunk_part(update: &Value) -> Option<AgentContentPart> {
+/// for it. A block whose bytes are inline rather than referenced is persisted
+/// into the workspace first, and the returned evidence records those bytes; a
+/// block that can be neither referenced nor persisted is preserved verbatim as
+/// an unknown part, because dropping it would lose content and inventing a
+/// reference for bytes Core has not persisted would be worse.
+fn acp_message_chunk_part(
+    update: &Value,
+    cwd: Option<&Path>,
+) -> Option<(AgentContentPart, Option<EvidenceView>)> {
     let content = update.get("content")?;
     let kind = content.get("type").and_then(Value::as_str)?;
+    if kind == "text" {
+        return None;
+    }
     let media_type = content
         .get("mimeType")
         .or_else(|| content.get("mediaType"))
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let reference = content
+    let unknown = || {
+        Some((
+            AgentContentPart::Unknown {
+                kind: kind.to_string(),
+                payload: content.clone(),
+            },
+            None,
+        ))
+    };
+    let referenced = content
         .get("uri")
         .or_else(|| content.get("reference"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    match (kind, reference) {
-        ("text", _) => None,
-        ("image", Some(reference)) => Some(AgentContentPart::Image {
+    // A reference the Agent supplied is used as published. Only bytes with no
+    // reference of their own are persisted, and then the workspace path Core
+    // wrote becomes the reference.
+    let (reference, evidence) = match referenced {
+        Some(reference) => (reference, None),
+        None => {
+            let Some(cwd) = cwd else { return unknown() };
+            let data = content
+                .get("data")
+                .or_else(|| content.get("blob"))
+                .and_then(Value::as_str)?;
+            match persist_acp_inline_bytes(cwd, kind, &media_type, data) {
+                Some(persisted) => persisted,
+                None => return unknown(),
+            }
+        }
+    };
+    let part = match kind {
+        "image" => AgentContentPart::Image {
             media_type,
             reference,
             alt: content
                 .get("alt")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-        }),
-        ("resource_link", Some(reference)) | ("resource", Some(reference)) => {
-            Some(AgentContentPart::File {
-                media_type,
-                reference,
-                name: content
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-            })
-        }
-        _ => Some(AgentContentPart::Unknown {
-            kind: kind.to_string(),
-            payload: content.clone(),
-        }),
+        },
+        "resource_link" | "resource" | "audio" => AgentContentPart::File {
+            media_type,
+            reference,
+            name: content
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+        _ => return unknown(),
+    };
+    Some((part, evidence))
+}
+
+/// Writes inline Agent bytes into the workspace and records them as evidence.
+///
+/// The file name is the digest of the bytes, so identical content resolves to
+/// one immutable path: a replayed event can never point at a file that was
+/// rewritten under it. Returns `None` when the payload is not decodable or the
+/// workspace cannot be written, leaving the caller to preserve the raw block.
+fn persist_acp_inline_bytes(
+    cwd: &Path,
+    kind: &str,
+    media_type: &str,
+    data: &str,
+) -> Option<(String, Option<EvidenceView>)> {
+    use base64::Engine as _;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .ok()?;
+    let digest = sha256_hex(&bytes);
+    let name = format!("{digest}.{}", acp_content_extension(media_type));
+    let dir = cwd.join(".viden").join("agents").join("parts");
+    fs::create_dir_all(&dir).ok()?;
+    let path = dir.join(&name);
+    if !path.exists() {
+        fs::write(&path, &bytes).ok()?;
     }
+    let reference = format!(".viden/agents/parts/{name}");
+    let evidence = EvidenceView {
+        id: format!("acp-content-{digest}"),
+        kind: "agent-content".to_string(),
+        summary: format!("{kind} returned by the Agent ({} bytes)", bytes.len()),
+        path: Some(reference.clone()),
+        source: Some("acp:content.v1".to_string()),
+        canonical: None,
+        metadata: Some(json!({
+            "mediaType": media_type,
+            "contentKind": kind,
+            "sha256": digest,
+            "bytes": bytes.len(),
+        })),
+        timestamp: None,
+    };
+    Some((reference, Some(evidence)))
+}
+
+/// Maps a media type onto a file extension for persisted Agent content.
+fn acp_content_extension(media_type: &str) -> String {
+    match media_type {
+        "image/png" => return "png".to_string(),
+        "image/jpeg" | "image/jpg" => return "jpg".to_string(),
+        "image/gif" => return "gif".to_string(),
+        "image/webp" => return "webp".to_string(),
+        "image/svg+xml" => return "svg".to_string(),
+        "application/pdf" => return "pdf".to_string(),
+        _ => {}
+    }
+    let subtype = media_type
+        .split('/')
+        .nth(1)
+        .unwrap_or_default()
+        .split(['+', ';'])
+        .next()
+        .unwrap_or_default();
+    let sanitized: String = subtype
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    if sanitized.is_empty() {
+        "bin".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let mut out = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }
 
 fn acp_patch_text(update: &Value) -> Option<String> {
@@ -4996,6 +5111,10 @@ fn append_acp_update_runtime_events(
     // it so the reducer grows one message instead of one per chunk.
     turn_message_id: &str,
     gate_evidence_ids: &mut Vec<String>,
+    // Workspace the session runs in, when one is known. Inline Agent bytes are
+    // persisted under it; without it they stay unresolved rather than being
+    // written outside the workspace.
+    cwd: Option<&Path>,
     update: &Value,
 ) {
     match acp_update_kind(update).as_deref() {
@@ -5015,7 +5134,18 @@ fn append_acp_update_runtime_events(
             // Content the text extractor cannot represent still belongs to the
             // reply. Publishing it as a typed part keeps an image or a file the
             // Agent returned from disappearing into prose about it.
-            if let Some(part) = acp_message_chunk_part(update) {
+            if let Some((part, evidence)) = acp_message_chunk_part(update, cwd) {
+                // Persisted bytes are published as evidence before the part
+                // that references them, so a client never sees a reference
+                // whose fact has not been recorded yet.
+                if let Some(evidence) = evidence {
+                    push_unique_evidence_id(gate_evidence_ids, &evidence.id);
+                    push_acp_runtime_event(
+                        events,
+                        sequence,
+                        RuntimeEventKind::EvidenceRecorded { evidence },
+                    );
+                }
                 push_acp_runtime_event(
                     events,
                     sequence,
@@ -8426,6 +8556,7 @@ mod tests {
                 agent_id,
                 &format!("acp-message-{agent_id}-turn-1"),
                 &mut evidence_ids,
+                None,
                 &fixture["tool_update"],
             );
             assert!(events.iter().any(|event| matches!(
@@ -9718,6 +9849,7 @@ mod agent_streaming_tests {
                 "session_1",
                 turn_message_id,
                 &mut evidence_ids,
+                None,
                 &chunk(text),
             );
         }
@@ -9765,6 +9897,7 @@ mod agent_streaming_tests {
             "session_1",
             "turn-1",
             &mut evidence_ids,
+            None,
             &serde_json::json!({
                 "sessionUpdate": "agent_message_chunk",
                 "content": {
@@ -9792,10 +9925,11 @@ mod agent_streaming_tests {
         ));
     }
 
-    /// Inline bytes have no reference Core has persisted, so the block is kept
-    /// verbatim rather than dropped or given an invented reference.
+    /// Without a workspace to write into there is no reference Core has
+    /// persisted, so the block is kept verbatim rather than dropped or given
+    /// an invented reference.
     #[test]
-    fn an_inline_image_block_is_preserved_as_unknown() {
+    fn an_inline_image_block_without_a_workspace_is_preserved_as_unknown() {
         let mut events = Vec::new();
         let mut sequence = 1;
         let mut evidence_ids = Vec::new();
@@ -9805,6 +9939,7 @@ mod agent_streaming_tests {
             "session_1",
             "turn-1",
             &mut evidence_ids,
+            None,
             &serde_json::json!({
                 "sessionUpdate": "agent_message_chunk",
                 "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=" }
@@ -9821,6 +9956,117 @@ mod agent_streaming_tests {
         assert!(matches!(part, AgentContentPart::Unknown { ref kind, .. } if kind == "image"));
     }
 
+    /// GUI-CORE-017: inline Agent bytes become durable evidence with an
+    /// immutable reference, so a drawn image survives the turn and can be
+    /// rendered from the fact Core published rather than from the wire.
+    #[test]
+    fn inline_image_bytes_become_referenced_evidence() {
+        let cwd = env::temp_dir().join(format!("viden_acp_inline_{}", fresh_id("tmp")));
+        fs::create_dir_all(&cwd).expect("create workspace");
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        // "cat" in base64; the bytes only have to round-trip, not be a real PNG.
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "turn-1",
+            &mut evidence_ids,
+            Some(cwd.as_path()),
+            &serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "data": "Y2F0",
+                    "alt": "an orange cat"
+                }
+            }),
+        );
+
+        let part = events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart { part, .. } => Some(part.clone()),
+                _ => None,
+            })
+            .expect("the block must publish a typed part");
+        let AgentContentPart::Image {
+            media_type,
+            reference,
+            alt,
+        } = part
+        else {
+            panic!("persisted inline bytes must become a typed image part, got {part:?}");
+        };
+        assert_eq!(media_type, "image/png");
+        assert_eq!(alt.as_deref(), Some("an orange cat"));
+        assert!(
+            reference.starts_with(".viden/agents/parts/") && reference.ends_with(".png"),
+            "the reference must be a workspace path Core owns: {reference}"
+        );
+        assert_eq!(
+            fs::read(cwd.join(&reference)).expect("persisted bytes"),
+            b"cat",
+            "the persisted file must hold exactly the bytes the Agent returned"
+        );
+        assert!(
+            events.iter().any(|event| matches!(
+                &event.kind,
+                RuntimeEventKind::EvidenceRecorded { evidence }
+                    if evidence.path.as_deref() == Some(reference.as_str())
+            )),
+            "the persisted bytes must also be published as evidence"
+        );
+        assert!(
+            evidence_ids.iter().any(|id| id.contains("acp-content-")),
+            "the content evidence must be available to a gate: {evidence_ids:?}"
+        );
+        let _ = fs::remove_dir_all(&cwd);
+    }
+
+    /// The same bytes must resolve to the same immutable file, so a replayed
+    /// event never points at a path that was rewritten underneath it.
+    #[test]
+    fn identical_inline_bytes_share_one_immutable_reference() {
+        let cwd = env::temp_dir().join(format!("viden_acp_inline_{}", fresh_id("tmp")));
+        fs::create_dir_all(&cwd).expect("create workspace");
+        let update = serde_json::json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": { "type": "image", "mimeType": "image/png", "data": "Y2F0" }
+        });
+        let mut references = Vec::new();
+        for turn in ["turn-1", "turn-2"] {
+            let mut events = Vec::new();
+            let mut sequence = 1;
+            let mut evidence_ids = Vec::new();
+            append_acp_update_runtime_events(
+                &mut events,
+                &mut sequence,
+                "session_1",
+                turn,
+                &mut evidence_ids,
+                Some(cwd.as_path()),
+                &update,
+            );
+            references.extend(events.iter().filter_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart {
+                    part: AgentContentPart::Image { reference, .. },
+                    ..
+                } => Some(reference.clone()),
+                _ => None,
+            }));
+        }
+
+        assert_eq!(references.len(), 2);
+        assert_eq!(
+            references[0], references[1],
+            "content-addressed bytes must not fork into two references"
+        );
+        let _ = fs::remove_dir_all(&cwd);
+    }
+
     /// A later turn in the same session must not append to the earlier reply.
     #[test]
     fn a_later_turn_uses_its_own_message_id() {
@@ -9833,6 +10079,7 @@ mod agent_streaming_tests {
             "session_1",
             "acp-message-session_1-turn-7",
             &mut evidence_ids,
+            None,
             &chunk("first"),
         );
         append_acp_update_runtime_events(
@@ -9841,6 +10088,7 @@ mod agent_streaming_tests {
             "session_1",
             "acp-message-session_1-turn-8",
             &mut evidence_ids,
+            None,
             &chunk("second"),
         );
 
