@@ -106,6 +106,7 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
     )
     .map_err(TuiError::Terminal)?;
     let mut state = state_from_driver(&driver, &options);
+    state.ui.pulse_frame = super::render::sampled_pulse_frame();
     terminal.draw(&state).map_err(TuiError::Terminal)?;
 
     loop {
@@ -117,6 +118,7 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
             state.ui.color_depth,
             terminal_capabilities,
         );
+        state.ui.pulse_frame = super::render::sampled_pulse_frame();
         terminal.draw(&state).map_err(TuiError::Terminal)?;
 
         if !event::poll(std::time::Duration::from_millis(100))
