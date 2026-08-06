@@ -1,0 +1,39 @@
+{
+  "rows": [
+    {
+      "sequence": 1,
+      "streamId": "core",
+      "kind": "error",
+      "known": true,
+      "timestamp": 1700000001,
+      "projectId": "project-boss-rush",
+      "laneId": "lane-1",
+      "sessionId": "session-lane-1",
+      "taskId": "task-lane-1"
+    },
+    {
+      "sequence": 2,
+      "streamId": "core",
+      "kind": "assistant_delta",
+      "known": true,
+      "timestamp": 1700000002,
+      "projectId": "project-boss-rush",
+      "laneId": "lane-2",
+      "sessionId": "session-lane-2",
+      "taskId": "task-lane-2"
+    },
+    {
+      "sequence": 3,
+      "streamId": "core",
+      "kind": "unknown",
+      "known": false,
+      "timestamp": null,
+      "projectId": "project-boss-rush",
+      "laneId": "lane-3",
+      "sessionId": "session-lane-3",
+      "taskId": "task-lane-3"
+    }
+  ],
+  "nextCursor": "core:3",
+  "complete": false
+}

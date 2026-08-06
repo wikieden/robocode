@@ -22,6 +22,8 @@ pub struct TestCoreClient {
     events: VecDeque<Result<Option<RuntimeEventEnvelope>, CoreClientError>>,
     send_error: Option<CoreClientError>,
     stream_id: String,
+    /// Replay batches served in order to `replay`, oldest first.
+    replay_batches: VecDeque<ReplayBatch>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -47,7 +49,13 @@ impl TestCoreClient {
             events: VecDeque::new(),
             send_error: None,
             stream_id: "gui-test".to_string(),
+            replay_batches: VecDeque::new(),
         }
+    }
+
+    pub fn with_replay_batch(mut self, batch: ReplayBatch) -> Self {
+        self.replay_batches.push_back(batch);
+        self
     }
 
     pub fn with_stream_id(mut self, stream_id: impl Into<String>) -> Self {
@@ -165,7 +173,9 @@ impl CoreClient for TestCoreClient {
     }
 
     fn replay(&mut self, _request: ReplayRequest) -> Result<ReplayBatch, CoreClientError> {
-        Err(CoreClientError::Transport("unused replay".into()))
+        self.replay_batches
+            .pop_front()
+            .ok_or_else(|| CoreClientError::Transport("unused replay".into()))
     }
 
     fn transcript_page(

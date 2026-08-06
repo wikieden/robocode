@@ -1,7 +1,13 @@
 //! Viden's production desktop client boundary.
 
 mod adapter;
+mod agent_content;
 mod d1;
+mod d10;
+mod d12;
+mod d13;
+mod d14;
+mod d2;
 mod d4;
 mod d6;
 mod permission;
@@ -9,22 +15,42 @@ mod presentation;
 mod projection;
 
 use std::sync::Mutex;
+use std::thread;
 use std::time::Duration;
 use std::{env, ffi::OsString, path::Path};
 
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
+pub use agent_content::{agent_content_data_url, resolve_agent_content_reference};
 pub use d1::{
     D1_OWNER_CAPABILITY, D1AgentSessionInputProjection, D1AgentSessionProjection,
-    D1ChecklistItemProjection, D1CockpitProjection, D1ContextDockProjection,
-    D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
-    D1LaneAgentProjection, D1OutcomeProjection, D1ProviderHealthProjection,
-    D1RuntimeServiceProjection, D1StarterLaneReceiptProjection, D1WorkspaceSourceProjection,
+    D1ChecklistItemProjection, D1CockpitProjection, D1ContentPartProjection,
+    D1ContextDockProjection, D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection,
+    D1Intent, D1IntentResult, D1LaneAgentProjection, D1OutcomeProjection,
+    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLaneReceiptProjection,
+    D1WorkspaceSourceProjection,
+};
+pub use d2::{
+    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
+    D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection, D2Intent,
+    D2IntentResult, D2QueueItemProjection, D2UnavailableProjection,
 };
 pub use d4::{
     D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,
     D4LaneRequest, D4Preset,
 };
 pub use d6::{D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State};
+pub use d10::{
+    D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
+};
+pub use d12::{
+    D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
+};
+pub use d13::{
+    D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
+    D13WorkflowProjection,
+};
+pub use d14::{D14AuditTimelineProjection, D14RowProjection};
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
@@ -213,6 +239,119 @@ fn permission_poll(
 }
 
 #[tauri::command]
+fn d13_fleet_workflow(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D13FleetWorkflowProjection>, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d13_fleet_workflow())
+}
+
+#[tauri::command]
+fn d14_audit_timeline(
+    after: Option<String>,
+    limit: u32,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D14AuditTimelineProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d14_audit_timeline(after.as_deref(), limit)
+}
+
+/// Reads the Agent content Core persisted for a message part.
+///
+/// The webview cannot load a workspace path, so the shell reads the file Core
+/// wrote and returns an inline data URL. The workspace root comes from Core's
+/// own project probe, never from the caller.
+#[tauri::command]
+fn agent_content(
+    reference: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<String, String> {
+    let root = state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .workspace_root()
+        .ok_or_else(|| "gui.agentContent.noWorkspace".to_string())?;
+    agent_content::agent_content_data_url(Path::new(&root), &reference)
+}
+
+#[tauri::command]
+fn d12_integration_gate(
+    selected_gate_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D12IntegrationGateProjection>, String> {
+    let guard = state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
+    let adapter = guard
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?;
+    Ok(match selected_gate_id {
+        Some(gate_id) => adapter.d12_integration_gate_for(&gate_id),
+        None => adapter.d12_integration_gate(),
+    })
+}
+
+#[tauri::command]
+fn d10_lane_monitor(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D10LaneMonitorProjection>, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d10_lane_monitor())
+}
+
+#[tauri::command]
+fn d2_decisions(
+    selected_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D2DecisionsProjection>, String> {
+    let guard = state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
+    let adapter = guard
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?;
+    Ok(match selected_id {
+        Some(id) => adapter.d2_decisions_for(&id),
+        None => adapter.d2_decisions(),
+    })
+}
+
+#[tauri::command]
+fn d2_send_intent(
+    command_id: String,
+    intent: D2Intent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D2IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d2_send_intent(&command_id, intent)
+}
+
+#[tauri::command]
 fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProjection, String> {
     let mut guard = state
         .adapter
@@ -257,10 +396,60 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d1_poll,
             permission_send_intent,
             permission_poll,
+            d2_decisions,
+            d2_send_intent,
+            d10_lane_monitor,
+            d12_integration_gate,
+            d13_fleet_workflow,
+            d14_audit_timeline,
+            agent_content,
             d6_recover
         ])
+        .setup(|app| {
+            spawn_core_event_pump(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("failed to run the Viden desktop client");
+}
+
+/// Name of the ordered-event wake the frontend listens for.
+///
+/// The payload carries nothing: a wake means "Core advanced, re-read the
+/// projection you care about". Screens stay the only readers of their own
+/// projection, so the pump never has to know which screen is mounted.
+pub const CORE_EVENT_WAKE: &str = "viden://core-advanced";
+
+/// Drains ordered Core events off the UI thread and wakes the frontend.
+///
+/// The adapter lock is held only for the bounded drain, never across an emit,
+/// so a command issued from the UI thread cannot be blocked behind a wake.
+fn spawn_core_event_pump(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        loop {
+            let advanced = {
+                use tauri::Manager;
+                let state = app.state::<DesktopState>();
+                let Ok(mut guard) = state.adapter.lock() else {
+                    break;
+                };
+                match guard.as_mut() {
+                    Some(adapter) => adapter.pump_events(Duration::from_millis(250)),
+                    // No workspace is bound yet; wait for one without burning
+                    // the CPU on an empty lock.
+                    None => {
+                        drop(guard);
+                        thread::sleep(Duration::from_millis(250));
+                        continue;
+                    }
+                }
+            };
+            if advanced {
+                use tauri::Emitter;
+                let _ = app.emit(CORE_EVENT_WAKE, ());
+            }
+        }
+    });
 }
 
 fn install_desktop_command_path() {

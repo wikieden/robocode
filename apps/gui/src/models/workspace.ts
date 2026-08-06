@@ -203,6 +203,15 @@ export interface D1CockpitProjection {
       messageId: string;
       role: "user" | "assistant";
       content: string;
+      /// Typed content Core published with the message. Absent when Core
+      /// published none; the client never synthesizes a part.
+      parts?: {
+        kind: string;
+        mediaType: string | null;
+        reference: string | null;
+        text: string | null;
+        label: string | null;
+      }[];
     }>;
   }>;
   composer: {

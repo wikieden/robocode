@@ -307,6 +307,24 @@ pub struct D1AgentConversationMessageProjection {
     pub message_id: String,
     pub role: &'static str,
     pub content: String,
+    /// Typed content Core published alongside the text. Empty when Core
+    /// published none; the client never synthesizes a part.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<D1ContentPartProjection>,
+}
+
+/// One renderable piece of an Agent message.
+///
+/// A part kind this build cannot render is still projected, so the operator
+/// sees that content exists rather than silently losing it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1ContentPartProjection {
+    pub kind: String,
+    pub media_type: Option<String>,
+    pub reference: Option<String>,
+    pub text: Option<String>,
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

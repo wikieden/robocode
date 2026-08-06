@@ -1,21 +1,40 @@
 use serde::Serialize;
 use viden_core::{
-    AgentConversationRole, AgentLaneRecord, AgentRoute, AgentSessionStatus, AgentStartability,
-    AgentTaskStatus, ApprovalDefaultAction, ApprovalRisk, ApprovalScope,
-    COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, CredentialHandle, EventCursor, LaneStatus,
-    LocaleId, ProjectConfigPreview, ProjectProbe, ProviderHealthView, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
-    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
+    AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
+    AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalRisk, ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus,
+    ConflictBounceStatus, ContractDecision, ContractRecord, CredentialHandle, DependencyState,
+    EventCursor, GateStrength, LaneStatus, LocaleId, MergeGateStatus, MergeGateType,
+    MutationPolicy, ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
+    ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
+    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
+    WorkspaceSourceStatus,
 };
 
 use crate::d1::{
     D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentConversationMessageProjection,
     D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
-    D1ComposerProjection, D1ContextDockProjection, D1CostUsageProjection, D1CursorProjection,
-    D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection,
-    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLanePreviewProjection,
-    D1StarterLaneReceiptProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
-    D1WorkspaceSourceProjection, unavailable_features,
+    D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection, D1CostUsageProjection,
+    D1CursorProjection, D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection,
+    D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
+    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1TranscriptRowProjection,
+    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
+};
+use crate::d2::{
+    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
+    D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection,
+    D2QueueItemProjection, D2UnavailableProjection,
+};
+use crate::d10::{
+    D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
+};
+use crate::d12::{
+    D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
+};
+use crate::d13::{
+    D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
+    D13WorkflowProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -284,6 +303,493 @@ impl RuntimeProjection {
             work_mode: view.snapshot.work_mode.cli_name().to_string(),
             permission_level: view.snapshot.permission_level.cli_name().to_string(),
             request,
+        })
+    }
+
+    /// Projects the D2 decision queue.
+    ///
+    /// `selected` is presentation state supplied by the shell. When it does not
+    /// name a live decision the projection falls back to the first pending
+    /// item, so the card never renders a decision Core no longer holds.
+    pub fn d2_decisions(&self, selected: Option<&str>) -> Option<D2DecisionsProjection> {
+        let view = self.view()?;
+        let blocked_by_plan = view.snapshot.work_mode == WorkMode::Plan;
+
+        let gate_items: Vec<D2QueueItemProjection> =
+            view.pending_approvals.iter().map(gate_queue_item).collect();
+        let contract_items: Vec<D2QueueItemProjection> =
+            view.contracts.iter().map(contract_queue_item).collect();
+        let review_items: Vec<D2QueueItemProjection> =
+            view.review_requests.iter().map(review_queue_item).collect();
+
+        // Only approvals and pending reviews are actually awaiting a human.
+        let pending_total = gate_items.len()
+            + review_items
+                .iter()
+                .filter(|item| item.status == "pending")
+                .count();
+
+        let groups = vec![
+            D2GroupProjection {
+                kind: D2_KIND_GATE.to_string(),
+                items: gate_items,
+                unavailable: None,
+            },
+            D2GroupProjection {
+                kind: D2_KIND_REVIEW.to_string(),
+                items: review_items,
+                unavailable: None,
+            },
+            D2GroupProjection {
+                kind: D2_KIND_CONTRACT.to_string(),
+                items: contract_items,
+                unavailable: Some(D2UnavailableProjection {
+                    key: "d2.contract.noPendingFact",
+                    code: "GUI-CORE-013",
+                }),
+            },
+        ];
+
+        let selected_id = selected
+            .filter(|id| {
+                groups
+                    .iter()
+                    .any(|group| group.items.iter().any(|item| item.id == *id))
+            })
+            .map(str::to_string)
+            .or_else(|| {
+                groups
+                    .iter()
+                    .flat_map(|group| group.items.iter())
+                    .next()
+                    .map(|item| item.id.clone())
+            });
+
+        let detail = selected_id
+            .as_deref()
+            .and_then(|id| self.d2_detail(view, id, blocked_by_plan));
+
+        Some(D2DecisionsProjection {
+            work_mode: view.snapshot.work_mode.cli_name().to_string(),
+            permission_level: view.snapshot.permission_level.cli_name().to_string(),
+            pending_total,
+            selected_id,
+            groups,
+            detail,
+        })
+    }
+
+    fn d2_detail(
+        &self,
+        view: &RuntimeViewState,
+        id: &str,
+        blocked_by_plan: bool,
+    ) -> Option<D2DetailProjection> {
+        if let Some(approval) = view.pending_approvals.iter().find(|entry| entry.id == id) {
+            let mut actions: Vec<D2ActionProjection> = approval
+                .allowed_scopes
+                .iter()
+                .map(|scope| match scope {
+                    ApprovalScope::Once => D2ActionProjection {
+                        kind: "once".to_string(),
+                        available: !blocked_by_plan,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: None,
+                    },
+                    ApprovalScope::Session { session_id } => D2ActionProjection {
+                        kind: "session".to_string(),
+                        available: !blocked_by_plan,
+                        session_id: Some(session_id.clone()),
+                        paths: Vec::new(),
+                        code: None,
+                    },
+                    ApprovalScope::RepoAllowlist { paths } => D2ActionProjection {
+                        kind: "repo_allowlist".to_string(),
+                        available: !blocked_by_plan,
+                        session_id: None,
+                        paths: paths.clone(),
+                        code: None,
+                    },
+                })
+                .collect();
+            actions.push(D2ActionProjection {
+                kind: "deny".to_string(),
+                available: !blocked_by_plan,
+                session_id: None,
+                paths: Vec::new(),
+                code: None,
+            });
+
+            return Some(D2DetailProjection {
+                id: approval.id.clone(),
+                kind: D2_KIND_GATE.to_string(),
+                title: approval.title.clone(),
+                project_id: approval.owner.project_id.clone(),
+                lane_id: approval.owner.lane_id.clone(),
+                task_id: approval.owner.task_id.clone(),
+                audit_id: approval.audit_id.clone(),
+                policy_reason_key: Some(approval.policy_reason_key.clone()),
+                blocked_by_plan,
+                context: D2ContextProjection {
+                    source: "approval_input_preview",
+                    text: approval.input_preview.clone(),
+                    // The design shows line-level diff rows. Schema 1 carries
+                    // only this opaque preview, so the rows stay unavailable.
+                    unavailable: Some(D2UnavailableProjection {
+                        key: "d2.context.noStructuredDiff",
+                        code: "GUI-CORE-012",
+                    }),
+                },
+                evidence: owner_evidence(view, approval.owner.lane_id.as_deref()),
+                actions,
+            });
+        }
+
+        if let Some(review) = view
+            .review_requests
+            .iter()
+            .find(|entry| entry.review_id == id)
+        {
+            return Some(D2DetailProjection {
+                id: review.review_id.clone(),
+                kind: D2_KIND_REVIEW.to_string(),
+                title: review.review_id.clone(),
+                project_id: review.owner.project_id.clone(),
+                lane_id: review.owner.lane_id.clone(),
+                task_id: Some(review.task_id.clone()),
+                audit_id: review.audit_id.clone(),
+                policy_reason_key: None,
+                blocked_by_plan,
+                context: D2ContextProjection {
+                    source: "review_request",
+                    text: review.gate_id.clone(),
+                    unavailable: None,
+                },
+                evidence: evidence_by_ids(view, &review.evidence_ids),
+                // frontend-contract-v1 has RequestReview but no command that
+                // records a review decision, so the action fails closed.
+                actions: vec![
+                    D2ActionProjection {
+                        kind: "accept_review".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-011"),
+                    },
+                    D2ActionProjection {
+                        kind: "reject_review".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-011"),
+                    },
+                ],
+            });
+        }
+
+        let contract = view
+            .contracts
+            .iter()
+            .find(|entry| entry.contract_id == id)?;
+        Some(D2DetailProjection {
+            id: contract.contract_id.clone(),
+            kind: D2_KIND_CONTRACT.to_string(),
+            title: contract.summary.clone(),
+            project_id: contract.owner.project_id.clone(),
+            lane_id: contract.owner.lane_id.clone(),
+            task_id: Some(contract.task_id.clone()),
+            audit_id: contract.audit_id.clone(),
+            policy_reason_key: None,
+            blocked_by_plan,
+            context: D2ContextProjection {
+                source: "contract_summary",
+                text: contract.summary.clone(),
+                unavailable: None,
+            },
+            evidence: owner_evidence(view, contract.owner.lane_id.as_deref()),
+            actions: vec![
+                D2ActionProjection {
+                    kind: "confirm_contract".to_string(),
+                    available: !blocked_by_plan,
+                    session_id: None,
+                    paths: Vec::new(),
+                    code: None,
+                },
+                D2ActionProjection {
+                    kind: "reject_contract".to_string(),
+                    available: !blocked_by_plan,
+                    session_id: None,
+                    paths: Vec::new(),
+                    code: None,
+                },
+            ],
+        })
+    }
+
+    /// Projects the D13 fleet view: every Core workflow DAG and the handoffs
+    /// Core recorded between Lanes.
+    pub fn d13_fleet_workflow(&self) -> Option<D13FleetWorkflowProjection> {
+        let view = self.view()?;
+        let workflows = view
+            .agent_dags
+            .iter()
+            .map(|dag| D13WorkflowProjection {
+                dag_id: dag.dag_id.clone(),
+                goal: dag.goal.clone(),
+                status: agent_dag_status(dag.status).to_string(),
+                created_at: dag.created_at,
+                updated_at: dag.updated_at,
+                nodes: dag
+                    .tasks
+                    .iter()
+                    .map(|spec| {
+                        let live = view.tasks.iter().find(|task| task.id == spec.task_id);
+                        let blockers: Vec<D13BlockerProjection> = view
+                            .dependencies
+                            .iter()
+                            .filter(|dependency| {
+                                dependency.task_id == spec.task_id
+                                    && dependency.state == DependencyState::Blocked
+                            })
+                            .map(|dependency| D13BlockerProjection {
+                                dependency_id: dependency.dependency_id.clone(),
+                                depends_on_task_id: dependency.depends_on_task_id.clone(),
+                                reason: dependency.reason.clone(),
+                                audit_id: dependency.audit_id.clone(),
+                                updated_at: dependency.updated_at,
+                            })
+                            .collect();
+                        D13NodeProjection {
+                            task_id: spec.task_id.clone(),
+                            title: spec.title.clone(),
+                            objective: spec.objective.clone(),
+                            role: agent_role(spec.role).to_string(),
+                            depends_on: spec.dependencies.clone(),
+                            required_evidence: spec.required_evidence.clone(),
+                            permission_policy: spec.permission_policy.clone(),
+                            // A planned spec with no Core task is not running.
+                            status: live.map(|task| agent_task_status(task.status).to_string()),
+                            progress: live.map(|task| task.progress),
+                            blocked: !blockers.is_empty(),
+                            blockers,
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Some(D13FleetWorkflowProjection {
+            workflows,
+            handoffs: view
+                .handoffs
+                .iter()
+                .map(|handoff| D13HandoffProjection {
+                    handoff_id: handoff.handoff_id.clone(),
+                    task_id: handoff.task_id.clone(),
+                    from_lane_id: handoff.from_lane_id.clone(),
+                    to_lane_id: handoff.to_lane_id.clone(),
+                    summary: handoff.summary.clone(),
+                    audit_id: handoff.audit_id.clone(),
+                })
+                .collect(),
+        })
+    }
+
+    /// Projects the D12 integration gate, its bounce timeline, and any
+    /// post-merge revert. `selected` is presentation state from the shell.
+    pub fn d12_integration_gate(
+        &self,
+        selected: Option<&str>,
+    ) -> Option<D12IntegrationGateProjection> {
+        let view = self.view()?;
+        let gates: Vec<D12GateProjection> = view
+            .merge_gates
+            .iter()
+            .map(|gate| D12GateProjection {
+                gate_id: gate.gate_id.clone(),
+                task_id: gate.task_id.clone(),
+                status: merge_gate_status(gate.status).to_string(),
+                gate_type: merge_gate_type(gate.gate_type).to_string(),
+                project_id: gate.owner.project_id.clone(),
+                lane_id: gate.owner.lane_id.clone(),
+                requires_independent_validator: gate.policy_snapshot.requires_independent_validator,
+                has_validator: gate.validator.is_some(),
+                required_evidence: gate.required_evidence.clone(),
+                evidence_ids: gate.evidence_ids.clone(),
+            })
+            .collect();
+
+        let selected_gate_id = selected
+            .filter(|id| gates.iter().any(|gate| gate.gate_id == *id))
+            .map(str::to_string)
+            .or_else(|| gates.first().map(|gate| gate.gate_id.clone()));
+
+        let detail = selected_gate_id.as_deref().and_then(|gate_id| {
+            let gate = gates.iter().find(|gate| gate.gate_id == gate_id)?.clone();
+            // A strong gate cannot be bypassed: `accept` opens only when Core
+            // has recorded every evidence id the gate policy requires.
+            let missing_evidence: Vec<String> = gate
+                .required_evidence
+                .iter()
+                .filter(|required| !gate.evidence_ids.contains(required))
+                .cloned()
+                .collect();
+            let bounces = view
+                .conflict_bounces
+                .iter()
+                .filter(|bounce| bounce.gate_id == gate_id)
+                .map(|bounce| D12BounceProjection {
+                    bounce_id: bounce.bounce_id.clone(),
+                    original_lane_id: bounce.original_lane_id.clone(),
+                    task_id: bounce.task_id.clone(),
+                    reason: bounce.reason.clone(),
+                    status: conflict_bounce_status(bounce.status).to_string(),
+                    evidence_ids: bounce.evidence_ids.clone(),
+                })
+                .collect();
+            let reverts = view
+                .reverts
+                .iter()
+                .filter(|revert| revert.gate_id == gate_id)
+                .map(|revert| D12RevertProjection {
+                    revert_id: revert.revert_id.clone(),
+                    applied_change_id: revert.applied_change_id.clone(),
+                    reason: revert.reason.clone(),
+                    restored_paths: revert.restored_paths.clone(),
+                    audit_id: revert.audit_id.clone(),
+                    reverted_at: revert.reverted_at,
+                })
+                .collect();
+            let checks = view
+                .check_runs
+                .iter()
+                .filter(|check| check.owner.task_id.as_deref() == Some(gate.task_id.as_str()))
+                .map(|check| D12CheckProjection {
+                    id: check.id.clone(),
+                    name: check.label.clone(),
+                    status: check_run_status(check.status).to_string(),
+                })
+                .collect();
+            let terminal = matches!(gate.status.as_str(), "merged" | "reverted" | "accepted");
+            Some(D12GateDetailProjection {
+                actions: vec![
+                    D12ActionProjection {
+                        kind: "accept".to_string(),
+                        available: missing_evidence.is_empty() && !terminal,
+                        code: None,
+                    },
+                    D12ActionProjection {
+                        kind: "reject".to_string(),
+                        available: !terminal,
+                        code: None,
+                    },
+                ],
+                gate,
+                missing_evidence,
+                bounces,
+                reverts,
+                checks,
+            })
+        });
+
+        Some(D12IntegrationGateProjection {
+            gates,
+            selected_gate_id,
+            detail,
+            // The design renders the conflicting hunk side by side. Schema 1
+            // carries no structured conflict content.
+            unavailable: vec![D2UnavailableProjection {
+                key: "d12.conflict.noStructuredHunk",
+                code: "GUI-CORE-015",
+            }],
+        })
+    }
+
+    /// Projects the D10 lane monitor across every Core Lane and project.
+    pub fn d10_lane_monitor(&self) -> Option<D10LaneMonitorProjection> {
+        let view = self.view()?;
+        let lanes: Vec<D10LaneProjection> = view
+            .lanes
+            .iter()
+            .map(|lane| {
+                // Project binding comes only from the Core owner binding. A
+                // lane Core has not bound reports no project at all.
+                let project_id = view
+                    .lane_runtime_owners
+                    .iter()
+                    .find(|binding| binding.lane_id == lane.id)
+                    .map(|binding| binding.owner.project_id.clone());
+                let progress = lane.task_id.as_ref().and_then(|task_id| {
+                    view.tasks
+                        .iter()
+                        .find(|task| &task.id == task_id)
+                        .map(|task| task.progress)
+                });
+                let agents = lane
+                    .active_session_ids
+                    .iter()
+                    .filter_map(|session_id| {
+                        view.agent_sessions
+                            .iter()
+                            .find(|session| &session.session_id == session_id)
+                    })
+                    .map(|session| D10AgentProjection {
+                        session_id: session.session_id.clone(),
+                        agent_id: session.agent_id.clone(),
+                        model: session.model.clone(),
+                        status: agent_session_status(session.status).to_string(),
+                    })
+                    .collect();
+                let evidence = lane
+                    .evidence
+                    .iter()
+                    .filter_map(|id| view.latest_evidence.iter().find(|entry| &entry.id == id))
+                    .map(|entry| D10EvidenceProjection {
+                        id: entry.id.clone(),
+                        kind: entry.kind.clone(),
+                        summary: entry.summary.clone(),
+                    })
+                    .collect();
+                D10LaneProjection {
+                    id: lane.id.clone(),
+                    project_id,
+                    summary: lane.summary.clone(),
+                    role: agent_role(lane.role).to_string(),
+                    route: agent_route(lane.route).to_string(),
+                    gate_strength: gate_strength(lane.gate_strength).to_string(),
+                    mutation_policy: mutation_policy(lane.mutation_policy).to_string(),
+                    status: lane_status(lane.status).to_string(),
+                    awaits_human: lane_awaits_human(lane.status),
+                    branch: lane.branch.clone(),
+                    worktree: lane.worktree.clone(),
+                    progress,
+                    agents,
+                    evidence,
+                    token_limit: lane.budget.token_limit,
+                    cost_limit_micro_usd: lane.budget.cost_limit_micro_usd,
+                }
+            })
+            .collect();
+
+        let mut projects: Vec<&String> = lanes
+            .iter()
+            .filter_map(|lane| lane.project_id.as_ref())
+            .collect();
+        projects.sort();
+        projects.dedup();
+
+        Some(D10LaneMonitorProjection {
+            total_lanes: lanes.len(),
+            total_projects: projects.len(),
+            awaiting_total: lanes.iter().filter(|lane| lane.awaits_human).count(),
+            lanes,
+            // The design shows a scribe-compiled event ticker; schema 1
+            // publishes no ordered event log in the view state.
+            unavailable: vec![D2UnavailableProjection {
+                key: "d10.events.noOrderedLog",
+                code: "GUI-CORE-014",
+            }],
         })
     }
 
@@ -816,6 +1322,7 @@ impl RuntimeProjection {
                                 AgentConversationRole::Assistant => "assistant",
                             },
                             content: message.content.clone(),
+                            parts: message.parts.iter().map(content_part).collect(),
                         })
                         .collect(),
                 })
@@ -1067,6 +1574,266 @@ fn check_run_status(status: CheckRunStatus) -> &'static str {
         CheckRunStatus::Failed => "failed",
         CheckRunStatus::Cancelled => "cancelled",
     }
+}
+
+fn agent_task_status(status: AgentTaskStatus) -> &'static str {
+    match status {
+        AgentTaskStatus::Queued => "queued",
+        AgentTaskStatus::Thinking => "thinking",
+        AgentTaskStatus::Streaming => "streaming",
+        AgentTaskStatus::Editing => "editing",
+        AgentTaskStatus::RunningTool => "running_tool",
+        AgentTaskStatus::Testing => "testing",
+        AgentTaskStatus::WaitingApproval => "waiting_approval",
+        AgentTaskStatus::NeedsInput => "needs_input",
+        AgentTaskStatus::Blocked => "blocked",
+        AgentTaskStatus::Reviewing => "reviewing",
+        AgentTaskStatus::Running => "running",
+        AgentTaskStatus::Attached => "attached",
+        AgentTaskStatus::Done => "done",
+        AgentTaskStatus::Applied => "applied",
+        AgentTaskStatus::Discarded => "discarded",
+        AgentTaskStatus::Failed => "failed",
+        AgentTaskStatus::Cancelled => "cancelled",
+        AgentTaskStatus::Archived => "archived",
+    }
+}
+
+fn agent_dag_status(status: AgentDagStatus) -> &'static str {
+    match status {
+        AgentDagStatus::Draft => "draft",
+        AgentDagStatus::Active => "active",
+        AgentDagStatus::Paused => "paused",
+        AgentDagStatus::Blocked => "blocked",
+        AgentDagStatus::Completed => "completed",
+        AgentDagStatus::Cancelled => "cancelled",
+    }
+}
+
+fn merge_gate_status(status: MergeGateStatus) -> &'static str {
+    match status {
+        MergeGateStatus::Proposed => "proposed",
+        MergeGateStatus::CollectingEvidence => "collecting_evidence",
+        MergeGateStatus::Blocked => "blocked",
+        MergeGateStatus::NeedsChanges => "needs_changes",
+        MergeGateStatus::Accepted => "accepted",
+        MergeGateStatus::Merged => "merged",
+        MergeGateStatus::Reverted => "reverted",
+    }
+}
+
+fn merge_gate_type(gate_type: MergeGateType) -> &'static str {
+    match gate_type {
+        MergeGateType::Patch => "patch",
+        MergeGateType::Review => "review",
+        MergeGateType::Contract => "contract",
+        MergeGateType::Handoff => "handoff",
+        MergeGateType::Artifact => "artifact",
+    }
+}
+
+fn conflict_bounce_status(status: ConflictBounceStatus) -> &'static str {
+    match status {
+        ConflictBounceStatus::Pending => "pending",
+        ConflictBounceStatus::Revalidated => "revalidated",
+        ConflictBounceStatus::Resolved => "resolved",
+    }
+}
+
+/// Projects a Core content part. Nothing is resolved or fetched here: the
+/// reference stays exactly as Core published it.
+fn content_part(part: &viden_core::AgentContentPart) -> D1ContentPartProjection {
+    match part {
+        viden_core::AgentContentPart::Text { text } => D1ContentPartProjection {
+            kind: "text".to_string(),
+            media_type: None,
+            reference: None,
+            text: Some(text.clone()),
+            label: None,
+        },
+        viden_core::AgentContentPart::Image {
+            media_type,
+            reference,
+            alt,
+        } => D1ContentPartProjection {
+            kind: "image".to_string(),
+            media_type: Some(media_type.clone()),
+            reference: Some(reference.clone()),
+            text: None,
+            label: alt.clone(),
+        },
+        viden_core::AgentContentPart::File {
+            media_type,
+            reference,
+            name,
+        } => D1ContentPartProjection {
+            kind: "file".to_string(),
+            media_type: Some(media_type.clone()),
+            reference: Some(reference.clone()),
+            text: None,
+            label: name.clone(),
+        },
+        // Preserved rather than dropped: the operator learns content exists
+        // that this build cannot render.
+        viden_core::AgentContentPart::Unknown { kind, .. } => D1ContentPartProjection {
+            kind: kind.clone(),
+            media_type: None,
+            reference: None,
+            text: None,
+            label: None,
+        },
+    }
+}
+
+fn agent_role(role: AgentRole) -> &'static str {
+    match role {
+        AgentRole::Planner => "planner",
+        AgentRole::Coder => "coder",
+        AgentRole::Reviewer => "reviewer",
+        AgentRole::Tester => "tester",
+        AgentRole::DocWriter => "doc_writer",
+        AgentRole::Researcher => "researcher",
+        AgentRole::ReleaseOperator => "release_operator",
+    }
+}
+
+fn agent_route(route: AgentRoute) -> &'static str {
+    match route {
+        AgentRoute::BuiltIn => "built_in",
+        AgentRoute::Acp => "acp",
+        AgentRoute::Terminal => "terminal",
+        AgentRoute::Tmux => "tmux",
+    }
+}
+
+fn gate_strength(strength: GateStrength) -> &'static str {
+    match strength {
+        GateStrength::Full => "full",
+        GateStrength::Cooperative => "cooperative",
+        GateStrength::Containment => "containment",
+    }
+}
+
+fn mutation_policy(policy: MutationPolicy) -> &'static str {
+    match policy {
+        MutationPolicy::Autonomous => "autonomous",
+        MutationPolicy::ProposeOnly => "propose_only",
+        MutationPolicy::ReadOnly => "read_only",
+    }
+}
+
+/// Core statuses that block on a person. Every other status is progress the
+/// monitor must not escalate into the "awaiting you" count.
+fn lane_awaits_human(status: LaneStatus) -> bool {
+    matches!(
+        status,
+        LaneStatus::WaitingApproval | LaneStatus::NeedsInput | LaneStatus::Blocked
+    )
+}
+
+fn approval_risk(risk: ApprovalRisk) -> &'static str {
+    match risk {
+        ApprovalRisk::Low => "low",
+        ApprovalRisk::Medium => "medium",
+        ApprovalRisk::High => "high",
+        ApprovalRisk::Critical => "critical",
+    }
+}
+
+fn gate_queue_item(approval: &ApprovalRequestView) -> D2QueueItemProjection {
+    D2QueueItemProjection {
+        id: approval.id.clone(),
+        kind: D2_KIND_GATE.to_string(),
+        title: approval.title.clone(),
+        project_id: approval.owner.project_id.clone(),
+        lane_id: approval.owner.lane_id.clone(),
+        session_id: approval.owner.session_id.clone(),
+        task_id: approval.owner.task_id.clone(),
+        risk: Some(approval_risk(approval.risk).to_string()),
+        status: "pending".to_string(),
+        audit_id: approval.audit_id.clone(),
+        updated_at: None,
+        expires_at: Some(approval.expires_at),
+    }
+}
+
+fn contract_queue_item(contract: &ContractRecord) -> D2QueueItemProjection {
+    D2QueueItemProjection {
+        id: contract.contract_id.clone(),
+        kind: D2_KIND_CONTRACT.to_string(),
+        title: contract.summary.clone(),
+        project_id: contract.owner.project_id.clone(),
+        lane_id: contract.owner.lane_id.clone(),
+        session_id: contract.owner.session_id.clone(),
+        task_id: Some(contract.task_id.clone()),
+        risk: None,
+        status: match contract.decision {
+            ContractDecision::Confirmed => "confirmed",
+            ContractDecision::Rejected => "rejected",
+        }
+        .to_string(),
+        audit_id: contract.audit_id.clone(),
+        updated_at: Some(contract.updated_at),
+        expires_at: None,
+    }
+}
+
+fn review_queue_item(review: &ReviewRequestRecord) -> D2QueueItemProjection {
+    D2QueueItemProjection {
+        id: review.review_id.clone(),
+        kind: D2_KIND_REVIEW.to_string(),
+        title: review.review_id.clone(),
+        project_id: review.owner.project_id.clone(),
+        lane_id: review.owner.lane_id.clone(),
+        session_id: review.owner.session_id.clone(),
+        task_id: Some(review.task_id.clone()),
+        risk: None,
+        status: match review.status {
+            ReviewRequestStatus::Pending => "pending",
+            ReviewRequestStatus::Accepted => "accepted",
+            ReviewRequestStatus::Rejected => "rejected",
+        }
+        .to_string(),
+        audit_id: review.audit_id.clone(),
+        updated_at: Some(review.updated_at),
+        expires_at: None,
+    }
+}
+
+fn evidence_projection(evidence: &viden_core::EvidenceView) -> D2EvidenceProjection {
+    D2EvidenceProjection {
+        id: evidence.id.clone(),
+        kind: evidence.kind.clone(),
+        summary: evidence.summary.clone(),
+        path: evidence.path.clone(),
+        source: evidence.source.clone(),
+        timestamp: evidence.timestamp,
+    }
+}
+
+/// Evidence named by a review request, in the order Core recorded the ids.
+fn evidence_by_ids(view: &RuntimeViewState, ids: &[String]) -> Vec<D2EvidenceProjection> {
+    ids.iter()
+        .filter_map(|id| {
+            view.latest_evidence
+                .iter()
+                .find(|evidence| &evidence.id == id)
+        })
+        .map(evidence_projection)
+        .collect()
+}
+
+/// Evidence attributed to a lane by its Core-recorded `source`. Evidence
+/// without a source is not guessed onto a lane.
+fn owner_evidence(view: &RuntimeViewState, lane_id: Option<&str>) -> Vec<D2EvidenceProjection> {
+    let Some(lane_id) = lane_id else {
+        return Vec::new();
+    };
+    view.latest_evidence
+        .iter()
+        .filter(|evidence| evidence.source.as_deref() == Some(lane_id))
+        .map(evidence_projection)
+        .collect()
 }
 
 #[cfg(test)]

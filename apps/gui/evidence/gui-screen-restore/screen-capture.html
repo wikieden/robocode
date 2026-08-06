@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" data-skin="aurora" data-mode="dark" data-density="regular">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden restored GUI screens — capture harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      #app {
+        display: block;
+        height: 100vh;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      // Mounts one restored screen against the projection the real Rust
+      // projection produced from a canonical frontend-contract-v1 fixture
+      // (see ../../tests/capture_projections.rs). Nothing here hand-writes a
+      // projection, so the captured pixels are what Core facts produce.
+      import "../../src/ui/tokens.css";
+      import "../../src/ui/theme.css";
+      import { applyResolvedTheme, resolveTheme } from "../../src/ui/theme.ts";
+      import { renderD2Decisions } from "../../src/screens/d2_decisions.ts";
+      import { renderD10LaneMonitor } from "../../src/screens/d10_lane_monitor.ts";
+      import { renderD12IntegrationGate } from "../../src/screens/d12_integration_gate.ts";
+      import { renderD13FleetWorkflow } from "../../src/screens/d13_fleet_workflow.ts";
+      import { renderD14AuditTimeline } from "../../src/screens/d14_audit_timeline.ts";
+
+      const params = new URLSearchParams(window.location.search);
+      const screen = params.get("screen") ?? "d2";
+      const locale = params.get("locale") === "zh-CN" ? "zh-CN" : "en";
+      const mode = params.get("mode") === "light" ? "light" : "dark";
+      const density = params.get("density") === "compact" ? "compact" : "regular";
+      const skin = mode === "light" ? "ice" : "aurora";
+
+      document.documentElement.lang = locale;
+      applyResolvedTheme(
+        document.documentElement,
+        resolveTheme({ locale, skin, mode, density, motion: "reduced", diagnostics: [] }),
+      );
+
+      const root = document.querySelector("#app");
+      const projection = await (await fetch(`./projections/${screen}.json`)).json();
+
+      switch (screen) {
+        case "d2":
+          renderD2Decisions(root, projection, async () => ({
+            projection,
+            pendingCommandId: null,
+            outcome: { state: "idle", reason: null },
+          }), locale);
+          break;
+        case "d10":
+          renderD10LaneMonitor(root, projection, locale, () => {});
+          break;
+        case "d12":
+          renderD12IntegrationGate(root, projection, locale, () => {});
+          break;
+        case "d13":
+          renderD13FleetWorkflow(root, projection, locale);
+          break;
+        case "d14":
+          renderD14AuditTimeline(root, projection, locale, async () => projection);
+          break;
+        default:
+          root.textContent = `unknown screen ${screen}`;
+      }
+      document.documentElement.dataset.captureReady = screen;
+    </script>
+  </body>
+</html>

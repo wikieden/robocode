@@ -40,6 +40,9 @@ pub struct GuiCoreAdapter {
     permission_outcome: PermissionOutcomeProjection,
     connection: D6ConnectionState,
     connection_detail: Option<String>,
+    /// D2 queue selection. Presentation state only: it never gates a Core
+    /// command and is dropped when Core stops publishing the decision.
+    d2_selected: Option<String>,
 }
 
 struct HostedCoreClient {
@@ -623,6 +626,7 @@ impl GuiCoreAdapter {
             permission_outcome: PermissionOutcomeProjection::idle(),
             connection: D6ConnectionState::Disconnected,
             connection_detail: None,
+            d2_selected: None,
         }
     }
 
@@ -670,6 +674,19 @@ impl GuiCoreAdapter {
         &self.projection
     }
 
+    /// Workspace root Core probed, when Core has published one.
+    ///
+    /// The client keeps no second copy of where the workspace lives; reading
+    /// Core's probe keeps a reopened workspace from resolving against the
+    /// previous root.
+    pub fn workspace_root(&self) -> Option<String> {
+        self.projection
+            .view()?
+            .project_probe
+            .as_ref()
+            .map(|probe| probe.root.clone())
+    }
+
     pub fn supports(&self, capability: &str) -> bool {
         self.capabilities.contains(capability)
     }
@@ -698,6 +715,192 @@ impl GuiCoreAdapter {
 
     pub fn permission_dock(&self) -> Option<PermissionDockProjection> {
         self.projection.permission_dock()
+    }
+
+    /// Pages the audit trail through the Core replay cursor.
+    ///
+    /// `after` is the opaque `stream:sequence` cursor returned by the previous
+    /// page. A replay failure is reported rather than rendered as a shorter
+    /// trail, because a truncated audit view reads as a complete one.
+    pub fn d14_audit_timeline(
+        &mut self,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<crate::D14AuditTimelineProjection, String> {
+        let cursor = match after {
+            Some(raw) => parse_audit_cursor(raw)?,
+            None => self
+                .projection
+                .cursor()
+                .cloned()
+                .map(|cursor| viden_core::EventCursor {
+                    stream_id: cursor.stream_id,
+                    sequence: 0,
+                })
+                .unwrap_or(viden_core::EventCursor {
+                    stream_id: String::new(),
+                    sequence: 0,
+                }),
+        };
+        let batch = self
+            .client
+            .replay(viden_core::ReplayRequest {
+                after: cursor,
+                limit,
+            })
+            .map_err(|error| format!("Core replay failed: {error}"))?;
+        let rows = batch
+            .events
+            .iter()
+            .map(|envelope| {
+                let (kind, known, timestamp) = match &envelope.event {
+                    viden_core::RuntimeWireEvent::Known(event) => (
+                        // The canonical name is Core's own serde discriminant,
+                        // so the client never keeps a second event vocabulary.
+                        core_event_kind(&event.kind),
+                        true,
+                        event.timestamp,
+                    ),
+                    _ => ("unknown".to_string(), false, None),
+                };
+                crate::D14RowProjection {
+                    sequence: envelope.cursor.sequence,
+                    stream_id: envelope.cursor.stream_id.clone(),
+                    kind,
+                    known,
+                    timestamp,
+                    project_id: envelope.owner.project_id.clone(),
+                    lane_id: envelope.owner.lane_id.clone(),
+                    session_id: envelope.owner.session_id.clone(),
+                    task_id: envelope.owner.task_id.clone(),
+                }
+            })
+            .collect();
+        Ok(crate::D14AuditTimelineProjection {
+            rows,
+            next_cursor: Some(format!("{}:{}", batch.next.stream_id, batch.next.sequence)),
+            complete: batch.complete,
+        })
+    }
+
+    pub fn d13_fleet_workflow(&self) -> Option<crate::D13FleetWorkflowProjection> {
+        self.projection.d13_fleet_workflow()
+    }
+
+    pub fn d12_integration_gate(&self) -> Option<crate::D12IntegrationGateProjection> {
+        self.projection.d12_integration_gate(None)
+    }
+
+    /// Projects the gate the shell selected without persisting the selection.
+    pub fn d12_integration_gate_for(
+        &self,
+        gate_id: &str,
+    ) -> Option<crate::D12IntegrationGateProjection> {
+        self.projection.d12_integration_gate(Some(gate_id))
+    }
+
+    pub fn d10_lane_monitor(&self) -> Option<crate::D10LaneMonitorProjection> {
+        self.projection.d10_lane_monitor()
+    }
+
+    pub fn d2_decisions(&self) -> Option<crate::D2DecisionsProjection> {
+        self.projection.d2_decisions(self.d2_selected.as_deref())
+    }
+
+    /// Projects the queue with an explicit selection without persisting it.
+    pub fn d2_decisions_for(&self, id: &str) -> Option<crate::D2DecisionsProjection> {
+        self.projection.d2_decisions(Some(id))
+    }
+
+    /// Sends one D2 decision. Selection is local; every real decision travels
+    /// as the Core command that owns that fact family.
+    pub fn d2_send_intent(
+        &mut self,
+        command_id: &str,
+        intent: crate::D2Intent,
+    ) -> Result<crate::D2IntentResult, String> {
+        let outcome = match intent {
+            crate::D2Intent::Select { id } => {
+                self.d2_selected = Some(id);
+                PermissionOutcomeProjection::idle()
+            }
+            crate::D2Intent::RespondApproval {
+                request_id,
+                choice,
+                feedback,
+            } => {
+                let envelope = self.permission_envelope(
+                    command_id,
+                    PermissionIntent::Respond {
+                        request_id: request_id.clone(),
+                        choice,
+                        feedback,
+                    },
+                )?;
+                self.client.send(envelope).map_err(|e| e.to_string())?;
+                self.d2_selected = Some(request_id);
+                PermissionOutcomeProjection::pending()
+            }
+            crate::D2Intent::DecideContract {
+                contract_id,
+                accept,
+            } => {
+                let envelope = self.d2_contract_envelope(command_id, &contract_id, accept)?;
+                self.client.send(envelope).map_err(|e| e.to_string())?;
+                self.d2_selected = Some(contract_id);
+                PermissionOutcomeProjection::pending()
+            }
+        };
+        let projection = self
+            .d2_decisions()
+            .ok_or_else(|| "Core has not published a decision projection".to_string())?;
+        Ok(crate::D2IntentResult {
+            projection,
+            pending_command_id: match outcome.state {
+                "pending" => Some(command_id.to_string()),
+                _ => None,
+            },
+            outcome,
+        })
+    }
+
+    /// Replays the contract identity Core recorded. The GUI never rebuilds an
+    /// owner or task id from display text.
+    fn d2_contract_envelope(
+        &self,
+        command_id: &str,
+        contract_id: &str,
+        accept: bool,
+    ) -> Result<RuntimeCommandEnvelope, String> {
+        let view = self
+            .projection
+            .view()
+            .ok_or_else(|| "Core has not published a decision projection".to_string())?;
+        if view.snapshot.work_mode == WorkMode::Plan {
+            return Err("Plan mode blocks contract decisions".to_string());
+        }
+        let contract = view
+            .contracts
+            .iter()
+            .find(|entry| entry.contract_id == contract_id)
+            .ok_or_else(|| format!("contract `{contract_id}` is not published by Core"))?;
+        Ok(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "viden-gui".to_string(),
+            command_id: command_id.to_string(),
+            owner: contract.owner.clone(),
+            command: RuntimeCommand::ConfirmContract {
+                contract_id: contract.contract_id.clone(),
+                task_id: contract.task_id.clone(),
+                owner: contract.owner.clone(),
+                summary: contract.summary.clone(),
+                decision: if accept {
+                    viden_core::ContractDecision::Confirmed
+                } else {
+                    viden_core::ContractDecision::Rejected
+                },
+            },
+        })
     }
 
     pub fn d6_recovery(&self) -> D6RecoveryProjection {
@@ -1471,6 +1674,40 @@ impl GuiCoreAdapter {
         Ok(event)
     }
 
+    /// Drains ordered Core events with one bounded wait and refreshes the
+    /// projection when anything arrived.
+    ///
+    /// Returns whether observable state advanced. The desktop event pump uses
+    /// this from a background thread to wake the frontend with a push instead
+    /// of leaving every screen on its own drain timer; a quiet pump must
+    /// therefore report `false` so idle loops stay silent.
+    pub fn pump_events(&mut self, event_timeout: Duration) -> bool {
+        let mut received = false;
+        for _ in 0..16 {
+            let event = match self.receive_event_until(if received {
+                Duration::ZERO
+            } else {
+                event_timeout
+            }) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    // The transport state is already classified by
+                    // receive_event; a connection change is progress too.
+                    return true;
+                }
+            };
+            received = true;
+            self.observe_pending_permission(&event);
+            self.observe_pending(&event);
+            self.observe_d4(&event);
+        }
+        if received {
+            let _ = self.refresh_projection();
+        }
+        received
+    }
+
     fn receive_event_until(
         &mut self,
         timeout: Duration,
@@ -2055,5 +2292,33 @@ mod tests {
         drop(host);
         std::fs::remove_dir_all(session_home).expect("remove temporary session home");
         std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+}
+
+/// Parses the opaque `stream:sequence` audit cursor the client handed out.
+fn parse_audit_cursor(raw: &str) -> Result<viden_core::EventCursor, String> {
+    let (stream_id, sequence) = raw
+        .rsplit_once(':')
+        .ok_or_else(|| format!("malformed audit cursor `{raw}`"))?;
+    Ok(viden_core::EventCursor {
+        stream_id: stream_id.to_string(),
+        sequence: sequence
+            .parse()
+            .map_err(|_| format!("malformed audit cursor `{raw}`"))?,
+    })
+}
+
+/// Reads the canonical Core discriminant for an event kind.
+///
+/// Core owns the event vocabulary; serializing the tag keeps the client from
+/// mirroring a 117-variant enum that would drift on the next Core change.
+fn core_event_kind(kind: &viden_core::RuntimeEventKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::Object(map)) => map
+            .get("type")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "unknown".to_string()),
+        _ => "unknown".to_string(),
     }
 }

@@ -15,7 +15,12 @@ import {
   renderPermissionDock,
   type PermissionIntent,
 } from "../components/permission_dock";
-import { appendTranscriptRows, transcriptAtBottom } from "../components/transcript";
+import {
+  appendTranscriptRows,
+  transcriptAtBottom,
+  type TranscriptAgent,
+} from "../components/transcript";
+import { renderWorkStatus, workStatusModel, type WorkStatusStrip } from "../components/work_status";
 import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
@@ -65,8 +70,22 @@ export interface D1RenderOptions {
   onOpenProject?: () => void | Promise<void>;
   onCreateLane?: () => void;
   onFullSetup?: () => void;
+  /// Opens a restored screen from the activity rail.
+  onNavigate?: (route: string) => void;
   showWelcome?: boolean;
   poll?: boolean;
+  /**
+   * Subscribes to the host's ordered-Core-event wake and returns an
+   * unsubscribe. When present the shell reads on a push and keeps no drain
+   * timer; hosts without a wake fall back to the bounded long poll.
+   */
+  onCoreWake?: (handler: () => void) => () => void;
+  /**
+   * Reads content Core persisted in the workspace and returns something the
+   * page can load. A webview cannot open a workspace path, so a reference
+   * without its own scheme is unreadable until the host resolves it.
+   */
+  resolveContent?: (reference: string) => Promise<string>;
 }
 
 type FocusedConversation =
@@ -91,12 +110,18 @@ function composerMutationBlockReason(
   projection: D1CockpitProjection,
   laneId: string | null,
 ):
+  | "d1.mutation.noLaneSelected"
   | "d1.mutation.noOwner"
   | "d1.mutation.duplicateSession"
   | "d1.mutation.ownerMismatch"
   | "d1.mutation.staleLane"
   | null {
-  if (!laneId || !projection.lanes.some((lane) => lane.id === laneId)) {
+  // No selection at all is an invitation, not a failure; a selection that
+  // Core no longer publishes stays fail-closed.
+  if (!laneId) {
+    return "d1.mutation.noLaneSelected";
+  }
+  if (!projection.lanes.some((lane) => lane.id === laneId)) {
     return "d1.mutation.staleLane";
   }
   if (projection.contextDock.laneAgent?.laneId !== laneId) {
@@ -144,9 +169,98 @@ function appendUnavailableTranscriptRows(
   }
 }
 
+/// Renders the typed content parts Core published with a message.
+///
+/// Text already arrives in the message body, so only non-text parts render
+/// here. A part kind this build cannot draw is still named: an operator must
+/// see that content exists rather than read prose about content that appears
+/// to be missing.
+function appendContentParts(
+  row: HTMLElement,
+  parts: NonNullable<
+    NonNullable<D1CockpitProjection["agentSessions"][number]["conversation"]>[number]["parts"]
+  >,
+  resolveContent?: (reference: string) => Promise<string>,
+): void {
+  for (const part of parts) {
+    if (part.kind === "text") continue;
+    const holder = document.createElement("figure");
+    holder.className = "d1-content-part";
+    holder.dataset.contentPart = part.kind;
+
+    if (part.kind === "image" && part.reference) {
+      const reference = part.reference;
+      const image = document.createElement("img");
+      image.alt = part.label ?? "";
+      image.loading = "lazy";
+      if (hasOwnScheme(reference)) {
+        // A reference the page can already load is used exactly as Core
+        // published it; the client never rewrites it into another location.
+        image.src = reference;
+      } else {
+        // Core persisted these bytes inside the workspace, which the webview
+        // cannot open. Only the host may turn that reference into something
+        // loadable, and until it does the part stays named rather than broken.
+        holder.dataset.contentUnresolved = "true";
+        void resolveContent?.(reference)
+          .then((resolved) => {
+            image.src = resolved;
+            delete holder.dataset.contentUnresolved;
+            holder.querySelector("[data-content-reference]")?.remove();
+          })
+          .catch(() => {
+            /* the unresolved note already names the content. */
+          });
+      }
+      holder.append(image);
+      if (holder.dataset.contentUnresolved) {
+        const note = document.createElement("figcaption");
+        note.dataset.contentReference = "true";
+        note.textContent = [part.mediaType, part.label, reference]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ");
+        holder.append(note);
+      } else if (part.label) {
+        const caption = document.createElement("figcaption");
+        caption.textContent = part.label;
+        holder.append(caption);
+      }
+    } else {
+      const note = document.createElement("figcaption");
+      note.textContent = [part.kind, part.mediaType, part.label, part.reference]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ");
+      holder.append(note);
+    }
+    row.append(holder);
+  }
+}
+
+/// Whether a reference already names something the page can load itself.
+function hasOwnScheme(reference: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(reference);
+}
+
+/// Names the agent behind a session from the adapters Core published.
+///
+/// Core owns agent display names, so the client never carries its own table.
+/// An agent Core did not describe keeps the id Core scoped the session by
+/// rather than a friendlier name the client cannot vouch for.
+function transcriptAgent(
+  projection: D1CockpitProjection,
+  session: D1CockpitProjection["agentSessions"][number],
+): TranscriptAgent {
+  const adapter = projection.agentAdapters.find(
+    (candidate) => candidate.agentId === session.agentId,
+  );
+  return { id: session.agentId, displayName: adapter?.displayName ?? session.agentId };
+}
+
 function appendAcpConversationRows(
   root: HTMLElement,
   session: D1CockpitProjection["agentSessions"][number],
+  agent: TranscriptAgent,
+  resolveContent?: (reference: string) => Promise<string>,
 ): void {
   const conversation = session.conversation ?? [];
   if (conversation.length > 0) {
@@ -158,11 +272,14 @@ function appendAcpConversationRows(
         kind: message.role,
         content: message.content,
       })),
+      agent,
     );
     Array.from(root.children)
       .slice(offset)
       .forEach((element, index) => {
-        (element as HTMLElement).dataset.acpMessageId = conversation[index].messageId;
+        const message = conversation[index];
+        (element as HTMLElement).dataset.acpMessageId = message.messageId;
+        appendContentParts(element as HTMLElement, message.parts ?? [], resolveContent);
       });
     return;
   }
@@ -173,13 +290,17 @@ function appendAcpConversationRows(
     { id: `acp-task-${session.sessionId}`, kind: "user", content: session.task },
   ]);
   root.lastElementChild?.setAttribute("data-acp-task", "true");
-  appendTranscriptRows(root, [
-    {
-      id: `acp-output-${session.sessionId}`,
-      kind: session.output ? "assistant" : "assistant_status",
-      content: session.output ?? `${session.agentId} · ${session.status}`,
-    },
-  ]);
+  appendTranscriptRows(
+    root,
+    [
+      {
+        id: `acp-output-${session.sessionId}`,
+        kind: session.output ? "assistant" : "assistant_status",
+        content: session.output ?? `${session.agentId} · ${session.status}`,
+      },
+    ],
+    agent,
+  );
   root.lastElementChild?.setAttribute(session.output ? "data-acp-output" : "data-acp-status", "true");
 }
 
@@ -223,6 +344,8 @@ export function renderD1Cockpit(
   let disposed = false;
   let pollTimer: number | null = null;
   let pollInFlight = false;
+  let coreWakeActive = false;
+  let unsubscribeCoreWake: (() => void) | null = null;
   let sending = false;
   let pendingCommandId: string | null = null;
   let submittedDraft: string | null = null;
@@ -255,6 +378,22 @@ export function renderD1Cockpit(
   const attemptedAgentProbes = new Set<string>();
   const transcript = new BoundedTranscript(240);
   transcript.replace(initial.transcript);
+  // Reader scroll position survives the full-surface refresh: renders rebuild
+  // the transcript element, so the position is model state, not DOM state.
+  let transcriptScrollTop = 0;
+  // Elapsed is anchored to the moment the client first observed Core report
+  // the turn busy: frontend-contract-v1 has no owner-scoped start timestamp.
+  let busySince: number | null = null;
+  let workStatusStrip: WorkStatusStrip | null = null;
+  // Signature per shell region. A refresh only replaces the regions whose
+  // own facts changed, so a streaming transcript cannot drop :hover, focus,
+  // or scroll in the dock and status bar it never touched.
+  const regionSignatures = new Map<string, string>();
+  const regionChanged = (region: string, signature: string): boolean => {
+    if (regionSignatures.get(region) === signature) return false;
+    regionSignatures.set(region, signature);
+    return true;
+  };
 
   const shouldShowWelcome = (): boolean =>
     options.showWelcome ??
@@ -272,6 +411,15 @@ export function renderD1Cockpit(
     event.preventDefault();
     root.querySelector<HTMLButtonElement>("[data-open-project]")?.click();
   };
+  const handleCancelShortcut = (event: KeyboardEvent): void => {
+    // Esc cancels the running turn, matching the affordance the strip names.
+    if (event.key !== "Escape" || event.repeat || composing) return;
+    if (!projection.composer.busy) return;
+    if (!root.querySelector("[data-work-cancel]")) return;
+    event.preventDefault();
+    cancelActiveTurn();
+  };
+  window.addEventListener("keydown", handleCancelShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   const handleWindowResize = (): void => {
     const grid = root.querySelector<HTMLElement>("[data-cockpit-grid]");
@@ -287,7 +435,17 @@ export function renderD1Cockpit(
       if (nextKey === projectionKey) return;
       projection = next;
       if (!selectedLaneId) selectedLaneId = next.selectedLaneId;
+      if (
+        selectedLaneId &&
+        next.lanes.length === 0 &&
+        !next.lanes.some((lane) => lane.id === selectedLaneId)
+      ) {
+        // The whole project is back to zero Lanes; a stale selection would
+        // pin the composer on a fail-closed notice forever.
+        selectedLaneId = next.selectedLaneId;
+      }
       focusedConversation = conversationForLane(next, selectedLaneId);
+      busySince = next.composer.busy ? (busySince ?? Date.now()) : null;
       projectionKey = nextKey;
       locale = next.preferences.locale;
       if (next.selectedLaneId === selectedLaneId) {
@@ -323,7 +481,20 @@ export function renderD1Cockpit(
       if (projectionChanged) {
         projection = result.projection;
         if (!selectedLaneId) selectedLaneId = result.projection.selectedLaneId;
+        {
+          const next = result.projection;
+          if (
+            selectedLaneId &&
+            next.lanes.length === 0 &&
+            !next.lanes.some((lane) => lane.id === selectedLaneId)
+          ) {
+            // The whole project is back to zero Lanes; a stale selection would
+            // pin the composer on a fail-closed notice forever.
+            selectedLaneId = next.selectedLaneId;
+          }
+        }
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
+        busySince = result.projection.composer.busy ? (busySince ?? Date.now()) : null;
         projectionKey = nextKey;
         locale = result.projection.preferences.locale;
         if (result.projection.selectedLaneId === selectedLaneId) {
@@ -357,8 +528,13 @@ export function renderD1Cockpit(
       agentMenuOpen = false;
       menuController?.close();
       if (pollTimer !== null) window.clearTimeout(pollTimer);
+      unsubscribeCoreWake?.();
+      unsubscribeCoreWake = null;
       commandSlotWaiters.splice(0).forEach((resolve) => resolve());
       window.removeEventListener("keydown", handleWindowKeydown);
+      window.removeEventListener("keydown", handleCancelShortcut);
+      workStatusStrip?.dispose();
+      workStatusStrip = null;
       window.removeEventListener("resize", handleWindowResize);
     },
   };
@@ -382,7 +558,26 @@ export function renderD1Cockpit(
     return !disposed;
   };
 
+  const drainOnce = (): void => {
+    if (disposed || pollInFlight || !document.contains(root)) return;
+    if (sending || discoveryDispatching) return;
+    pollInFlight = true;
+    void poll(selectedLaneId ?? undefined, false)
+      .then((result) => {
+        if (!disposed) controller.applyResult(result);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        pollInFlight = false;
+        if (disposed) return;
+        releaseCommandSlotWaiters();
+        queueMicrotask(maybeResumeLaneStart);
+        queueMicrotask(advanceAgentDiscovery);
+      });
+  };
+
   const schedulePoll = (): void => {
+    if (coreWakeActive) return;
     if (disposed || pollTimer !== null || pollInFlight) return;
     pollTimer = window.setTimeout(() => {
       pollTimer = null;
@@ -392,7 +587,7 @@ export function renderD1Cockpit(
         return;
       }
       pollInFlight = true;
-      void poll(selectedLaneId ?? undefined)
+      void poll(selectedLaneId ?? undefined, true)
         .then((result) => {
           if (!disposed) controller.applyResult(result);
         })
@@ -438,6 +633,21 @@ export function renderD1Cockpit(
     } finally {
       sending = false;
       schedulePoll();
+    }
+  };
+
+  const cancelActiveTurn = (): void => {
+    const commandBlock = composerMutationBlockReason(projection, selectedLaneId);
+    const route = conversationForLane(projection, selectedLaneId);
+    if (commandBlock) {
+      errorMessage = translate(locale, commandBlock, {});
+      render(false);
+      return;
+    }
+    if (route?.kind === "acp") {
+      sendIntent({ type: "cancel_agent_session", laneId: route.laneId, sessionId: route.sessionId });
+    } else if (selectedLaneId) {
+      sendIntent({ type: "cancel", laneId: selectedLaneId });
     }
   };
 
@@ -812,6 +1022,7 @@ export function renderD1Cockpit(
     const activity = renderActivityRail(locale, {
       lanesAvailable: !showWelcome,
       lanesOpen: laneRailOpen,
+      onNavigate: options.onNavigate,
       onToggleLanes: () => {
         laneRailOpen = !laneRailOpen;
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
@@ -889,7 +1100,12 @@ export function renderD1Cockpit(
       if (focusedAcp) {
         acpKinds.add("user");
         acpKinds.add("assistant");
-        appendAcpConversationRows(transcriptRegion, focusedAcp);
+        appendAcpConversationRows(
+          transcriptRegion,
+          focusedAcp,
+          transcriptAgent(projection, focusedAcp),
+          options.resolveContent,
+        );
         const conversation = focusedAcp.conversation ?? [];
         if (conversation.length > 0) {
           visibleRows = visibleRows.filter(
@@ -903,7 +1119,14 @@ export function renderD1Cockpit(
         locale,
         acpKinds,
       );
-      appendTranscriptRows(transcriptRegion, visibleRows);
+      // A Lane whose Agent session Core confirmed produced these rows too. The
+      // ACP conversation is not always published yet, so leaving them
+      // unattributed put the shell's name on the agent's own output.
+      appendTranscriptRows(
+        transcriptRegion,
+        visibleRows,
+        focusedAcp ? transcriptAgent(projection, focusedAcp) : undefined,
+      );
       if (projectionMatchesSelectedLane) {
         appendTypedWorkCards(transcriptRegion, projection.contextDock.checklist, locale);
       }
@@ -915,19 +1138,25 @@ export function renderD1Cockpit(
       }
       const liveWork = projectionMatchesSelectedLane ? renderLiveWorkBar(projection, locale) : null;
       if (liveWork) transcriptRegion.append(liveWork);
-      const streamState = document.createElement("div");
-      streamState.className = "d1-stream-state";
-      streamState.setAttribute("role", "status");
-      streamState.textContent = projection.composer.busy
-        ? translate(locale, "d1.stream.active", {
-            lane: selectedLaneId ?? "—",
-          })
-        : translate(locale, "d1.stream.idle", {});
-      transcriptRegion.append(streamState);
+      workStatusStrip?.dispose();
+      const canCancelTurn =
+        !composerMutationBlockReason(projection, selectedLaneId) &&
+        (focusedAcp
+          ? ["starting", "running", "waiting_approval"].includes(focusedAcp.status)
+          : Boolean(projection.composer.canCancel && selectedLaneId));
+      workStatusStrip = renderWorkStatus(
+        workStatusModel(projection, selectedLaneId, canCancelTurn),
+        locale,
+        busySince ?? Date.now(),
+        () => Date.now(),
+        () => cancelActiveTurn(),
+      );
+      transcriptRegion.append(workStatusStrip.element);
       transcriptRegion.addEventListener("scroll", () => {
         const atBottom = transcriptAtBottom(transcriptRegion);
         const first = transcriptRegion.querySelector<HTMLElement>("[data-row-id]")?.dataset.rowId;
         transcript.setFollowLatest(atBottom, first);
+        transcriptScrollTop = transcriptRegion.scrollTop;
       });
       if (transcript.newOutputCount > 0) {
         const latest = button(
@@ -1062,13 +1291,6 @@ export function renderD1Cockpit(
     );
     right.dataset.drawerOpen = String(contextDrawerOpen);
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
-    topbar.contextDrawerToggle.addEventListener("click", () => {
-      contextDrawerOpen = !contextDrawerOpen;
-      right.dataset.drawerOpen = String(contextDrawerOpen);
-      topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
-      topbar.contextDrawerToggle.classList.toggle("on", contextDrawerOpen);
-      if (contextDrawerOpen) right.focus();
-    });
     right.tabIndex = -1;
 
     const status = document.createElement("footer");
@@ -1112,10 +1334,12 @@ export function renderD1Cockpit(
       // for a frame and flashing the entire sidebar.
       refreshPersistentRail(currentActivity, activity);
       refreshPersistentRail(currentLanes, lanes);
-      currentTopbar.replaceWith(titlebar);
+      if (regionChanged("topbar", titlebar.outerHTML)) currentTopbar.replaceWith(titlebar);
+      // The work surface holds the live transcript and the composer, so it is
+      // always refreshed; its scroll and focus are restored explicitly below.
       currentMain.replaceWith(main);
-      currentRight.replaceWith(right);
-      currentStatus.replaceWith(status);
+      if (regionChanged("dock", right.outerHTML)) currentRight.replaceWith(right);
+      if (regionChanged("status", status.outerHTML)) currentStatus.replaceWith(status);
       currentFrame.className = frame.className;
       currentFrame.dataset.nativeWindowShell = frame.dataset.nativeWindowShell;
       currentBody.className = body.className;
@@ -1125,6 +1349,34 @@ export function renderD1Cockpit(
       else body.append(activity, lanes, main, right);
       frame.append(titlebar, body, status);
       root.replaceChildren(frame);
+      regionSignatures.set("topbar", titlebar.outerHTML);
+      regionSignatures.set("dock", right.outerHTML);
+      regionSignatures.set("status", status.outerHTML);
+    }
+
+    // The dock and the topbar refresh independently, so the toggle must drive
+    // the dock that is actually mounted rather than the one built this pass.
+    const mountedDock = root.querySelector<HTMLElement>(
+      '[data-shell-landmark="context-dock"]',
+    );
+    if (mountedDock) {
+      mountedDock.dataset.drawerOpen = String(contextDrawerOpen);
+      topbar.contextDrawerToggle.addEventListener("click", () => {
+        contextDrawerOpen = !contextDrawerOpen;
+        mountedDock.dataset.drawerOpen = String(contextDrawerOpen);
+        topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
+        topbar.contextDrawerToggle.classList.toggle("on", contextDrawerOpen);
+        if (contextDrawerOpen) mountedDock.focus();
+      });
+    }
+
+    const mountedTranscript = root.querySelector<HTMLElement>(".d1-transcript");
+    if (mountedTranscript) {
+      // Following readers stay pinned to the newest output; readers in
+      // history keep the exact position they scrolled to.
+      mountedTranscript.scrollTop = transcript.followLatest
+        ? mountedTranscript.scrollHeight
+        : transcriptScrollTop;
     }
 
     if (agentMenuOpen) mountAgentMenu();
@@ -1144,6 +1396,15 @@ export function renderD1Cockpit(
   };
 
   render(true);
-  if (options.poll !== false) schedulePoll();
+  if (options.poll !== false) {
+    if (options.onCoreWake) {
+      // A host push replaces the drain timer outright: reading on the wake
+      // removes the average half-interval the timer added to every reply.
+      coreWakeActive = true;
+      unsubscribeCoreWake = options.onCoreWake(() => drainOnce());
+    } else {
+      schedulePoll();
+    }
+  }
   return controller;
 }

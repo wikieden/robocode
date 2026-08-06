@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { translate } from "./i18n/catalog";
@@ -12,6 +13,28 @@ import {
   type D1Intent,
   type D1IntentResult,
 } from "./screens/d1_cockpit";
+import {
+  renderD10LaneMonitor,
+  type D10LaneMonitorProjection,
+} from "./screens/d10_lane_monitor";
+import {
+  renderD12IntegrationGate,
+  type D12IntegrationGateProjection,
+} from "./screens/d12_integration_gate";
+import {
+  renderD13FleetWorkflow,
+  type D13FleetWorkflowProjection,
+} from "./screens/d13_fleet_workflow";
+import {
+  renderD14AuditTimeline,
+  type D14AuditTimelineProjection,
+} from "./screens/d14_audit_timeline";
+import {
+  renderD2Decisions,
+  type D2DecisionsProjection,
+  type D2Intent,
+  type D2IntentResult,
+} from "./screens/d2_decisions";
 import {
   renderD4LaneCreate,
   type D4Intent,
@@ -167,6 +190,32 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const recoverD6 = async () =>
         await invoke<D6RecoveryProjection>("d6_recover");
       let activeD1: D1Controller | null = null;
+      // The desktop host drains ordered Core events off the UI thread and
+      // emits this wake, so the cockpit reads on a push instead of holding a
+      // drain timer. The unlisten is awaited lazily; dispose only needs the
+      // handler to stop firing.
+      // Only the desktop host publishes the wake. In a browser harness the
+      // event bridge is absent, so the cockpit keeps its bounded long poll
+      // instead of throwing on a subscription that cannot exist.
+      const nativeShell = "__TAURI_INTERNALS__" in window;
+      const onCoreWake = !nativeShell
+        ? undefined
+        : (handler: () => void): (() => void) => {
+            const pending = listen("viden://core-advanced", () => handler());
+            let stopped = false;
+            void pending.then((unlisten) => {
+              if (stopped) unlisten();
+            });
+            return () => {
+              stopped = true;
+              void pending.then((unlisten) => unlisten());
+            };
+          };
+
+      // Content Core persisted lives in the workspace, which the webview
+      // cannot open. The host reads it and returns an inline data URL.
+      const resolveContent = async (reference: string) =>
+        await invoke<string>("agent_content", { reference });
 
       const showD1 = async (laneId?: string) => {
         const projection = await invoke<D1CockpitProjection | null>("d1_cockpit", {
@@ -199,7 +248,20 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           pollD1,
           sendPermission,
           recoverD6,
-          { onFullSetup: () => void showD4() },
+          {
+            onFullSetup: () => void showD4(),
+            onCoreWake,
+            resolveContent,
+            onNavigate: (route: string) => {
+              // Every restored screen re-reads its own Core projection before
+              // it renders; the rail only names the route.
+              if (route === "d2") void showD2();
+              else if (route === "d10") void showD10();
+              else if (route === "d12") void showD12();
+              else if (route === "d13") void showD13();
+              else if (route === "d14") void showD14();
+            },
+          },
         );
       };
 
@@ -221,6 +283,87 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         });
       };
 
+      // D2 is the cross-Lane decision queue. It reads the same Core facts as
+      // the D1 permission dock, so it never keeps a second decision model.
+      const showD2 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D2DecisionsProjection | null>("d2_decisions", {
+          selectedId: null,
+        });
+        if (!projection) {
+          throw new Error("Core did not provide the D2 decision projection");
+        }
+        root.dataset.route = "d2";
+        renderD2Decisions(
+          root,
+          projection,
+          async (intent: D2Intent) =>
+            await invoke<D2IntentResult>("d2_send_intent", {
+              commandId: `gui-d2-${crypto.randomUUID()}`,
+              intent,
+            }),
+          locale,
+        );
+      };
+
+      // D10 watches every Lane across projects. It is read-only: every
+      // actionable decision routes back into D2.
+      const showD10 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D10LaneMonitorProjection | null>("d10_lane_monitor");
+        if (!projection) {
+          throw new Error("Core did not provide the D10 lane monitor projection");
+        }
+        root.dataset.route = "d10";
+        renderD10LaneMonitor(root, projection, locale, () => void showD2());
+      };
+
+      // D12 is the integration-gate failure path. Accept opens only when Core
+      // says every required evidence id is present.
+      const showD12 = async (gateId?: string) => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D12IntegrationGateProjection | null>(
+          "d12_integration_gate",
+          { selectedGateId: gateId ?? null },
+        );
+        if (!projection) {
+          throw new Error("Core did not provide the D12 integration gate projection");
+        }
+        root.dataset.route = "d12";
+        renderD12IntegrationGate(root, projection, locale, (next) => void showD12(next));
+      };
+
+      // D14 is the audit trail. It pages the Core replay cursor and never
+      // reconstructs history from the current view state.
+      const showD14 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const page = async (after: string | null) =>
+          await invoke<D14AuditTimelineProjection>("d14_audit_timeline", {
+            after,
+            limit: 200,
+          });
+        const projection = await page(null);
+        root.dataset.route = "d14";
+        renderD14AuditTimeline(root, projection, locale, (after) => page(after));
+      };
+
+      // D13 is the fleet board. It is read-only: workflow mutations stay with
+      // the Core commands that own the DAG.
+      const showD13 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        const projection = await invoke<D13FleetWorkflowProjection | null>("d13_fleet_workflow");
+        if (!projection) {
+          throw new Error("Core did not provide the D13 fleet projection");
+        }
+        root.dataset.route = "d13";
+        renderD13FleetWorkflow(root, projection, locale);
+      };
+
       const openProject = async () => {
         const selected = await open({
           directory: true,
@@ -238,8 +381,19 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       if (initialProjection) {
         // D4 remains an explicit compatibility surface; normal project entry
         // and the D1 `+` action use the compact native/ACP menu.
-        if (new URLSearchParams(window.location.search).get("screen") === "d4") {
+        const screen = new URLSearchParams(window.location.search).get("screen");
+        if (screen === "d4") {
           await showD4();
+        } else if (screen === "d2") {
+          await showD2();
+        } else if (screen === "d10") {
+          await showD10();
+        } else if (screen === "d12") {
+          await showD12();
+        } else if (screen === "d13") {
+          await showD13();
+        } else if (screen === "d14") {
+          await showD14();
         } else {
           await showD1();
         }

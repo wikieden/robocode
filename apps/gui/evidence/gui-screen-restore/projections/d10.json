@@ -1,0 +1,49 @@
+{
+  "totalLanes": 2,
+  "totalProjects": 1,
+  "awaitingTotal": 2,
+  "lanes": [
+    {
+      "id": "lane_core",
+      "projectId": "project-boss-rush",
+      "summary": "lane_core active",
+      "role": "coder",
+      "route": "terminal",
+      "gateStrength": "containment",
+      "mutationPolicy": "propose_only",
+      "status": "waiting_approval",
+      "awaitsHuman": true,
+      "branch": "codex/lane_core",
+      "worktree": ".worktrees/lane_core",
+      "progress": 40,
+      "agents": [],
+      "evidence": [],
+      "tokenLimit": 16000,
+      "costLimitMicroUsd": 500000
+    },
+    {
+      "id": "lane_review",
+      "projectId": null,
+      "summary": "lane_review active",
+      "role": "reviewer",
+      "route": "acp",
+      "gateStrength": "cooperative",
+      "mutationPolicy": "propose_only",
+      "status": "waiting_approval",
+      "awaitsHuman": true,
+      "branch": "codex/lane_review",
+      "worktree": ".worktrees/lane_review",
+      "progress": 40,
+      "agents": [],
+      "evidence": [],
+      "tokenLimit": 16000,
+      "costLimitMicroUsd": 500000
+    }
+  ],
+  "unavailable": [
+    {
+      "key": "d10.events.noOrderedLog",
+      "code": "GUI-CORE-014"
+    }
+  ]
+}

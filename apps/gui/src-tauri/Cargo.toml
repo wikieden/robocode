@@ -57,9 +57,19 @@ path = "../tests/d6_recovery.rs"
 name = "reconnect"
 path = "../tests/reconnect.rs"
 
+[[test]]
+name = "d2_decisions"
+path = "../tests/d2_decisions.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+# Used to read the canonical serde tag of a Core event kind instead of
+# duplicating Core's 117-variant vocabulary in the client.
+serde_json = "1"
 sha2 = "0.10"
+# A webview cannot load a workspace path, so persisted Agent content is handed
+# to the frontend as an inline data URL.
+base64 = "0.22"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-dialog = "2.7.2"
 viden-core = { path = "../../../crates/core" }
@@ -70,3 +80,35 @@ tauri-build = { version = "2.5.6", features = [] }
 [dev-dependencies]
 serde_json = "1"
 toml = "0.8"
+
+[[test]]
+name = "d10_lane_monitor"
+path = "../tests/d10_lane_monitor.rs"
+
+[[test]]
+name = "d12_integration_gate"
+path = "../tests/d12_integration_gate.rs"
+
+[[test]]
+name = "d14_audit_timeline"
+path = "../tests/d14_audit_timeline.rs"
+
+[[test]]
+name = "d13_fleet_workflow"
+path = "../tests/d13_fleet_workflow.rs"
+
+[[test]]
+name = "capture_projections"
+path = "../tests/capture_projections.rs"
+
+[[test]]
+name = "event_pump"
+path = "../tests/event_pump.rs"
+
+[[test]]
+name = "agent_content"
+path = "../tests/agent_content.rs"
+
+[[test]]
+name = "agent_streaming"
+path = "../tests/agent_streaming.rs"
