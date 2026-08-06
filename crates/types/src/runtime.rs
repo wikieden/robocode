@@ -1,9 +1,9 @@
 use crate::{
-    AgentAdapterView, AgentConversationMessageView, AgentConversationRole, AgentDagRecord,
-    AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentSessionInput, AgentSessionInputView,
-    AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
-    CheckRunView, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
+    AgentAdapterView, AgentContentPart, AgentConversationMessageView, AgentConversationRole,
+    AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentSessionInput,
+    AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord,
+    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, CheckRunView, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
     ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
     ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
     ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
@@ -624,7 +624,25 @@ pub enum RuntimeEventKind {
     AssistantDelta {
         message_id: MessageId,
         task_id: Option<AgentTaskId>,
+        /// Session this delta belongs to, when Core can scope it to one.
+        ///
+        /// Additive since `core-v0.3.6`: an older producer omits it and the
+        /// delta stays in the unscoped assistant stream, exactly as before.
+        /// A scoped delta additionally grows the owner-scoped conversation so
+        /// a client can render a reply while it is still being produced.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<SessionId>,
         content: String,
+    },
+    /// A typed non-text piece of an Agent message.
+    ///
+    /// Additive since `core-v0.3.6`. Text arrives as `AssistantDelta`; this
+    /// carries what text cannot represent, so an image or file an Agent
+    /// returned reaches the client instead of being dropped.
+    AgentMessagePart {
+        session_id: SessionId,
+        message_id: MessageId,
+        part: AgentContentPart,
     },
     ToolCallStarted {
         tool_call_id: ToolCallId,
@@ -1143,8 +1161,39 @@ impl RuntimeViewState {
                 self.snapshot = snapshot.clone();
                 self.ui_preferences = snapshot.ui_preferences.clone();
             }
-            RuntimeEventKind::AssistantDelta { content, .. } => {
+            RuntimeEventKind::AssistantDelta {
+                message_id,
+                session_id,
+                content,
+                ..
+            } => {
                 self.assistant_stream.push_str(content);
+                // A scoped delta grows exactly one conversation message per
+                // turn, keyed by the message id the producer keeps stable.
+                // Without a session id the delta cannot be attributed to a
+                // conversation, so it stays in the unscoped stream only.
+                if let Some(session_id) = session_id {
+                    grow_agent_conversation_message(
+                        &mut self.agent_conversation,
+                        session_id,
+                        message_id,
+                        content,
+                    );
+                }
+            }
+            RuntimeEventKind::AgentMessagePart {
+                session_id,
+                message_id,
+                part,
+            } => {
+                // Parts attach to a message Core already published. An orphan
+                // part is dropped rather than conjuring a message that never
+                // had text.
+                if let Some(message) = self.agent_conversation.iter_mut().find(|message| {
+                    message.message_id == *message_id && message.session_id == *session_id
+                }) {
+                    message.parts.push(part.clone());
+                }
             }
             RuntimeEventKind::ToolCallStarted {
                 tool_call_id,
@@ -1475,6 +1524,37 @@ impl RuntimeViewState {
     }
 }
 
+/// Appends a streamed delta to the assistant message it belongs to, creating
+/// that message on the first chunk.
+///
+/// The producer keeps `message_id` stable for one turn, so a growing reply is
+/// one message rather than one message per chunk. Ordering is the event order
+/// Core published; nothing here reorders or merges by content.
+fn grow_agent_conversation_message(
+    messages: &mut Vec<AgentConversationMessageView>,
+    session_id: &str,
+    message_id: &str,
+    delta: &str,
+) {
+    if let Some(existing) = messages
+        .iter_mut()
+        .find(|message| message.message_id == message_id && message.session_id == session_id)
+    {
+        existing.content.push_str(delta);
+        return;
+    }
+    messages.push(AgentConversationMessageView {
+        message_id: message_id.to_string(),
+        session_id: session_id.to_string(),
+        role: AgentConversationRole::Assistant,
+        content: delta.to_string(),
+        // A streamed reply starts as text; non-text parts arrive with the
+        // completed message from the adapter.
+        parts: Vec::new(),
+    });
+    cap_vec(messages);
+}
+
 fn append_agent_conversation_message(
     messages: &mut Vec<AgentConversationMessageView>,
     session_id: &str,
@@ -1495,6 +1575,7 @@ fn append_agent_conversation_message(
         session_id: session_id.to_string(),
         role,
         content: content.to_string(),
+        parts: Vec::new(),
     });
     cap_vec(messages);
 }

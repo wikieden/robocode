@@ -171,7 +171,132 @@ pub struct AgentConversationMessageView {
     pub message_id: String,
     pub session_id: SessionId,
     pub role: AgentConversationRole,
+    /// Concatenated text of the message.
+    ///
+    /// Kept as the compatibility surface: a client that predates content parts
+    /// still renders the full text, and a producer that predates them still
+    /// decodes with an empty `parts`.
     pub content: String,
+    /// Typed content parts in the order the Agent produced them.
+    ///
+    /// Additive since `core-v0.3.6`. Non-text content (an image an Agent
+    /// returned, a file it attached) has no representation in `content`, so
+    /// without this a client can only show prose claiming the content exists.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<AgentContentPart>,
+}
+
+/// One typed piece of an Agent message.
+///
+/// A part kind this build does not know is preserved verbatim rather than
+/// dropped, so a newer Core never silently loses content on an older client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentContentPart {
+    Text {
+        text: String,
+    },
+    Image {
+        media_type: String,
+        /// Immutable reference the client resolves; never inline bytes.
+        reference: String,
+        alt: Option<String>,
+    },
+    File {
+        media_type: String,
+        reference: String,
+        name: Option<String>,
+    },
+    Unknown {
+        kind: String,
+        /// The original object, so re-serializing is lossless.
+        payload: serde_json::Value,
+    },
+}
+
+impl Serialize for AgentContentPart {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Text { text } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "text")?;
+                map.serialize_entry("text", text)?;
+                map.end()
+            }
+            Self::Image {
+                media_type,
+                reference,
+                alt,
+            } => {
+                let mut map = serializer.serialize_map(Some(4))?;
+                map.serialize_entry("type", "image")?;
+                map.serialize_entry("mediaType", media_type)?;
+                map.serialize_entry("reference", reference)?;
+                if let Some(alt) = alt {
+                    map.serialize_entry("alt", alt)?;
+                }
+                map.end()
+            }
+            Self::File {
+                media_type,
+                reference,
+                name,
+            } => {
+                let mut map = serializer.serialize_map(Some(4))?;
+                map.serialize_entry("type", "file")?;
+                map.serialize_entry("mediaType", media_type)?;
+                map.serialize_entry("reference", reference)?;
+                if let Some(name) = name {
+                    map.serialize_entry("name", name)?;
+                }
+                map.end()
+            }
+            // Round-trips the exact object Core published.
+            Self::Unknown { payload, .. } => payload.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentContentPart {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let kind = value
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let string_at = |keys: &[&str]| -> Option<String> {
+            keys.iter()
+                .find_map(|key| value.get(*key))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        Ok(match kind.as_str() {
+            "text" => Self::Text {
+                text: string_at(&["text"]).unwrap_or_default(),
+            },
+            "image" => Self::Image {
+                media_type: string_at(&["mediaType", "media_type"]).unwrap_or_default(),
+                reference: string_at(&["reference", "uri"]).unwrap_or_default(),
+                alt: string_at(&["alt"]),
+            },
+            "file" => Self::File {
+                media_type: string_at(&["mediaType", "media_type"]).unwrap_or_default(),
+                reference: string_at(&["reference", "uri"]).unwrap_or_default(),
+                name: string_at(&["name"]),
+            },
+            _ => Self::Unknown {
+                kind,
+                payload: value,
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

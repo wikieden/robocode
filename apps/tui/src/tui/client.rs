@@ -615,6 +615,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "replacement".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "replacement".to_string(),
             },
         );
@@ -834,6 +835,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "replacement".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "replacement".to_string(),
             },
         );
@@ -866,6 +868,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "gap".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "gap".to_string(),
             },
         ));
@@ -890,6 +893,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "m3".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "late".to_string(),
             },
         ));
@@ -900,6 +904,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m1".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "a".to_string(),
                     },
                 ),
@@ -908,6 +913,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m2".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "b".to_string(),
                     },
                 ),
@@ -916,6 +922,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m3".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "c".to_string(),
                     },
                 ),
@@ -941,6 +948,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "m1".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "once".to_string(),
             },
         ));
@@ -949,6 +957,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "m1".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "once".to_string(),
             },
         ));
@@ -968,6 +977,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "m3".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "late".to_string(),
             },
         ));
@@ -978,6 +988,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m1".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "partial".to_string(),
                     },
                 ),
@@ -986,6 +997,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m3".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "invalid-gap".to_string(),
                     },
                 ),
@@ -1016,6 +1028,7 @@ mod tests {
             RuntimeEventKind::AssistantDelta {
                 message_id: "m3".to_string(),
                 task_id: None,
+                session_id: None,
                 content: "incoming".to_string(),
             },
         ));
@@ -1026,6 +1039,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m1".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "a".to_string(),
                     },
                 ),
@@ -1034,6 +1048,7 @@ mod tests {
                     RuntimeEventKind::AssistantDelta {
                         message_id: "m2".to_string(),
                         task_id: None,
+                        session_id: None,
                         content: "b".to_string(),
                     },
                 ),

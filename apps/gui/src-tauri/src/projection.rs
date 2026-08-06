@@ -1144,12 +1144,14 @@ mod tests {
                 session_id: "session-acp".to_string(),
                 role: AgentConversationRole::User,
                 content: "Return an exact response".to_string(),
+                parts: Vec::new(),
             },
             AgentConversationMessageView {
                 message_id: "session-acp-message-2".to_string(),
                 session_id: "session-acp".to_string(),
                 role: AgentConversationRole::Assistant,
                 content: "ACP-GUI-CLOSED-LOOP-OK".to_string(),
+                parts: Vec::new(),
             },
         ]);
         let mut projection = RuntimeProjection::default();

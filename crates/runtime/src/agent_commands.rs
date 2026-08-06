@@ -18,9 +18,9 @@ use viden_plugin_api::{
 use viden_plugin_host::builtin_agent_descriptors;
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentCapabilityRecord,
-    AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest, AgentSessionStatus,
-    AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus,
-    ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecisionOutcome,
+    AgentContentPart, AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest,
+    AgentSessionStatus, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
+    AgentTaskStatus, ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionDecision,
     PermissionLogEntry, RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec,
     TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
@@ -967,7 +967,43 @@ where
     permission_context: PermissionContext,
     runtime_event_sink: Option<RuntimeEventSink>,
     resident_session_id: Option<String>,
+    /// Session id Core publishes this Agent session under.
+    ///
+    /// The ACP session id is the agent's own protocol handle. Every other
+    /// Core fact — the session view, its accepted inputs, its conversation —
+    /// is keyed by the Viden session id, so a streamed reply scoped by the
+    /// protocol handle can never join the conversation a client renders.
+    owner_session_id: Option<String>,
+    /// Artifact id of this prompt turn, unique across the session's turns.
+    ///
+    /// A resumed turn reuses the remote session and restarts ACP request ids,
+    /// so the request id alone cannot keep two turns from sharing a message.
+    turn_id: Option<String>,
     on_pid: P,
+}
+
+/// Picks the session id runtime facts are scoped by.
+///
+/// Falls back to the ACP protocol handle only where Core has not published a
+/// session of its own, which is the ad-hoc probe path rather than a supervised
+/// Agent session.
+fn acp_scoped_session_id<'a>(
+    owner_session_id: Option<&'a str>,
+    acp_session_id: &'a str,
+) -> &'a str {
+    owner_session_id.unwrap_or(acp_session_id)
+}
+
+/// Builds the assistant message id every chunk of one prompt turn shares.
+fn acp_turn_message_id(
+    scoped_session_id: &str,
+    turn_id: Option<&str>,
+    prompt_request_id: u64,
+) -> String {
+    match turn_id {
+        Some(turn_id) => format!("acp-message-{scoped_session_id}-turn-{turn_id}"),
+        None => format!("acp-message-{scoped_session_id}-turn-{prompt_request_id}"),
+    }
 }
 
 fn parse_acp_run_args(args: &[String]) -> Result<AcpRunArgs, String> {
@@ -2328,6 +2364,10 @@ fn start_typed_agent_session_attempt(
     let protocol_sink = Arc::clone(&runtime_event_sink);
     let pid_slot = Arc::new(Mutex::new(None::<u32>));
     let pid_slot_for_thread = Arc::clone(&pid_slot);
+    // Both ids are captured before the runner starts: the session id Core
+    // published this Agent session under, and the artifact id of this turn.
+    let monitor_owner_session_id = session_id.clone();
+    let monitor_turn_id = artifact_id.clone();
     std::thread::spawn(move || {
         let resident_session_id = monitor_record.id.clone();
         let result = run_acp_session_prompt_for_agent_with_log(
@@ -2343,6 +2383,8 @@ fn start_typed_agent_session_attempt(
                 permission_context: PermissionContext::default(),
                 runtime_event_sink: Some(protocol_sink),
                 resident_session_id: Some(resident_session_id),
+                owner_session_id: Some(monitor_owner_session_id),
+                turn_id: Some(monitor_turn_id),
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -2519,6 +2561,8 @@ fn start_acp_session_job(
                 permission_context: PermissionContext::default(),
                 runtime_event_sink,
                 resident_session_id: None,
+                owner_session_id: None,
+                turn_id: None,
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -4187,6 +4231,8 @@ fn run_acp_session_prompt_for_agent_with_permissions(
             permission_context,
             runtime_event_sink,
             resident_session_id: None,
+            owner_session_id: None,
+            turn_id: None,
             on_pid: |_| {},
         },
     )
@@ -4211,6 +4257,8 @@ where
         permission_context,
         runtime_event_sink,
         resident_session_id,
+        owner_session_id,
+        turn_id,
         mut on_pid,
     } = context;
     let mut log_entries = Vec::new();
@@ -4388,6 +4436,11 @@ where
     if let Err(error) = write_acp_request(&mut stdin, &prompt_request, &mut log_entries) {
         return Err(finish_failed_probe(child, log_path, log_entries, error));
     }
+    // One assistant message per prompt turn, scoped to the session Core
+    // publishes rather than the agent's own protocol handle.
+    let scoped_session_id = acp_scoped_session_id(owner_session_id.as_deref(), &session_id);
+    let turn_message_id =
+        acp_turn_message_id(scoped_session_id, turn_id.as_deref(), prompt_request_id);
     let mut message = String::new();
     let mut tool_calls = Vec::new();
     let mut runtime_events = Vec::new();
@@ -4517,8 +4570,10 @@ where
                 append_acp_update_runtime_events(
                     &mut runtime_events,
                     &mut runtime_sequence,
-                    &session_id,
+                    scoped_session_id,
+                    &turn_message_id,
                     &mut acp_gate_evidence_ids,
+                    Some(cwd),
                     update,
                 );
                 if let Some(path) = runtime_event_log_path.as_deref()
@@ -4707,6 +4762,167 @@ fn acp_message_chunk_text(update: &Value) -> Option<String> {
             .and_then(Value::as_str)
             .map(str::to_string),
     }
+}
+
+/// Reads a non-text ACP content block as a typed message part.
+///
+/// Text is already carried by `acp_message_chunk_text`, so this returns `None`
+/// for it. A block whose bytes are inline rather than referenced is persisted
+/// into the workspace first, and the returned evidence records those bytes; a
+/// block that can be neither referenced nor persisted is preserved verbatim as
+/// an unknown part, because dropping it would lose content and inventing a
+/// reference for bytes Core has not persisted would be worse.
+fn acp_message_chunk_part(
+    update: &Value,
+    cwd: Option<&Path>,
+) -> Option<(AgentContentPart, Option<EvidenceView>)> {
+    let content = update.get("content")?;
+    let kind = content.get("type").and_then(Value::as_str)?;
+    if kind == "text" {
+        return None;
+    }
+    let media_type = content
+        .get("mimeType")
+        .or_else(|| content.get("mediaType"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let unknown = || {
+        Some((
+            AgentContentPart::Unknown {
+                kind: kind.to_string(),
+                payload: content.clone(),
+            },
+            None,
+        ))
+    };
+    let referenced = content
+        .get("uri")
+        .or_else(|| content.get("reference"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    // A reference the Agent supplied is used as published. Only bytes with no
+    // reference of their own are persisted, and then the workspace path Core
+    // wrote becomes the reference.
+    let (reference, evidence) = match referenced {
+        Some(reference) => (reference, None),
+        None => {
+            let Some(cwd) = cwd else { return unknown() };
+            let data = content
+                .get("data")
+                .or_else(|| content.get("blob"))
+                .and_then(Value::as_str)?;
+            match persist_acp_inline_bytes(cwd, kind, &media_type, data) {
+                Some(persisted) => persisted,
+                None => return unknown(),
+            }
+        }
+    };
+    let part = match kind {
+        "image" => AgentContentPart::Image {
+            media_type,
+            reference,
+            alt: content
+                .get("alt")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+        "resource_link" | "resource" | "audio" => AgentContentPart::File {
+            media_type,
+            reference,
+            name: content
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+        _ => return unknown(),
+    };
+    Some((part, evidence))
+}
+
+/// Writes inline Agent bytes into the workspace and records them as evidence.
+///
+/// The file name is the digest of the bytes, so identical content resolves to
+/// one immutable path: a replayed event can never point at a file that was
+/// rewritten under it. Returns `None` when the payload is not decodable or the
+/// workspace cannot be written, leaving the caller to preserve the raw block.
+fn persist_acp_inline_bytes(
+    cwd: &Path,
+    kind: &str,
+    media_type: &str,
+    data: &str,
+) -> Option<(String, Option<EvidenceView>)> {
+    use base64::Engine as _;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .ok()?;
+    let digest = sha256_hex(&bytes);
+    let name = format!("{digest}.{}", acp_content_extension(media_type));
+    let dir = cwd.join(".viden").join("agents").join("parts");
+    fs::create_dir_all(&dir).ok()?;
+    let path = dir.join(&name);
+    if !path.exists() {
+        fs::write(&path, &bytes).ok()?;
+    }
+    let reference = format!(".viden/agents/parts/{name}");
+    let evidence = EvidenceView {
+        id: format!("acp-content-{digest}"),
+        kind: "agent-content".to_string(),
+        summary: format!("{kind} returned by the Agent ({} bytes)", bytes.len()),
+        path: Some(reference.clone()),
+        source: Some("acp:content.v1".to_string()),
+        canonical: None,
+        metadata: Some(json!({
+            "mediaType": media_type,
+            "contentKind": kind,
+            "sha256": digest,
+            "bytes": bytes.len(),
+        })),
+        timestamp: None,
+    };
+    Some((reference, Some(evidence)))
+}
+
+/// Maps a media type onto a file extension for persisted Agent content.
+fn acp_content_extension(media_type: &str) -> String {
+    match media_type {
+        "image/png" => return "png".to_string(),
+        "image/jpeg" | "image/jpg" => return "jpg".to_string(),
+        "image/gif" => return "gif".to_string(),
+        "image/webp" => return "webp".to_string(),
+        "image/svg+xml" => return "svg".to_string(),
+        "application/pdf" => return "pdf".to_string(),
+        _ => {}
+    }
+    let subtype = media_type
+        .split('/')
+        .nth(1)
+        .unwrap_or_default()
+        .split(['+', ';'])
+        .next()
+        .unwrap_or_default();
+    let sanitized: String = subtype
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    if sanitized.is_empty() {
+        "bin".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let mut out = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }
 
 fn acp_patch_text(update: &Value) -> Option<String> {
@@ -4941,7 +5157,14 @@ fn append_acp_update_runtime_events(
     events: &mut Vec<RuntimeEvent>,
     sequence: &mut u64,
     session_id: &str,
+    // Assistant message id for the whole turn. Chunks of one reply must share
+    // it so the reducer grows one message instead of one per chunk.
+    turn_message_id: &str,
     gate_evidence_ids: &mut Vec<String>,
+    // Workspace the session runs in, when one is known. Inline Agent bytes are
+    // persisted under it; without it they stay unresolved rather than being
+    // written outside the workspace.
+    cwd: Option<&Path>,
     update: &Value,
 ) {
     match acp_update_kind(update).as_deref() {
@@ -4951,9 +5174,35 @@ fn append_acp_update_runtime_events(
                     events,
                     sequence,
                     RuntimeEventKind::AssistantDelta {
-                        message_id: format!("acp-message-{session_id}-{sequence}"),
+                        message_id: turn_message_id.to_string(),
                         task_id: Some(format!("acp-session-{session_id}")),
+                        session_id: Some(session_id.to_string()),
                         content: text,
+                    },
+                );
+            }
+            // Content the text extractor cannot represent still belongs to the
+            // reply. Publishing it as a typed part keeps an image or a file the
+            // Agent returned from disappearing into prose about it.
+            if let Some((part, evidence)) = acp_message_chunk_part(update, cwd) {
+                // Persisted bytes are published as evidence before the part
+                // that references them, so a client never sees a reference
+                // whose fact has not been recorded yet.
+                if let Some(evidence) = evidence {
+                    push_unique_evidence_id(gate_evidence_ids, &evidence.id);
+                    push_acp_runtime_event(
+                        events,
+                        sequence,
+                        RuntimeEventKind::EvidenceRecorded { evidence },
+                    );
+                }
+                push_acp_runtime_event(
+                    events,
+                    sequence,
+                    RuntimeEventKind::AgentMessagePart {
+                        session_id: session_id.to_string(),
+                        message_id: turn_message_id.to_string(),
+                        part,
                     },
                 );
             }
@@ -8355,7 +8604,9 @@ mod tests {
                 &mut events,
                 &mut sequence,
                 agent_id,
+                &format!("acp-message-{agent_id}-turn-1"),
                 &mut evidence_ids,
+                None,
                 &fixture["tool_update"],
             );
             assert!(events.iter().any(|event| matches!(
@@ -9618,4 +9869,328 @@ mod tests {
 
     #[cfg(not(unix))]
     fn make_executable(_path: &Path) {}
+}
+
+#[cfg(test)]
+mod agent_streaming_tests {
+    use super::*;
+
+    fn chunk(text: &str) -> Value {
+        serde_json::json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": { "type": "text", "text": text }
+        })
+    }
+
+    /// GUI-CORE-016: every chunk of one prompt turn carries the same message id
+    /// and its session, so the reducer grows a single owner-scoped reply that a
+    /// client can render while it is still being produced.
+    #[test]
+    fn chunks_of_one_turn_share_a_stable_scoped_message_id() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        let turn_message_id = "acp-message-session_1-turn-7";
+
+        for text in ["I will ", "draw ", "a cat."] {
+            append_acp_update_runtime_events(
+                &mut events,
+                &mut sequence,
+                "session_1",
+                turn_message_id,
+                &mut evidence_ids,
+                None,
+                &chunk(text),
+            );
+        }
+
+        let deltas: Vec<(&str, Option<&str>, &str)> = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RuntimeEventKind::AssistantDelta {
+                    message_id,
+                    session_id,
+                    content,
+                    ..
+                } => Some((message_id.as_str(), session_id.as_deref(), content.as_str())),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(deltas.len(), 3, "each chunk stays its own ordered event");
+        assert!(
+            deltas
+                .iter()
+                .all(|(id, session, _)| *id == turn_message_id && *session == Some("session_1")),
+            "chunks of one turn must not fan out into separate messages: {deltas:?}"
+        );
+        assert_eq!(
+            deltas
+                .iter()
+                .map(|(_, _, content)| *content)
+                .collect::<String>(),
+            "I will draw a cat.",
+            "replaying the chunks reconstructs the reply exactly"
+        );
+    }
+
+    /// GUI-CORE-017: an image block reaches the reply as a typed part instead
+    /// of being dropped while the text claims an image exists.
+    #[test]
+    fn an_image_block_becomes_a_typed_message_part() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "turn-1",
+            &mut evidence_ids,
+            None,
+            &serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "uri": "file:///tmp/cat.png",
+                    "alt": "an orange cat"
+                }
+            }),
+        );
+
+        let part = events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart {
+                    message_id, part, ..
+                } if message_id == "turn-1" => Some(part.clone()),
+                _ => None,
+            })
+            .expect("the image block must publish a typed part");
+        assert!(matches!(
+            part,
+            AgentContentPart::Image { ref media_type, ref reference, .. }
+                if media_type == "image/png" && reference == "file:///tmp/cat.png"
+        ));
+    }
+
+    /// Without a workspace to write into there is no reference Core has
+    /// persisted, so the block is kept verbatim rather than dropped or given
+    /// an invented reference.
+    #[test]
+    fn an_inline_image_block_without_a_workspace_is_preserved_as_unknown() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "turn-1",
+            &mut evidence_ids,
+            None,
+            &serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=" }
+            }),
+        );
+
+        let part = events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart { part, .. } => Some(part.clone()),
+                _ => None,
+            })
+            .expect("the block must not disappear");
+        assert!(matches!(part, AgentContentPart::Unknown { ref kind, .. } if kind == "image"));
+    }
+
+    /// GUI-CORE-017: inline Agent bytes become durable evidence with an
+    /// immutable reference, so a drawn image survives the turn and can be
+    /// rendered from the fact Core published rather than from the wire.
+    #[test]
+    fn inline_image_bytes_become_referenced_evidence() {
+        let cwd = env::temp_dir().join(format!("viden_acp_inline_{}", fresh_id("tmp")));
+        fs::create_dir_all(&cwd).expect("create workspace");
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        // "cat" in base64; the bytes only have to round-trip, not be a real PNG.
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "turn-1",
+            &mut evidence_ids,
+            Some(cwd.as_path()),
+            &serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "data": "Y2F0",
+                    "alt": "an orange cat"
+                }
+            }),
+        );
+
+        let part = events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart { part, .. } => Some(part.clone()),
+                _ => None,
+            })
+            .expect("the block must publish a typed part");
+        let AgentContentPart::Image {
+            media_type,
+            reference,
+            alt,
+        } = part
+        else {
+            panic!("persisted inline bytes must become a typed image part, got {part:?}");
+        };
+        assert_eq!(media_type, "image/png");
+        assert_eq!(alt.as_deref(), Some("an orange cat"));
+        assert!(
+            reference.starts_with(".viden/agents/parts/") && reference.ends_with(".png"),
+            "the reference must be a workspace path Core owns: {reference}"
+        );
+        assert_eq!(
+            fs::read(cwd.join(&reference)).expect("persisted bytes"),
+            b"cat",
+            "the persisted file must hold exactly the bytes the Agent returned"
+        );
+        assert!(
+            events.iter().any(|event| matches!(
+                &event.kind,
+                RuntimeEventKind::EvidenceRecorded { evidence }
+                    if evidence.path.as_deref() == Some(reference.as_str())
+            )),
+            "the persisted bytes must also be published as evidence"
+        );
+        assert!(
+            evidence_ids.iter().any(|id| id.contains("acp-content-")),
+            "the content evidence must be available to a gate: {evidence_ids:?}"
+        );
+        let _ = fs::remove_dir_all(&cwd);
+    }
+
+    /// The same bytes must resolve to the same immutable file, so a replayed
+    /// event never points at a path that was rewritten underneath it.
+    #[test]
+    fn identical_inline_bytes_share_one_immutable_reference() {
+        let cwd = env::temp_dir().join(format!("viden_acp_inline_{}", fresh_id("tmp")));
+        fs::create_dir_all(&cwd).expect("create workspace");
+        let update = serde_json::json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": { "type": "image", "mimeType": "image/png", "data": "Y2F0" }
+        });
+        let mut references = Vec::new();
+        for turn in ["turn-1", "turn-2"] {
+            let mut events = Vec::new();
+            let mut sequence = 1;
+            let mut evidence_ids = Vec::new();
+            append_acp_update_runtime_events(
+                &mut events,
+                &mut sequence,
+                "session_1",
+                turn,
+                &mut evidence_ids,
+                Some(cwd.as_path()),
+                &update,
+            );
+            references.extend(events.iter().filter_map(|event| match &event.kind {
+                RuntimeEventKind::AgentMessagePart {
+                    part: AgentContentPart::Image { reference, .. },
+                    ..
+                } => Some(reference.clone()),
+                _ => None,
+            }));
+        }
+
+        assert_eq!(references.len(), 2);
+        assert_eq!(
+            references[0], references[1],
+            "content-addressed bytes must not fork into two references"
+        );
+        let _ = fs::remove_dir_all(&cwd);
+    }
+
+    /// GUI-CORE-016: facts are scoped by the session Core published, not by
+    /// the agent's own protocol handle.
+    ///
+    /// Every other fact about an Agent session — its view, its accepted
+    /// inputs, its conversation — is keyed by the Viden session id. Scoping a
+    /// streamed reply by the ACP handle produced a parallel conversation no
+    /// client could see, which is exactly the "replies only appear when the
+    /// turn ends" symptom.
+    #[test]
+    fn a_streamed_reply_is_scoped_by_the_session_core_published() {
+        assert_eq!(
+            acp_scoped_session_id(Some("agent-session_17855"), "019fbc86-35da-7d33"),
+            "agent-session_17855",
+            "the Viden session id must win over the ACP protocol handle"
+        );
+        assert_eq!(
+            acp_scoped_session_id(None, "019fbc86-35da-7d33"),
+            "019fbc86-35da-7d33",
+            "an ad-hoc probe with no Core session keeps the protocol handle"
+        );
+    }
+
+    /// A resumed turn reuses the remote session and restarts ACP request ids,
+    /// so two turns would otherwise grow into one message.
+    #[test]
+    fn two_turns_of_one_session_never_share_a_message_id() {
+        let first = acp_turn_message_id("session-1", Some("agent-input_1"), 6);
+        let second = acp_turn_message_id("session-1", Some("agent-input_2"), 6);
+        assert_ne!(first, second);
+        assert_eq!(
+            acp_turn_message_id("session-1", Some("agent-input_1"), 9),
+            first,
+            "chunks of one turn share a message id regardless of request id"
+        );
+        assert_eq!(
+            acp_turn_message_id("session-1", None, 6),
+            "acp-message-session-1-turn-6",
+            "without a turn artifact the request id still separates turns"
+        );
+    }
+
+    /// A later turn in the same session must not append to the earlier reply.
+    #[test]
+    fn a_later_turn_uses_its_own_message_id() {
+        let mut events = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "acp-message-session_1-turn-7",
+            &mut evidence_ids,
+            None,
+            &chunk("first"),
+        );
+        append_acp_update_runtime_events(
+            &mut events,
+            &mut sequence,
+            "session_1",
+            "acp-message-session_1-turn-8",
+            &mut evidence_ids,
+            None,
+            &chunk("second"),
+        );
+
+        let ids: Vec<&str> = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RuntimeEventKind::AssistantDelta { message_id, .. } => Some(message_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1], "turns are separate replies");
+    }
 }
