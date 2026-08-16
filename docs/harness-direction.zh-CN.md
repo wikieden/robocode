@@ -23,21 +23,23 @@ DeepSeek Harness 独立验证了 Viden 的三个架构判断——append-only �
   扩展到 context 投影（记录或可确定性重推导）是 Core 契约候选，列入下方
   排期。
 
-## 2. viden-tools 的 OS 能力接缝（已接受，已排期）
+## 2. viden-tools 的 OS 能力接缝（已实现：第一切片）
 
 DeepSeek Harness 换一个 filesystem/subprocess provider，Bash、PTY、LSP 就
 一起迁移到远程沙箱，工具零改动。Viden 的 `ToolExecutionContext` 目前只暴露
 `cwd` 和语义（LSP）provider，各工具直接调用 `std::fs` 和进程 spawn。
 
-计划形态：
+状态：
 
-- 在 `crates/tools` 中与 `SemanticToolProvider` 并列定义 filesystem 与
-  process 能力 trait；
-- 默认实现精确保持现有本地行为；
-- 从文件与 shell 工具开始，增量迁移工具到该接缝；
-- 之后沙箱或远程执行只是换 provider，而不是重写工具。
-
-趁工具面还小时做；注册表长大后再改造是昂贵路径。
+- `FilesystemCapability` 与 `ProcessCapability` trait 及 `LocalFilesystem` /
+  `LocalProcess` 默认实现位于 `crates/tools/src/capability.rs`；
+  `ToolExecutionContext::local()` 完成接线，运行时调用点已切换。
+- 文件工具（`read_file`、`write_file`、`edit_file`）与 `shell` 已消费该
+  接缝；`crates/tools/src/tests/capability_tests.rs` 中的能力测试用内存
+  文件系统与脚本化进程运行器证明这些工具可完全脱离真实 OS。
+- 其余消费者（search、git、patch、web、process lanes、LSP 运行时 spawn）
+  仍直接调用 `std::fs`/`std::process`，将增量迁移。迁移完成后，沙箱或
+  远程执行只是换一个 provider。
 
 ## 3. 工具执行 Pre/Post 接缝（已接受，已排期）
 

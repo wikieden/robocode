@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::PathBuf;
 
 use viden_types::{ToolInput, ToolSpec};
@@ -29,13 +28,13 @@ impl BuiltinTool for ReadFileTool {
             .get("max_bytes")
             .and_then(|raw| raw.parse::<usize>().ok())
             .unwrap_or(16 * 1024);
-        if path.is_dir() {
+        if ctx.fs.is_dir(&path) {
             return Err(format!(
                 "`read_file` expected a file but `{}` is a directory; use `glob` or `grep` to inspect files inside it",
                 path.display()
             ));
         }
-        let bytes = fs::read(&path).map_err(|err| err.to_string())?;
+        let bytes = ctx.fs.read(&path)?;
         let slice = &bytes[..bytes.len().min(max_bytes)];
         Ok(ToolExecutionOutput {
             output: String::from_utf8_lossy(slice).to_string(),
@@ -65,17 +64,17 @@ impl BuiltinTool for WriteFileTool {
         let content = input
             .get("content")
             .ok_or_else(|| "write_file requires `content`".to_string())?;
-        if path.is_dir() {
+        if ctx.fs.is_dir(&path) {
             return Err(format!(
                 "`write_file` expected a file path but `{}` is an existing directory",
                 path.display()
             ));
         }
-        let before = fs::read_to_string(&path).unwrap_or_default();
+        let before = ctx.fs.read_to_string(&path).unwrap_or_default();
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+            ctx.fs.create_dir_all(parent)?;
         }
-        fs::write(&path, content).map_err(|err| err.to_string())?;
+        ctx.fs.write(&path, content)?;
         Ok(ToolExecutionOutput {
             output: render_file_effect("write_file", &path, content, "wrote"),
             diff: Some(render_diff(&before, content)),
@@ -107,18 +106,18 @@ impl BuiltinTool for EditFileTool {
         let new = input
             .get("new")
             .ok_or_else(|| "edit_file requires `new`".to_string())?;
-        if path.is_dir() {
+        if ctx.fs.is_dir(&path) {
             return Err(format!(
                 "`edit_file` expected a file but `{}` is a directory; choose a file inside it",
                 path.display()
             ));
         }
-        let before = fs::read_to_string(&path).map_err(|err| err.to_string())?;
+        let before = ctx.fs.read_to_string(&path)?;
         if !before.contains(old) {
             return Err("edit_file could not find the target text".to_string());
         }
         let after = before.replacen(old, new, 1);
-        fs::write(&path, &after).map_err(|err| err.to_string())?;
+        ctx.fs.write(&path, &after)?;
         Ok(ToolExecutionOutput {
             output: render_file_effect("edit_file", &path, &after, "edited"),
             diff: Some(render_diff(&before, &after)),

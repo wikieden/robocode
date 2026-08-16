@@ -26,10 +26,7 @@ fn shell_adapter_pipes_long_commands_through_stdin() {
         name: "shell".to_string(),
         input,
     };
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
 
     assert!(shell_requires_stdin(call.input.get("command").unwrap()));
     let result = ToolRegistry::builtin().execute(&call, &ctx).unwrap();

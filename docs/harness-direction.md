@@ -27,25 +27,27 @@ from the append-only JSONL transcript alone.
   projection (log or deterministically re-derive it) is a Core contract
   candidate, tracked as a follow-up below.
 
-## 2. OS-Level Capability Seam In viden-tools (Accepted, planned)
+## 2. OS-Level Capability Seam In viden-tools (Implemented: first slice)
 
 DeepSeek Harness swaps one filesystem/subprocess provider and Bash, PTY, and
 LSP move to a remote sandbox together, with no tool changes. Viden's
 `ToolExecutionContext` currently exposes `cwd` plus a semantic (LSP) provider,
 and tools call `std::fs` and process spawn directly.
 
-Planned shape:
+Status:
 
-- define filesystem and process capability traits next to
-  `SemanticToolProvider` in `crates/tools`;
-- default implementations preserve current local behavior exactly;
-- migrate tools to consume the seam incrementally, starting with file and
-  shell tools;
-- sandboxed or remote execution later becomes a provider swap, not a tool
-  rewrite.
-
-Do this while the tool surface is small; retrofitting after the registry grows
-is the expensive path.
+- `FilesystemCapability` and `ProcessCapability` traits with `LocalFilesystem`
+  / `LocalProcess` defaults live in `crates/tools/src/capability.rs`;
+  `ToolExecutionContext::local()` wires them in and the runtime call site uses
+  it.
+- File tools (`read_file`, `write_file`, `edit_file`) and `shell` consume the
+  seam; capability tests in `crates/tools/src/tests/capability_tests.rs` prove
+  an in-memory filesystem and a scripted process runner fully detach those
+  tools from the OS.
+- Remaining consumers (search, git, patch, web, process lanes, LSP runtime
+  spawning) still call `std::fs`/`std::process` directly and migrate
+  incrementally. Sandboxed or remote execution becomes a provider swap once
+  migration completes.
 
 ## 3. Tool Execution Pre/Post Seam (Accepted, planned)
 
