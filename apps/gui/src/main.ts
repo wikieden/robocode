@@ -1,7 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
-
+import type { CoreClient } from "./host/core_client";
+import { createTauriCoreClient } from "./host/tauri_core_client";
 import { translate } from "./i18n/catalog";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
 import type { D6RecoveryProjection } from "./models/workspace";
@@ -156,71 +154,37 @@ export function bootstrapShell(
   );
 }
 
-export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
+export async function hydrateShellFromCore(
+  root: HTMLElement,
+  core: CoreClient = createTauriCoreClient(),
+): Promise<void> {
   let resolvedPreferences: ResolvedPreferences | undefined;
   try {
-    const preferences = await invoke<ResolvedPreferences | null>("resolved_preferences");
+    const preferences = await core.resolvedPreferences();
     resolvedPreferences = preferences ?? undefined;
     if (preferences) {
       bootstrapShell(root, preferences);
     }
     const locale = preferences?.locale ?? "en";
       const sendD4 = async (intent: D4Intent) =>
-        await invoke<D4IntentResult>("d4_send_intent", {
-          commandId: `gui-d4-${crypto.randomUUID()}`,
-          intent,
-        });
-      const pollD4 = async () => await invoke<D4IntentResult>("d4_poll");
+        await core.d4SendIntent(`gui-d4-${crypto.randomUUID()}`, intent);
+      const pollD4 = async () => await core.d4Poll();
       const pollD1 = async (laneId?: string, waitForEvent = false) =>
-        await invoke<D1IntentResult>("d1_poll", {
-          selectedLaneId: laneId ?? null,
-          waitForEvent,
-        });
-      const sendD1 = async (intent: D1Intent) => {
-        return await invoke<D1IntentResult>("d1_send_intent", {
-          commandId: `gui-d1-${crypto.randomUUID()}`,
-          intent,
-        });
-      };
+        await core.d1Poll(laneId ?? null, waitForEvent);
+      const sendD1 = async (intent: D1Intent) =>
+        await core.d1SendIntent(`gui-d1-${crypto.randomUUID()}`, intent);
       const sendPermission = async (intent: PermissionIntent) =>
-        await invoke<PermissionIntentResult>("permission_send_intent", {
-          commandId: `gui-permission-${crypto.randomUUID()}`,
-          intent,
-        });
-      const recoverD6 = async () =>
-        await invoke<D6RecoveryProjection>("d6_recover");
+        await core.permissionSendIntent(`gui-permission-${crypto.randomUUID()}`, intent);
+      const recoverD6 = async () => await core.d6Recover();
       let activeD1: D1Controller | null = null;
-      // The desktop host drains ordered Core events off the UI thread and
-      // emits this wake, so the cockpit reads on a push instead of holding a
-      // drain timer. The unlisten is awaited lazily; dispose only needs the
-      // handler to stop firing.
-      // Only the desktop host publishes the wake. In a browser harness the
-      // event bridge is absent, so the cockpit keeps its bounded long poll
-      // instead of throwing on a subscription that cannot exist.
-      const nativeShell = "__TAURI_INTERNALS__" in window;
-      const onCoreWake = !nativeShell
-        ? undefined
-        : (handler: () => void): (() => void) => {
-            const pending = listen("viden://core-advanced", () => handler());
-            let stopped = false;
-            void pending.then((unlisten) => {
-              if (stopped) unlisten();
-            });
-            return () => {
-              stopped = true;
-              void pending.then((unlisten) => unlisten());
-            };
-          };
+      const onCoreWake = core.onCoreWake;
 
       // Content Core persisted lives in the workspace, which the webview
       // cannot open. The host reads it and returns an inline data URL.
-      const resolveContent = async (reference: string) =>
-        await invoke<string>("agent_content", { reference });
+      const resolveContent = async (reference: string) => await core.agentContent(reference);
 
       const showD1 = async (laneId?: string) => {
-        const projection = await invoke<D1CockpitProjection | null>("d1_cockpit", {
-          selectedLaneId: laneId ?? null,
-        });
+        const projection = await core.d1Cockpit(laneId ?? null);
         if (!projection || (laneId && projection.selectedLaneId !== laneId)) {
           throw new Error(
             laneId
@@ -232,7 +196,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
         root.dataset.route = "d1";
         root.dataset.clientState = "connected";
         document.documentElement.lang = projection.preferences.locale;
-        const currentPreferences = await invoke<ResolvedPreferences | null>("resolved_preferences");
+        const currentPreferences = await core.resolvedPreferences();
         if (currentPreferences) {
           applyResolvedTheme(document.documentElement, resolveTheme(currentPreferences));
         }
@@ -288,9 +252,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const showD2 = async () => {
         activeD1?.dispose();
         activeD1 = null;
-        const projection = await invoke<D2DecisionsProjection | null>("d2_decisions", {
-          selectedId: null,
-        });
+        const projection = await core.d2Decisions(null);
         if (!projection) {
           throw new Error("Core did not provide the D2 decision projection");
         }
@@ -299,10 +261,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
           root,
           projection,
           async (intent: D2Intent) =>
-            await invoke<D2IntentResult>("d2_send_intent", {
-              commandId: `gui-d2-${crypto.randomUUID()}`,
-              intent,
-            }),
+            await core.d2SendIntent(`gui-d2-${crypto.randomUUID()}`, intent),
           locale,
         );
       };
@@ -312,7 +271,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const showD10 = async () => {
         activeD1?.dispose();
         activeD1 = null;
-        const projection = await invoke<D10LaneMonitorProjection | null>("d10_lane_monitor");
+        const projection = await core.d10LaneMonitor();
         if (!projection) {
           throw new Error("Core did not provide the D10 lane monitor projection");
         }
@@ -325,10 +284,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const showD12 = async (gateId?: string) => {
         activeD1?.dispose();
         activeD1 = null;
-        const projection = await invoke<D12IntegrationGateProjection | null>(
-          "d12_integration_gate",
-          { selectedGateId: gateId ?? null },
-        );
+        const projection = await core.d12IntegrationGate(gateId ?? null);
         if (!projection) {
           throw new Error("Core did not provide the D12 integration gate projection");
         }
@@ -341,11 +297,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const showD14 = async () => {
         activeD1?.dispose();
         activeD1 = null;
-        const page = async (after: string | null) =>
-          await invoke<D14AuditTimelineProjection>("d14_audit_timeline", {
-            after,
-            limit: 200,
-          });
+        const page = async (after: string | null) => await core.d14AuditTimeline(after, 200);
         const projection = await page(null);
         root.dataset.route = "d14";
         renderD14AuditTimeline(root, projection, locale, (after) => page(after));
@@ -356,7 +308,7 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       const showD13 = async () => {
         activeD1?.dispose();
         activeD1 = null;
-        const projection = await invoke<D13FleetWorkflowProjection | null>("d13_fleet_workflow");
+        const projection = await core.d13FleetWorkflow();
         if (!projection) {
           throw new Error("Core did not provide the D13 fleet projection");
         }
@@ -365,19 +317,15 @@ export async function hydrateShellFromCore(root: HTMLElement): Promise<void> {
       };
 
       const openProject = async () => {
-        const selected = await open({
-          directory: true,
-          multiple: false,
-          title: translate(locale, "d1.welcome.openFolderTitle", {}),
-        });
-        if (typeof selected !== "string") return;
-        await invoke<void>("open_workspace", { root: selected });
+        const selected = await core.pickProjectFolder(
+          translate(locale, "d1.welcome.openFolderTitle", {}),
+        );
+        if (selected === null) return;
+        await core.openWorkspace(selected);
         await showD1();
       };
 
-      const initialProjection = await invoke<D1CockpitProjection | null>("d1_cockpit", {
-        selectedLaneId: null,
-      });
+      const initialProjection = await core.d1Cockpit(null);
       if (initialProjection) {
         // D4 remains an explicit compatibility surface; normal project entry
         // and the D1 `+` action use the compact native/ACP menu.

@@ -116,6 +116,14 @@ GUI must not import `viden_core::legacy`, `viden-runtime`, `viden-provider`,
 `RuntimeCommand`; visible success waits for `CommandAccepted` and the
 subsequent ordered state events.
 
+On the frontend side the same discipline has a single host seam:
+`src/host/core_client.ts` defines the transport-neutral `GuiCoreClient`
+interface (distinct from the Rust `CoreClient` above), and
+`src/host/tauri_core_client.ts` is the only frontend module allowed to import
+`@tauri-apps/*`. Screens and the shell consume the injected interface only, so
+replacing the desktop host means supplying another `GuiCoreClient`
+implementation, not editing screens.
+
 ## Inventory against Core `0.3.5`
 
 | GUI area | Design intent | Core `0.3.5` status | GUI handling |
