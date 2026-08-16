@@ -20,7 +20,7 @@
 
 > Core 先交付可版本化的 contract freeze checkpoint。TUI 和 GUI 从这个 checkpoint 分支，并且只能通过同一套 command、event、snapshot 和 replay contract 工作。
 
-本计划取代旧的“直接进入 Tauri GUI 并行开发”假设。GUI 分支名保持框架中立；Tauri 与 GPUI 必须先通过同契约、同场景、同指标的垂直切片门禁，再选择正式实现框架。
+本计划取代了旧的“直接进入 Tauri GUI 并行开发”假设：Tauri 与 GPUI 先在同契约、同场景、同指标下完成垂直切片门禁，再选择正式实现框架。`0.1.0-alpha.1` 门禁已选择 **Tauri** 作为唯一正式框架，详见 [GUI 框架选型决策](gui-framework-decision.zh-CN.md)。
 
 ## 设计源与命名边界
 

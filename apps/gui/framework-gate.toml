@@ -1,3 +1,7 @@
+# Immutable record of the 0.1.0-alpha.1 framework gate. Paths under
+# apps/gui/spikes/ refer to the historical alpha tree (commit d9d5b26b), which
+# the production Tauri client has since replaced; see
+# docs/gui-framework-decision.md for the recovery note.
 schema_version = 1
 status = "framework-selected"
 selected_framework = "tauri"

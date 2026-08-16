@@ -6,7 +6,20 @@ Decision date: 2026-07-20
 
 Component: `viden-gui 0.1.0-alpha.1`
 
-Status: selected for the production baseline; production bootstrap remains Task 5
+Status: selected for the production baseline; the production Tauri client has
+since been bootstrapped (see [`apps/gui/README.md`](../apps/gui/README.md))
+
+## Record Recovery Note (2026-08-16)
+
+This record was written on the `gui-v0.1` alpha line on 2026-07-20 but did not
+reach mainline with the rest of that work; it was recovered from the original
+commit `d9d5b26b` on 2026-08-16. The alpha spike harness (`apps/gui/spikes/**`)
+that the Reproduce commands below exercise has since been superseded by the
+production Tauri client under `apps/gui/`, so rerunning the full gate requires
+checking out the historical alpha tree at that commit. The machine-readable
+evidence records, the comparator tooling under `apps/gui/tools/`, and the
+`apps/gui/framework-gate.toml` selection record are preserved as the immutable
+gate evidence.
 
 ## Decision
 

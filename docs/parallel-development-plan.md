@@ -18,7 +18,7 @@ The governing rule is:
 
 > Core delivers a versioned contract-freeze checkpoint first. TUI and GUI branch from that checkpoint and operate only through the same command, event, snapshot, and replay contracts.
 
-This plan replaces the previous assumption that the GUI should immediately proceed as a Tauri implementation. The GUI branch remains framework-neutral. Tauri and GPUI must implement the same vertical slice against the same contracts and pass the same evidence gate before the production framework is selected.
+This plan replaced the previous assumption that the GUI should immediately proceed as a Tauri implementation: Tauri and GPUI implemented the same vertical slice against the same contracts and passed the same evidence gate before the production framework was selected. The `0.1.0-alpha.1` gate has since selected **Tauri** as the single production framework; see the [GUI Framework Decision](gui-framework-decision.md).
 
 ## Design Sources And Naming Boundary
 

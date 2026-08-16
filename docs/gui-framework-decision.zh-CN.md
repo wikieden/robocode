@@ -6,7 +6,17 @@ English version: [gui-framework-decision.md](gui-framework-decision.md)
 
 组件：`viden-gui 0.1.0-alpha.1`
 
-状态：已选定 production baseline；正式壳仍属于 Task 5
+状态：已选定 production baseline；正式 Tauri 客户端此后已完成 bootstrap
+（见 [`apps/gui/README.zh-CN.md`](../apps/gui/README.zh-CN.md)）
+
+## 记录恢复说明（2026-08-16）
+
+本记录于 2026-07-20 写在 `gui-v0.1` alpha 线上，但没有随其余工作合入 mainline；
+2026-08-16 从原始 commit `d9d5b26b` 恢复。下文 Reproduce 命令依赖的 alpha spike
+harness（`apps/gui/spikes/**`）此后已被 `apps/gui/` 下的正式 Tauri 客户端取代，
+完整重跑门禁需要 checkout 该 commit 的历史 alpha 树。机读证据记录、
+`apps/gui/tools/` 下的 comparator 工具与 `apps/gui/framework-gate.toml`
+选型记录作为不可变门禁证据保留。
 
 ## 决策
 
