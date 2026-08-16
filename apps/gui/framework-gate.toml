@@ -1,8 +1,12 @@
 # Immutable record of the 0.1.0-alpha.1 framework gate. Paths under
-# apps/gui/spikes/ refer to the historical alpha tree (commit d9d5b26b), which
-# the production Tauri client has since replaced; see
-# docs/gui-framework-decision.md for the recovery note.
+# apps/gui/spikes/ refer to the historical alpha tree (commit d9d5b26b, branch
+# archive/gui-framework-gate-alpha), which the production Tauri client has
+# since replaced; see docs/gui-framework-decision.md for the recovery note.
+# All task/status flags record alpha-time state: the Task 5 production
+# bootstrap has since completed, and the live production selection is owned by
+# apps/gui/release-manifest.toml.
 schema_version = 1
+superseded_by = "apps/gui/release-manifest.toml"
 status = "framework-selected"
 selected_framework = "tauri"
 core_fixture = "crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"

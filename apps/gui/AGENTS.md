@@ -24,23 +24,18 @@ starting with `gui-v0.1.0` for the local cockpit vertical slice.
   library. D11, D4, D2, and D6 pages refine flows after the cockpit is
   understood.
 
-## Framework Gate
+## Framework Gate (Completed)
 
-Keep the branch and product contract framework-neutral until Tauri and GPUI
-run the same Core fixture and the same vertical slice:
-
-- theme and density;
-- composer and CJK IME;
-- streaming and tool rows;
-- approval, queue, and cancel;
-- history scroll and bounded transcript virtualization.
-
-Use the quantitative and platform criteria in
-`docs/parallel-development-plan.md`. A failure in IME, accessibility,
-three-platform packaging, bounded transcript behavior, or maintainable
-framework integration is a GPUI no-go and selects the Tauri baseline. Record
-the decision and update paired GUI documents before creating substantial
-framework-specific surface area.
+The `0.1.0-alpha.1` evidence gate ran Tauri and GPUI against the same Core
+fixture and D1 vertical slice and selected **Tauri** as the single production
+framework; GPUI remains a comparison spike. The full record, evidence, and
+reproduction path are in `docs/gui-framework-decision.md` and
+`apps/gui/evidence/framework-gate/`. The product contract stays
+framework-neutral: Core commands/events/snapshot/replay remain the only
+runtime boundary, and the gate's unverified Tauri results (p95 timing, native
+IME/accessibility, Linux/Windows, soak, signing/updater/credential, crash
+recovery) remain release blockers tracked by later release gates. Do not start
+a second production framework without a new recorded gate decision.
 
 ## Ownership And Client Boundary
 

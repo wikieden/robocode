@@ -44,8 +44,9 @@ Workspace code is split by product surface and reusable core:
 
 - `apps/cli`: binary entrypoint, flags, and bootstrap.
 - `apps/tui`: terminal rendering, input orchestration, previews, and app-specific TUI state.
-- `apps/gui`: planned desktop client boundary; currently governed by its nested
-  `AGENTS.md` and must remain framework-neutral until the GUI gate passes.
+- `apps/gui`: Tauri desktop client, governed by its nested `AGENTS.md`. The
+  `0.1.0-alpha.1` framework gate selected Tauri; see
+  `docs/gui-framework-decision.md`.
 - `crates/core`: stable runtime facade and shared contract re-exports.
 - `crates/context`: native context selection, immutable content references,
   retrieval, compaction, quality, and cost accounting.

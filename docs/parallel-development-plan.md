@@ -18,7 +18,7 @@ The governing rule is:
 
 > Core delivers a versioned contract-freeze checkpoint first. TUI and GUI branch from that checkpoint and operate only through the same command, event, snapshot, and replay contracts.
 
-This plan replaced the previous assumption that the GUI should immediately proceed as a Tauri implementation: Tauri and GPUI implemented the same vertical slice against the same contracts and passed the same evidence gate before the production framework was selected. The `0.1.0-alpha.1` gate has since selected **Tauri** as the single production framework; see the [GUI Framework Decision](gui-framework-decision.md).
+This plan replaced the previous assumption that the GUI should immediately proceed as a Tauri implementation: Tauri and GPUI implemented the same vertical slice against the same contracts and were judged by the same evidence gate before the production framework was selected. The `0.1.0-alpha.1` gate has since selected **Tauri** as the single production framework; see the [GUI Framework Decision](gui-framework-decision.md).
 
 ## Design Sources And Naming Boundary
 
@@ -236,7 +236,7 @@ The GUI is a desktop client of the same runtime. It may not directly depend on p
 
 ## GUI Framework Selection Gate
 
-`codex/v3-gui-client` did not bind Tauri or GPUI in its branch name. G0 implemented the same D1 vertical slice against the same Core fixture: theme, composer, streaming, tool row, approval, queue, cancel, and history scroll.
+`codex/v3-gui-client` did not bind Tauri or GPUI in its branch name. G0 implemented the same D1 vertical slice against the same Core fixture: theme, composer, streaming, tool row, approval, queue, cancel, and history scroll. The originally scoped D11 intake slice was not part of the executed gate and remains later GUI work.
 
 The `0.1.0-alpha.1` gate selected **Tauri** as the single production framework.
 The full result and reproduction commands are recorded in the

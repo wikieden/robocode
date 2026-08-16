@@ -16,7 +16,8 @@ reach mainline with the rest of that work; it was recovered from the original
 commit `d9d5b26b` on 2026-08-16. The alpha spike harness (`apps/gui/spikes/**`)
 that the Reproduce commands below exercise has since been superseded by the
 production Tauri client under `apps/gui/`, so rerunning the full gate requires
-checking out the historical alpha tree at that commit. The machine-readable
+checking out the historical alpha tree at that commit, which is preserved on
+the branch `archive/gui-framework-gate-alpha`. The machine-readable
 evidence records, the comparator tooling under `apps/gui/tools/`, and the
 `apps/gui/framework-gate.toml` selection record are preserved as the immutable
 gate evidence.
@@ -67,7 +68,11 @@ and the active selection is recorded in
 
 ## Reproduce
 
-Run from the repository root:
+Historical: these commands exercised the alpha spike harness
+(`apps/gui/spikes/**`), which no longer exists on mainline. Run them from a
+checkout of commit `d9d5b26b` (branch `archive/gui-framework-gate-alpha`); on
+the current tree `run-framework-gate.sh` aborts, and only the comparator step
+can be rerun against the committed evidence. From the repository root:
 
 ```bash
 apps/gui/tools/run-framework-gate.sh tauri crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json

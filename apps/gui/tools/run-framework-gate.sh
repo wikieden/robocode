@@ -25,6 +25,17 @@ if [[ ! -f "$fixture_path" ]]; then
   exit 2
 fi
 
+# Recovery-era guard (2026-08-16): this runner drives the alpha spike harness,
+# which the production Tauri client has since replaced. Without this check a
+# run on the current tree would record every command as failed and overwrite
+# the committed gate evidence. Rerun from branch archive/gui-framework-gate-alpha.
+if [[ ! -f "$repo_root/apps/gui/spikes/Cargo.toml" ]]; then
+  printf 'alpha spike harness not present at %s; this gate is historical.\n' \
+    "$repo_root/apps/gui/spikes" >&2
+  printf 'checkout commit d9d5b26b (branch archive/gui-framework-gate-alpha) to reproduce.\n' >&2
+  exit 2
+fi
+
 evidence_dir="$repo_root/apps/gui/evidence/framework-gate"
 mkdir -p "$evidence_dir"
 gate_tmp_dir="$(mktemp -d)"

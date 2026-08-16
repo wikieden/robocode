@@ -14,7 +14,8 @@ English version: [gui-framework-decision.md](gui-framework-decision.md)
 本记录于 2026-07-20 写在 `gui-v0.1` alpha 线上，但没有随其余工作合入 mainline；
 2026-08-16 从原始 commit `d9d5b26b` 恢复。下文 Reproduce 命令依赖的 alpha spike
 harness（`apps/gui/spikes/**`）此后已被 `apps/gui/` 下的正式 Tauri 客户端取代，
-完整重跑门禁需要 checkout 该 commit 的历史 alpha 树。机读证据记录、
+完整重跑门禁需要 checkout 该 commit 的历史 alpha 树（保留在
+`archive/gui-framework-gate-alpha` 分支上）。机读证据记录、
 `apps/gui/tools/` 下的 comparator 工具与 `apps/gui/framework-gate.toml`
 选型记录作为不可变门禁证据保留。
 
@@ -58,6 +59,10 @@ comparator 共发现 16 个 GPUI blocker，因此选择 Tauri。
 
 ## 复现
 
+历史命令：以下命令针对 alpha spike harness（`apps/gui/spikes/**`），该 harness
+已不在 mainline 上。请在 checkout commit `d9d5b26b`
+（`archive/gui-framework-gate-alpha` 分支）后运行；在当前树上
+`run-framework-gate.sh` 会直接中止，只有 comparator 一步可以针对已提交证据重跑。
 在仓库根目录运行：
 
 ```bash

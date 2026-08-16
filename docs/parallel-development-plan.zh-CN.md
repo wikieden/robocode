@@ -205,10 +205,10 @@ GUI 是同一 runtime 的桌面客户端。它不能直接依赖 provider、tool
 
 ## GUI 框架选型门禁
 
-`codex/v3-gui-client` 没有在分支名绑定 Tauri 或 GPUI。G0 已在同一 Core fixture 上实现同一组 D1 垂直切片：theme、composer、streaming、tool row、approval、queue、cancel 和 history scroll。
+`codex/v3-gui-client` 没有在分支名绑定 Tauri 或 GPUI。G0 已在同一 Core fixture 上实现同一组 D1 垂直切片：theme、composer、streaming、tool row、approval、queue、cancel 和 history scroll。原定的 D11 intake 切片没有进入本次门禁执行范围，仍属于后续 GUI 工作。
 
 `0.1.0-alpha.1` 门禁已选择 **Tauri** 作为唯一正式框架。完整结果与复现命令见
-[GUI 框架选型决策](gui-framework-decision.zh-CN.md)。GPUI 只有同时通过以下门禁才可以成为正式框架：
+[GUI 框架选型决策](gui-framework-decision.zh-CN.md)。GPUI 当时只有同时通过以下门禁才有资格成为正式框架：
 
 - composer input p95 小于 50 ms；
 - event-to-visible p95 小于 100 ms；
