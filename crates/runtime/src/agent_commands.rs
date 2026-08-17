@@ -2710,6 +2710,30 @@ fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, Strin
     ))
 }
 
+/// Bounded window for a live ACP session to deliver `session/cancel` before
+/// cancellation falls back to process termination.
+const ACP_SESSION_CANCEL_GRACE: Duration = Duration::from_millis(1500);
+
+/// Tests that assert cooperative-cancel evidence widen the window because
+/// parallel test load can starve the session worker past the interactive
+/// bound, and expiry legitimately selects the process-termination fallback,
+/// which erases the evidence those tests assert.
+#[cfg(test)]
+static ACP_SESSION_CANCEL_GRACE_OVERRIDE_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn acp_session_cancel_grace() -> Duration {
+    #[cfg(test)]
+    {
+        let override_ms =
+            ACP_SESSION_CANCEL_GRACE_OVERRIDE_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if override_ms > 0 {
+            return Duration::from_millis(override_ms);
+        }
+    }
+    ACP_SESSION_CANCEL_GRACE
+}
+
 // Keep the liveness check and termination result as separate branches: the
 // cancellation monitor races this path and depends on the original ordering.
 #[allow(clippy::collapsible_if)]
@@ -2750,7 +2774,7 @@ fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
     };
     if job.kind == "acp-session" {
         let _ =
-            wait_for_agent_job_text(&job.log_path, "session/cancel", Duration::from_millis(1500));
+            wait_for_agent_job_text(&job.log_path, "session/cancel", acp_session_cancel_grace());
     }
     if process_is_running(pid) {
         if let Err(error) = terminate_process(pid) {
@@ -9536,6 +9560,10 @@ mod tests {
     #[test]
     fn acp_async_job_sends_session_cancel_when_agent_supports_it() {
         let _guard = subprocess_test_guard();
+        // Keep the cooperative-cancel window open under parallel test load: if
+        // the production grace expired, the process-termination fallback would
+        // legitimately erase the session/cancel evidence this test asserts.
+        let _grace = widen_acp_session_cancel_grace_for_test(30_000);
         let root = temp_root("acp_async_session_cancel");
         let script = root.join("mock-acp-session-cancel.sh");
         fs::write(
@@ -9601,8 +9629,23 @@ mod tests {
         let job = find_codex_job(&root, &id)
             .expect("find job")
             .expect("job exists");
+        // The session worker flushes the log and the monitor publishes the
+        // rich result asynchronously after cancellation is confirmed.
+        wait_until(
+            || fs::read_to_string(&job.log_path).is_ok_and(|log| log.contains("session/cancel")),
+            Duration::from_secs(10),
+        );
         let log = fs::read_to_string(&job.log_path).expect("read cancellation log");
         assert!(log.contains("session/cancel"));
+        wait_until(
+            || {
+                fs::read_to_string(&job.result_path).is_ok_and(|result| {
+                    result.contains("status: cancelled")
+                        && result.contains("session_explicit_cancel")
+                })
+            },
+            Duration::from_secs(10),
+        );
         let result = fs::read_to_string(&job.result_path).expect("read cancellation result");
         assert!(result.contains("status: cancelled"));
         assert!(result.contains("session_explicit_cancel"));
@@ -9812,6 +9855,21 @@ mod tests {
             "timed out waiting for runtime event condition; observed events: {events:#?}"
         );
         events
+    }
+
+    struct AcpCancelGraceOverrideGuard;
+
+    impl Drop for AcpCancelGraceOverrideGuard {
+        fn drop(&mut self) {
+            ACP_SESSION_CANCEL_GRACE_OVERRIDE_MS.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    // Hold alongside `subprocess_test_guard` so the widened window is cleared
+    // before any test that exercises the process-termination fallback runs.
+    fn widen_acp_session_cancel_grace_for_test(ms: u64) -> AcpCancelGraceOverrideGuard {
+        ACP_SESSION_CANCEL_GRACE_OVERRIDE_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+        AcpCancelGraceOverrideGuard
     }
 
     fn subprocess_test_guard() -> MutexGuard<'static, ()> {

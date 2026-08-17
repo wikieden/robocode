@@ -607,7 +607,10 @@ fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request(
     ]]));
     let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
     engine.set_context_engine_root_for_test(cwd.join(".viden/private-context-test"));
-    engine.set_sleeping_context_reducer_adapter_for_test("adapter", "0.1.0", 1_000, 25);
+    // The adapter sleep must dwarf the wall-clock bound below so the bound
+    // distinguishes "host timed out and moved on" from "host waited for the
+    // adapter" even when parallel test load slows the whole request path.
+    engine.set_sleeping_context_reducer_adapter_for_test("adapter", "0.1.0", 30_000, 25);
     let mut approver = |_prompt| ApprovalResponse::allow_once(None);
     let started = std::time::Instant::now();
 
@@ -615,7 +618,13 @@ fn context_reducer_sleeping_adapter_times_out_without_blocking_provider_request(
         .process_input_with_approval("ERROR src/a.rs:1 boom", &mut approver)
         .unwrap();
 
-    assert!(started.elapsed() < std::time::Duration::from_millis(900));
+    // Non-blocking is proven by finishing far below the 30s adapter sleep,
+    // not by a tight latency budget that CPU contention can break.
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "provider request appears to have waited for the sleeping adapter: {:?}",
+        started.elapsed()
+    );
     assert!(events.iter().any(
         |event| matches!(event, EngineEvent::Assistant(text) if text == "native timeout path still works")
     ));

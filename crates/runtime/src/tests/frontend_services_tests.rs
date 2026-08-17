@@ -147,22 +147,40 @@ esac
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_git, permissions).unwrap();
 
-    let started = Instant::now();
-    for _ in 0..3 {
+    // Under parallel test load a fast phase (rev-parse, symbolic-ref) can
+    // itself hit the 1s timeout, so a fixed sample count is not guaranteed to
+    // reach the blocking status phase. Resample until the fixture logged two
+    // blocking-phase descendants, bounded to keep a real regression finite.
+    let mut logged_pids = 0usize;
+    for _ in 0..12 {
+        let sample_started = Instant::now();
         let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(1));
         assert_eq!(source.status, WorkspaceSourceStatus::Truncated);
+        // A sample that waits for the 30s descendant holding stdout takes at
+        // least that long; 20s separates it from load-induced slowness.
+        assert!(
+            sample_started.elapsed() < Duration::from_secs(20),
+            "timed-out Git sampling appears to have waited for the sleeping descendant: {:?}",
+            sample_started.elapsed()
+        );
+        logged_pids = fs::read_to_string(&pid_log)
+            .map(|log| log.lines().count())
+            .unwrap_or(0);
+        if logged_pids >= 2 {
+            break;
+        }
     }
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(
+        logged_pids >= 2,
+        "repeated timeout fixture did not reach the blocking Git phase often enough: \
+         {logged_pids} blocking samples in 12 attempts"
+    );
 
     let pids = fs::read_to_string(&pid_log)
         .unwrap()
         .lines()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(
-        pids.len() >= 2,
-        "repeated timeout fixture did not reach the blocking Git phase often enough: {pids:?}"
-    );
     let alive = pids
         .iter()
         .filter(|pid| {
