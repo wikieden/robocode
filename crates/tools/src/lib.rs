@@ -103,9 +103,46 @@ pub fn context_read_tool_spec() -> ToolSpec {
     }
 }
 
+/// Outcome of a [`ToolExecutionInterceptor::before_execute`] check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterceptVerdict {
+    /// Continue toward the tool (or the next interceptor).
+    Proceed,
+    /// Stop the call before the tool runs; `message` becomes the execution
+    /// error the caller observes.
+    Reject { message: String },
+}
+
+/// Cross-cutting policy seam around [`ToolRegistry::execute`].
+///
+/// Invariant carried by this seam: policies that must hold for every tool
+/// execution — permission-before-mutation above all, plus cost metering and
+/// evidence capture — attach here so they are structural properties of the
+/// registry rather than call-site discipline. A call site that reaches
+/// `execute` cannot bypass a registered interceptor.
+pub trait ToolExecutionInterceptor: Send + Sync {
+    /// Runs before the tool. The first `Reject` short-circuits the call: the
+    /// tool does not run and later interceptors are not consulted.
+    fn before_execute(
+        &self,
+        spec: &ToolSpec,
+        call: &ToolCall,
+        ctx: &ToolExecutionContext,
+    ) -> InterceptVerdict;
+
+    /// Runs after the tool completes, in reverse registration order.
+    fn after_execute(&self, call: &ToolCall, result: &ToolResult) {
+        let _ = (call, result);
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn BuiltinTool>>,
+    /// Consulted in registration order before every execution; empty by
+    /// default so a registry without interceptors behaves exactly as before
+    /// the seam existed.
+    interceptors: Vec<Arc<dyn ToolExecutionInterceptor>>,
 }
 
 impl ToolRegistry {
@@ -147,6 +184,10 @@ impl ToolRegistry {
         self.tools.insert(tool.spec().name.clone(), Arc::new(tool));
     }
 
+    pub fn register_interceptor(&mut self, interceptor: Arc<dyn ToolExecutionInterceptor>) {
+        self.interceptors.push(interceptor);
+    }
+
     pub fn specs(&self) -> Vec<ToolSpec> {
         self.tools.values().map(|tool| tool.spec()).collect()
     }
@@ -164,15 +205,31 @@ impl ToolRegistry {
             .tools
             .get(&call.name)
             .ok_or_else(|| format!("Unknown tool: {}", call.name))?;
+        let spec = tool.spec();
+        // Pre-execute policy checks run in registration order; the first
+        // rejection stops the call before the tool has any effect.
+        for interceptor in &self.interceptors {
+            if let InterceptVerdict::Reject { message } =
+                interceptor.before_execute(&spec, call, ctx)
+            {
+                return Err(message);
+            }
+        }
         let output = tool.run(ctx, &call.input)?;
-        Ok(ToolResult {
+        let result = ToolResult {
             tool_call_id: call.id.clone(),
             name: call.name.clone(),
             output: output.output,
             diff: output.diff,
             success: output.success,
             exit_code: output.exit_code,
-        })
+        };
+        // Post-execute hooks unwind in reverse order, mirroring the nesting
+        // of the pre-execute checks.
+        for interceptor in self.interceptors.iter().rev() {
+            interceptor.after_execute(call, &result);
+        }
+        Ok(result)
     }
 }
 
