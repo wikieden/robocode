@@ -6,7 +6,11 @@
 /.worktrees
 /.ref
 /.omc
+.omc/
 /.omx
+/output/
+/.dispatch-log.jsonl
+/.agent-dispatch.json
 /.claude
 /.sixth
 /.superpowers
