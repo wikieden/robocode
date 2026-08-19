@@ -253,8 +253,46 @@ flowchart LR
   event is reduced normally; a gap triggers replay; a stream mismatch or replay
   boundary that requires a snapshot replaces state only after validation.
 - Unknown optional event payloads remain inspectable but do not create local
-  business state. Unknown mandatory fixture capabilities and malformed legacy
-  input are rejected.
+  business state. Unknown mandatory fixture capabilities are rejected. Malformed
+  live wire input is rejected; malformed or unknown *persisted* transcript lines
+  are quarantined per line instead, as described under Protocol Evolution Rules.
+
+## Protocol Evolution Rules
+
+These rules govern how the runtime protocol and the on-disk transcript may
+change without breaking an older or a newer build. They are enforced by
+`crates/types/tests/evolution_guardrails.rs`; changing one of these behaviors is
+a contract change, not a refactor.
+
+- **Additive fields stay optional.** A new field on an event, command, snapshot,
+  or transcript payload must be readable by builds that predate it and writable
+  by builds that postdate it: readers ignore unknown fields, and new optional
+  fields carry `#[serde(default)]`. Wire and transcript types must never use
+  `deny_unknown_fields`.
+- **Renames keep their legacy tag.** A renamed variant keeps every tag it was
+  ever serialized under as `#[serde(alias = "...")]`, while the new name stays
+  the one written out. `AgentTaskStatus` in `crates/types/src/lib.rs` is the
+  reference implementation.
+- **Unknown event types round-trip, never error.** An event type this build does
+  not know deserializes to `RuntimeWireEvent::Unknown { event_type, payload }`,
+  re-serializes with that payload intact for the next hop, and reduces to a
+  no-op. Rejecting it would drop an entire stream over one extension.
+- **Transcript replay quarantines, never fails the file.** An unknown entry
+  type, an unknown runtime event kind, or a malformed payload quarantines that
+  one line — reported as `QuarantinedLine { line_number, raw, reason }` by
+  `SessionStore::load_transcript` — and the rest of the session still loads. On
+  disk replay and the live wire agree about what "known" means, because both go
+  through `RuntimeWireEvent`. Quarantine is never silent: session hydrate
+  surfaces the count as a system fact, and recent work reports
+  `recent.quarantined_transcript_lines`. Nothing is lost, because transcripts
+  are append-only and a load never rewrites the file.
+- **Batch semantics are unchanged by quarantine.** A quarantined line inside a
+  transcript batch still invalidates that whole batch atomically; only
+  committed, complete batches are replayed.
+- **Wire-facing enums are `#[non_exhaustive]`.** `RuntimeEventKind` and
+  `TranscriptEntry` are marked `#[non_exhaustive]`, so adding a variant cannot
+  break a sibling crate: every out-of-crate match must already carry a wildcard
+  arm. This is the compile-time twin of the two runtime rules above.
 
 ## Command Ownership
 

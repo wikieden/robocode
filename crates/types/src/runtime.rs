@@ -547,6 +547,12 @@ impl RuntimeEvent {
 // would churn public construction semantics without changing wire format.
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+// Evolution discipline: adding an event must never be a breaking change for a
+// sibling crate. `non_exhaustive` forces every out-of-crate match to carry a
+// wildcard arm, which is the compile-time twin of the runtime rule that an
+// unknown event type deserializes to `RuntimeWireEvent::Unknown` and a
+// persisted unknown event is quarantined rather than fatal.
+#[non_exhaustive]
 pub enum RuntimeEventKind {
     AgentAdaptersLoaded {
         adapters: Vec<AgentAdapterView>,

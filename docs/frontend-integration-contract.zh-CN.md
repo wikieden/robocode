@@ -225,7 +225,37 @@ flowchart LR
 - duplicate/older cursor 不修改已确认状态；连续 next event 正常归约；gap 触发
   replay；stream mismatch 或 replay 要求 snapshot 时，只能在验证通过后替换状态。
 - 未知 optional event payload 可以保留供检查，但不能生成本地业务状态。未知 mandatory
-  fixture capability 和 malformed legacy input 必须拒绝。
+  fixture capability 必须拒绝。malformed 的实时 wire 输入必须拒绝；而 malformed 或
+  未知的**已持久化** transcript 行改为逐行隔离，详见“协议演进规则”。
+
+## 协议演进规则
+
+这些规则约束 runtime 协议与磁盘 transcript 如何演进，才不会破坏更旧或更新的构建。
+它们由 `crates/types/tests/evolution_guardrails.rs` 以可执行形式固定；改变其中任一
+行为都属于契约变更，而不是重构。
+
+- **新增字段必须是可选的。** event、command、snapshot 或 transcript payload 上的新
+  字段，必须既能被早于它的构建读取，也能被晚于它的构建写入：读取方忽略未知字段，新增
+  可选字段带 `#[serde(default)]`。wire 与 transcript 类型不得使用
+  `deny_unknown_fields`。
+- **重命名保留旧 tag。** 被重命名的 variant 必须以 `#[serde(alias = "...")]` 保留它
+  曾经序列化过的每一个 tag，同时以新名称作为写出的规范名。参考实现是
+  `crates/types/src/lib.rs` 中的 `AgentTaskStatus`。
+- **未知 event type 必须可往返，不得报错。** 本构建不认识的 event type 反序列化为
+  `RuntimeWireEvent::Unknown { event_type, payload }`，再序列化时原样保留 payload
+  交给下一跳，并归约为 no-op。拒绝它会因为一个扩展而丢弃整条流。
+- **transcript 回放隔离单行，绝不使整个文件失败。** 未知 entry type、未知 runtime
+  event kind 或 malformed payload 只隔离那一行——由
+  `SessionStore::load_transcript` 以 `QuarantinedLine { line_number, raw, reason }`
+  报告——会话其余部分照常加载。磁盘回放与实时 wire 对“已知”的判定一致，因为两者都走
+  `RuntimeWireEvent`。隔离绝不静默：会话 hydrate 以 system fact 呈现数量，recent work
+  上报 `recent.quarantined_transcript_lines`。数据不会丢失，因为 transcript 是
+  append-only，加载过程从不重写文件。
+- **batch 语义不因隔离而改变。** transcript batch 内被隔离的行仍然整体作废该 batch；
+  只有已 commit 且完整的 batch 才会被回放。
+- **面向 wire 的 enum 使用 `#[non_exhaustive]`。** `RuntimeEventKind` 与
+  `TranscriptEntry` 标注了 `#[non_exhaustive]`，因此新增 variant 不会破坏兄弟 crate：
+  crate 外的每个 match 都必须已经带有通配分支。这是上述两条运行时规则在编译期的对应。
 
 ## Command 归属
 
