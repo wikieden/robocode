@@ -1,6 +1,6 @@
 use crate::{
-    CostUsageRecord, Message, Role, RuntimeEvent, SessionId, ToolCall, ToolResult,
-    decode_tool_input, encode_tool_input,
+    CostUsageRecord, Message, Role, RuntimeEvent, RuntimeWireEvent, SessionId, ToolCall,
+    ToolResult, decode_tool_input, encode_tool_input,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -28,6 +28,11 @@ pub struct SessionMetaEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+// Evolution discipline: a persisted entry kind must be addable without breaking
+// a sibling crate's replay code. `non_exhaustive` forces every out-of-crate
+// match to carry a wildcard arm, matching the loader contract that an
+// unrecognized on-disk line is quarantined, not fatal.
+#[non_exhaustive]
 pub enum TranscriptEntry {
     Message { message: Message },
     ToolCall { call: ToolCall },
@@ -275,7 +280,10 @@ impl TranscriptEntry {
             }),
             "cost_usage" => cost_usage_entry_from_json_line(line),
             "runtime_event" => runtime_event_entry_from_json_line(line),
-            _ => Err("Unknown transcript entry type".to_string()),
+            // Forward compatibility: a line written by a newer build is not a
+            // corrupt file. The error names the type so the session loader can
+            // quarantine exactly this line and report why.
+            other => Err(format!("Unknown transcript entry type `{other}`")),
         }
     }
 }
@@ -356,7 +364,7 @@ pub fn transcript_entry_timestamp(line: &str) -> Result<Option<u64>, String> {
             .map(|entry| entry.cost.recorded_at)
             .map_err(|_| "Malformed cost usage timestamp".to_string()),
         "tool_call" | "tool_result" => Ok(None),
-        _ => Err("Unknown transcript entry type".to_string()),
+        other => Err(format!("Unknown transcript entry type `{other}`")),
     }
 }
 
@@ -371,17 +379,30 @@ fn cost_usage_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String
     })
 }
 
+/// Replays a persisted `runtime_event` line through the same forward-compatible
+/// path the live wire uses.
+///
+/// On-disk replay and the live stream must agree about what "known" means: an
+/// event this build cannot reduce is reported as an unknown type so the session
+/// loader can quarantine that one line, exactly as the wire reduces
+/// [`RuntimeWireEvent::Unknown`] to a no-op. The raw line is never rewritten;
+/// transcripts are append-only.
 fn runtime_event_entry_from_json_line(line: &str) -> Result<TranscriptEntry, String> {
     #[derive(serde::Deserialize)]
     struct RuntimeEventEntry {
-        event: RuntimeEvent,
+        event: RuntimeWireEvent,
     }
 
     let entry: RuntimeEventEntry = serde_json::from_str(line)
         .map_err(|err| format!("Malformed runtime event transcript entry: {err}"))?;
-    Ok(TranscriptEntry::RuntimeEvent {
-        event: Box::new(entry.event),
-    })
+    match entry.event {
+        RuntimeWireEvent::Known(event) => Ok(TranscriptEntry::RuntimeEvent {
+            event: Box::new(event),
+        }),
+        RuntimeWireEvent::Unknown { event_type, .. } => Err(format!(
+            "Unknown runtime event type `{event_type}` in transcript entry"
+        )),
+    }
 }
 
 fn optional_json_string(value: Option<&str>) -> String {

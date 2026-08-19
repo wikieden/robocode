@@ -6,10 +6,8 @@ use viden_config::{
 use viden_provider::{
     ModelProvider, ProviderConfig, ProviderHost, ProviderPluginError, ProviderRegistry,
 };
-use viden_session::SessionStore;
-use viden_types::{
-    PermissionLevel, RuntimeSnapshot, SessionSummary, TranscriptEntry, UiPreferences, WorkMode,
-};
+use viden_session::{LoadedTranscript, SessionStore};
+use viden_types::{PermissionLevel, RuntimeSnapshot, SessionSummary, UiPreferences, WorkMode};
 
 use crate::{RuntimeResumeError, RuntimeResumeRequest, SessionEngine};
 
@@ -152,9 +150,9 @@ fn bootstrap_runtime_with_context(
         runtime_snapshot,
     )?;
     engine.set_ui_preference_context(ui_cli_override, Some(ui_config_path), ui_system_context);
-    if let Some((summary, entries)) = resolved_resume {
+    if let Some((summary, loaded)) = resolved_resume {
         engine
-            .activate_resolved_session(summary, entries)
+            .activate_resolved_session(summary, loaded)
             .map_err(|err| err.to_string())?;
     }
     engine.set_provider_runtime(
@@ -178,7 +176,7 @@ fn resolve_bootstrap_resume(
     cwd: &Path,
     resolved_config: &ResolvedConfig,
     request: RuntimeResumeRequest,
-) -> Result<(SessionSummary, Vec<TranscriptEntry>), String> {
+) -> Result<(SessionSummary, LoadedTranscript), String> {
     let Some(store) = (match &resolved_config.session_home {
         Some(home) => SessionStore::open_existing_for_query(home, cwd)?,
         None => SessionStore::open_default_existing_for_query(cwd)?,
@@ -218,7 +216,7 @@ fn resume_selector(request: &RuntimeResumeRequest) -> String {
 fn resolve_bootstrap_selector(
     store: &SessionStore,
     selector: &str,
-) -> Result<(SessionSummary, Vec<TranscriptEntry>), String> {
+) -> Result<(SessionSummary, LoadedTranscript), String> {
     let sessions = store.list_sessions_for_cwd()?;
     if sessions.is_empty() {
         return Err(RuntimeResumeError::NotFound {
@@ -242,10 +240,10 @@ fn resolve_bootstrap_selector(
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [summary] => {
-            let entries = SessionStore::load_entries_from_path(std::path::Path::new(
+            let loaded = SessionStore::load_transcript_from_path(std::path::Path::new(
                 &summary.transcript_path,
             ))?;
-            Ok((summary.clone(), entries))
+            Ok((summary.clone(), loaded))
         }
         [] => Err(RuntimeResumeError::NotFound {
             selector: selector.to_string(),

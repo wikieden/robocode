@@ -31,6 +31,31 @@ pub struct TranscriptBatchCommit {
     pub count: usize,
 }
 
+/// One transcript line this build cannot replay.
+///
+/// Quarantine is per line and never silent: the offending line is reported with
+/// its 1-based file position and the exact reason, and the remainder of the
+/// session still loads. Nothing is lost, because transcripts are append-only —
+/// a load never rewrites the file, so the raw bytes stay on disk exactly as a
+/// newer build wrote them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuarantinedLine {
+    pub line_number: usize,
+    pub raw: String,
+    pub reason: String,
+}
+
+/// The full result of replaying one transcript file.
+///
+/// Callers with a way to surface diagnostics (session hydrate, recent work)
+/// must consume this instead of the entry-only helpers, so a forward-compatible
+/// skip is visible rather than inferred from a shorter history.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoadedTranscript {
+    pub entries: Vec<TranscriptEntry>,
+    pub quarantined: Vec<QuarantinedLine>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     cwd: PathBuf,
@@ -248,6 +273,17 @@ impl SessionStore {
         Ok(())
     }
 
+    /// Replays this session and reports every quarantined line.
+    pub fn load_transcript(&self) -> Result<LoadedTranscript, String> {
+        Self::load_transcript_from_path(&self.paths.transcript_path)
+    }
+
+    /// Replays this session, keeping only the entries.
+    ///
+    /// This drops the quarantine *report*, never the data: quarantined lines
+    /// stay on disk (transcripts are append-only) and are still reported by
+    /// [`SessionStore::load_transcript`]. Use that instead wherever the caller
+    /// has a channel to surface diagnostics on.
     pub fn load_entries(&self) -> Result<Vec<TranscriptEntry>, String> {
         Self::load_entries_from_path(&self.paths.transcript_path)
     }
@@ -281,18 +317,38 @@ impl SessionStore {
             return self.load_entries();
         }
         self.load_by_id_for_cwd(session_id)?
-            .map(|(_, entries)| entries)
+            .map(|(_, loaded)| loaded.entries)
             .ok_or_else(|| format!("session `{session_id}` not found for current project"))
     }
 
+    /// Entry-only replay. See [`SessionStore::load_entries`] for why the
+    /// quarantine report is dropped rather than the data.
     pub fn load_entries_from_path(path: &Path) -> Result<Vec<TranscriptEntry>, String> {
+        Ok(Self::load_transcript_from_path(path)?.entries)
+    }
+
+    /// Replays a transcript file line by line.
+    ///
+    /// A line this build cannot decode — an unknown entry type, an unknown
+    /// runtime event kind, or a malformed payload — is quarantined instead of
+    /// failing the whole file, so one line written by a newer build can never
+    /// hide an entire session. Batch semantics are unchanged: a quarantined
+    /// line inside a batch still invalidates that batch atomically, and only
+    /// committed, complete batches are replayed.
+    pub fn load_transcript_from_path(path: &Path) -> Result<LoadedTranscript, String> {
+        let mut loaded = LoadedTranscript::default();
         if !path.exists() {
-            return Ok(Vec::new());
+            return Ok(loaded);
         }
         let contents = fs::read_to_string(path).map_err(|err| err.to_string())?;
-        let mut entries = Vec::new();
         let mut pending_batch: Option<PendingBatch> = None;
-        for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        // Line numbers count every physical line, including blank ones, so a
+        // quarantine report points at the real file position.
+        for (index, line) in contents.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let line_number = index + 1;
             match transcript_batch_marker(line)? {
                 Some(BatchMarker::Begin { batch_id, count }) => {
                     pending_batch = Some(PendingBatch {
@@ -309,35 +365,40 @@ impl SessionStore {
                         && batch.count == count
                         && batch.entries.len() == count
                     {
-                        entries.extend(batch.entries);
+                        loaded.entries.extend(batch.entries);
                     }
                 }
-                None => {
-                    if let Some(batch) = &mut pending_batch {
-                        match TranscriptEntry::from_json_line(line) {
-                            Ok(entry) => batch.entries.push(entry),
-                            Err(_) => batch.invalid = true,
+                None => match TranscriptEntry::from_json_line(line) {
+                    Ok(entry) => match &mut pending_batch {
+                        Some(batch) => batch.entries.push(entry),
+                        None => loaded.entries.push(entry),
+                    },
+                    Err(reason) => {
+                        if let Some(batch) = &mut pending_batch {
+                            batch.invalid = true;
                         }
-                    } else {
-                        let entry = TranscriptEntry::from_json_line(line)?;
-                        entries.push(entry);
+                        loaded.quarantined.push(QuarantinedLine {
+                            line_number,
+                            raw: line.to_string(),
+                            reason,
+                        });
                     }
-                }
+                },
             }
         }
-        Ok(entries)
+        Ok(loaded)
     }
 
     pub fn load_latest_for_cwd(
         &self,
-    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
+    ) -> Result<Option<(SessionSummary, LoadedTranscript)>, String> {
         if let Some(summary) = self
             .list_sessions_for_cwd()?
             .into_iter()
             .max_by_key(|item| item.last_updated_at)
         {
-            let entries = Self::load_entries_from_path(Path::new(&summary.transcript_path))?;
-            return Ok(Some((summary, entries)));
+            let loaded = Self::load_transcript_from_path(Path::new(&summary.transcript_path))?;
+            return Ok(Some((summary, loaded)));
         }
         Ok(None)
     }
@@ -345,11 +406,11 @@ impl SessionStore {
     pub fn load_by_id_for_cwd(
         &self,
         session_id: &str,
-    ) -> Result<Option<(SessionSummary, Vec<TranscriptEntry>)>, String> {
+    ) -> Result<Option<(SessionSummary, LoadedTranscript)>, String> {
         for summary in self.list_sessions_for_cwd()? {
             if summary.session_id == session_id {
-                let entries = Self::load_entries_from_path(Path::new(&summary.transcript_path))?;
-                return Ok(Some((summary, entries)));
+                let loaded = Self::load_transcript_from_path(Path::new(&summary.transcript_path))?;
+                return Ok(Some((summary, loaded)));
             }
         }
         // A non-empty SQLite index can be stale while a valid project JSONL
@@ -357,8 +418,8 @@ impl SessionStore {
         // instead of constructing a path from an untrusted session id.
         for summary in self.list_sessions_from_project_dir()? {
             if summary.session_id == session_id {
-                let entries = Self::load_entries_from_path(Path::new(&summary.transcript_path))?;
-                return Ok(Some((summary, entries)));
+                let loaded = Self::load_transcript_from_path(Path::new(&summary.transcript_path))?;
+                return Ok(Some((summary, loaded)));
             }
         }
         Ok(None)

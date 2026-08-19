@@ -30,6 +30,9 @@ struct TranscriptFacts {
     message_count: u64,
     tool_call_count: u64,
     command_count: u64,
+    /// Lines skipped by forward-compatibility quarantine, reported as a
+    /// diagnostic instead of silently shrinking the counts.
+    quarantined: u64,
 }
 
 struct PendingFacts {
@@ -68,6 +71,9 @@ pub(super) fn query_recent_work(
                     continue;
                 }
             };
+            if facts.quarantined > 0 {
+                diagnostics.insert("recent.quarantined_transcript_lines".to_string());
+            }
             let Some(canonical_root) = facts.canonical_root else {
                 diagnostics.insert("recent.missing_canonical_root".to_string());
                 continue;
@@ -267,9 +273,15 @@ fn read_transcript_facts(path: &Path) -> Result<TranscriptFacts, String> {
                     batch.seen += 1;
                     if apply_line(&mut batch.facts, &line).is_err() {
                         batch.invalid = true;
+                        // Counted on the file, not the batch: batch facts are
+                        // discarded on invalidation, but the skip must still be
+                        // reported.
+                        facts.quarantined = facts.quarantined.saturating_add(1);
                     }
-                } else {
-                    apply_line(&mut facts, &line)?;
+                } else if apply_line(&mut facts, &line).is_err() {
+                    // Forward compatibility: one line this build cannot read
+                    // must not remove the whole session from recent work.
+                    facts.quarantined = facts.quarantined.saturating_add(1);
                 }
             }
         }

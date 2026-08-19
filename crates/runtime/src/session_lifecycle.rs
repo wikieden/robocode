@@ -1,5 +1,5 @@
 use viden_permissions::PermissionEngine;
-use viden_session::SessionStore;
+use viden_session::{LoadedTranscript, SessionStore};
 use viden_types::{
     AgentDagTaskSpec, AgentNextAction, CanonicalEvidenceReference, ConflictBounce,
     ContextBundleRecord, ContextItemRecord, ContextOmittedSourceRecord, ContextScope,
@@ -100,14 +100,14 @@ impl SessionEngine {
         &mut self,
         request: RuntimeResumeRequest,
     ) -> Result<RuntimeResumeResult, RuntimeResumeError> {
-        let (summary, entries) = self.resolve_typed_resume_request(request)?;
-        self.activate_resolved_session(summary, entries)
+        let (summary, loaded) = self.resolve_typed_resume_request(request)?;
+        self.activate_resolved_session(summary, loaded)
     }
 
     pub(crate) fn resolve_typed_resume_request(
         &self,
         request: RuntimeResumeRequest,
-    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+    ) -> Result<(SessionSummary, LoadedTranscript), RuntimeResumeError> {
         match request {
             RuntimeResumeRequest::ExactSessionId(session_id) => self
                 .store
@@ -130,7 +130,7 @@ impl SessionEngine {
     pub(crate) fn activate_resolved_session(
         &mut self,
         summary: SessionSummary,
-        entries: Vec<TranscriptEntry>,
+        loaded: LoadedTranscript,
     ) -> Result<RuntimeResumeResult, RuntimeResumeError> {
         let resumed_store = SessionStore::new_with_home(
             self.store.home_dir().to_path_buf(),
@@ -158,7 +158,7 @@ impl SessionEngine {
         self.provider_cost_usage.clear();
         self.permissions
             .replace_engine(PermissionEngine::new(&self.cwd));
-        self.hydrate(entries).map_err(RuntimeResumeError::Load)?;
+        self.hydrate(loaded).map_err(RuntimeResumeError::Load)?;
         self.hydrate_workflow_agent_projection()
             .map_err(RuntimeResumeError::Load)?;
         Ok(RuntimeResumeResult {
@@ -170,7 +170,7 @@ impl SessionEngine {
     fn resolve_resume_selector(
         &self,
         selector: &str,
-    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+    ) -> Result<(SessionSummary, LoadedTranscript), RuntimeResumeError> {
         let sessions = self
             .store
             .list_sessions_for_cwd()
@@ -204,11 +204,11 @@ impl SessionEngine {
         match matches.as_slice() {
             [] => self.resolve_resume_index(&sessions, selector),
             [summary] => {
-                let entries = SessionStore::load_entries_from_path(std::path::Path::new(
+                let loaded = SessionStore::load_transcript_from_path(std::path::Path::new(
                     &summary.transcript_path,
                 ))
                 .map_err(RuntimeResumeError::Load)?;
-                Ok((summary.clone(), entries))
+                Ok((summary.clone(), loaded))
             }
             _ => Err(RuntimeResumeError::Ambiguous {
                 selector: selector.to_string(),
@@ -221,7 +221,7 @@ impl SessionEngine {
         &self,
         sessions: &[SessionSummary],
         selector: &str,
-    ) -> Result<(SessionSummary, Vec<TranscriptEntry>), RuntimeResumeError> {
+    ) -> Result<(SessionSummary, LoadedTranscript), RuntimeResumeError> {
         let index_selector = selector.strip_prefix('#').unwrap_or(selector);
         let Ok(index) = index_selector.parse::<usize>() else {
             return Err(RuntimeResumeError::NotFound {
@@ -235,11 +235,11 @@ impl SessionEngine {
             });
         }
         if let Some(summary) = sessions.get(index - 1) {
-            let entries = SessionStore::load_entries_from_path(std::path::Path::new(
+            let loaded = SessionStore::load_transcript_from_path(std::path::Path::new(
                 &summary.transcript_path,
             ))
             .map_err(RuntimeResumeError::Load)?;
-            return Ok((summary.clone(), entries));
+            return Ok((summary.clone(), loaded));
         }
         Err(RuntimeResumeError::InvalidIndex {
             selector: selector.to_string(),
@@ -247,7 +247,27 @@ impl SessionEngine {
         })
     }
 
-    fn hydrate(&mut self, entries: Vec<TranscriptEntry>) -> Result<(), String> {
+    /// Rebuilds in-memory session state from a replayed transcript.
+    ///
+    /// Lines this build could not replay are surfaced as a system fact before
+    /// the history, so a shorter transcript is never mistaken for the whole
+    /// truth. The lines themselves remain on disk: transcripts are append-only.
+    fn hydrate(&mut self, loaded: LoadedTranscript) -> Result<(), String> {
+        let LoadedTranscript {
+            entries,
+            quarantined,
+        } = loaded;
+        if !quarantined.is_empty() {
+            let count = quarantined.len();
+            let first = &quarantined[0];
+            self.messages.push(Message::new(
+                Role::System,
+                format!(
+                    "{count} transcript lines quarantined (forward-compatibility); first at line {}: {}",
+                    first.line_number, first.reason
+                ),
+            ));
+        }
         let mut provider_meta = None;
         let mut model_meta = None;
         for entry in entries {

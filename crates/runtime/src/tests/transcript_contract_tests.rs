@@ -140,3 +140,55 @@ fn denied_tool_call_history_is_reconstructible_from_transcript() {
         "model-visible history after a denial must match after a transcript rebuild"
     );
 }
+
+#[test]
+fn resume_surfaces_quarantined_transcript_lines_as_a_system_fact() {
+    let home = temp_dir("log_contract_quarantine_home");
+    let cwd = temp_dir("log_contract_quarantine_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "logged reply".to_string(),
+        },
+    ]]));
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let mut live_engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let session_id = live_engine.session_id().to_string();
+    live_engine
+        .process_input_with_approval("say something", &mut approver)
+        .unwrap();
+
+    // A newer build appended an event this build cannot reduce. Replay must
+    // keep the readable history and report the skipped line, not fail.
+    let transcript_path = live_engine.store.transcript_path().to_path_buf();
+    let mut contents = std::fs::read_to_string(&transcript_path).unwrap();
+    contents.push_str(
+        "{\"type\":\"runtime_event\",\"event\":{\"sequence\":9001,\"timestamp\":1,\"kind\":{\"type\":\"not_yet_invented\",\"payload\":{}}}}\n",
+    );
+    std::fs::write(&transcript_path, contents).unwrap();
+
+    let rebuilt_provider = Box::new(SequenceProvider::new(vec![]));
+    let mut rebuilt_engine =
+        SessionEngine::new_with_home(&cwd, rebuilt_provider, Some(home)).unwrap();
+    rebuilt_engine
+        .resume_session(RuntimeResumeRequest::exact_session_id(session_id))
+        .unwrap();
+
+    assert!(
+        rebuilt_engine.messages.iter().any(|message| {
+            message.role == Role::System && message.content.contains("quarantined")
+        }),
+        "resume must surface quarantined transcript lines: {:?}",
+        rebuilt_engine
+            .messages
+            .iter()
+            .map(|message| (message.role.clone(), message.content.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        rebuilt_engine
+            .messages
+            .iter()
+            .any(|message| message.content == "say something"),
+        "the readable history before the quarantined line must still load"
+    );
+}

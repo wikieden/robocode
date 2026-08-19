@@ -644,18 +644,169 @@ fn replay_loads_multiple_committed_batches_written_under_append_lock() {
 }
 
 #[test]
-fn replay_keeps_strict_errors_for_malformed_legacy_entries() {
+fn replay_quarantines_malformed_legacy_entries_and_keeps_the_rest() {
     let home = temp_home("malformed_legacy");
     let cwd = home.join("workspace");
     fs::create_dir_all(&cwd).unwrap();
     let store =
         SessionStore::new_with_home(&home, &cwd, Some("session_malformed_legacy".into())).unwrap();
-    fs::write(store.transcript_path(), "{not-json}\n").unwrap();
+    let kept = TranscriptEntry::Message {
+        message: Message::new(Role::User, "kept after the malformed line"),
+    };
+    fs::write(
+        store.transcript_path(),
+        format!("{{not-json}}\n{}\n", kept.to_json_line()),
+    )
+    .unwrap();
 
-    let error = store.load_entries().unwrap_err();
+    let loaded = store.load_transcript().unwrap();
+
+    assert_eq!(loaded.entries, vec![kept]);
+    assert_eq!(loaded.quarantined.len(), 1);
+    assert_eq!(loaded.quarantined[0].line_number, 1);
+    assert_eq!(loaded.quarantined[0].raw, "{not-json}");
     assert!(
-        error.contains("Malformed") || error.contains("Missing field"),
-        "{error}"
+        loaded.quarantined[0].reason.contains("Malformed")
+            || loaded.quarantined[0].reason.contains("Missing field"),
+        "{}",
+        loaded.quarantined[0].reason
+    );
+}
+
+#[test]
+fn replay_quarantines_unknown_top_level_entry_type_with_accurate_line_numbers() {
+    let home = temp_home("unknown_entry_type");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store = SessionStore::new_with_home(&home, &cwd, Some("session_unknown_entry_type".into()))
+        .unwrap();
+    let first = TranscriptEntry::Message {
+        message: Message::new(Role::User, "before"),
+    };
+    let second = TranscriptEntry::Message {
+        message: Message::new(Role::Assistant, "after"),
+    };
+    let unknown = "{\"type\":\"not_yet_invented\",\"payload\":{\"detail\":\"future\"}}";
+    fs::write(
+        store.transcript_path(),
+        format!(
+            "{}\n\n{unknown}\n{}\n",
+            first.to_json_line(),
+            second.to_json_line()
+        ),
+    )
+    .unwrap();
+
+    let loaded = store.load_transcript().unwrap();
+
+    assert_eq!(loaded.entries, vec![first, second]);
+    assert_eq!(loaded.quarantined.len(), 1);
+    // Blank lines still consume a line number so a report points at the file.
+    assert_eq!(loaded.quarantined[0].line_number, 3);
+    assert_eq!(loaded.quarantined[0].raw, unknown);
+    assert!(
+        loaded.quarantined[0].reason.contains("not_yet_invented"),
+        "{}",
+        loaded.quarantined[0].reason
+    );
+}
+
+#[test]
+fn replay_quarantines_unknown_runtime_event_kind_without_failing_the_session() {
+    let home = temp_home("unknown_runtime_event_kind");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_unknown_kind".into())).unwrap();
+    let kept = TranscriptEntry::Message {
+        message: Message::new(Role::User, "survives an unknown event"),
+    };
+    let unknown = "{\"type\":\"runtime_event\",\"event\":{\"sequence\":1,\"timestamp\":2,\"kind\":{\"type\":\"not_yet_invented\",\"payload\":{}}}}";
+    fs::write(
+        store.transcript_path(),
+        format!("{unknown}\n{}\n", kept.to_json_line()),
+    )
+    .unwrap();
+
+    let loaded = store.load_transcript().unwrap();
+
+    assert_eq!(loaded.entries, vec![kept]);
+    assert_eq!(loaded.quarantined.len(), 1);
+    assert_eq!(loaded.quarantined[0].line_number, 1);
+    assert_eq!(loaded.quarantined[0].raw, unknown);
+    assert!(
+        loaded.quarantined[0].reason.contains("not_yet_invented"),
+        "{}",
+        loaded.quarantined[0].reason
+    );
+    // The legacy entry-only API keeps working and never returns a partial error.
+    assert_eq!(store.load_entries().unwrap(), loaded.entries);
+}
+
+#[test]
+fn replay_quarantines_inside_a_batch_still_drops_the_whole_batch() {
+    let home = temp_home("quarantine_inside_batch");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store =
+        SessionStore::new_with_home(&home, &cwd, Some("session_quarantine_batch".into())).unwrap();
+    let dropped = TranscriptEntry::Message {
+        message: Message::new(Role::User, "dropped with its batch"),
+    };
+    let kept = TranscriptEntry::Message {
+        message: Message::new(Role::Assistant, "later committed batch"),
+    };
+    let unknown = "{\"type\":\"not_yet_invented\",\"payload\":{}}";
+    fs::write(
+        store.transcript_path(),
+        format!(
+            "{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"bad\",\"count\":2}}\n{}\n{unknown}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"bad\",\"count\":2}}\n{{\"type\":\"runtime_event_batch_begin\",\"batch_id\":\"good\",\"count\":1}}\n{}\n{{\"type\":\"runtime_event_batch_commit\",\"batch_id\":\"good\",\"count\":1}}\n",
+            dropped.to_json_line(),
+            kept.to_json_line()
+        ),
+    )
+    .unwrap();
+
+    let loaded = store.load_transcript().unwrap();
+
+    assert_eq!(loaded.entries, vec![kept]);
+    assert_eq!(loaded.quarantined.len(), 1);
+    assert_eq!(loaded.quarantined[0].line_number, 3);
+    assert_eq!(loaded.quarantined[0].raw, unknown);
+}
+
+#[test]
+fn recent_work_keeps_a_session_that_contains_a_quarantined_line() {
+    let home = temp_home("recent_work_quarantine");
+    let root = home.join("project");
+    fs::create_dir_all(&root).unwrap();
+    write_recent_transcript(&home, &root, "quarantined", 3, 4, "hello", None);
+
+    let project_dir = home
+        .join("projects")
+        .join(project_key_for_path(&root.canonicalize().unwrap()));
+    let transcript = project_dir.join("quarantined.jsonl");
+    let mut contents = fs::read_to_string(&transcript).unwrap();
+    contents.push_str("{\"type\":\"not_yet_invented\",\"payload\":{}}\n");
+    fs::write(&transcript, contents).unwrap();
+
+    let recent =
+        SessionStore::query_recent_work(&home, viden_types::RecentWorkQuery { limit: 10 }).unwrap();
+
+    assert_eq!(
+        recent
+            .sessions
+            .iter()
+            .map(|session| session.session_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["quarantined"]
+    );
+    assert!(
+        recent
+            .diagnostics
+            .contains(&"recent.quarantined_transcript_lines".to_string()),
+        "{:?}",
+        recent.diagnostics
     );
 }
 
