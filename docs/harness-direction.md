@@ -83,6 +83,25 @@ program instead of many round-trip tool calls. For Viden this is a future Core
 contract candidate (a new tool family plus permission story), not near-term
 work. Record only; do not start before the V3 contract freeze completes.
 
+## 6. Interrupted-Turn Recovery (Implemented)
+
+A crash or kill between persisting an assistant tool-call message and
+persisting its result leaves a durable call that no tool result answers, and
+several providers reject that request shape outright.
+
+Status: `hydrate()` in `crates/runtime/src/session_lifecycle.rs` now closes
+those calls while rebuilding the session. Each unanswered assistant tool-call
+message receives a synthesized `Role::Tool` message with the matching
+`tool_call_id`, inserted directly after the call it answers, and one
+`Role::System` note reports how many calls were closed. Closures are
+synthesized in memory only: loads stay read-only, the JSONL keeps exactly the
+facts that were durable at crash time, and because the synthesis is a pure
+function of the replayed entries the item 1 invariant still holds — every
+later load of the same transcript rebuilds the identical history. Coverage
+lives in `crates/runtime/src/tests/interrupted_turn_recovery_tests.rs`
+(tail and mid-history dangling calls, multiple calls under one note,
+determinism across loads, and no synthesis for answered calls).
+
 ## Strategic Stance
 
 The "everything is a plugin" complexity tax (untyped cross-plugin injection,
@@ -99,3 +118,5 @@ and owned by Core; do not chase dynamic plugin parity.
 3. Item 3 — implemented; future interceptors (cost metering, evidence
    capture) attach to the existing seam as needed.
 4. Items 4 and 5 — revisit after the `frontend-contract-v1` checkpoint ships.
+5. Item 6 — implemented; extend it only if a future write path can persist a
+   tool call without an assistant message.

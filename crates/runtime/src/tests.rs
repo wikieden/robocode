@@ -7,6 +7,7 @@ use viden_types::{ModelEvent, ModelRequest, fresh_id};
 
 mod frontend_services_tests;
 mod git_command_tests;
+mod interrupted_turn_recovery_tests;
 mod lane_supervisor_tests;
 mod live_deepseek_tests;
 mod lsp_command_tests;

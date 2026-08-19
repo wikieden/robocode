@@ -318,8 +318,87 @@ impl SessionEngine {
                 _ => {}
             }
         }
+        self.close_interrupted_tool_calls();
         self.restore_provider_meta(provider_meta.as_deref(), model_meta.as_deref())?;
         Ok(())
+    }
+
+    /// Closes tool calls that were persisted without a result.
+    ///
+    /// `handle_tool_call` stores the assistant tool-call message before the
+    /// tool runs and the result only after it finishes, so a crash or kill in
+    /// between leaves an assistant message whose `tool_call_id` no `Role::Tool`
+    /// message answers. Several providers reject that request shape outright.
+    ///
+    /// The closure is synthesized in memory only. Loads stay read-only, the
+    /// JSONL keeps exactly the facts that were durable when the process died,
+    /// and because the synthesis is a pure function of the replayed entries the
+    /// "model-visible history is reconstructible from the transcript alone"
+    /// invariant still holds: every later load of the same file rebuilds the
+    /// identical history.
+    ///
+    /// A dangling call can sit anywhere in history, not only at the tail: a
+    /// resumed session appends to the same transcript, so an interrupted call
+    /// from an earlier run stays embedded before the turns that followed it.
+    /// Each closure is therefore inserted directly after the call it answers,
+    /// and a single recovery note is appended once at the end of the history.
+    fn close_interrupted_tool_calls(&mut self) {
+        let mut last_result_index = std::collections::HashMap::new();
+        for (index, message) in self.messages.iter().enumerate() {
+            if message.role == Role::Tool
+                && let Some(tool_call_id) = &message.tool_call_id
+            {
+                last_result_index.insert(tool_call_id.clone(), index);
+            }
+        }
+
+        let mut closures = Vec::new();
+        for (index, message) in self.messages.iter().enumerate() {
+            if message.role != Role::Assistant {
+                continue;
+            }
+            let Some(tool_call_id) = message.tool_call_id.clone() else {
+                continue;
+            };
+            // Only a result recorded after the call answers it; an earlier
+            // `Role::Tool` message with the same id belongs to another turn.
+            if last_result_index
+                .get(&tool_call_id)
+                .is_some_and(|result_index| *result_index > index)
+            {
+                continue;
+            }
+            let tool_name = message
+                .tool_name
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+            closures.push((
+                index,
+                Message {
+                    id: fresh_id("msg"),
+                    role: Role::Tool,
+                    content: format!(
+                        "Tool call `{tool_name}` was interrupted before completion (session recovered after crash or kill); no result was produced."
+                    ),
+                    timestamp: now_timestamp(),
+                    tool_name: Some(tool_name),
+                    tool_call_id: Some(tool_call_id),
+                },
+            ));
+        }
+
+        if closures.is_empty() {
+            return;
+        }
+        let closed = closures.len();
+        // Insert back to front so the recorded indexes stay valid.
+        for (index, closure) in closures.into_iter().rev() {
+            self.messages.insert(index + 1, closure);
+        }
+        self.messages.push(Message::new(
+            Role::System,
+            format!("{closed} interrupted tool call(s) closed during session recovery"),
+        ));
     }
 
     fn restore_provider_meta(

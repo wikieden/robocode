@@ -71,6 +71,23 @@ DeepSeek Harness 的 Code 模式生成带类型的 SDK，让模型写一段程�
 多次往返工具调用。对 Viden 这是未来的 Core 契约候选（新工具族加权限方案），
 不是近期工作。仅记录；在 V3 契约冻结完成前不启动。
 
+## 6. 中断 turn 的恢复（已实现）
+
+在持久化 assistant 工具调用消息之后、持久化其结果之前发生崩溃或被 kill，
+会留下一个没有任何工具结果回应的已持久化调用，而多个 provider 会直接拒绝
+这种请求形状。
+
+状态：`crates/runtime/src/session_lifecycle.rs` 的 `hydrate()` 现在会在重建
+会话时闭合这些调用。每条未被回应的 assistant 工具调用消息都会获得一条合成
+的 `Role::Tool` 消息，`tool_call_id` 一致，并直接插入到它所回应的调用之后；
+另有一条 `Role::System` 提示说明共闭合了多少个调用。合成只发生在内存中：
+加载保持只读，JSONL 仍然只保留崩溃时已经落盘的事实；由于合成是重放条目的
+纯函数，第 1 条不变量依然成立——同一 transcript 的每一次后续加载都会重建
+出完全相同的历史。覆盖测试位于
+`crates/runtime/src/tests/interrupted_turn_recovery_tests.rs`（尾部与历史
+中部的悬空调用、多个调用共用一条提示、跨加载的确定性，以及已回应调用不做
+合成）。
+
 ## 战略立场
 
 「一切皆插件」的复杂度税（无类型跨插件注入、加载顺序冲突）是社区对
@@ -85,3 +102,5 @@ DeepSeek Harness 的主要批评。Viden 的差异化是同样的可组合性判
 3. 第 3 条——已实现；后续拦截器（成本计量、evidence 采集）按需挂接到
    现有接缝。
 4. 第 4、5 条——在 `frontend-contract-v1` checkpoint 交付后再评估。
+5. 第 6 条——已实现；仅当未来的写入路径可能在没有 assistant 消息的情况下
+   持久化工具调用时才需要扩展。
