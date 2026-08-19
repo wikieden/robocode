@@ -24,6 +24,16 @@ Design](docs/superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md
 - TUI/GUI clients consume `viden-core` and shared contracts. They must not
   depend directly on context, runtime, provider, tool, or workflow internals.
 
+## Harness Direction
+
+The accepted follow-up direction from the 2026-08-16 DeepSeek Harness
+benchmark study is tracked in [Agent Harness Direction](docs/harness-direction.md)
+(Chinese: [docs/harness-direction.zh-CN.md](docs/harness-direction.zh-CN.md)):
+the model-visible-means-logged transcript contract (tests landed), the planned
+OS-level capability seam and tool pre/post seam in Core, and the
+minimal-preset / code-orchestration proposals gated behind the V3 contract
+freeze.
+
 ## Current Planning Revision
 
 As of the 0.1.24 planning line, the next release is upgraded from a

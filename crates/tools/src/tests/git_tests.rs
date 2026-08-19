@@ -10,10 +10,7 @@ fn git_status_and_diff_work_in_repo() {
     git_commit(&cwd, "initial");
     fs::write(cwd.join("demo.txt"), "hello again\n").unwrap();
 
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let status_result = registry
@@ -44,10 +41,7 @@ fn git_status_and_diff_work_in_repo() {
 #[test]
 fn git_branch_switch_and_commit_work() {
     let cwd = git_repo_with_tracked_file("git_branch");
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let mut switch_input = ToolInput::new();
@@ -89,10 +83,7 @@ fn git_add_stages_requested_paths() {
     git_init(&cwd);
     fs::write(cwd.join("notes.txt"), "hello\n").unwrap();
 
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let mut add_input = ToolInput::new();
@@ -136,10 +127,7 @@ fn git_push_pushes_current_branch_to_remote() {
         .unwrap();
     assert!(origin.success());
 
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
     let mut push_input = ToolInput::new();
     push_input.insert("set_upstream".into(), "true".into());
@@ -173,10 +161,7 @@ fn git_restore_reverts_worktree_file() {
     let cwd = git_repo_with_tracked_file("git_restore");
     fs::write(cwd.join("tracked.txt"), "second\n").unwrap();
 
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
     let mut restore_input = ToolInput::new();
     restore_input.insert("path".into(), "tracked.txt".into());
@@ -200,10 +185,7 @@ fn git_stash_push_list_and_pop_work() {
     let cwd = git_repo_with_tracked_file("git_stash");
     fs::write(cwd.join("tracked.txt"), "second\n").unwrap();
 
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let mut push_input = ToolInput::new();
@@ -256,10 +238,7 @@ fn git_worktree_add_list_and_remove_work() {
         fs::remove_dir_all(&worktree_path).unwrap();
     }
 
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let mut add_input = ToolInput::new();
@@ -312,10 +291,7 @@ fn git_worktree_add_list_and_remove_work() {
 #[test]
 fn git_worktree_tools_reject_path_traversal_through_lane_effects() {
     let cwd = git_repo_with_tracked_file("git_worktree_path_traversal_repo");
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let mut add_input = ToolInput::new();

@@ -3,10 +3,7 @@ use super::*;
 #[test]
 fn read_write_edit_round_trip() {
     let cwd = temp_dir("files");
-    let ctx = ToolExecutionContext {
-        cwd: cwd.clone(),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd.clone());
     let registry = ToolRegistry::builtin();
 
     let mut write_input = ToolInput::new();
@@ -69,10 +66,7 @@ fn read_write_edit_round_trip() {
 fn file_tools_report_directory_paths_clearly() {
     let cwd = temp_dir("file_tool_directory_errors");
     std::fs::create_dir_all(cwd.join("src")).unwrap();
-    let ctx = ToolExecutionContext {
-        cwd,
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(cwd);
     let registry = ToolRegistry::builtin();
 
     let mut read_input = ToolInput::new();

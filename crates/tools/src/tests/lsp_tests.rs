@@ -39,10 +39,7 @@ fn lsp_tool_specs_are_read_only() {
 
 #[test]
 fn lsp_diagnostics_requires_semantic_provider() {
-    let ctx = ToolExecutionContext {
-        cwd: temp_dir("lsp_missing_provider"),
-        semantic: None,
-    };
+    let ctx = ToolExecutionContext::local(temp_dir("lsp_missing_provider"));
     let mut input = ToolInput::new();
     input.insert("path".into(), "src/lib.rs".into());
 
@@ -61,10 +58,8 @@ fn lsp_diagnostics_requires_semantic_provider() {
 
 #[test]
 fn lsp_references_validates_line_and_character() {
-    let ctx = ToolExecutionContext {
-        cwd: temp_dir("lsp_bad_position"),
-        semantic: Some(Arc::new(MockSemanticProvider)),
-    };
+    let ctx = ToolExecutionContext::local(temp_dir("lsp_bad_position"))
+        .with_semantic(Arc::new(MockSemanticProvider));
     let mut input = ToolInput::new();
     input.insert("path".into(), "src/lib.rs".into());
     input.insert("line".into(), "abc".into());
@@ -85,10 +80,8 @@ fn lsp_references_validates_line_and_character() {
 
 #[test]
 fn lsp_symbols_returns_mock_semantic_output() {
-    let ctx = ToolExecutionContext {
-        cwd: temp_dir("lsp_symbols"),
-        semantic: Some(Arc::new(MockSemanticProvider)),
-    };
+    let ctx = ToolExecutionContext::local(temp_dir("lsp_symbols"))
+        .with_semantic(Arc::new(MockSemanticProvider));
     let mut input = ToolInput::new();
     input.insert("path".into(), "src/lib.rs".into());
 

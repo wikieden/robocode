@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+mod capability_tests;
 mod file_tests;
 mod git_tests;
 mod lane_tests;

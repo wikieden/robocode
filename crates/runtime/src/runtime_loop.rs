@@ -610,12 +610,11 @@ impl SessionEngine {
                 self.upsert_agent_task(task.clone());
                 let result = match self.tools.execute(
                     &call,
-                    &ToolExecutionContext {
-                        cwd: self.cwd.clone(),
-                        semantic: Some(Arc::new(LspToolAdapter {
+                    &ToolExecutionContext::local(self.cwd.clone()).with_semantic(Arc::new(
+                        LspToolAdapter {
                             runtime: Arc::clone(&self.lsp_runtime),
-                        })),
-                    },
+                        },
+                    )),
                 ) {
                     Ok(result) => result,
                     Err(error) => ToolResult {

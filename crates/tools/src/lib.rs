@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use viden_types::{ToolCall, ToolInput, ToolResult, ToolSpec};
 
+mod capability;
 mod files;
 mod git;
 pub mod lane;
@@ -14,6 +15,10 @@ mod search;
 mod shell;
 mod web;
 
+pub use capability::{
+    FilesystemCapability, LocalFilesystem, LocalProcess, ProcessCapability, ProcessInvocation,
+    ProcessOutput,
+};
 use files::{EditFileTool, ReadFileTool, WriteFileTool};
 use git::{
     GitAddTool, GitBranchTool, GitCommitTool, GitDiffTool, GitPushTool, GitRestoreTool,
@@ -32,6 +37,28 @@ pub(crate) use web::{html_to_text, parse_duckduckgo_results, url_encode};
 pub struct ToolExecutionContext {
     pub cwd: PathBuf,
     pub semantic: Option<Arc<dyn SemanticToolProvider>>,
+    /// OS capability seam: tools must reach the filesystem and processes only
+    /// through these providers so one swap relocates every consumer together.
+    pub fs: Arc<dyn FilesystemCapability>,
+    pub process: Arc<dyn ProcessCapability>,
+}
+
+impl ToolExecutionContext {
+    /// Context backed by the local OS: direct `std::fs` and `std::process`
+    /// behavior, identical to the pre-seam tools.
+    pub fn local(cwd: impl Into<PathBuf>) -> Self {
+        Self {
+            cwd: cwd.into(),
+            semantic: None,
+            fs: Arc::new(LocalFilesystem),
+            process: Arc::new(LocalProcess),
+        }
+    }
+
+    pub fn with_semantic(mut self, semantic: Arc<dyn SemanticToolProvider>) -> Self {
+        self.semantic = Some(semantic);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
