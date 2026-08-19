@@ -101,6 +101,12 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 `viden-context` 或 config internals。所有 mutation 都发送 `RuntimeCommand`；
 只有收到 `CommandAccepted` 和后续有序 state event 后才能显示成功。
 
+前端侧的同一纪律收敛为单一宿主接缝：`src/host/core_client.ts` 定义传输中立的
+`GuiCoreClient` 接口（区别于上文 Rust 侧的 `CoreClient`），
+`src/host/tauri_core_client.ts` 是前端唯一允许导入 `@tauri-apps/*` 的模块。
+屏幕和 shell 只消费注入的接口，因此更换桌面宿主意味着提供另一个
+`GuiCoreClient` 实现，而不是修改屏幕代码。
+
 ## 对照 Core `0.3.5` 的清单
 
 | GUI 区域 | 设计意图 | Core `0.3.5` 状态 | GUI 处理 |
