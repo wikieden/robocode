@@ -507,6 +507,11 @@ impl LaneWorker {
                 return;
             }
         };
+        // Deliberately NOT the shared permission gate: lane approvals are
+        // queued and resolved later by `resume_approval` (TTL, scope, and
+        // permission-epoch checks included), so there is no synchronous ask
+        // flow to hand the gate here. Only the pure decide() runs now; the
+        // gate-shaped re-check happens inside `resume_approval`.
         let (permission, permission_epoch) = match self.permissions.lock() {
             Ok(permissions) => (permissions.engine.decide(&tool, &input), permissions.epoch),
             Err(_) => {
@@ -751,19 +756,19 @@ impl LaneWorker {
         let current_epoch = permission_epoch == pending.permission_epoch;
         let permission_allowed =
             if valid_scope && unexpired && current_epoch && response.is_allowed() {
-                match permissions.decide(&pending.tool, &pending.input) {
-                    PermissionDecision::Deny(_) => false,
-                    PermissionDecision::Allow(_) => true,
-                    PermissionDecision::Ask(ask) => matches!(
-                        permissions.apply_approval(
-                            response.clone(),
-                            &ask,
-                            &pending.tool,
-                            &pending.input,
-                        ),
-                        PermissionDecision::Allow(_)
+                // Re-check through the shared permission gate: the queued
+                // operator response stands in for the interactive ask flow, so
+                // the plan-mode re-check in apply_approval still applies.
+                matches!(
+                    crate::permission_gate::resolve(
+                        &mut permissions,
+                        &pending.tool,
+                        &pending.tool.name,
+                        &pending.input,
+                        |_ask, _prompt| response.clone(),
                     ),
-                }
+                    PermissionDecision::Allow(_)
+                )
             } else {
                 false
             };

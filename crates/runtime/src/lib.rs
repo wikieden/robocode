@@ -24,6 +24,7 @@ mod lane_runtime;
 mod lane_supervisor;
 mod lane_worker;
 mod lsp_tools;
+mod permission_gate;
 mod presentation;
 mod project_runtime;
 mod provider_commands;
@@ -334,7 +335,9 @@ pub struct SessionEngine {
     ui_cli_override: Option<UiPreferences>,
     ui_system_context: UiPreferences,
     tools: ToolRegistry,
-    permissions: PermissionEngine,
+    /// Shared handle so the registry-level permission backstop always sees
+    /// the live mode and rules; see `permission_gate`.
+    permissions: permission_gate::SharedPermissionEngine,
     store: SessionStore,
     workflows: WorkflowStore,
     lsp_runtime: Arc<LspRuntime>,
@@ -474,6 +477,14 @@ impl SessionEngine {
         let context_engine_root = cwd.join(".viden").join("context-engine");
         let cost_workflow_id =
             Some(bounded_cost_id(store.session_id()).unwrap_or_else(|| "session".to_string()));
+        let permissions = permission_gate::SharedPermissionEngine::new(PermissionEngine::new(&cwd));
+        let mut tools = ToolRegistry::builtin();
+        // Structural fail-closed backstop: even a call site that bypasses the
+        // permission gate cannot execute a mutating tool against a Deny (plan
+        // mode included) or an unresolved Ask.
+        tools.register_interceptor(Arc::new(
+            permission_gate::PermissionBackstopInterceptor::new(permissions.clone()),
+        ));
         let engine = Self {
             cwd: cwd.clone(),
             provider,
@@ -486,8 +497,8 @@ impl SessionEngine {
             user_config_path_override: None,
             ui_cli_override: None,
             ui_system_context: UiPreferences::client_default(),
-            tools: ToolRegistry::builtin(),
-            permissions: PermissionEngine::new(&cwd),
+            tools,
+            permissions,
             store,
             workflows,
             lsp_runtime: Arc::new(LspRuntime::new(LspServerRegistry::default())),
@@ -749,7 +760,7 @@ impl SessionEngine {
     }
 
     pub(crate) fn lane_permission_engine(&self) -> PermissionEngine {
-        self.permissions.clone()
+        self.permissions.engine_snapshot()
     }
 
     pub fn provider_name(&self) -> &str {
@@ -823,7 +834,7 @@ impl SessionEngine {
     }
 
     pub fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
-        let mut next_permissions = self.permissions.clone();
+        let mut next_permissions = self.permissions.engine_snapshot();
         let mut next_snapshot = self.runtime_snapshot.clone();
         next_permissions.set_mode(mode);
         next_snapshot.permission_mode = mode;
@@ -841,7 +852,7 @@ impl SessionEngine {
         // Publish the PermissionEngine and snapshot only after their complete
         // metadata batch is durable; failed control commands must remain invisible.
         self.persist_meta_batch(&metadata)?;
-        self.permissions = next_permissions;
+        self.permissions.replace_engine(next_permissions);
         self.runtime_snapshot = next_snapshot;
         Ok(())
     }
@@ -855,7 +866,7 @@ impl SessionEngine {
     }
 
     pub fn set_work_mode(&mut self, mode: WorkMode) -> Result<(), String> {
-        let mut next_permissions = self.permissions.clone();
+        let mut next_permissions = self.permissions.engine_snapshot();
         let mut next_snapshot = self.runtime_snapshot.clone();
         next_snapshot.work_mode = mode;
         let mut metadata = vec![("work_mode", mode.cli_name())];
@@ -880,7 +891,7 @@ impl SessionEngine {
         }
 
         self.persist_meta_batch(&metadata)?;
-        self.permissions = next_permissions;
+        self.permissions.replace_engine(next_permissions);
         self.runtime_snapshot = next_snapshot;
         Ok(())
     }

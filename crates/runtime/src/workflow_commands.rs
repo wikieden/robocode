@@ -3,7 +3,6 @@ mod task_commands;
 
 use super::SessionEngine;
 use crate::presentation::render_permission_denial;
-use viden_permissions::PermissionEngine;
 use viden_types::{
     ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput, ToolSpec, TranscriptEntry,
     now_timestamp,
@@ -29,14 +28,11 @@ impl SessionEngine {
         let mut input = ToolInput::new();
         input.insert("action".to_string(), action.to_string());
         input.insert("preview".to_string(), preview.to_string());
-        let mut decision = self.permissions.decide(&tool, &input);
-        if let PermissionDecision::Ask(ask) = &decision {
-            let prompt = PermissionEngine::prompt_for(&tool_name, ask, &input);
-            let approval = approver(prompt);
-            decision = self
-                .permissions
-                .apply_approval(approval, ask, &tool, &input);
-        }
+        let mut gate_permissions = self.permissions.clone();
+        let decision =
+            crate::permission_gate::resolve(&mut gate_permissions, &tool, &tool_name, &input, {
+                |_ask, prompt| approver(prompt)
+            });
         match decision {
             PermissionDecision::Allow(allow) => {
                 self.store_entry(TranscriptEntry::Permission {

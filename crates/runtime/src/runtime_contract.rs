@@ -1183,47 +1183,50 @@ impl SessionEngine {
         permission_input.insert("handle_id".to_string(), handle.handle_id.clone());
         permission_input.insert("reason_category".to_string(), reason_category.clone());
         let tool_spec = context_read_tool_spec();
-        let mut decision = self.permissions.decide(&tool_spec, &permission_input);
         let mut permission_decision = "allow".to_string();
-        let mut reason_rule_category = permission_reason_category_from_decision(&decision);
+        let mut asked_reason_category = None;
         let mut events = Vec::new();
-        if let PermissionDecision::Ask(ask) = &decision {
-            reason_rule_category = permission_reason_category(ask.decision_reason.as_ref());
-            let request_id = fresh_id("approval");
-            events.push(RuntimeEvent::new(
-                next_sequence(&events),
-                RuntimeEventKind::ApprovalRequested {
-                    approval: approval_request_view(
-                        &request_id,
-                        &PermissionEngine::prompt_for("context_read", ask, &permission_input),
-                    ),
-                },
-            ));
-            let approval = approver(PermissionEngine::prompt_for(
-                "context_read",
-                ask,
-                &permission_input,
-            ));
-            let approval_decision = approval.decision.clone();
-            decision =
-                self.permissions
-                    .apply_approval(approval, ask, &tool_spec, &permission_input);
-            permission_decision = if matches!(approval_decision, ApprovalDecision::Allow { .. }) {
-                "approved"
-            } else {
-                "denied"
-            }
-            .to_string();
-            events.push(RuntimeEvent::new(
-                next_sequence(&events),
-                RuntimeEventKind::ApprovalResolved {
-                    request_id,
-                    decision: approval_decision,
-                    owner: RuntimeOwner::default(),
-                    audit_id: fresh_id("audit"),
-                },
-            ));
-        }
+        // Decide -> ask -> apply flows through the shared permission gate; the
+        // closure keeps this site's approval runtime events and audit fields.
+        let mut gate_permissions = self.permissions.clone();
+        let decision = crate::permission_gate::resolve(
+            &mut gate_permissions,
+            &tool_spec,
+            "context_read",
+            &permission_input,
+            |ask, prompt| {
+                asked_reason_category =
+                    Some(permission_reason_category(ask.decision_reason.as_ref()));
+                let request_id = fresh_id("approval");
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::ApprovalRequested {
+                        approval: approval_request_view(&request_id, &prompt),
+                    },
+                ));
+                let approval = approver(prompt);
+                let approval_decision = approval.decision.clone();
+                permission_decision =
+                    if matches!(approval_decision, ApprovalDecision::Allow { .. }) {
+                        "approved"
+                    } else {
+                        "denied"
+                    }
+                    .to_string();
+                events.push(RuntimeEvent::new(
+                    next_sequence(&events),
+                    RuntimeEventKind::ApprovalResolved {
+                        request_id,
+                        decision: approval_decision,
+                        owner: RuntimeOwner::default(),
+                        audit_id: fresh_id("audit"),
+                    },
+                ));
+                approval
+            },
+        );
+        let reason_rule_category = asked_reason_category
+            .unwrap_or_else(|| permission_reason_category_from_decision(&decision));
         match decision {
             PermissionDecision::Deny(deny) => return Err(deny.message),
             PermissionDecision::Ask(_) => unreachable!("ask decisions are resolved synchronously"),
@@ -2286,7 +2289,9 @@ impl SessionEngine {
         let scoped_mode =
             agent_permission_mode_for_policy(self.permissions.mode(), &spec.permission_policy);
         self.permissions.set_mode(scoped_mode);
-        apply_agent_role_permission_rules(&mut self.permissions, spec);
+        let mut scoped_engine = self.permissions.engine_snapshot();
+        apply_agent_role_permission_rules(&mut scoped_engine, spec);
+        self.permissions.replace_engine(scoped_engine);
         self.runtime_snapshot.permission_mode = scoped_mode;
         self.runtime_snapshot.permission_level = PermissionLevel::from_legacy_mode(scoped_mode);
         if scoped_mode == PermissionMode::Plan {

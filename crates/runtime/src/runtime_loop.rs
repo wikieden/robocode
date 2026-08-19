@@ -8,7 +8,6 @@ use crate::{
     presentation::render_permission_denial,
 };
 use viden_lsp::SemanticProvider;
-use viden_permissions::PermissionEngine;
 use viden_provider::ModelRequestControl;
 use viden_tools::ToolExecutionContext;
 use viden_types::{
@@ -552,41 +551,47 @@ impl SessionEngine {
         progress.carry(self.store_entry(TranscriptEntry::Message {
             message: assistant_tool_call,
         }))?;
-        let mut decision = self.permissions.decide(&tool_spec, &call.input);
-        if let PermissionDecision::Ask(ask) = &decision {
-            task.status = AgentTaskStatus::WaitingApproval;
-            task.activity = format!("waiting for approval: `{}`", call.name);
-            task.progress = 35;
-            task.permissions
-                .push("operator approval required".to_string());
-            task.updated_at = Some(now_millis());
-            self.upsert_agent_task(task.clone());
-            let prompt = PermissionEngine::prompt_for(&call.name, ask, &call.input);
-            let capture_ordered_approval = on_approval_boundary.is_none();
-            // Publish every completed prefix before the supervisor opens the
-            // next live approval boundary.
-            if let Some(on_approval_boundary) = on_approval_boundary.as_deref_mut() {
-                let completed = progress.take_completed();
-                if !completed.engine_events.is_empty()
-                    || !completed.ordered_runtime_facts.is_empty()
-                {
-                    on_approval_boundary(completed);
+        // Decide -> ask -> apply flows through the shared permission gate;
+        // this closure only carries the call site's task and approval-boundary
+        // bookkeeping around obtaining the operator response.
+        let mut gate_permissions = self.permissions.clone();
+        let decision = crate::permission_gate::resolve(
+            &mut gate_permissions,
+            &tool_spec,
+            &call.name,
+            &call.input,
+            |_ask, prompt| {
+                task.status = AgentTaskStatus::WaitingApproval;
+                task.activity = format!("waiting for approval: `{}`", call.name);
+                task.progress = 35;
+                task.permissions
+                    .push("operator approval required".to_string());
+                task.updated_at = Some(now_millis());
+                self.upsert_agent_task(task.clone());
+                let capture_ordered_approval = on_approval_boundary.is_none();
+                // Publish every completed prefix before the supervisor opens the
+                // next live approval boundary.
+                if let Some(on_approval_boundary) = on_approval_boundary.as_deref_mut() {
+                    let completed = progress.take_completed();
+                    if !completed.engine_events.is_empty()
+                        || !completed.ordered_runtime_facts.is_empty()
+                    {
+                        on_approval_boundary(completed);
+                    }
                 }
-            }
-            let approval = approver(prompt.clone());
-            if capture_ordered_approval {
-                progress
-                    .ordered_approval_boundaries
-                    .push(crate::OrderedApprovalBoundary {
-                        before_engine_event_index: progress.engine_events.len(),
-                        prompt,
-                        decision: approval.decision.clone(),
-                    });
-            }
-            decision = self
-                .permissions
-                .apply_approval(approval, ask, &tool_spec, &call.input);
-        }
+                let approval = approver(prompt.clone());
+                if capture_ordered_approval {
+                    progress
+                        .ordered_approval_boundaries
+                        .push(crate::OrderedApprovalBoundary {
+                            before_engine_event_index: progress.engine_events.len(),
+                            prompt,
+                            decision: approval.decision.clone(),
+                        });
+                }
+                approval
+            },
+        );
 
         match decision {
             PermissionDecision::Allow(allow) => {

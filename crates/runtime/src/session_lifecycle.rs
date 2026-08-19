@@ -156,7 +156,8 @@ impl SessionEngine {
         self.last_diff = None;
         self.last_test = None;
         self.provider_cost_usage.clear();
-        self.permissions = PermissionEngine::new(&self.cwd);
+        self.permissions
+            .replace_engine(PermissionEngine::new(&self.cwd));
         self.hydrate(entries).map_err(RuntimeResumeError::Load)?;
         self.hydrate_workflow_agent_projection()
             .map_err(RuntimeResumeError::Load)?;
