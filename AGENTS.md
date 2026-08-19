@@ -230,6 +230,25 @@ the task explicitly authorizes them. State skipped gates in the handoff.
 
 ## Reference Project Guidance
 
+Standing reference architectures (user decision, 2026-08-17): consult
+`openai/codex` and `deepseek-ai/deepseek-harness` before proposing or deciding
+any requirement or architecture change.
+
+- `openai/codex` (Rust agent CLI) is architecturally isomorphic to Viden:
+  core-owned state, thin frontends, JSONL facts with a derived index. Check
+  contract fixtures, protocol evolution discipline, the sandbox/permission
+  decision-versus-enforcement split, the app-server daemon surface, headless
+  contract clients, and swappable compaction strategies against it. Local
+  deep-read notes, when present, live under `proposals/`.
+- `deepseek-ai/deepseek-harness` (Node.js, "everything is a plugin", built on
+  Cordis) is the reference for plugin-first composition, delegating subagent
+  work to external CLIs, and a web operator surface. It is a developer preview
+  with breaking changes; cite the exact commit consulted and never vendor its
+  code.
+
+A requirement decision that diverges from both references must record the
+reason in the controlling plan or design document.
+
 Useful `.ref/claude-code-main` patterns:
 
 - `main.tsx`: startup and runtime orchestration.
