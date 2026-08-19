@@ -49,15 +49,24 @@ Status:
   incrementally. Sandboxed or remote execution becomes a provider swap once
   migration completes.
 
-## 3. Tool Execution Pre/Post Seam (Accepted, planned)
+## 3. Tool Execution Pre/Post Seam (Implemented)
 
-`ToolRegistry::execute` dispatches directly today; permission checks happen at
-the call site before execution. A registry-level pre-execute/post-execute seam
-lets permissions, cost metering, and evidence capture attach uniformly instead
-of relying on every call site. Permission-before-mutation stays a structural
-guarantee rather than a discipline. Scope: additive, default behavior
-unchanged; the runtime call site in `handle_tool_call` becomes the first
-consumer.
+Status: `ToolRegistry` in `crates/tools/src/lib.rs` now carries a
+`ToolExecutionInterceptor` seam — `before_execute` hooks run in registration
+order (the first `Reject` stops the call before the tool runs) and
+`after_execute` hooks unwind in reverse; a registry without interceptors
+behaves exactly as before. The runtime is the first consumer:
+`crates/runtime/src/permission_gate.rs` writes the decide -> ask ->
+apply_approval sequence once (`handle_tool_call`, context retrieval, the lane
+approval re-check, workflow and agent write gates, and the ACP fs/terminal
+bridges all resolve through it) and registers a `PermissionBackstopInterceptor`
+that re-checks the pure `decide()` before any mutating tool executes, so
+permission-before-mutation is structural rather than call-site discipline.
+ACP client-requested file and terminal effects also moved onto the item 2
+capability seam (`FilesystemCapability`/`ProcessCapability`, including a new
+interactive-process spawn surface). Lane mutations keep their queued approval
+flow with the gate-shaped re-check inside `resume_approval`; cost metering and
+evidence capture remain future interceptor candidates.
 
 ## 4. Minimal Tool Preset For Reproducible Evaluation (Proposal)
 
@@ -87,5 +96,6 @@ and owned by Core; do not chase dynamic plugin parity.
 1. Item 1 extension (context projection coverage) — next Core contract
    discussion.
 2. Item 2 — schedule with the next `crates/tools` change set.
-3. Item 3 — schedule with the next tools/permissions change set.
+3. Item 3 — implemented; future interceptors (cost metering, evidence
+   capture) attach to the existing seam as needed.
 4. Items 4 and 5 — revisit after the `frontend-contract-v1` checkpoint ships.

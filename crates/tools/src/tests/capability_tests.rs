@@ -218,3 +218,67 @@ fn local_context_preserves_on_disk_behavior() {
         "on disk"
     );
 }
+
+#[test]
+fn local_process_spawns_interactive_children_through_the_seam() {
+    use crate::InteractiveInvocation;
+    use std::io::Write as _;
+    use std::time::{Duration, Instant};
+
+    let cwd = temp_dir("capability_interactive");
+    let mut process = crate::LocalProcess
+        .spawn_interactive(&InteractiveInvocation {
+            program: "cat".to_string(),
+            args: Vec::new(),
+            cwd,
+            envs: vec![("VIDEN_TEST_ENV".to_string(), "1".to_string())],
+        })
+        .expect("spawn interactive cat");
+
+    process
+        .stdin
+        .write_all(b"roundtrip through the seam\n")
+        .and_then(|_| process.stdin.flush())
+        .expect("write to interactive stdin");
+    // Closing stdin lets `cat` reach EOF and exit.
+    drop(process.stdin);
+
+    let mut output = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        while let Ok(chunk) = process.stdout.try_recv() {
+            output.extend(chunk.expect("stdout chunk"));
+        }
+        match process.control.try_wait().expect("try_wait") {
+            Some(exit_code) => {
+                assert_eq!(exit_code, Some(0));
+                break;
+            }
+            None => std::thread::sleep(Duration::from_millis(10)),
+        }
+    }
+    while let Ok(chunk) = process.stdout.try_recv() {
+        output.extend(chunk.expect("stdout chunk"));
+    }
+    assert_eq!(
+        String::from_utf8_lossy(&output),
+        "roundtrip through the seam\n"
+    );
+}
+
+#[test]
+fn scripted_process_rejects_interactive_spawn_fail_closed() {
+    use crate::InteractiveInvocation;
+
+    let scripted = ScriptedProcess::new("ok");
+    let error = match scripted.spawn_interactive(&InteractiveInvocation {
+        program: "cat".to_string(),
+        args: Vec::new(),
+        cwd: PathBuf::from("/virtual"),
+        envs: Vec::new(),
+    }) {
+        Ok(_) => panic!("scripted capability must not spawn interactive processes"),
+        Err(error) => error,
+    };
+    assert!(error.contains("not supported"), "got: {error}");
+}

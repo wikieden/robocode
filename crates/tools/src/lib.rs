@@ -16,8 +16,8 @@ mod shell;
 mod web;
 
 pub use capability::{
-    FilesystemCapability, LocalFilesystem, LocalProcess, ProcessCapability, ProcessInvocation,
-    ProcessOutput,
+    FilesystemCapability, InteractiveInvocation, InteractiveProcess, InteractiveProcessControl,
+    LocalFilesystem, LocalProcess, ProcessCapability, ProcessInvocation, ProcessOutput,
 };
 use files::{EditFileTool, ReadFileTool, WriteFileTool};
 use git::{

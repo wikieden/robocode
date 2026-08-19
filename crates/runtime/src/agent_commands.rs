@@ -16,6 +16,10 @@ use viden_plugin_api::{
     AgentPluginDescriptor, AgentProtocolVersion, AgentSource, AgentTransport,
 };
 use viden_plugin_host::builtin_agent_descriptors;
+use viden_tools::{
+    FilesystemCapability, InteractiveInvocation, InteractiveProcessControl, LocalFilesystem,
+    LocalProcess, ProcessCapability,
+};
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentCapabilityRecord,
     AgentContentPart, AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest,
@@ -2138,6 +2142,8 @@ fn start_codex_app_server_job(cwd: &Path, command: &str, task: String) -> Result
                 monitor_record.status = codex_app_server_turn_job_status(&evidence);
             }
             Err(error) => {
+                // Host bookkeeping (job result scratch file), not a
+                // model-driven effect: stays outside the capability seam.
                 let _ = fs::write(
                     &result_path,
                     format!("# Codex app-server turn failed\n\n{error}\n"),
@@ -2431,6 +2437,8 @@ fn start_typed_agent_session_attempt(
                     terminal.diagnostic = Some("cancelled by owner".to_string());
                     RuntimeEventKind::AgentSessionUpdated { session: terminal }
                 } else {
+                    // Host bookkeeping (job result scratch file), not a
+                    // model-driven effect: stays outside the capability seam.
                     let _ = fs::write(&result_path, format!("# ACP session failed\n\n{error}\n"));
                     monitor_record.status = "failed".to_string();
                     terminal.status = AgentSessionStatus::Failed;
@@ -2599,6 +2607,8 @@ fn start_acp_session_job(
                 }
             }
             Err(error) => {
+                // Host bookkeeping (job result scratch file), not a
+                // model-driven effect: stays outside the capability seam.
                 let _ = fs::write(&result_path, format!("# ACP session failed\n\n{error}\n"));
                 monitor_record.status = "failed".to_string();
             }
@@ -4285,6 +4295,10 @@ where
     let mut log_entries = Vec::new();
     let mut permission_engine = PermissionEngine::new(cwd);
     permission_engine.restore_context(permission_context);
+    // ACP client-requested effects (fs/*, terminal/*) run through the shared
+    // OS capability seam; the local providers preserve direct std behavior.
+    let acp_fs_capability: Arc<dyn FilesystemCapability> = Arc::new(LocalFilesystem);
+    let acp_process_capability: Arc<dyn ProcessCapability> = Arc::new(LocalProcess);
     let resident_key = resident_session_id
         .as_deref()
         .map(|session_id| resident_acp_session_key(cwd, session_id));
@@ -4555,6 +4569,7 @@ where
                     cwd,
                     &mut permission_engine,
                     approver,
+                    &acp_fs_capability,
                     &value,
                 ) {
                     if let Err(error) = write_acp_request(&mut stdin, &response, &mut log_entries) {
@@ -4566,6 +4581,7 @@ where
                     cwd,
                     &mut permission_engine,
                     approver,
+                    &acp_process_capability,
                     &mut terminals,
                     &value,
                 ) {
@@ -5695,15 +5711,22 @@ fn acp_filesystem_client_request_response(
     cwd: &Path,
     permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    fs_capability: &Arc<dyn FilesystemCapability>,
     request: &Value,
 ) -> Option<String> {
     let method = request.get("method").and_then(Value::as_str)?;
     match method {
-        "fs/read_text_file" => Some(acp_read_text_file_response(cwd, permission_engine, request)),
+        "fs/read_text_file" => Some(acp_read_text_file_response(
+            cwd,
+            permission_engine,
+            fs_capability,
+            request,
+        )),
         "fs/write_text_file" => Some(acp_write_text_file_response(
             cwd,
             permission_engine,
             approver,
+            fs_capability,
             request,
         )),
         _ => None,
@@ -5713,6 +5736,7 @@ fn acp_filesystem_client_request_response(
 fn acp_read_text_file_response(
     cwd: &Path,
     permission_engine: &PermissionEngine,
+    fs_capability: &Arc<dyn FilesystemCapability>,
     request: &Value,
 ) -> String {
     let id = acp_request_id(request);
@@ -5722,17 +5746,19 @@ fn acp_read_text_file_response(
     let input = acp_file_tool_input(&path, None);
     let tool = acp_file_tool_spec("read_file", false);
     match permission_engine.decide(&tool, &input) {
-        PermissionDecision::Allow(_) => match read_acp_text_file(cwd, &path, request) {
-            Ok(content) => json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "content": content
-                }
-            })
-            .to_string(),
-            Err(error) => acp_client_error_response(id, -32002, &error),
-        },
+        PermissionDecision::Allow(_) => {
+            match read_acp_text_file(fs_capability, cwd, &path, request) {
+                Ok(content) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": content
+                    }
+                })
+                .to_string(),
+                Err(error) => acp_client_error_response(id, -32002, &error),
+            }
+        }
         PermissionDecision::Ask(ask) => acp_client_error_response(id, -32003, &ask.message),
         PermissionDecision::Deny(deny) => acp_client_error_response(id, -32003, &deny.message),
     }
@@ -5742,6 +5768,7 @@ fn acp_write_text_file_response(
     cwd: &Path,
     permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    fs_capability: &Arc<dyn FilesystemCapability>,
     request: &Value,
 ) -> String {
     let id = acp_request_id(request);
@@ -5753,22 +5780,25 @@ fn acp_write_text_file_response(
     };
     let input = acp_file_tool_input(&path, Some(content));
     let tool = acp_file_tool_spec("write_file", true);
-    let mut decision = permission_engine.decide(&tool, &input);
-    if let PermissionDecision::Ask(ask) = &decision {
-        let prompt = PermissionEngine::prompt_for("write_file", ask, &input);
-        let approval = approver(prompt);
-        decision = permission_engine.apply_approval(approval, ask, &tool, &input);
-    }
+    let decision = crate::permission_gate::resolve(
+        permission_engine,
+        &tool,
+        "write_file",
+        &input,
+        |_ask, prompt| approver(prompt),
+    );
     match decision {
-        PermissionDecision::Allow(_) => match write_acp_text_file(cwd, &path, content) {
-            Ok(()) => json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {}
-            })
-            .to_string(),
-            Err(error) => acp_client_error_response(id, -32002, &error),
-        },
+        PermissionDecision::Allow(_) => {
+            match write_acp_text_file(fs_capability, cwd, &path, content) {
+                Ok(()) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {}
+                })
+                .to_string(),
+                Err(error) => acp_client_error_response(id, -32002, &error),
+            }
+        }
         PermissionDecision::Ask(_) => unreachable!("ask decisions should be resolved"),
         PermissionDecision::Deny(deny) => acp_client_error_response(id, -32003, &deny.message),
     }
@@ -5810,8 +5840,10 @@ struct AcpTerminalStore {
 }
 
 struct AcpTerminalRecord {
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
+    /// Present while the process runs; spawned through `ProcessCapability` so
+    /// ACP terminals stay behind the OS capability seam.
+    control: Option<Box<dyn InteractiveProcessControl>>,
+    stdin: Option<Box<dyn Write + Send>>,
     stdout: mpsc::Receiver<std::io::Result<Vec<u8>>>,
     stderr: mpsc::Receiver<std::io::Result<Vec<u8>>>,
     output: String,
@@ -5827,6 +5859,7 @@ fn acp_terminal_client_request_response(
     cwd: &Path,
     permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    process_capability: &Arc<dyn ProcessCapability>,
     terminals: &mut AcpTerminalStore,
     request: &Value,
 ) -> Option<String> {
@@ -5836,6 +5869,7 @@ fn acp_terminal_client_request_response(
             cwd,
             permission_engine,
             approver,
+            process_capability,
             terminals,
             request,
         )),
@@ -5854,6 +5888,7 @@ fn acp_terminal_create_response(
     cwd: &Path,
     permission_engine: &mut PermissionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    process_capability: &Arc<dyn ProcessCapability>,
     terminals: &mut AcpTerminalStore,
     request: &Value,
 ) -> String {
@@ -5876,14 +5911,16 @@ fn acp_terminal_create_response(
         is_mutating: true,
         input_schema_hint: "command='cargo test' path=/workspace".to_string(),
     };
-    let mut decision = permission_engine.decide(&tool, &input);
-    if let PermissionDecision::Ask(ask) = &decision {
-        let prompt = PermissionEngine::prompt_for("shell", ask, &input);
-        let approval = approver(prompt);
-        decision = permission_engine.apply_approval(approval, ask, &tool, &input);
-    }
+    let decision = crate::permission_gate::resolve(
+        permission_engine,
+        &tool,
+        "shell",
+        &input,
+        |_ask, prompt| approver(prompt),
+    );
     match decision {
         PermissionDecision::Allow(_) => match spawn_acp_terminal_command(
+            process_capability,
             command,
             &args,
             &exec_cwd,
@@ -5936,7 +5973,7 @@ fn acp_terminal_input_response(terminals: &mut AcpTerminalStore, request: &Value
         return acp_client_error_response(id, -32004, "unknown ACP terminal id");
     };
     acp_terminal_refresh(record);
-    if record.child.is_none() {
+    if record.control.is_none() {
         return acp_client_error_response(id, -32004, "ACP terminal is not running");
     }
     let Some(stdin) = record.stdin.as_mut() else {
@@ -5972,7 +6009,7 @@ fn acp_terminal_output_response(terminals: &mut AcpTerminalStore, request: &Valu
         return acp_client_error_response(id, -32004, "unknown ACP terminal id");
     };
     acp_terminal_refresh(record);
-    if record.output.is_empty() && record.child.is_some() {
+    if record.output.is_empty() && record.control.is_some() {
         acp_terminal_poll_output(record, Duration::from_millis(150));
     }
     json!({
@@ -6054,43 +6091,30 @@ fn acp_terminal_kill_response(terminals: &mut AcpTerminalStore, request: &Value)
     .to_string()
 }
 
+// The terminal child is a model-driven effect and is spawned only through the
+// `ProcessCapability` seam; the record then owns the seam-provided stdin,
+// output channels, and control handle.
 fn spawn_acp_terminal_command(
+    process_capability: &Arc<dyn ProcessCapability>,
     command: &str,
     args: &[String],
     cwd: &Path,
     envs: Vec<(String, String)>,
     output_byte_limit: Option<u64>,
 ) -> Result<AcpTerminalRecord, String> {
-    let mut process = Command::new(command);
-    process
-        .args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    for (name, value) in envs {
-        process.env(name, value);
-    }
-    let mut child = process
-        .spawn()
+    let spawned = process_capability
+        .spawn_interactive(&InteractiveInvocation {
+            program: command.to_string(),
+            args: args.to_vec(),
+            cwd: cwd.to_path_buf(),
+            envs,
+        })
         .map_err(|err| format!("failed to run ACP terminal command `{command}`: {err}"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| format!("failed to capture stdout for ACP terminal command `{command}`"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| format!("failed to capture stderr for ACP terminal command `{command}`"))?;
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| format!("failed to capture stdin for ACP terminal command `{command}`"))?;
     Ok(AcpTerminalRecord {
-        child: Some(child),
-        stdin: Some(stdin),
-        stdout: read_bytes_async(stdout),
-        stderr: read_bytes_async(stderr),
+        control: Some(spawned.control),
+        stdin: Some(spawned.stdin),
+        stdout: spawned.stdout,
+        stderr: spawned.stderr,
         output: String::new(),
         output_byte_limit,
         truncated: false,
@@ -6112,19 +6136,19 @@ fn acp_terminal_wait_timeout() -> Duration {
 
 fn acp_terminal_refresh(record: &mut AcpTerminalRecord) {
     acp_terminal_drain_output(record);
-    if let Some(child) = record.child.as_mut() {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                record.exit_code = status.code();
+    if let Some(control) = record.control.as_mut() {
+        match control.try_wait() {
+            Ok(Some(exit_code)) => {
+                record.exit_code = exit_code;
                 record.stdin = None;
-                record.child = None;
+                record.control = None;
                 acp_terminal_drain_output_after_exit(record);
             }
             Ok(None) => {}
             Err(error) => {
                 record.signal = Some(format!("wait_error:{error}"));
                 record.stdin = None;
-                record.child = None;
+                record.control = None;
             }
         }
     }
@@ -6142,7 +6166,7 @@ fn acp_terminal_wait_for_exit(record: &mut AcpTerminalRecord) {
     let deadline = Instant::now() + acp_terminal_wait_timeout();
     loop {
         acp_terminal_refresh(record);
-        if record.child.is_none() {
+        if record.control.is_none() {
             break;
         }
         if Instant::now() >= deadline {
@@ -6168,9 +6192,9 @@ fn acp_terminal_wait_for_exit(record: &mut AcpTerminalRecord) {
 
 fn acp_terminal_poll_output(record: &mut AcpTerminalRecord, timeout: Duration) {
     let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline && record.output.is_empty() && record.child.is_some() {
+    while Instant::now() < deadline && record.output.is_empty() && record.control.is_some() {
         acp_terminal_refresh(record);
-        if !record.output.is_empty() || record.child.is_none() {
+        if !record.output.is_empty() || record.control.is_none() {
             break;
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -6180,16 +6204,34 @@ fn acp_terminal_poll_output(record: &mut AcpTerminalRecord, timeout: Duration) {
 
 fn acp_terminal_terminate(record: &mut AcpTerminalRecord, signal: &str) {
     record.stdin = None;
-    if let Some(child) = record.child.as_mut() {
-        let _ = child.kill();
-        let exited = wait_child_timeout(child, Duration::from_secs(1));
-        if exited && let Ok(Some(status)) = child.try_wait() {
-            record.exit_code = status.code();
+    if let Some(control) = record.control.as_mut() {
+        let _ = control.kill();
+        if let Some(exit_code) =
+            wait_interactive_exit_timeout(control.as_mut(), Duration::from_secs(1))
+        {
+            record.exit_code = exit_code;
         }
         record.signal = Some(signal.to_string());
-        record.child = None;
+        record.control = None;
     }
     acp_terminal_drain_output(record);
+}
+
+/// Poll the interactive control handle until the process exits or the
+/// timeout elapses; `Some(exit_code)` only when the exit was observed.
+fn wait_interactive_exit_timeout(
+    control: &mut dyn InteractiveProcessControl,
+    timeout: Duration,
+) -> Option<Option<i32>> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        match control.try_wait() {
+            Ok(Some(exit_code)) => return Some(exit_code),
+            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 fn acp_terminal_drain_output(record: &mut AcpTerminalRecord) {
@@ -6322,26 +6364,43 @@ fn truncate_terminal_output(output: String, limit: Option<u64>) -> (String, bool
     (output[start..].to_string(), true)
 }
 
-fn read_acp_text_file(cwd: &Path, raw_path: &str, request: &Value) -> Result<String, String> {
+// ACP client file requests are model-driven effects: they must reach the OS
+// only through the shared `FilesystemCapability` seam so one provider swap
+// relocates them together with the built-in file tools.
+fn read_acp_text_file(
+    fs_capability: &Arc<dyn FilesystemCapability>,
+    cwd: &Path,
+    raw_path: &str,
+    request: &Value,
+) -> Result<String, String> {
     let path = resolve_acp_path(cwd, raw_path);
-    if path.is_dir() {
+    if fs_capability.is_dir(&path) {
         return Err(format!("`{}` is a directory", path.display()));
     }
-    let content = fs::read_to_string(&path)
+    let content = fs_capability
+        .read_to_string(&path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     Ok(slice_acp_file_content(&content, request))
 }
 
-fn write_acp_text_file(cwd: &Path, raw_path: &str, content: &str) -> Result<(), String> {
+fn write_acp_text_file(
+    fs_capability: &Arc<dyn FilesystemCapability>,
+    cwd: &Path,
+    raw_path: &str,
+    content: &str,
+) -> Result<(), String> {
     let path = resolve_acp_path(cwd, raw_path);
-    if path.is_dir() {
+    if fs_capability.is_dir(&path) {
         return Err(format!("`{}` is a directory", path.display()));
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
+        fs_capability
+            .create_dir_all(parent)
             .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
     }
-    fs::write(&path, content).map_err(|err| format!("failed to write {}: {err}", path.display()))
+    fs_capability
+        .write(&path, content)
+        .map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
 fn resolve_acp_path(cwd: &Path, raw_path: &str) -> PathBuf {
@@ -6712,30 +6771,6 @@ fn read_lines_async(
                 Ok(0) => break,
                 Ok(_) => {
                     if sender.send(Ok(line)).is_err() {
-                        break;
-                    }
-                }
-                Err(error) => {
-                    let _ = sender.send(Err(error));
-                    break;
-                }
-            }
-        }
-    });
-    receiver
-}
-
-fn read_bytes_async(
-    mut reader: impl std::io::Read + Send + 'static,
-) -> mpsc::Receiver<std::io::Result<Vec<u8>>> {
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut buffer = [0_u8; 4096];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(size) => {
-                    if sender.send(Ok(buffer[..size].to_vec())).is_err() {
                         break;
                     }
                 }
@@ -7221,6 +7256,14 @@ mod tests {
     static TEMP_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
     static SUBPROCESS_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+    fn local_fs_capability() -> Arc<dyn FilesystemCapability> {
+        Arc::new(LocalFilesystem)
+    }
+
+    fn local_process_capability() -> Arc<dyn ProcessCapability> {
+        Arc::new(LocalProcess)
+    }
+
     #[test]
     fn codex_run_args_default_to_read_only_and_require_explicit_write() {
         let read_only = parse_codex_run_args(&["summarize".into(), "repo".into()])
@@ -7320,6 +7363,110 @@ mod tests {
                 "evidence",
                 "approvals"
             ]
+        );
+    }
+
+    #[test]
+    fn acp_file_effects_flow_through_the_filesystem_capability() {
+        // ACP client-requested reads and writes are model-driven effects and
+        // must be OS-detached: swapping an in-memory capability must capture
+        // them completely, leaving the real disk untouched.
+        #[derive(Default)]
+        struct MemoryFilesystem {
+            files: Mutex<BTreeMap<PathBuf, String>>,
+        }
+
+        impl viden_tools::FilesystemCapability for MemoryFilesystem {
+            fn is_dir(&self, _path: &Path) -> bool {
+                false
+            }
+
+            fn read(&self, path: &Path) -> Result<Vec<u8>, String> {
+                self.read_to_string(path).map(String::into_bytes)
+            }
+
+            fn read_to_string(&self, path: &Path) -> Result<String, String> {
+                self.files
+                    .lock()
+                    .unwrap()
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| format!("memory fs has no file at {}", path.display()))
+            }
+
+            fn create_dir_all(&self, _path: &Path) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn write(&self, path: &Path, contents: &str) -> Result<(), String> {
+                self.files
+                    .lock()
+                    .unwrap()
+                    .insert(path.to_path_buf(), contents.to_string());
+                Ok(())
+            }
+        }
+
+        let root = temp_root("acp_memory_fs_effects");
+        let target = root.join("captured.txt");
+        let memory = Arc::new(MemoryFilesystem::default());
+        let fs_capability: Arc<dyn viden_tools::FilesystemCapability> = memory.clone();
+        let mut permission_engine = PermissionEngine::new(&root);
+        let mut approver =
+            |_prompt: viden_types::PermissionPrompt| ApprovalResponse::allow_once(None);
+
+        let write_request = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "fs/write_text_file",
+            "params": {
+                "path": target.display().to_string(),
+                "content": "captured by memory fs"
+            }
+        });
+        let response = acp_filesystem_client_request_response(
+            &root,
+            &mut permission_engine,
+            &mut approver,
+            &fs_capability,
+            &write_request,
+        )
+        .expect("write request should be handled");
+        assert!(response.contains(r#""result":{}"#), "got: {response}");
+        assert_eq!(
+            memory
+                .files
+                .lock()
+                .unwrap()
+                .get(&target)
+                .map(String::as_str),
+            Some("captured by memory fs"),
+            "the ACP write must land in the swapped capability"
+        );
+        assert!(
+            !target.exists(),
+            "the ACP write must not touch the real filesystem"
+        );
+
+        let read_request = json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "fs/read_text_file",
+            "params": {
+                "path": target.display().to_string()
+            }
+        });
+        let response = acp_filesystem_client_request_response(
+            &root,
+            &mut permission_engine,
+            &mut approver,
+            &fs_capability,
+            &read_request,
+        )
+        .expect("read request should be handled");
+        assert!(
+            response.contains("captured by memory fs"),
+            "the ACP read must come from the swapped capability, got: {response}"
         );
     }
 
@@ -8811,6 +8958,7 @@ mod tests {
         let response = acp_read_text_file_response(
             &root,
             &engine,
+            &local_fs_capability(),
             &json!({
                 "jsonrpc": "2.0",
                 "id": 19,
@@ -8905,6 +9053,7 @@ mod tests {
             &root,
             &mut engine,
             &mut approver,
+            &local_process_capability(),
             &mut terminals,
             &json!({
                 "jsonrpc": "2.0",
@@ -8981,6 +9130,7 @@ mod tests {
             &root,
             &mut engine,
             &mut approver,
+            &local_process_capability(),
             &mut terminals,
             &json!({
                 "jsonrpc": "2.0",
@@ -9052,6 +9202,7 @@ mod tests {
             &root,
             &mut engine,
             &mut approver,
+            &local_process_capability(),
             &mut terminals,
             &json!({
                 "jsonrpc": "2.0",
@@ -9130,6 +9281,7 @@ mod tests {
             &root,
             &mut engine,
             &mut approver,
+            &local_process_capability(),
             &mut terminals,
             &json!({
                 "jsonrpc": "2.0",

@@ -41,13 +41,21 @@ DeepSeek Harness 换一个 filesystem/subprocess provider，Bash、PTY、LSP 就
   仍直接调用 `std::fs`/`std::process`，将增量迁移。迁移完成后，沙箱或
   远程执行只是换一个 provider。
 
-## 3. 工具执行 Pre/Post 接缝（已接受，已排期）
+## 3. 工具执行 Pre/Post 接缝（已实现）
 
-`ToolRegistry::execute` 目前直接分发；权限检查发生在执行前的调用点。在
-registry 层加 pre-execute/post-execute 接缝，可让权限、成本计量、evidence
-采集统一挂接，而不是依赖每个调用点自觉。「权限先于变更」从纪律变成结构性
-保证。范围：纯增量，默认行为不变；`handle_tool_call` 的运行时调用点是第一个
-消费者。
+状态：`crates/tools/src/lib.rs` 中的 `ToolRegistry` 现已带有
+`ToolExecutionInterceptor` 接缝——`before_execute` 钩子按注册顺序运行（第一个
+`Reject` 在工具运行前终止调用），`after_execute` 钩子按相反顺序回卷；未注册
+拦截器的注册表行为与之前完全一致。运行时是第一个消费者：
+`crates/runtime/src/permission_gate.rs` 把 decide -> ask -> apply_approval
+序列只写一次（`handle_tool_call`、context 检索、lane 审批复查、workflow 与
+agent 写入门禁、以及 ACP fs/terminal 桥均经由它解析），并注册
+`PermissionBackstopInterceptor`，在任何变更型工具执行前重新执行纯
+`decide()`，使「权限先于变更」成为结构性保证而非调用点纪律。ACP 客户端
+请求的文件与终端效果也迁移到第 2 条的能力接缝
+（`FilesystemCapability`/`ProcessCapability`，含新增的交互式进程 spawn
+表面）。lane 变更保留其排队审批流程，门禁形状的复查位于
+`resume_approval`；成本计量与 evidence 采集仍是未来的拦截器候选。
 
 ## 4. 可复现评测的最小工具预设（提案）
 
@@ -74,5 +82,6 @@ DeepSeek Harness 的主要批评。Viden 的差异化是同样的可组合性判
 
 1. 第 1 条的扩展（覆盖 context 投影）——下一次 Core 契约讨论。
 2. 第 2 条——随下一个 `crates/tools` 变更集排期。
-3. 第 3 条——随下一个 tools/permissions 变更集排期。
+3. 第 3 条——已实现；后续拦截器（成本计量、evidence 采集）按需挂接到
+   现有接缝。
 4. 第 4、5 条——在 `frontend-contract-v1` checkpoint 交付后再评估。
