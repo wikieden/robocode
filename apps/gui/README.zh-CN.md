@@ -238,6 +238,25 @@ reload 路径。Core 关闭时也会回收该工作区的全部常驻连接。
 Lane 与其精确 owner 仍可继续路由。对于已经没有 owner 的旧 terminal 原生 Lane，composer
 和“发送”会显示为禁用，而不是保留一个点击后无反应的控件。
 
+Composer meta 行提供三个弹层选择器：工作模式（规划、构建、评审、探索）、权限级别
+（询问、自动编辑、自动、只读、完全访问）与模型（按活跃 provider 与 Core 发布的各
+adapter 模型列表分组；当前组合高亮，Core 未发布选项时绝不凭空生成）。选择某项会经由
+host 命令 `set_work_mode`、`set_permission_level`、`select_model` 发送
+`SetWorkMode`、`SetPermissionLevel` 或 `SelectModel`，它们共用有序的 D1 pending
+管线并以刷新后的投影返回。选择器从不在本地套用 Core 的模式/权限联动规则：两个
+pill 都只按 Core 重新发布的 snapshot 重绘，因此选择“规划”时权限 pill 恰在 Core
+宣告的那一刻变为“只读”。控制命令在途时整行 `aria-busy` 且 pill 禁用；composer 不可
+编辑或未打开工作区时同样禁用。Core 拒绝或传输失败都渲染在 D1 已有 typed rejection
+surface（`role=alert`）上。弹层遵循 agent-menu 约定：Escape 关闭并把焦点交还 pill，
+外部点击关闭，方向键移动选项焦点。
+
+驾驶舱状态栏按终端词表渲染 host 计算的 statusbar 投影分段：`MODE`、`PERM`、
+`CONTEXT`（最近的工作区预算）、`EVENTS`（重放游标流位置；frontend-contract-v1 没有
+事件计数器，因此以位置标注）、`LANE`（选中 Lane、其唯一绑定 agent、状态与任务进度）、
+`LATENCY`、`TOKENS`（输入↑输出↓）、`DIAG`（运行时错误数）与 `REQ`（provider 请求/错误
+计数）。Core 事实缺失的分段渲染明确的破折号，而不是编造数字。存在待审批或开启的
+merge gate 时，右侧显示待审闸分段——状态栏唯一的交互元素——点击进入 D2 决策队列。
+
 Transcript 最多保留 240 行。离开最新输出边缘后会设为 `follow_latest=false`、保留当前锚点，
 并递增可见的新输出计数，而不会强制滚动。Rust 与 webview 测试覆盖 10,000-event burst、
 50,000 行、resize/idle 读取、CJK composition、多行 paste/undo、键盘遍历、ARIA region 与

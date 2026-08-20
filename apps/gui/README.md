@@ -294,6 +294,35 @@ Lane lifecycle cancellation, so the Lane and its exact owner remain routable.
 A legacy terminal native Lane without an owner renders a disabled composer and
 Send action instead of a clickable no-op.
 
+The composer meta row carries three popover selectors: work mode (Plan, Build,
+Review, Explore), permission level (Ask, Auto Edit, Auto, Read Only, Full
+Access), and model (grouped by the active provider and every adapter model
+list Core published; the current pair is highlighted, and nothing is invented
+when Core published no options). Selecting an option dispatches
+`SetWorkMode`, `SetPermissionLevel`, or `SelectModel` through the host
+commands `set_work_mode`, `set_permission_level`, and `select_model`, which
+share the ordered D1 pending pipeline and resolve with the refreshed
+projection. The selectors never apply Core's mode/permission coupling rule
+locally: both pills re-render from the snapshot Core republished, so choosing
+Plan visibly flips the permission pill to Read Only exactly when Core says so.
+While a control call is in flight the row is `aria-busy` and the pills are
+disabled; they are also disabled while the composer is not editable or no
+workspace is open. A Core rejection or transport failure renders on the typed
+D1 rejection surface (`role=alert`). Popovers follow the agent-menu
+conventions: Escape closes and returns focus to the pill, an outside click
+closes, and arrow keys move option focus.
+
+The cockpit statusbar renders the host-computed statusbar projection as
+terminal-vocabulary segments: `MODE`, `PERM`, `CONTEXT` (the most recent
+workspace budget), `EVENTS` (the replay-cursor stream position, titled as a
+position because frontend-contract-v1 publishes no event counter), `LANE`
+(selected Lane, its sole bound agent, status, and task progress), `LATENCY`,
+`TOKENS` (input up, output down), `DIAG` (runtime error count), and `REQ`
+(provider request/error counts). A segment whose Core fact is absent renders
+an explicit em-dash rather than a fabricated number. When approvals or open
+merge gates are waiting, the right edge shows the pending-gate segment — the
+bar's only interactive element — which navigates to the D2 decision queue.
+
 The transcript retains at most 240 rows. Leaving the latest edge sets
 `follow_latest=false`, preserves the current anchor, and increments a visible
 new-output count instead of forcing a scroll. Rust and webview tests cover
