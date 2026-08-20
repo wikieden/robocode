@@ -152,3 +152,41 @@ command, because a webview cannot open a workspace path; it refuses any
 reference outside the parts directory. This request stays open until the
 canonical `frontend-contract-v1` fixture covers an ACP turn returning an image
 part alongside text.
+
+## GUI-CORE-018: Checkpoint capture and restore
+
+D6 renders a "Restore checkpoint" recovery action, but schema 1 models no
+checkpoint at all: no `RuntimeCommand` captures or restores one, no checkpoint
+record exists in `RuntimeViewState`, and no event reports a restore outcome.
+The other D6 actions now reach real Core commands — `restart` sends
+`RetryAgentSession` and `close_lane` sends `StopLane` — which leaves
+`checkpoint` as the one action with nothing behind it.
+
+The GUI projects it as `available: false` with code `GUI-CORE-003` and never
+attaches a handler. It must not simulate a restore from replay, re-open a
+session at an earlier cursor, or present a snapshot re-read as a checkpoint.
+
+Close this request when Core publishes a typed checkpoint record with a stable
+id and the owner it belongs to, a command that restores one, an event carrying
+the restore outcome, and a canonical `frontend-contract-v1` fixture covering a
+capture followed by a restore.
+
+## GUI-CORE-019: Always approval scope and Edit decision
+
+`ApprovalScope` models `Once`, `Session`, and `RepoAllowlist`. The permission
+dock's design also offers "Always" and "Edit": Always is a standing decision
+across sessions and repositories, Edit returns a modified command for approval
+instead of accepting or refusing the one proposed. Neither exists in schema 1,
+so both render as fail-closed `GUI-CORE-003` placeholders and
+`PermissionChoice::Always` / `PermissionChoice::Edit` are refused before any
+command is built.
+
+This also holds a keyboard divergence open. The design assigns `Shift+A` to
+"Always"; the GUI keeps `Shift+A` on `repo_allowlist`, the widest scope Core
+accepts, rather than binding a live chord to a dead action.
+
+Close this request when Core models a persistent Always scope with the
+revocation path that makes it safe to grant, models an Edit decision that
+carries the revised command back through the same approval gate, and the
+canonical fixture covers both. The GUI will then restore the design's
+`Shift+A` binding.

@@ -137,7 +137,7 @@ implementation, not editing screens.
 | D12 integration gate | conflict banner, gate policy, bounce-to-origin-lane recovery timeline, post-merge rollback, and no manual merge | `merge_gates`, `conflict_bounces`, `reverts`, and `check_runs` exist; no structured conflict content is published | Reachable at `?screen=d12`; `accept` opens only when every evidence id the gate policy requires is present, the timeline and reverts are scoped to the selected gate, and the conflicting hunk is unavailable under `GUI-CORE-015` |
 | D14 audit and timeline | ordered audit trail across the workspace with paging | `CoreClient::replay` with `ReplayRequest`/`ReplayBatch` and `EventCursor` exists; the view state carries no event log (`GUI-CORE-014`) | Reachable at `?screen=d14`; rows come from the replay cursor in Core order, the row label is Core's own serde discriminant rather than a client rename, an undecodable event still occupies a row, and a replay failure is shown instead of a shorter complete-looking trail |
 | D13 fleet and workflow | one board per workflow DAG with declared edges, node runtime status, blockers, and lane handoffs | `agent_dags` with `AgentDagTaskSpec`, `tasks`, `dependencies`, and `handoffs` exist | Reachable at `?screen=d13`; read-only, edges are the task specs' own dependency lists, a node reports status only when Core runs that task, a blocker appears only from a Core `DependencyState::Blocked` record, and a handoff is never derived from an edge |
-| D6 recovery | connecting, disconnected, agent stopped, budget exhausted, gate queue clear, reconnect/restart/close actions | Runtime errors, CoreClient snapshot recovery, context budget facts, queue/gate facts exist; structured lane lifecycle recovery commands are missing | Task 10 renders operational Core-owned recovery states; the no-project `empty` state is handled by D1 Welcome Center, while restart/close/checkpoint remain visibly unavailable under `GUI-CORE-003` |
+| D6 recovery | connecting, disconnected, agent stopped, budget exhausted, gate queue clear, reconnect/restart/close actions | Runtime errors, CoreClient snapshot recovery, context budget facts, queue/gate facts, `RetryAgentSession`, and `StopLane` exist; no checkpoint is modelled at all | Task 10 renders operational Core-owned recovery states; the no-project `empty` state is handled by D1 Welcome Center; restart and close-Lane send their Core commands for the one unambiguous target Core published, inspect expands existing facts locally, and checkpoint remains visibly unavailable under `GUI-CORE-003` (`GUI-CORE-018`) |
 | Locale and skin system | `en`/`zh-CN`, Aurora/Ice/Mono/Amber/Phosphor, dark/light constraints, density, motion | `RuntimeSnapshot.ui_preferences`, `SetUiPreferences`, `ResetUiPreferences`, and `UiPreferencesUpdated` exist with persistence and safe fallback diagnostics | GUI renders resolved Core preferences; production Settings controls remain frontend implementation work and must wait for the ordered Core event |
 
 Open requests are recorded in [contract-requests.md](contract-requests.md) and
@@ -232,7 +232,11 @@ state. It does not parse display strings, persist a second workspace model, or
 claim command acceptance as business success. Ordered Core refreshes update the
 activity and Lane rails in place so their hover roots remain mounted while
 volatile Lane/Agent status changes; this prevents the floating sidebar from
-flashing without hiding fresh Core facts.
+flashing without hiding fresh Core facts. Every enabled activity-rail slot has
+an action behind it: routing slots open their restored screen, the Lane slot
+toggles the Lane rail, and `Work` — the slot marked `aria-current` because it
+is the screen already showing — returns focus to the composer. A slot with no
+available action is disabled rather than enabled and inert.
 
 `New Lane` opens one compact, anchored popover with the built-in Viden Agent
 selected by default, discovered ACP Agents, the task draft, branded Agent
@@ -310,7 +314,8 @@ Task 10 places the canonical `.gperm.dock` immediately above the D1 composer.
 It renders the exact Core approval risk, target, allowed scopes, reason, input
 preview, expiry, default action, and audit id. Once, Session, repository
 allowlist, and Deny map only to `RespondToApproval`; Always and Edit remain
-disabled as `GUI-CORE-003`. Plan-mode mutation responses fail closed before
+disabled as `GUI-CORE-003` (contract request `GUI-CORE-019`), which also keeps
+the design's `Shift+A` chord on `repo_allowlist` rather than on a dead action. Plan-mode mutation responses fail closed before
 transport. Command acceptance is not success: pending clears only after the
 matching ordered `ApprovalResolved` owner/request/audit fact.
 
@@ -319,8 +324,13 @@ shell. Empty, connection, provider, stopped-agent, context-overflow,
 capability, incompatible-schema, queue-clear, and event-gap states come only
 from Core projection or CoreClient errors. Event-gap reconnect uses the
 CoreClient snapshot path and remains busy until a validated live snapshot is
-published. Restart, close-Lane, and checkpoint controls stay visible but
-disabled under `GUI-CORE-003`; the GUI never fabricates recovery receipts.
+published. Restart sends `RetryAgentSession` for the one Lane-bound ACP session
+Core reports as failed or cancelled, and close-Lane sends `StopLane` for the
+one active Lane Core published; both fail closed when the target is ambiguous,
+because D6 carries no Lane selection. Inspect is a local toggle over the facts
+already in the projection and reaches no Core command. Checkpoint stays visible
+but disabled under `GUI-CORE-003` (contract request `GUI-CORE-018`); the GUI
+never fabricates recovery receipts.
 
 ## Production bootstrap
 

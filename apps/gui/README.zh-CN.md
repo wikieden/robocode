@@ -120,7 +120,7 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 | D12 集成闸 | 冲突横幅、闸策略、退回原 Lane 的恢复时间线、合入后回滚，且不提供手动 merge | `merge_gates`、`conflict_bounces`、`reverts`、`check_runs` 已有；不发布结构化冲突内容 | 入口 `?screen=d12`；只有闸策略要求的证据 id 全部就位时 `accept` 才开放，时间线与回滚按选中闸限定，冲突 hunk 以 `GUI-CORE-015` 声明不可用 |
 | D14 审计与时间线 | 跨工作区的有序审计轨迹，支持分页 | `CoreClient::replay` 的 `ReplayRequest`/`ReplayBatch` 与 `EventCursor` 已有；视图状态没有事件日志（`GUI-CORE-014`） | 入口 `?screen=d14`；行按 Core 回放 cursor 顺序取得，行标签用 Core 自己的 serde 判别名而非客户端改名，无法解码的事件仍占一行，回放失败显式提示而不是给出更短但看起来完整的轨迹 |
 | D13 Fleet 编排与 Workflow | 每个 workflow DAG 一块看板：声明的依赖边、节点运行状态、阻塞原因与 Lane 交接 | `agent_dags`（含 `AgentDagTaskSpec`）、`tasks`、`dependencies`、`handoffs` 已有 | 入口 `?screen=d13`；只读，依赖边取自任务规格自身的 dependencies，节点只有在 Core 真正跑该任务时才显示状态，阻塞只来自 Core 的 `DependencyState::Blocked` 记录，交接绝不由依赖边推导 |
-| D6 恢复 | 连接中、断连、agent stopped、budget exhausted、gate queue clear、reconnect/restart/close actions | Runtime errors、CoreClient snapshot recovery、context budget facts、queue/gate facts 已有；结构化 Lane lifecycle recovery commands 缺失 | Task 10 渲染运行期 Core-owned 恢复状态；无项目 `empty` 状态由 D1 Welcome Center 承担，restart/close/checkpoint 仍以 `GUI-CORE-003` 明确禁用 |
+| D6 恢复 | 连接中、断连、agent stopped、budget exhausted、gate queue clear、reconnect/restart/close actions | Runtime errors、CoreClient snapshot recovery、context budget facts、queue/gate facts、`RetryAgentSession` 与 `StopLane` 已有；检查点完全未被建模 | Task 10 渲染运行期 Core-owned 恢复状态；无项目 `empty` 状态由 D1 Welcome Center 承担；restart 与 close Lane 针对 Core 发布的唯一目标发送对应 Core 命令，inspect 在本地展开既有事实，checkpoint 仍以 `GUI-CORE-003` 明确禁用（`GUI-CORE-018`） |
 | Locale 与换肤 | `en`/`zh-CN`、Aurora/Ice/Mono/Amber/Phosphor、明暗约束、density、motion | 已有 `RuntimeSnapshot.ui_preferences`、`SetUiPreferences`、`ResetUiPreferences`、`UiPreferencesUpdated`、持久化和安全回退诊断 | GUI 渲染 Core resolved preferences；正式 Settings 控件仍是前端实现任务，并且必须等待有序 Core event |
 
 开放请求记录在 [contract-requests.md](contract-requests.md) 和
@@ -195,7 +195,9 @@ transcript/tool rows、排队状态、evidence 与 composer 都是 Core 最新
 与滚动锚点，不解析显示字符串，不持久化第二套 workspace 模型，也不会把 command
 acceptance 当作业务成功。有序 Core 刷新会原位更新 activity 与 Lane rail，让它们的
 hover 根节点在易变的 Lane/Agent 状态变化期间保持挂载；这样既不会隐藏最新 Core 事实，
-也不会让浮动侧栏反复闪烁。
+也不会让浮动侧栏反复闪烁。Activity rail 中每一个可用槽位背后都有真实动作：路由槽位打开
+其对应的已恢复屏幕，Lane 槽位切换 Lane rail，而标记为 `aria-current`（因为它正是当前屏幕）
+的 `Work` 槽位把焦点交还给 composer。没有可用动作的槽位一律禁用，而不是既可点击又无响应。
 
 “新建 Lane”会打开一个紧凑的锚定弹层，默认选中内置 Viden Agent，并包含已发现的 ACP
 Agents、品牌身份、任务 draft、Core 投影的 eligibility/probe 诊断，以及只作呈现的
@@ -251,15 +253,19 @@ reference。它还包含一个补充 Context Dock bottom-state capture，用于�
 Task 10 把规范 `.gperm.dock` 紧贴放在 D1 composer 上方。它精确展示 Core approval 的
 risk、target、allowed scopes、reason、input preview、expiry、default action 与 audit id。
 Once、Session、仓库 allowlist 与 Deny 只映射到 `RespondToApproval`；Always 与 Edit 以
-`GUI-CORE-003` 保持禁用。Plan 模式下的 mutation response 在 transport 前 fail closed。
+`GUI-CORE-003` 保持禁用（契约请求 `GUI-CORE-019`），因此设计中的 `Shift+A` 组合键仍绑定
+在 `repo_allowlist`，而不是绑到一个失效动作上。Plan 模式下的 mutation response 在 transport 前 fail closed。
 Command acceptance 不代表成功：只有 owner/request/audit 全部匹配的有序
 `ApprovalResolved` 事实才能清除 pending。
 
 D6 是 D1 中央工作面的从属状态，不建立第二套 cockpit shell。Empty、connection、provider、
 agent stopped、context overflow、capability、incompatible schema、queue clear 与 event gap
 只来自 Core projection 或 CoreClient error。Event gap 的 reconnect 走 CoreClient snapshot
-路径，并在已验证 live snapshot 发布前保持 busy。Restart、close Lane 与 checkpoint 控件仍
-可见但以 `GUI-CORE-003` 禁用；GUI 不伪造 recovery receipt。
+路径，并在已验证 live snapshot 发布前保持 busy。Restart 针对 Core 报告为 failed/cancelled
+的那一个 Lane 绑定 ACP session 发送 `RetryAgentSession`，close Lane 针对 Core 发布的那一个
+活跃 Lane 发送 `StopLane`；由于 D6 不携带 Lane 选择，目标不唯一时两者都 fail closed。
+Inspect 只是对投影中既有事实的本地展开，不触达任何 Core 命令。Checkpoint 控件仍可见但以
+`GUI-CORE-003` 禁用（契约请求 `GUI-CORE-018`）；GUI 不伪造 recovery receipt。
 
 ## Production bootstrap
 

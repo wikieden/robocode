@@ -29,6 +29,16 @@ const ACTION_COPY = {
   deny: "d1.permission.deny",
 } as const;
 
+/**
+ * Known divergence from the design package, recorded rather than resolved.
+ *
+ * The design assigns `Shift+A` to "Always". Schema 1 has no Always approval
+ * scope and no Edit decision — both render as fail-closed GUI-CORE-003
+ * placeholders — so binding the chord to a decision Core cannot carry would
+ * put a live shortcut on a dead action. `Shift+A` therefore stays on
+ * `repo_allowlist`, the widest scope Core actually accepts, until Core adds
+ * the scope (contract request GUI-CORE-019). Do not re-point it before then.
+ */
 const SHORTCUTS: Partial<Record<PermissionChoice, string>> = {
   once: "Y",
   session: "A",

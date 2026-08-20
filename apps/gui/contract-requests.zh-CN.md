@@ -120,3 +120,35 @@ D1 只渲染 Core 发布的文本，不合成附件。
 `agent_content` 命令解析工作区引用——webview 无法直接打开工作区路径——并拒绝 parts 目录
 之外的任何引用。在规范 `frontend-contract-v1` fixture 覆盖一次返回图像分部与文本的 ACP
 轮次之前，此请求保持开启。
+
+## GUI-CORE-018：检查点的捕获与恢复
+
+D6 渲染了「恢复检查点」这一恢复动作，但 schema 1 完全没有建模检查点：没有任何
+`RuntimeCommand` 能捕获或恢复检查点，`RuntimeViewState` 中没有检查点记录，也没有
+事件报告恢复结果。其余 D6 动作现在都已接到真实 Core 命令——`restart` 发送
+`RetryAgentSession`，`close_lane` 发送 `StopLane`——因此 `checkpoint` 成为唯一背后
+无物的动作。
+
+GUI 将其投影为 `available: false`、code 为 `GUI-CORE-003`，且不挂载任何处理器。它不
+得用重放模拟恢复、不得把会话回退到更早的游标，也不得把重新读取快照伪装成检查点
+恢复。
+
+当 Core 发布带稳定 id 与归属 owner 的类型化检查点记录、提供恢复命令、发出携带恢复
+结果的事件，且规范 `frontend-contract-v1` fixture 覆盖一次「捕获后恢复」时，关闭此
+请求。
+
+## GUI-CORE-019：Always 审批作用域与 Edit 决定
+
+`ApprovalScope` 只建模了 `Once`、`Session` 与 `RepoAllowlist`。权限坞的设计还提供
+「Always」与「Edit」：Always 是跨会话、跨仓库的长期决定，Edit 则返回一条经修改的
+命令重新走审批，而不是接受或拒绝原提案。二者在 schema 1 中都不存在，因此都渲染为
+fail-closed 的 `GUI-CORE-003` 占位，且 `PermissionChoice::Always` 与
+`PermissionChoice::Edit` 在构造任何命令之前就被拒绝。
+
+这也让一处键盘分歧保持开启。设计把 `Shift+A` 指派给「Always」；GUI 仍将 `Shift+A`
+绑定在 `repo_allowlist`——Core 实际接受的最宽作用域——而不是把可用快捷键绑到一个失效
+动作上。
+
+当 Core 建模持久的 Always 作用域及使其可安全授予的撤销路径、建模能让修改后的命令
+重新通过同一审批门禁的 Edit 决定，且规范 fixture 覆盖两者时，关闭此请求。届时 GUI
+将恢复设计规定的 `Shift+A` 绑定。
