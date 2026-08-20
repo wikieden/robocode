@@ -1,6 +1,7 @@
 import type { CoreClient } from "./host/core_client";
 import { createTauriCoreClient } from "./host/tauri_core_client";
 import { translate } from "./i18n/catalog";
+import type { ComposerControlIntent } from "./models/composer";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
 import type { D6Intent, D6RecoveryProjection } from "./models/workspace";
 import type { ResolvedPreferences } from "./preferences";
@@ -97,6 +98,20 @@ function shellProjection(
       canCancel: false,
       canSubmitImmediately: false,
     },
+    // Presentation-safe placeholders only: before Core is live there is no
+    // fact to show, so every segment renders its explicit absent state.
+    statusbar: {
+      workMode: "—",
+      permissionLevel: "—",
+      context: null,
+      eventStreamPosition: 0,
+      lane: null,
+      latency: null,
+      tokens: null,
+      diagnosticsCount: 0,
+      requests: null,
+      pendingGateCount: 0,
+    },
     permissionDock: { workMode: "—", permissionLevel: "—", request: null },
     recovery: {
       connection: connectionState,
@@ -178,6 +193,19 @@ export async function hydrateShellFromCore(
       const recoverD6 = async () => await core.d6Recover();
       const sendD6Intent = async (intent: D6Intent) =>
         await core.d6SendIntent(`gui-d6-${crypto.randomUUID()}`, intent);
+      const sendComposerControl = async (
+        intent: ComposerControlIntent,
+        selectedLaneId: string | null,
+      ) => {
+        const commandId = `gui-d1-${crypto.randomUUID()}`;
+        if (intent.type === "set_work_mode") {
+          return await core.setWorkMode(commandId, intent.mode, selectedLaneId);
+        }
+        if (intent.type === "set_permission_level") {
+          return await core.setPermissionLevel(commandId, intent.level, selectedLaneId);
+        }
+        return await core.selectModel(commandId, intent.providerId, intent.model, selectedLaneId);
+      };
       let activeD1: D1Controller | null = null;
       const onCoreWake = core.onCoreWake;
 
@@ -219,6 +247,7 @@ export async function hydrateShellFromCore(
             onCoreWake,
             resolveContent,
             sendD6Intent,
+            sendComposerControl,
             onNavigate: (route: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the rail only names the route.

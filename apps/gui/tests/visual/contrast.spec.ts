@@ -40,7 +40,10 @@ describe("D1 accessibility and contrast semantics", () => {
     expect(root.querySelector("[data-workspace-change], [data-check-run]")?.textContent).toContain(
       "Passed",
     );
-    expect(root.querySelector("[data-statusbar]")?.textContent).toContain("aurora/dark");
+    // Statusbar state channels are text-first: work mode and permission
+    // level are named, never encoded by color alone.
+    expect(root.querySelector("[data-statusbar]")?.textContent).toContain("MODE build");
+    expect(root.querySelector("[data-statusbar]")?.textContent).toContain("PERM ask");
     controller.dispose();
   });
 

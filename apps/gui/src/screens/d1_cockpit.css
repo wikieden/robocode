@@ -482,7 +482,8 @@
 }
 
 .d1-status {
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 0;
   color: var(--fg-muted);
   height: 28px;
   box-sizing: border-box;
@@ -490,6 +491,124 @@
   border-block-start: 1px solid var(--border-soft);
   border-block-end: 0;
   font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.d1-status .sb-exceeded,
+.d1-status .sb-error {
+  color: var(--error);
+}
+
+.d1-status .sb-faint {
+  color: var(--fg-faint);
+}
+
+.d1-status .sb-progress {
+  color: var(--progress);
+}
+
+/* The bar's only interactive segment: the pending-gate jump to D2. */
+.d1-sb-gate {
+  margin-inline-start: auto;
+  border: 0;
+  background: none;
+  color: var(--warning);
+  font: inherit;
+  cursor: pointer;
+}
+
+.d1-sb-gate:disabled {
+  cursor: default;
+}
+
+/* ── Composer meta row: work-mode / permission / model selectors ────────── */
+
+.d1-cmeta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.d1-control {
+  position: relative;
+}
+
+.d1-mpill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  color: var(--fg-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  font: inherit;
+  cursor: pointer;
+}
+
+.d1-mpill[aria-expanded="true"] {
+  color: var(--fg-primary);
+  border-color: var(--accent-dim);
+}
+
+.d1-mpill:disabled {
+  color: var(--fg-faint);
+  cursor: default;
+}
+
+.d1-control-popover {
+  position: absolute;
+  inset-block-end: calc(100% + var(--sp-1));
+  inset-inline-start: 0;
+  z-index: 30;
+  min-width: 180px;
+  max-height: 40vh;
+  overflow-y: auto;
+  display: grid;
+  padding: var(--sp-1);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.d1-control-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-secondary);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.d1-control-option:hover,
+.d1-control-option:focus-visible {
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+}
+
+.d1-control-option[aria-selected="true"] {
+  color: var(--accent-bright);
+}
+
+.d1-control-option-detail {
+  color: var(--fg-faint);
+}
+
+.d1-control-empty {
+  margin: 0;
+  padding: var(--sp-2);
+  color: var(--fg-faint);
 }
 
 .d1-context-drawer-toggle {

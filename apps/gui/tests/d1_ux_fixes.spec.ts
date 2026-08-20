@@ -50,6 +50,18 @@ function projection(overrides: Partial<D1CockpitProjection> = {}): D1CockpitProj
       canCancel: false,
       canSubmitImmediately: true,
     },
+    statusbar: {
+      workMode: "build",
+      permissionLevel: "ask",
+      context: null,
+      eventStreamPosition: 0,
+      lane: null,
+      latency: null,
+      tokens: null,
+      diagnosticsCount: 0,
+      requests: null,
+      pendingGateCount: 0,
+    },
     permissionDock: { workMode: "build", permissionLevel: "ask", request: null },
     recovery: {
       connection: "live",
@@ -289,13 +301,15 @@ describe("partitioned refresh", () => {
     const { root, controller } = mount(laneProjection("lane-1", 4));
     const statusBefore = root.querySelector('[data-shell-landmark="statusbar"]');
 
+    // The statusbar renders Core statusbar facts, so a work-mode change is a
+    // status-region change and must replace the mounted element.
     const next = laneProjection("lane-1", 4);
-    next.preferences = { ...next.preferences, mode: "light", skin: "ice" };
+    next.statusbar = { ...next.statusbar, workMode: "plan" };
     controller.applyProjection(next);
 
     expect(root.querySelector('[data-shell-landmark="statusbar"]')).not.toBe(statusBefore);
     expect(root.querySelector('[data-shell-landmark="statusbar"]')?.textContent).toContain(
-      "ice/light",
+      "plan",
     );
   });
 });

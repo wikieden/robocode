@@ -162,6 +162,33 @@ export interface ContextDockProjection {
   checklist: ChecklistItemProjection[];
 }
 
+/**
+ * Window-level statusbar facts computed by the host from the confirmed Core
+ * view. A `null` segment means Core published no fact for it; the renderer
+ * shows an explicit placeholder instead of a fabricated number.
+ */
+export interface D1StatusbarProjection {
+  workMode: string;
+  permissionLevel: string;
+  context: { usedTokens: number; hardTokenLimit: number; exceeded: boolean } | null;
+  /**
+   * Ordered event-stream position of the confirmed snapshot (the adapter's
+   * replay cursor sequence). Not an event counter — Core publishes none.
+   */
+  eventStreamPosition: number;
+  lane: {
+    laneId: string;
+    agentId: string | null;
+    status: string;
+    progress: number | null;
+  } | null;
+  latency: { lastLatencyMs: number | null; averageLatencyMs: number | null } | null;
+  tokens: { inputTokens: number; outputTokens: number } | null;
+  diagnosticsCount: number;
+  requests: { requestCount: number; errorCount: number } | null;
+  pendingGateCount: number;
+}
+
 export interface D1CockpitProjection {
   preferences: {
     locale: Locale;
@@ -215,6 +242,8 @@ export interface D1CockpitProjection {
     displayName: string;
     startability: string;
     diagnostics: string[];
+    /** Model options Core published for this adapter; absent or empty when Core published none. */
+    models?: string[];
   }>;
   agentSessions: Array<{
     sessionId: string;
@@ -246,6 +275,7 @@ export interface D1CockpitProjection {
     canCancel: boolean;
     canSubmitImmediately: boolean;
   };
+  statusbar: D1StatusbarProjection;
   permissionDock: PermissionDockProjection;
   recovery: D6RecoveryProjection;
   unavailableFeatures: Array<{

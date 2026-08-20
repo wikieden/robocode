@@ -8,6 +8,13 @@ import {
 } from "../components/agent_menu";
 import { renderCockpitTopbar } from "../components/cockpit_topbar";
 import { shouldRouteComposerMutation, shouldSubmitComposer } from "../components/composer";
+import {
+  modelGroups,
+  renderComposerControls,
+  type ComposerControlKind,
+  type ComposerControlsHandle,
+} from "../components/composer_controls";
+import { renderStatusbar } from "../components/statusbar";
 import { renderContextDock } from "../components/context_dock";
 import { renderLaneRail } from "../components/lane_rail";
 import { renderLaneWorkSurface } from "../components/lane_work_surface";
@@ -24,7 +31,7 @@ import { renderWorkStatus, workStatusModel, type WorkStatusStrip } from "../comp
 import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
-import type { D1Intent } from "../models/composer";
+import type { ComposerControlIntent, D1Intent } from "../models/composer";
 import { BoundedTranscript, type D1TranscriptRow } from "../models/transcript";
 import type { D1CockpitProjection, D6RecoveryProjection } from "../models/workspace";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
@@ -92,6 +99,16 @@ export interface D1RenderOptions {
    * rendering a control that cannot reach Core.
    */
   sendD6Intent?: SendD6Intent;
+  /**
+   * Sends one composer control (work mode, permission level, model) as its
+   * Core command and resolves with the refreshed D1 result. Absent while no
+   * host is bound, which omits the selectors rather than rendering controls
+   * that cannot reach Core.
+   */
+  sendComposerControl?: (
+    intent: ComposerControlIntent,
+    selectedLaneId: string | null,
+  ) => Promise<D1IntentResult>;
 }
 
 type FocusedConversation =
@@ -361,6 +378,12 @@ export function renderD1Cockpit(
   let laneRailOpen = false;
   let laneRailFocusTarget: "rail" | "toggle" | null = null;
   let menuController: AgentMenuController | null = null;
+  // Composer-control selector state. The popover DOM is rebuilt every render,
+  // so the open selector and the focus hand-back live here, not in the DOM.
+  let openControl: ComposerControlKind | null = null;
+  let controlInFlight = false;
+  let controlReturnFocus: ComposerControlKind | null = null;
+  let controlsHandle: ComposerControlsHandle | null = null;
   let agentMenuOpen = false;
   let remountingAgentMenu = false;
   let agentMenuComposing = false;
@@ -533,6 +556,8 @@ export function renderD1Cockpit(
       disposed = true;
       agentMenuOpen = false;
       menuController?.close();
+      controlsHandle?.dispose();
+      controlsHandle = null;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       unsubscribeCoreWake?.();
       unsubscribeCoreWake = null;
@@ -548,6 +573,7 @@ export function renderD1Cockpit(
   const commandSlotAvailable = (): boolean =>
     !sending &&
     !pendingCommandId &&
+    !controlInFlight &&
     !discoveryDispatching &&
     !discoveryInFlight &&
     !pollInFlight;
@@ -674,6 +700,44 @@ export function renderD1Cockpit(
       }
     })();
     render(true);
+  };
+
+  /// Dispatches one composer control and re-renders from the returned state
+  /// only. Core owns the mode/permission coupling rule, so both selectors
+  /// always reflect the snapshot Core republished — never the clicked option.
+  const sendControl = (intent: ComposerControlIntent): void => {
+    const dispatch = options.sendComposerControl;
+    if (!dispatch || controlInFlight || sending || pendingCommandId) return;
+    controlInFlight = true;
+    controlReturnFocus = openControl;
+    openControl = null;
+    errorMessage = null;
+    void (async () => {
+      try {
+        let result = await dispatch(intent, selectedLaneId ?? null);
+        controller.applyResult(result);
+        for (
+          let attempt = 0;
+          result.pendingCommandId && attempt < 24;
+          attempt += 1
+        ) {
+          result = await poll(selectedLaneId ?? undefined, true);
+          controller.applyResult(result);
+        }
+      } catch (error: unknown) {
+        // A host/transport failure renders through the same rejection alert
+        // as a Core rejection (data-d1-rejection, role=alert).
+        root.dataset.d1Error = String(error);
+        errorMessage = String(error);
+      } finally {
+        controlInFlight = false;
+        if (!disposed) {
+          releaseCommandSlotWaiters();
+          render(false);
+        }
+      }
+    })();
+    render(false);
   };
 
   const submitComposer = (content: string): void => {
@@ -1007,6 +1071,13 @@ export function renderD1Cockpit(
     }
     const previousComposer = root.querySelector<HTMLTextAreaElement>("[data-composer]");
     const restoreComposerFocus = previousComposer === document.activeElement;
+    // An open control popover is rebuilt by every refresh; remember which
+    // option held focus so a streaming re-render does not reset arrow-key
+    // position.
+    const activeControlOptionKey =
+      document.activeElement instanceof HTMLElement
+        ? (document.activeElement.dataset.controlOptionKey ?? null)
+        : null;
     const selectionStart = previousComposer?.selectionStart ?? draft.length;
     const selectionEnd = previousComposer?.selectionEnd ?? selectionStart;
     const frame = document.createElement("section");
@@ -1272,6 +1343,33 @@ export function renderD1Cockpit(
       });
       composerRegion.append(cancel);
     }
+    controlsHandle?.dispose();
+    controlsHandle = null;
+    if (options.sendComposerControl) {
+      // The selectors are disabled — never hidden — while the composer is not
+      // editable or no workspace is open, and while any command holds the
+      // one-command-at-a-time adapter slot.
+      controlsHandle = renderComposerControls(
+        {
+          locale,
+          workMode: projection.statusbar.workMode,
+          permissionLevel: projection.statusbar.permissionLevel,
+          providerId: projection.environment.providerId,
+          model: projection.environment.model,
+          groups: modelGroups(projection),
+          enabled: projection.composer.editable && !showWelcome,
+          busy: controlInFlight || sending || Boolean(pendingCommandId),
+          open: openControl,
+        },
+        (next, restoreFocus) => {
+          if (next === null && restoreFocus) controlReturnFocus = openControl;
+          openControl = next;
+          render(false);
+        },
+        (intent) => sendControl(intent),
+      );
+      composerRegion.append(controlsHandle.element);
+    }
     if (errorMessage) {
       const rejection = document.createElement("p");
       rejection.dataset.d1Rejection = "true";
@@ -1312,11 +1410,7 @@ export function renderD1Cockpit(
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
     right.tabIndex = -1;
 
-    const status = document.createElement("footer");
-    status.className = "statusbar d1-status";
-    status.dataset.shellLandmark = "statusbar";
-    status.dataset.statusbar = "true";
-    status.textContent = `${projection.environment.workMode} · ${projection.environment.permissionLevel} · ${projection.preferences.skin}/${projection.preferences.mode}`;
+    const status = renderStatusbar(projection.statusbar, locale, options.onNavigate);
     const currentFrame = root.querySelector<HTMLElement>('[data-screen="d1-cockpit"]');
     const currentBody = currentFrame?.querySelector<HTMLElement>(":scope > .d1-body");
     const currentActivity = currentBody?.querySelector<HTMLElement>(
@@ -1400,6 +1494,25 @@ export function renderD1Cockpit(
 
     if (agentMenuOpen) mountAgentMenu();
 
+    // Control popovers and pills are rebuilt each render, so keyboard focus
+    // is model state: an open popover regains its focused (else selected,
+    // else first) option; a just-closed selector hands focus back to its pill.
+    const controlFocusTarget = openControl
+      ? ((activeControlOptionKey
+          ? root.querySelector<HTMLElement>(
+              `[data-control-popover="${openControl}"] [data-control-option-key="${activeControlOptionKey}"]`,
+            )
+          : null) ??
+        root.querySelector<HTMLElement>(
+          `[data-control-popover="${openControl}"] [aria-selected="true"]`,
+        ) ??
+        root.querySelector<HTMLElement>(
+          `[data-control-popover="${openControl}"] [data-control-option]`,
+        ) ??
+        root.querySelector<HTMLElement>(`[data-control-popover="${openControl}"]`))
+      : controlReturnFocus
+        ? root.querySelector<HTMLElement>(`[data-control-toggle="${controlReturnFocus}"]`)
+        : null;
     if (laneRailFocusTarget) {
       const focusTarget =
         laneRailFocusTarget === "rail"
@@ -1407,6 +1520,9 @@ export function renderD1Cockpit(
           : root.querySelector<HTMLElement>("[data-lanes-toggle]");
       laneRailFocusTarget = null;
       focusTarget?.focus();
+    } else if (controlFocusTarget) {
+      if (!openControl) controlReturnFocus = null;
+      controlFocusTarget.focus();
     } else if (focusComposer || restoreComposerFocus) {
       const nextComposer = root.querySelector<HTMLTextAreaElement>("[data-composer]");
       nextComposer?.focus();
