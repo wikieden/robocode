@@ -1015,6 +1015,25 @@ export function renderD1Cockpit(
     const showWelcome = shouldShowWelcome();
     if (showWelcome) frame.dataset.d1State = "welcome";
 
+    const focusedAcpSessionId =
+      focusedConversation?.kind === "acp" ? focusedConversation.sessionId : null;
+    const focusedAcp = focusedAcpSessionId
+      ? projection.agentSessions.find(
+          (session) => session.sessionId === focusedAcpSessionId,
+        )
+      : null;
+    const focusedAcpOwnsLiveSurface =
+      focusedAcp !== null &&
+      focusedAcp !== undefined &&
+      ["starting", "running", "waiting_approval", "completed"].includes(focusedAcp.status);
+    const showRecovery =
+      !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state) &&
+      !(projection.recovery.state === "agent_stopped" && focusedAcpOwnsLiveSurface);
+    // The composer only exists on the work surface, and only Core can say it
+    // is editable. The rail's `Work` slot is offered a focus target only when
+    // there will actually be one.
+    const composerFocusable = !showWelcome && !showRecovery && projection.composer.editable;
+
     frame.dataset.nativeWindowShell = "true";
     const topbar = renderCockpitTopbar(projection, locale, showWelcome);
     const titlebar = topbar.element;
@@ -1029,6 +1048,13 @@ export function renderD1Cockpit(
       lanesAvailable: !showWelcome,
       lanesOpen: laneRailOpen,
       onNavigate: options.onNavigate,
+      onFocusWork: !composerFocusable
+        ? undefined
+        : () => {
+            // Resolved at activation, not at render: the rail is built before
+            // the composer node exists in this frame.
+            root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
+          },
       onToggleLanes: () => {
         laneRailOpen = !laneRailOpen;
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
@@ -1064,20 +1090,6 @@ export function renderD1Cockpit(
     });
     const workSurface = document.createElement("section");
     workSurface.className = "d1-work-surface";
-    const focusedAcpSessionId =
-      focusedConversation?.kind === "acp" ? focusedConversation.sessionId : null;
-    const focusedAcp = focusedAcpSessionId
-      ? projection.agentSessions.find(
-          (session) => session.sessionId === focusedAcpSessionId,
-        )
-      : null;
-    const focusedAcpOwnsLiveSurface =
-      focusedAcp !== null &&
-      focusedAcp !== undefined &&
-      ["starting", "running", "waiting_approval", "completed"].includes(focusedAcp.status);
-    const showRecovery =
-      !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state) &&
-      !(projection.recovery.state === "agent_stopped" && focusedAcpOwnsLiveSurface);
     if (showWelcome) {
       renderWelcomeCenter(workSurface, locale, options.onOpenProject);
     } else if (showRecovery) {

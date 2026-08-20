@@ -628,4 +628,31 @@ describe("activity rail navigation", () => {
     // The slots remain visible but inert rather than opening an empty screen.
     expect(root.querySelectorAll(".d1-activity button:disabled").length).toBeGreaterThan(0);
   });
+
+  test("the Work slot focuses the composer instead of being enabled and inert", () => {
+    const { root } = mount(laneProjection("lane-1", 1));
+    const work = root.querySelector<HTMLButtonElement>("[data-rail-focus-work]")!;
+
+    // It is the current screen, so it stays marked as such rather than routing.
+    expect(work.getAttribute("aria-current")).toBe("page");
+    expect(work.disabled).toBe(false);
+    expect(work.dataset.railRoute).toBeUndefined();
+
+    root.querySelector<HTMLTextAreaElement>("[data-composer]")!.blur();
+    work.click();
+    expect(document.activeElement).toBe(root.querySelector("[data-composer]"));
+  });
+
+  test("no activity-rail control is enabled without an action behind it", () => {
+    const { root } = mount(laneProjection("lane-1", 1), undefined, {
+      onNavigate: () => {},
+    });
+    for (const control of root.querySelectorAll<HTMLButtonElement>(".d1-activity button")) {
+      if (control.disabled) continue;
+      const actionable = control.dataset.railRoute
+        ?? control.dataset.lanesToggle
+        ?? control.dataset.railFocusWork;
+      expect(actionable, control.getAttribute("aria-label") ?? "").toBeDefined();
+    }
+  });
 });

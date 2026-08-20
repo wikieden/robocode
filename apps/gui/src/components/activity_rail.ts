@@ -115,6 +115,10 @@ export interface ActivityRailOptions {
   /// Opens a restored screen. Absent while no Core projection is bound, which
   /// keeps every routing slot disabled rather than opening an empty screen.
   onNavigate?: (route: string) => void;
+  /// Focuses the work surface the `Work` slot already marks as current. The
+  /// rail owns no screen state, so the cockpit supplies the focus target;
+  /// without it the slot is disabled rather than enabled and inert.
+  onFocusWork?: () => void;
 }
 
 export function renderActivityRail(
@@ -134,8 +138,16 @@ export function renderActivityRail(
     item.setAttribute("aria-label", translate(locale, activityItem.key, {}));
     item.append(createCanonicalGuiIcon(activityItem.icon));
     if (activityItem.key === "d1.activity.work") {
+      // `Work` is the screen already showing, so it stays marked current
+      // instead of routing. Activating it returns focus to the work surface;
+      // with no focus target it is disabled rather than enabled and inert.
       item.classList.add("on");
       item.setAttribute("aria-current", "page");
+      item.disabled = !options.onFocusWork;
+      if (options.onFocusWork) {
+        item.dataset.railFocusWork = "true";
+        item.addEventListener("click", () => options.onFocusWork?.());
+      }
     } else if (activityItem.key === "d1.activity.lanes") {
       item.dataset.lanesToggle = "true";
       item.disabled = !options.lanesAvailable;
