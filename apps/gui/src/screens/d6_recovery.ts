@@ -115,17 +115,25 @@ export function renderD6Recovery(
   // `inspect` is presentation-only; expanding the facts must never look like a
   // Core state change, so it lives outside the projection.
   let inspecting = false;
+  // A rejected action (for example a target that vanished between render and
+  // click) must fail visibly: the host's rejection message renders as an
+  // alert instead of dying as an unhandled promise rejection.
+  let actionError: string | null = null;
   const copy = COPY[locale];
 
   /** Runs one Core-backed action and re-renders from what Core published. */
   const dispatch = (run: () => Promise<D6RecoveryProjection>): void => {
     if (recovering) return;
     recovering = true;
+    actionError = null;
     render();
     void run()
       .then((next) => {
         // Success is rendered only after the callback returns Core's projection.
         projection = next;
+      })
+      .catch((error: unknown) => {
+        actionError = error instanceof Error ? error.message : String(error);
       })
       .finally(() => {
         recovering = false;
@@ -248,6 +256,13 @@ export function renderD6Recovery(
       actions.prepend(openProjectButton);
     }
     stage.append(actions);
+    if (actionError) {
+      const failure = document.createElement("p");
+      failure.dataset.d6Error = "true";
+      failure.setAttribute("role", "alert");
+      failure.textContent = actionError;
+      stage.append(failure);
+    }
     if (inspecting) stage.append(renderInspectDetails());
     if (projection.state === "live" && projection.connection === "live") {
       const success = document.createElement("p");

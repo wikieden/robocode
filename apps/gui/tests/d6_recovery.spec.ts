@@ -204,4 +204,33 @@ describe("D6 recovery actions reach the Core commands that own them", () => {
     expect(root.querySelector("[data-d6-inspect]")).toBeNull();
     expect(sendIntent).not.toHaveBeenCalled();
   });
+
+  test("a rejected recovery action surfaces an alert and re-enables the surface", async () => {
+    document.body.innerHTML = '<main id="stage"></main>';
+    const root = document.querySelector<HTMLElement>("#stage")!;
+    const sendIntent = vi.fn(async (): Promise<D6IntentResult> => {
+      throw new Error("target session no longer exists");
+    });
+    renderD6Recovery(root, STOPPED, async () => STOPPED, "en", undefined, sendIntent);
+
+    root.querySelector<HTMLButtonElement>('[data-d6-action="restart"]')!.click();
+
+    await vi.waitFor(() => expect(root.querySelector("[data-d6-error]")).not.toBeNull());
+    const failure = root.querySelector<HTMLElement>("[data-d6-error]")!;
+    expect(failure.getAttribute("role")).toBe("alert");
+    expect(failure.textContent).toContain("target session no longer exists");
+    expect(
+      root.querySelector<HTMLButtonElement>('[data-d6-action="restart"]')!.disabled,
+    ).toBe(false);
+    expect(root.querySelector("[data-d6-state]")?.getAttribute("aria-busy")).toBe("false");
+
+    // A later successful dispatch clears the stale failure message.
+    sendIntent.mockImplementationOnce(async () => ({
+      projection: STOPPED,
+      pendingCommandId: "gui-d6-2",
+    }));
+    root.querySelector<HTMLButtonElement>('[data-d6-action="restart"]')!.click();
+    await vi.waitFor(() => expect(sendIntent).toHaveBeenCalledTimes(2));
+    expect(root.querySelector("[data-d6-error]")).toBeNull();
+  });
 });
