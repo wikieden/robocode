@@ -17,7 +17,9 @@ use crate::d1::{
     D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection, D1CostUsageProjection,
     D1CursorProjection, D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection,
     D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
-    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1TranscriptRowProjection,
+    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
+    D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
+    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TranscriptRowProjection,
     D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::d2::{
@@ -1239,6 +1241,71 @@ impl RuntimeProjection {
                 checklist: Vec::new(),
             }
         };
+        // Statusbar segments carry only published Core facts; a segment whose
+        // fact is absent stays `None` so the frontend renders an explicit
+        // placeholder instead of a fabricated number.
+        let statusbar = D1StatusbarProjection {
+            work_mode: view.snapshot.work_mode.cli_name().to_string(),
+            permission_level: view.snapshot.permission_level.cli_name().to_string(),
+            context: view
+                .context_budgets
+                .last()
+                .map(|budget| D1StatusbarContextProjection {
+                    used_tokens: budget.used_tokens,
+                    hard_token_limit: budget.hard_token_limit,
+                    exceeded: budget.exceeded,
+                }),
+            event_stream_position: confirmed.cursor.sequence,
+            lane: selected_lane.map(|lane| {
+                let mut sessions = view
+                    .agent_sessions
+                    .iter()
+                    .filter(|session| session.lane_id == lane.id);
+                let sole_session = match (sessions.next(), sessions.next()) {
+                    (Some(session), None) => Some(session),
+                    _ => None,
+                };
+                D1StatusbarLaneProjection {
+                    lane_id: lane.id.clone(),
+                    agent_id: sole_session.map(|session| session.agent_id.clone()),
+                    status: lane_status(lane.status).to_string(),
+                    progress: lane.task_id.as_ref().and_then(|task_id| {
+                        view.tasks
+                            .iter()
+                            .find(|task| &task.id == task_id)
+                            .map(|task| task.progress)
+                    }),
+                }
+            }),
+            latency: view
+                .provider
+                .as_ref()
+                .map(|provider| D1StatusbarLatencyProjection {
+                    last_latency_ms: provider.last_latency_ms,
+                    average_latency_ms: provider.average_latency_ms,
+                }),
+            tokens: view
+                .token_cost
+                .as_ref()
+                .map(|cost| D1StatusbarTokensProjection {
+                    input_tokens: cost.input_tokens,
+                    output_tokens: cost.output_tokens,
+                }),
+            diagnostics_count: view.errors.len() as u64,
+            requests: view
+                .provider
+                .as_ref()
+                .map(|provider| D1StatusbarRequestsProjection {
+                    request_count: provider.request_count,
+                    error_count: provider.error_count,
+                }),
+            pending_gate_count: view.pending_approvals.len() as u64
+                + view
+                    .merge_gates
+                    .iter()
+                    .filter(|gate| gate.status.is_open())
+                    .count() as u64,
+        };
         let recovery = if supports_owner && exact_owner_count > 1 {
             // An ambiguous execution identity is not renderable. Enter the
             // existing snapshot/replay recovery path instead of choosing one.
@@ -1330,6 +1397,7 @@ impl RuntimeProjection {
                     display_name: adapter.display_name.clone(),
                     startability: agent_startability(adapter.startability).to_string(),
                     diagnostics: adapter.diagnostics.clone(),
+                    models: adapter.models.clone(),
                 })
                 .collect(),
             agent_sessions: view
@@ -1390,6 +1458,7 @@ impl RuntimeProjection {
                     && exact_binding.is_some(),
                 can_submit_immediately: supports_owner && selected_owner.is_some() && !busy,
             },
+            statusbar,
             permission_dock: match selected_owner {
                 Some(owner) => self.permission_dock_for_owner(owner)?,
                 None => self.empty_permission_dock()?,

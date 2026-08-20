@@ -22,12 +22,14 @@ use std::{env, ffi::OsString, path::Path};
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
 pub use agent_content::{agent_content_data_url, resolve_agent_content_reference};
 pub use d1::{
-    D1_OWNER_CAPABILITY, D1AgentSessionInputProjection, D1AgentSessionProjection,
-    D1ChecklistItemProjection, D1CockpitProjection, D1ContentPartProjection,
-    D1ContextDockProjection, D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection,
-    D1Intent, D1IntentResult, D1LaneAgentProjection, D1OutcomeProjection,
-    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLaneReceiptProjection,
-    D1WorkspaceSourceProjection,
+    ComposerControlIntent, D1_OWNER_CAPABILITY, D1AgentSessionInputProjection,
+    D1AgentSessionProjection, D1ChecklistItemProjection, D1CockpitProjection,
+    D1ContentPartProjection, D1ContextDockProjection, D1ContextUsageProjection,
+    D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult, D1LaneAgentProjection,
+    D1OutcomeProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
+    D1StarterLaneReceiptProjection, D1StatusbarContextProjection, D1StatusbarLaneProjection,
+    D1StatusbarLatencyProjection, D1StatusbarProjection, D1StatusbarRequestsProjection,
+    D1StatusbarTokensProjection, D1WorkspaceSourceProjection,
 };
 pub use d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
@@ -210,6 +212,76 @@ fn d1_poll(
         Duration::ZERO
     };
     adapter.poll_d1(selected_lane_id.as_deref(), timeout)
+}
+
+/// Routes one composer control through the shared adapter boundary and
+/// returns the refreshed D1 result, whose projection carries the work mode,
+/// permission level, provider/model, and adapter model options Core now
+/// publishes.
+fn send_composer_control(
+    command_id: &str,
+    intent: ComposerControlIntent,
+    selected_lane_id: Option<&str>,
+    state: &tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_composer_control_and_wait(
+            command_id,
+            intent,
+            selected_lane_id,
+            Duration::from_millis(250),
+        )
+}
+
+#[tauri::command]
+fn set_work_mode(
+    command_id: String,
+    mode: String,
+    selected_lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    send_composer_control(
+        &command_id,
+        ComposerControlIntent::SetWorkMode { mode },
+        selected_lane_id.as_deref(),
+        &state,
+    )
+}
+
+#[tauri::command]
+fn set_permission_level(
+    command_id: String,
+    level: String,
+    selected_lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    send_composer_control(
+        &command_id,
+        ComposerControlIntent::SetPermissionLevel { level },
+        selected_lane_id.as_deref(),
+        &state,
+    )
+}
+
+#[tauri::command]
+fn select_model(
+    command_id: String,
+    provider_id: String,
+    model: String,
+    selected_lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    send_composer_control(
+        &command_id,
+        ComposerControlIntent::SelectModel { provider_id, model },
+        selected_lane_id.as_deref(),
+        &state,
+    )
 }
 
 #[tauri::command]
@@ -411,6 +483,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d1_cockpit,
             d1_send_intent,
             d1_poll,
+            set_work_mode,
+            set_permission_level,
+            select_model,
             permission_send_intent,
             permission_poll,
             d2_decisions,

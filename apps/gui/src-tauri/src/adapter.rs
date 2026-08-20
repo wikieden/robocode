@@ -7,14 +7,15 @@ use sha2::{Digest, Sha256};
 use viden_core::{
     AgentSessionInput, AgentSessionRequest, AgentSessionStatus, ApprovalDecision,
     ApprovalRequestView, ApprovalResponse, ApprovalScope, BoundCoreClient, CoreClient,
-    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, ReplayBatch, ReplayRequest,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshotEnvelope, RuntimeWireEvent, StarterLanePreset, StarterLaneRequest,
-    TranscriptPage, TranscriptPageRequest, WorkMode, WorkspaceOpenRequest,
+    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, PermissionLevel,
+    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeWireEvent, StarterLanePreset,
+    StarterLaneRequest, TranscriptPage, TranscriptPageRequest, WorkMode, WorkspaceOpenRequest,
 };
 
 use crate::d1::{
-    D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult, D1OutcomeProjection,
+    ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
+    D1OutcomeProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
 use crate::projection::exact_terminal_agent_session;
@@ -235,6 +236,9 @@ enum PendingD1Kind {
     CancelAgentSession {
         session_id: String,
     },
+    SetWorkMode,
+    SetPermissionLevel,
+    SelectModel,
 }
 
 struct PendingD1 {
@@ -350,6 +354,18 @@ impl PendingD1 {
                     PendingD1Kind::CancelAgentSession { .. },
                     RuntimeCommand::CancelAgentSession { .. }
                 )
+                | (
+                    PendingD1Kind::SetWorkMode,
+                    RuntimeCommand::SetWorkMode { .. }
+                )
+                | (
+                    PendingD1Kind::SetPermissionLevel,
+                    RuntimeCommand::SetPermissionLevel { .. }
+                )
+                | (
+                    PendingD1Kind::SelectModel,
+                    RuntimeCommand::SelectModel { .. }
+                )
         )
     }
 
@@ -430,6 +446,15 @@ impl PendingD1 {
             ) => {
                 session.session_id == *session_id && session.status == AgentSessionStatus::Cancelled
             }
+            // Core confirms every composer control by republishing the
+            // snapshot the control mutated (runtime_contract emits
+            // `SnapshotUpdated` for SetWorkMode/SetPermissionLevel/SelectModel).
+            (
+                PendingD1Kind::SetWorkMode
+                | PendingD1Kind::SetPermissionLevel
+                | PendingD1Kind::SelectModel,
+                RuntimeEventKind::SnapshotUpdated { .. },
+            ) => true,
             _ => false,
         }
     }
@@ -1523,6 +1548,110 @@ impl GuiCoreAdapter {
                 .map(|pending| pending.command_id.clone()),
             outcome: self.d1_outcome.clone(),
         })
+    }
+
+    /// Sends one composer control (work mode, permission level, model) as its
+    /// Core command and waits for the receipt through the shared D1 pending
+    /// pipeline.
+    ///
+    /// The GUI never applies Core's work-mode/permission coupling rule
+    /// locally: the returned projection is re-read from the snapshot Core
+    /// republished, so coupled changes (for example Plan forcing ReadOnly)
+    /// arrive as Core truth, never as an optimistic client edit.
+    pub fn send_composer_control_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: ComposerControlIntent,
+        selected_lane_id: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<D1IntentResult, String> {
+        if let Some(pending) = &self.pending_d1 {
+            return Err(format!(
+                "D1 command `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let (envelope, kind) = self.composer_control_envelope(command_id, &intent)?;
+        let owner = envelope.owner.clone();
+        self.client
+            .send(envelope)
+            .map_err(|error| error.to_string())?;
+        self.pending_d1 = Some(PendingD1 {
+            command_id: command_id.to_string(),
+            owner,
+            kind,
+            accepted: false,
+        });
+        self.d1_outcome = D1OutcomeProjection::pending();
+        self.poll_d1(selected_lane_id, event_timeout)
+    }
+
+    fn composer_control_envelope(
+        &self,
+        command_id: &str,
+        intent: &ComposerControlIntent,
+    ) -> Result<(RuntimeCommandEnvelope, PendingD1Kind), String> {
+        let view = self
+            .projection
+            .view()
+            .ok_or_else(|| "Core has not published a D1 projection".to_string())?;
+        let (command, kind) = match intent {
+            ComposerControlIntent::SetWorkMode { mode } => {
+                let mode = WorkMode::parse_cli(mode)
+                    .ok_or_else(|| format!("unknown work mode `{mode}`"))?;
+                (
+                    RuntimeCommand::SetWorkMode { mode },
+                    PendingD1Kind::SetWorkMode,
+                )
+            }
+            ComposerControlIntent::SetPermissionLevel { level } => {
+                let level = PermissionLevel::parse_cli(level)
+                    .ok_or_else(|| format!("unknown permission level `{level}`"))?;
+                (
+                    RuntimeCommand::SetPermissionLevel { level },
+                    PendingD1Kind::SetPermissionLevel,
+                )
+            }
+            ComposerControlIntent::SelectModel { provider_id, model } => {
+                // Re-resolve the option against the current Core view: the
+                // selector's options are the provider's current model and the
+                // adapter model lists Core published, so anything else is a
+                // stale or fabricated target and fails closed here instead of
+                // being sent as a command Core would have to reject.
+                let provider_published = view.provider.as_ref().is_some_and(|provider| {
+                    provider.provider_id == *provider_id && provider.model == *model
+                });
+                let adapter_published = view.agent_adapters.iter().any(|adapter| {
+                    adapter.agent_id == *provider_id
+                        && adapter.models.iter().any(|candidate| candidate == model)
+                });
+                if !provider_published && !adapter_published {
+                    return Err(format!(
+                        "Core has not published model `{model}` for `{provider_id}`"
+                    ));
+                }
+                (
+                    RuntimeCommand::SelectModel {
+                        provider_id: provider_id.clone(),
+                        model: model.clone(),
+                    },
+                    PendingD1Kind::SelectModel,
+                )
+            }
+        };
+        Ok((
+            RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // Composer controls mutate workspace-level runtime state, not
+                // one Lane's execution, so they carry the default owner like
+                // the adapter-discovery commands.
+                owner: RuntimeOwner::default(),
+                command,
+            },
+            kind,
+        ))
     }
 
     fn observe_pending_permission(&mut self, event: &RuntimeEventEnvelope) -> bool {

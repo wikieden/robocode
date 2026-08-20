@@ -284,6 +284,9 @@ pub struct D1AgentAdapterProjection {
     pub display_name: String,
     pub startability: String,
     pub diagnostics: Vec<String>,
+    /// Model options Core published for this adapter. Empty means Core
+    /// published none; the client never fabricates a model list.
+    pub models: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -368,6 +371,89 @@ pub struct D1UnavailableFeatureProjection {
     pub message: &'static str,
 }
 
+/// Context usage for the statusbar. Budgets are not Lane-scoped through
+/// viden-core yet, so this is the most recently updated workspace-level
+/// budget Core published, never a per-Lane estimate.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1StatusbarContextProjection {
+    pub used_tokens: u64,
+    pub hard_token_limit: u64,
+    pub exceeded: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1StatusbarLaneProjection {
+    pub lane_id: String,
+    /// The agent behind the Lane's sole Core agent session. `None` when Core
+    /// publishes zero or more than one session for the Lane (fail closed on
+    /// ambiguous identity).
+    pub agent_id: Option<String>,
+    pub status: String,
+    /// Progress of the Lane's own task record, when Core links one.
+    pub progress: Option<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1StatusbarLatencyProjection {
+    pub last_latency_ms: Option<u64>,
+    pub average_latency_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1StatusbarTokensProjection {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1StatusbarRequestsProjection {
+    pub request_count: u64,
+    pub error_count: u64,
+}
+
+/// Window-level statusbar facts, computed by the host from the confirmed
+/// Core view so the frontend renders segments without a second reducer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1StatusbarProjection {
+    pub work_mode: String,
+    pub permission_level: String,
+    pub context: Option<D1StatusbarContextProjection>,
+    /// Ordered event-stream position of the confirmed snapshot (the adapter's
+    /// replay cursor sequence). frontend-contract-v1 publishes no event
+    /// counter, so this is a stream position, never a count.
+    pub event_stream_position: u64,
+    pub lane: Option<D1StatusbarLaneProjection>,
+    pub latency: Option<D1StatusbarLatencyProjection>,
+    pub tokens: Option<D1StatusbarTokensProjection>,
+    /// Number of runtime errors Core currently publishes.
+    pub diagnostics_count: u64,
+    pub requests: Option<D1StatusbarRequestsProjection>,
+    /// Pending approvals plus open merge gates awaiting a human.
+    pub pending_gate_count: u64,
+}
+
+/// One composer-control mutation. Values arrive as the CLI names Core itself
+/// publishes in the snapshot; unknown names are rejected before a command is
+/// built. The GUI never applies the mode/permission coupling rule locally —
+/// it sends the command and renders whatever snapshot Core publishes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum ComposerControlIntent {
+    SetWorkMode { mode: String },
+    SetPermissionLevel { level: String },
+    SelectModel { provider_id: String, model: String },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D1CockpitProjection {
@@ -387,6 +473,7 @@ pub struct D1CockpitProjection {
     pub cost_usage: Vec<D1CostUsageProjection>,
     pub replay_cursor: D1CursorProjection,
     pub composer: D1ComposerProjection,
+    pub statusbar: D1StatusbarProjection,
     pub permission_dock: PermissionDockProjection,
     pub recovery: D6RecoveryProjection,
     pub unavailable_features: Vec<D1UnavailableFeatureProjection>,
