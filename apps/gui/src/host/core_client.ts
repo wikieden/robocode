@@ -25,6 +25,29 @@ export interface CoreClient {
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;
   d1Poll(selectedLaneId: string | null, waitForEvent: boolean): Promise<D1IntentResult>;
 
+  /**
+   * Composer controls. Each sends its exact Core command and resolves with
+   * the refreshed D1 result, whose projection carries the mode, permission,
+   * provider/model, and model options Core now publishes — including coupled
+   * changes Core made that the click never asked for.
+   */
+  setWorkMode(
+    commandId: string,
+    mode: string,
+    selectedLaneId: string | null,
+  ): Promise<D1IntentResult>;
+  setPermissionLevel(
+    commandId: string,
+    level: string,
+    selectedLaneId: string | null,
+  ): Promise<D1IntentResult>;
+  selectModel(
+    commandId: string,
+    providerId: string,
+    model: string,
+    selectedLaneId: string | null,
+  ): Promise<D1IntentResult>;
+
   d4SendIntent(commandId: string, intent: D4Intent): Promise<D4IntentResult>;
   d4Poll(): Promise<D4IntentResult>;
 

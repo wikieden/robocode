@@ -23,6 +23,13 @@ export function createTauriCoreClient(): CoreClient {
     d1Poll: (selectedLaneId, waitForEvent) =>
       invoke("d1_poll", { selectedLaneId, waitForEvent }),
 
+    setWorkMode: (commandId, mode, selectedLaneId) =>
+      invoke("set_work_mode", { commandId, mode, selectedLaneId }),
+    setPermissionLevel: (commandId, level, selectedLaneId) =>
+      invoke("set_permission_level", { commandId, level, selectedLaneId }),
+    selectModel: (commandId, providerId, model, selectedLaneId) =>
+      invoke("select_model", { commandId, providerId, model, selectedLaneId }),
+
     d4SendIntent: (commandId, intent) => invoke("d4_send_intent", { commandId, intent }),
     d4Poll: () => invoke("d4_poll"),
 

@@ -22,3 +22,14 @@ export type D1Intent =
   | { type: "send_agent_session_input"; laneId: string; sessionId: string; content: string }
   | { type: "retry_agent_session"; laneId: string; sessionId: string }
   | { type: "cancel_agent_session"; laneId: string; sessionId: string };
+
+/**
+ * One composer-control mutation (work mode, permission level, model). Values
+ * are the CLI names Core itself publishes in the snapshot. The GUI never
+ * applies Core's mode/permission coupling rule locally: it dispatches the
+ * control and re-renders from the snapshot Core republishes.
+ */
+export type ComposerControlIntent =
+  | { type: "set_work_mode"; mode: string }
+  | { type: "set_permission_level"; level: string }
+  | { type: "select_model"; providerId: string; model: string };
