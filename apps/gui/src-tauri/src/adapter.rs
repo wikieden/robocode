@@ -7,10 +7,11 @@ use sha2::{Digest, Sha256};
 use viden_core::{
     AgentSessionInput, AgentSessionRequest, AgentSessionStatus, ApprovalDecision,
     ApprovalRequestView, ApprovalResponse, ApprovalScope, BoundCoreClient, CoreClient,
-    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, PermissionLevel,
+    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, LocaleId, PermissionLevel,
     ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
     RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeWireEvent, StarterLanePreset,
-    StarterLaneRequest, TranscriptPage, TranscriptPageRequest, WorkMode, WorkspaceOpenRequest,
+    StarterLaneRequest, TranscriptPage, TranscriptPageRequest, UiColorMode, UiDensity, UiMotion,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceOpenRequest,
 };
 
 use crate::d1::{
@@ -18,7 +19,14 @@ use crate::d1::{
     D1OutcomeProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
-use crate::projection::exact_terminal_agent_session;
+use crate::projection::{
+    PreferenceDiagnosticProjection, ResolvedPreferencesProjection, exact_terminal_agent_session,
+    preference_diagnostic_projection,
+};
+use crate::ui_preferences::{
+    PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
+    UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+};
 use crate::{
     D6ConnectionState, D6RecoveryProjection, D6State, D11IntakeProjection, PermissionChoice,
     PermissionDockProjection, PermissionIntent, PermissionIntentResult,
@@ -39,6 +47,15 @@ pub struct GuiCoreAdapter {
     d1_outcome: D1OutcomeProjection,
     pending_permission: Option<PendingPermission>,
     permission_outcome: PermissionOutcomeProjection,
+    /// One preference command at a time. Preferences are workspace-scoped
+    /// rather than Lane-scoped, so they keep their own slot instead of
+    /// blocking (or being blocked by) the D1 composer slot.
+    pending_preference: Option<PendingPreference>,
+    preference_outcome: D1OutcomeProjection,
+    /// The last confirmed `UiPreferencesUpdated` receipt. Only a confirming
+    /// event fills this, so the client cannot render a persistence claim the
+    /// ordered Core stream never made.
+    preference_receipt: Option<PreferenceReceipt>,
     connection: D6ConnectionState,
     connection_detail: Option<String>,
     /// D2 queue selection. Presentation state only: it never gates a Core
@@ -460,6 +477,72 @@ impl PendingD1 {
     }
 }
 
+/// One in-flight preference command awaiting its ordered Core receipt.
+struct PendingPreference {
+    command_id: String,
+    command: RuntimeCommand,
+    accepted: bool,
+}
+
+/// What Core confirmed for the last completed preference command.
+struct PreferenceReceipt {
+    preferences: ResolvedPreferencesProjection,
+    persisted: bool,
+    diagnostics: Vec<PreferenceDiagnosticProjection>,
+}
+
+enum PreferenceObservation {
+    Continue,
+    Confirmed,
+    Rejected(String),
+}
+
+impl PendingPreference {
+    /// Reconciles one ordered event against this command.
+    ///
+    /// Acceptance alone is not persistence: only a `UiPreferencesUpdated`
+    /// whose `persisted` table matches what this command asked for (or, for a
+    /// reset, whose `persisted` table is gone) confirms the write. A
+    /// republished snapshot never confirms it, and neither does another
+    /// frontend's preference write.
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> PreferenceObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return PreferenceObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                PreferenceObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id
+                && matches!(
+                    (&self.command, command),
+                    (
+                        RuntimeCommand::SetUiPreferences { .. },
+                        RuntimeCommand::SetUiPreferences { .. }
+                    ) | (
+                        RuntimeCommand::ResetUiPreferences,
+                        RuntimeCommand::ResetUiPreferences
+                    )
+                ) =>
+            {
+                self.accepted = true;
+                PreferenceObservation::Continue
+            }
+            RuntimeEventKind::UiPreferencesUpdated { persisted, .. }
+                if self.accepted && update_matches(&self.command, persisted.as_ref()) =>
+            {
+                PreferenceObservation::Confirmed
+            }
+            _ => PreferenceObservation::Continue,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum D11Intent {
@@ -649,6 +732,9 @@ impl GuiCoreAdapter {
             d1_outcome: D1OutcomeProjection::idle(),
             pending_permission: None,
             permission_outcome: PermissionOutcomeProjection::idle(),
+            pending_preference: None,
+            preference_outcome: D1OutcomeProjection::idle(),
+            preference_receipt: None,
             connection: D6ConnectionState::Disconnected,
             connection_detail: None,
             d2_selected: None,
@@ -1654,6 +1740,160 @@ impl GuiCoreAdapter {
         ))
     }
 
+    /// Whether Core's handshake published preference persistence.
+    ///
+    /// The frontend reads this to render an honest unavailable Settings panel
+    /// instead of an enabled-and-inert Save button, and never to substitute a
+    /// client-side write.
+    pub fn supports_ui_preference_persistence(&self) -> bool {
+        self.supports(UI_PREFERENCE_PERSISTENCE_CAPABILITY)
+    }
+
+    /// Sends one preference mutation and waits for the ordered Core receipt.
+    ///
+    /// Unknown wire values and an empty patch fail closed before anything is
+    /// sent. Core owns the skin/mode compatibility rule and the mode gate, so
+    /// an invalid pair and a Plan/Review/Explore denial both come back as a
+    /// Core rejection carrying Core's own reason.
+    pub fn send_preference_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: PreferenceIntent,
+        event_timeout: Duration,
+    ) -> Result<PreferenceIntentResult, String> {
+        if !self.supports_ui_preference_persistence() {
+            return Err(format!(
+                "missing Core capability `{UI_PREFERENCE_PERSISTENCE_CAPABILITY}`"
+            ));
+        }
+        if let Some(pending) = &self.pending_preference {
+            return Err(format!(
+                "preference command `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let command = match intent {
+            PreferenceIntent::Save { patch } => {
+                let patch = typed_preference_patch(&patch)?;
+                if patch_is_empty(&patch) {
+                    return Err("no preference change to save".to_string());
+                }
+                RuntimeCommand::SetUiPreferences { patch }
+            }
+            PreferenceIntent::Restore => RuntimeCommand::ResetUiPreferences,
+        };
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // Personal preferences are user-scoped, not Lane-scoped.
+                owner: RuntimeOwner::default(),
+                command: command.clone(),
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_preference = Some(PendingPreference {
+            command_id: command_id.to_string(),
+            command,
+            accepted: false,
+        });
+        self.preference_outcome = D1OutcomeProjection::pending();
+        self.preference_receipt = None;
+        self.poll_preferences(event_timeout)
+    }
+
+    /// Drains ordered Core events for the in-flight preference command.
+    pub fn poll_preferences(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<PreferenceIntentResult, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    // The transport state is already classified by receive_event.
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_preference(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.preference_result())
+    }
+
+    /// Reconciles one ordered event against the in-flight preference command.
+    ///
+    /// Returns whether the command reached a terminal outcome. The desktop
+    /// event pump calls this too, so a background drain can never swallow the
+    /// only receipt the panel is waiting for.
+    fn observe_pending_preference(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_preference
+            .as_mut()
+            .map_or(PreferenceObservation::Continue, |pending| {
+                pending.observe(event)
+            });
+        match observation {
+            PreferenceObservation::Continue => false,
+            PreferenceObservation::Confirmed => {
+                self.pending_preference = None;
+                self.preference_outcome = D1OutcomeProjection::confirmed();
+                // The confirming fact is the authority for what was stored and
+                // what Core had to correct; nothing is recomputed locally.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::UiPreferencesUpdated {
+                        resolved,
+                        persisted,
+                        diagnostics,
+                    } = &known.kind
+                {
+                    self.preference_receipt = Some(PreferenceReceipt {
+                        preferences: crate::projection::resolved_preferences_projection(resolved),
+                        persisted: persisted.is_some(),
+                        diagnostics: diagnostics
+                            .iter()
+                            .map(preference_diagnostic_projection)
+                            .collect(),
+                    });
+                }
+                true
+            }
+            PreferenceObservation::Rejected(reason) => {
+                self.pending_preference = None;
+                self.preference_outcome = D1OutcomeProjection::rejected(reason);
+                self.preference_receipt = None;
+                true
+            }
+        }
+    }
+
+    fn preference_result(&self) -> PreferenceIntentResult {
+        let receipt = self.preference_receipt.as_ref();
+        PreferenceIntentResult {
+            outcome: self.preference_outcome.clone(),
+            preferences: receipt.map(|receipt| receipt.preferences.clone()),
+            persisted: receipt.is_some_and(|receipt| receipt.persisted),
+            diagnostics: receipt
+                .map(|receipt| receipt.diagnostics.clone())
+                .unwrap_or_default(),
+            pending_command_id: self
+                .pending_preference
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_ui_preference_persistence(),
+        }
+    }
+
     fn observe_pending_permission(&mut self, event: &RuntimeEventEnvelope) -> bool {
         let observation = self
             .pending_permission
@@ -1920,6 +2160,7 @@ impl GuiCoreAdapter {
             };
             received = true;
             self.observe_pending_permission(&event);
+            self.observe_pending_preference(&event);
             self.observe_pending(&event);
             self.observe_d4(&event);
         }
@@ -2033,6 +2274,91 @@ impl GuiCoreAdapter {
 
 fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Translates the wire patch into the typed Core patch, failing closed.
+///
+/// An unknown wire value is a client bug or a stale build: it fails here, with
+/// the offending axis named, instead of travelling to Core as a command Core
+/// would have to reject. The skin/mode pair is deliberately *not* validated
+/// here — Core owns that rule and rejects an invalid pair itself.
+fn typed_preference_patch(input: &PreferencePatchInput) -> Result<UiPreferencePatch, String> {
+    fn locale(value: &str) -> Result<LocaleId, String> {
+        match value {
+            "system" => Ok(LocaleId::System),
+            "en" => Ok(LocaleId::En),
+            "zh-CN" => Ok(LocaleId::ZhCn),
+            _ => Err(format!("unknown locale `{value}`")),
+        }
+    }
+    fn skin(value: &str) -> Result<UiSkin, String> {
+        match value {
+            "aurora" => Ok(UiSkin::Aurora),
+            "ice" => Ok(UiSkin::Ice),
+            "mono" => Ok(UiSkin::Mono),
+            "amber" => Ok(UiSkin::Amber),
+            "phosphor" => Ok(UiSkin::Phosphor),
+            _ => Err(format!("unknown skin `{value}`")),
+        }
+    }
+    fn mode(value: &str) -> Result<UiColorMode, String> {
+        match value {
+            "system" => Ok(UiColorMode::System),
+            "dark" => Ok(UiColorMode::Dark),
+            "light" => Ok(UiColorMode::Light),
+            _ => Err(format!("unknown mode `{value}`")),
+        }
+    }
+    fn density(value: &str) -> Result<UiDensity, String> {
+        match value {
+            "compact" => Ok(UiDensity::Compact),
+            "regular" => Ok(UiDensity::Regular),
+            "comfy" => Ok(UiDensity::Comfy),
+            _ => Err(format!("unknown density `{value}`")),
+        }
+    }
+    fn motion(value: &str) -> Result<UiMotion, String> {
+        match value {
+            "system" => Ok(UiMotion::System),
+            "reduced" => Ok(UiMotion::Reduced),
+            "full" => Ok(UiMotion::Full),
+            _ => Err(format!("unknown motion `{value}`")),
+        }
+    }
+    Ok(UiPreferencePatch {
+        locale: input.locale.as_deref().map(locale).transpose()?,
+        skin: input.skin.as_deref().map(skin).transpose()?,
+        mode: input.mode.as_deref().map(mode).transpose()?,
+        density: input.density.as_deref().map(density).transpose()?,
+        motion: input.motion.as_deref().map(motion).transpose()?,
+    })
+}
+
+fn patch_is_empty(patch: &UiPreferencePatch) -> bool {
+    patch.locale.is_none()
+        && patch.skin.is_none()
+        && patch.mode.is_none()
+        && patch.density.is_none()
+        && patch.motion.is_none()
+}
+
+/// Whether an ordered `UiPreferencesUpdated` fact is the receipt for this
+/// command, following the TUI reconciliation
+/// (`apps/tui/src/tui/preferences.rs`): a Set is confirmed by a persisted
+/// table that carries every value it asked for, and a Reset is confirmed by
+/// the absence of a persisted table.
+fn update_matches(command: &RuntimeCommand, persisted: Option<&UiPreferences>) -> bool {
+    match command {
+        RuntimeCommand::SetUiPreferences { patch } => persisted.is_some_and(|persisted| {
+            patch.locale.is_none_or(|value| persisted.locale == value)
+                && patch.skin.is_none_or(|value| persisted.skin == value)
+                && patch.mode.is_none_or(|value| persisted.mode == value)
+                && patch.density.is_none_or(|value| persisted.density == value)
+                && patch.motion.is_none_or(|value| persisted.motion == value)
+        }),
+        RuntimeCommand::ResetUiPreferences => persisted.is_none(),
+        _ => false,
+    }
 }
 
 fn parse_starter_preset(value: &str) -> Result<StarterLanePreset, String> {

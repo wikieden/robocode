@@ -63,6 +63,59 @@ pub struct ResolvedPreferencesProjection {
     pub diagnostics: Vec<PreferenceDiagnosticProjection>,
 }
 
+/// Projects one Core-resolved preference set into the transport-safe GUI view.
+///
+/// Only Core-resolved values reach this function, so `System` has already
+/// collapsed into the concrete locale/mode Core chose. The client renders that
+/// resolution; it never re-runs the precedence rule itself.
+pub fn resolved_preferences_projection(
+    resolved: &viden_core::ResolvedUiPreferences,
+) -> ResolvedPreferencesProjection {
+    ResolvedPreferencesProjection {
+        locale: match resolved.locale {
+            LocaleId::System | LocaleId::En => "en",
+            LocaleId::ZhCn => "zh-CN",
+        },
+        skin: match resolved.skin {
+            UiSkin::Aurora => "aurora",
+            UiSkin::Ice => "ice",
+            UiSkin::Mono => "mono",
+            UiSkin::Amber => "amber",
+            UiSkin::Phosphor => "phosphor",
+        },
+        mode: match resolved.mode {
+            UiColorMode::System | UiColorMode::Dark => "dark",
+            UiColorMode::Light => "light",
+        },
+        density: match resolved.density {
+            UiDensity::Compact => "compact",
+            UiDensity::Regular => "regular",
+            UiDensity::Comfy => "comfy",
+        },
+        motion: match resolved.motion {
+            UiMotion::System => "system",
+            UiMotion::Reduced => "reduced",
+            UiMotion::Full => "full",
+        },
+        diagnostics: resolved
+            .diagnostics
+            .iter()
+            .map(preference_diagnostic_projection)
+            .collect(),
+    }
+}
+
+pub fn preference_diagnostic_projection(
+    diagnostic: &viden_core::UiPreferenceDiagnostic,
+) -> PreferenceDiagnosticProjection {
+    PreferenceDiagnosticProjection {
+        code: diagnostic.code.clone(),
+        key: diagnostic.key.clone(),
+        field: diagnostic.field.clone(),
+        rejected_value: diagnostic.rejected_value.clone(),
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D11ProjectProjection {
@@ -944,44 +997,9 @@ impl RuntimeProjection {
 
     /// Projects only Core-resolved preferences into a transport-safe GUI view.
     pub fn preferences(&self) -> Option<ResolvedPreferencesProjection> {
-        let resolved = &self.view()?.snapshot.ui_preferences;
-        Some(ResolvedPreferencesProjection {
-            locale: match resolved.locale {
-                LocaleId::System | LocaleId::En => "en",
-                LocaleId::ZhCn => "zh-CN",
-            },
-            skin: match resolved.skin {
-                UiSkin::Aurora => "aurora",
-                UiSkin::Ice => "ice",
-                UiSkin::Mono => "mono",
-                UiSkin::Amber => "amber",
-                UiSkin::Phosphor => "phosphor",
-            },
-            mode: match resolved.mode {
-                UiColorMode::System | UiColorMode::Dark => "dark",
-                UiColorMode::Light => "light",
-            },
-            density: match resolved.density {
-                UiDensity::Compact => "compact",
-                UiDensity::Regular => "regular",
-                UiDensity::Comfy => "comfy",
-            },
-            motion: match resolved.motion {
-                UiMotion::System => "system",
-                UiMotion::Reduced => "reduced",
-                UiMotion::Full => "full",
-            },
-            diagnostics: resolved
-                .diagnostics
-                .iter()
-                .map(|diagnostic| PreferenceDiagnosticProjection {
-                    code: diagnostic.code.clone(),
-                    key: diagnostic.key.clone(),
-                    field: diagnostic.field.clone(),
-                    rejected_value: diagnostic.rejected_value.clone(),
-                })
-                .collect(),
-        })
+        Some(resolved_preferences_projection(
+            &self.view()?.snapshot.ui_preferences,
+        ))
     }
 
     /// Selects D11 facts without creating a second onboarding reducer in the GUI.

@@ -13,6 +13,7 @@ mod d6;
 mod permission;
 mod presentation;
 mod projection;
+mod ui_preferences;
 
 use std::sync::Mutex;
 use std::thread;
@@ -65,7 +66,14 @@ pub use presentation::{
     ComposerAction, ComposerDraft, GuiPreferences, TranscriptRow, TranscriptViewport,
     WorkspaceSelection,
 };
-pub use projection::{D11IntakeProjection, ResolvedPreferencesProjection, RuntimeProjection};
+pub use projection::{
+    D11IntakeProjection, PreferenceDiagnosticProjection, ResolvedPreferencesProjection,
+    RuntimeProjection,
+};
+pub use ui_preferences::{
+    PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
+    UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+};
 
 struct DesktopState {
     adapter: Mutex<Option<GuiCoreAdapter>>,
@@ -95,6 +103,72 @@ fn resolved_preferences(
         .as_ref()?
         .projection()
         .preferences()
+}
+
+/// Whether Core's handshake published `ui.preference_persistence`.
+///
+/// The Settings panel reads this before it renders: without the capability it
+/// shows the read-only unavailable state instead of controls that cannot
+/// reach Core. `false` also covers "no adapter is connected", which is the
+/// same operator-visible fact.
+#[tauri::command]
+fn preferences_available(state: tauri::State<'_, DesktopState>) -> bool {
+    state
+        .adapter
+        .lock()
+        .ok()
+        .and_then(|guard| {
+            guard
+                .as_ref()
+                .map(|adapter| adapter.supports_ui_preference_persistence())
+        })
+        .unwrap_or(false)
+}
+
+/// Sends one personal preference change as `SetUiPreferences`.
+///
+/// The patch carries only the axes the operator selected. Persistence,
+/// permission gating, precedence, and the skin/mode rule all stay in Core; the
+/// result confirms only what `UiPreferencesUpdated` reported.
+#[tauri::command]
+fn preferences_save(
+    command_id: String,
+    patch: PreferencePatchInput,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<PreferenceIntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_preference_intent_and_wait(
+            &command_id,
+            PreferenceIntent::Save { patch },
+            Duration::from_millis(250),
+        )
+}
+
+/// Sends `ResetUiPreferences`, dropping the user `[ui]` table.
+///
+/// A confirmed restore reports `persisted: false` while the resolved fallback
+/// still renders, exactly as the contract describes.
+#[tauri::command]
+fn preferences_restore(
+    command_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<PreferenceIntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_preference_intent_and_wait(
+            &command_id,
+            PreferenceIntent::Restore,
+            Duration::from_millis(250),
+        )
 }
 
 #[tauri::command]
@@ -474,6 +548,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
         .invoke_handler(tauri::generate_handler![
             open_workspace,
             resolved_preferences,
+            preferences_available,
+            preferences_save,
+            preferences_restore,
             d11_intake,
             d11_send_intent,
             d11_poll,
