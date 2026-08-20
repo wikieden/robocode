@@ -27,7 +27,7 @@ import { renderWelcomeCenter } from "../components/welcome_center";
 import type { D1Intent } from "../models/composer";
 import { BoundedTranscript, type D1TranscriptRow } from "../models/transcript";
 import type { D1CockpitProjection, D6RecoveryProjection } from "../models/workspace";
-import { renderD6Recovery } from "./d6_recovery";
+import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
 import "./d1_cockpit.css";
 
 export type { D1Intent } from "../models/composer";
@@ -86,6 +86,12 @@ export interface D1RenderOptions {
    * without its own scheme is unreadable until the host resolves it.
    */
   resolveContent?: (reference: string) => Promise<string>;
+  /**
+   * Sends one Core-backed D6 recovery action. Absent while no host is bound,
+   * which keeps the restart and close-Lane controls disabled rather than
+   * rendering a control that cannot reach Core.
+   */
+  sendD6Intent?: SendD6Intent;
 }
 
 type FocusedConversation =
@@ -1081,6 +1087,7 @@ export function renderD1Cockpit(
         recoverD6 ?? (async () => projection.recovery),
         locale,
         options.onOpenProject,
+        options.sendD6Intent,
       );
     } else {
       const transcriptRegion = document.createElement("section");

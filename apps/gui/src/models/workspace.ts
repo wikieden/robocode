@@ -51,6 +51,19 @@ export type D6State =
   | "missing_feature_capability"
   | "event_gap";
 
+export interface D6ActionProjection {
+  kind: string;
+  available: boolean;
+  code: string;
+  /**
+   * Exact Core ids the action targets, when Core published them. The intent
+   * replays these instead of rebuilding an identity from display text, so an
+   * action is inert unless Core named something for it to act on.
+   */
+  sessionId?: string | null;
+  laneId?: string | null;
+}
+
 export interface D6RecoveryProjection {
   connection: "disconnected" | "connecting" | "live" | "recovering" | "incompatible";
   state: D6State;
@@ -61,7 +74,20 @@ export interface D6RecoveryProjection {
   usedTokens: number | null;
   hardTokenLimit: number | null;
   missingCapabilities: string[];
-  actions: Array<{ kind: string; available: boolean; code: string }>;
+  actions: D6ActionProjection[];
+}
+
+/**
+ * One D6 recovery action routed to the Core command that owns it. `inspect` is
+ * absent on purpose: it expands facts the projection already carries.
+ */
+export type D6Intent =
+  | { kind: "restart"; sessionId: string }
+  | { kind: "close_lane"; laneId: string };
+
+export interface D6IntentResult {
+  projection: D6RecoveryProjection;
+  pendingCommandId: string | null;
 }
 
 export interface WorkspaceSourceProjection {

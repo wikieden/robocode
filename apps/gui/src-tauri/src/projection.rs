@@ -862,6 +862,29 @@ impl RuntimeProjection {
         let recoverable = latest_error.is_some_and(|error| error.recoverable)
             || matches!(state, D6State::Disconnected | D6State::EventGap);
         let reconnect_available = matches!(state, D6State::Disconnected | D6State::EventGap);
+        // `restart` mirrors D1's retry rule: a Lane-bound ACP session Core
+        // reports as failed or cancelled is the only `RetryAgentSession`
+        // target. D6 carries no Lane selection, so more than one candidate is
+        // an ambiguous target and fails closed rather than picking one for the
+        // operator.
+        let mut retryable = view.agent_sessions.iter().filter(|session| {
+            session.owner.lane_id.as_deref() == Some(session.lane_id.as_str())
+                && matches!(
+                    session.status,
+                    AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
+                )
+        });
+        let restart_target = match (retryable.next(), retryable.next()) {
+            (Some(session), None) => Some(session),
+            _ => None,
+        };
+        // `close_lane` targets the one active Lane Core published, under the
+        // same cardinality rule.
+        let mut closable = view.lanes.iter().filter(|lane| lane.is_active());
+        let close_lane_target = match (closable.next(), closable.next()) {
+            (Some(lane), None) => Some(lane),
+            _ => None,
+        };
         Some(D6RecoveryProjection {
             connection,
             state,
@@ -873,35 +896,46 @@ impl RuntimeProjection {
             hard_token_limit: exceeded.map(|budget| budget.hard_token_limit),
             missing_capabilities,
             actions: vec![
-                D6ActionProjection {
-                    kind: "reconnect",
-                    available: reconnect_available,
-                    code: if reconnect_available {
+                D6ActionProjection::untargeted(
+                    "reconnect",
+                    reconnect_available,
+                    if reconnect_available {
                         "core_client"
                     } else {
                         "GUI-CORE-003"
                     },
-                },
-                D6ActionProjection {
-                    kind: "inspect",
-                    available: true,
-                    code: "presentation_only",
-                },
+                ),
+                // `inspect` expands the facts already in this projection. It
+                // is a presentation affordance and never reaches Core.
+                D6ActionProjection::untargeted("inspect", true, "presentation_only"),
                 D6ActionProjection {
                     kind: "restart",
-                    available: false,
-                    code: "GUI-CORE-003",
+                    available: restart_target.is_some(),
+                    code: if restart_target.is_some() {
+                        "core_command"
+                    } else {
+                        "no_retryable_session"
+                    },
+                    session_id: restart_target.map(|session| session.session_id.clone()),
+                    lane_id: restart_target.map(|session| session.lane_id.clone()),
                 },
                 D6ActionProjection {
                     kind: "close_lane",
-                    available: false,
-                    code: "GUI-CORE-003",
+                    available: close_lane_target.is_some(),
+                    code: if close_lane_target.is_some() {
+                        "core_command"
+                    } else {
+                        "no_exact_lane"
+                    },
+                    session_id: None,
+                    lane_id: close_lane_target.map(|lane| lane.id.clone()),
                 },
-                D6ActionProjection {
-                    kind: "checkpoint",
-                    available: false,
-                    code: "GUI-CORE-003",
-                },
+                // Recorded Core contract request GUI-CORE-018: schema 1 models
+                // no checkpoint at all — no `RuntimeCommand` creates or
+                // restores one and no checkpoint record exists in the view —
+                // so this action stays fail-closed rather than claiming a
+                // restore the runtime cannot perform.
+                D6ActionProjection::untargeted("checkpoint", false, "GUI-CORE-003"),
             ],
         })
     }

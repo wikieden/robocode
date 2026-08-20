@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use viden_core::{
-    AgentTaskStatus, RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeSnapshot,
+    AgentSessionStatus, AgentSessionView, AgentTaskStatus, LaneStatus, RuntimeCommand,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
     RuntimeViewState,
 };
-use viden_gui::{D6State, GuiCoreAdapter};
+use viden_gui::{D6Intent, D6State, GuiCoreAdapter};
 
 mod support;
 use support::TestCoreClient;
@@ -30,12 +31,51 @@ fn d1_view() -> RuntimeViewState {
 }
 
 fn connected(view: RuntimeViewState) -> GuiCoreAdapter {
-    let mut adapter = GuiCoreAdapter::new(Box::new(TestCoreClient::new(
-        view,
-        Arc::new(Mutex::new(Vec::new())),
-    )));
+    connected_recording(view, Arc::new(Mutex::new(Vec::new())))
+}
+
+fn connected_recording(
+    view: RuntimeViewState,
+    sent: Arc<Mutex<Vec<viden_core::RuntimeCommandEnvelope>>>,
+) -> GuiCoreAdapter {
+    let mut adapter = GuiCoreAdapter::new(Box::new(TestCoreClient::new(view, sent)));
     adapter.connect().unwrap();
     adapter
+}
+
+/// Adds the Lane-bound ACP session D6 needs to name a restart target.
+fn with_bound_session(
+    view: &mut RuntimeViewState,
+    lane_id: &str,
+    session_id: &str,
+    status: AgentSessionStatus,
+) {
+    view.agent_sessions.push(AgentSessionView {
+        session_id: session_id.to_string(),
+        lane_id: lane_id.to_string(),
+        agent_id: "codex-acp".to_string(),
+        model: None,
+        status,
+        owner: RuntimeOwner {
+            lane_id: Some(lane_id.to_string()),
+            session_id: Some(session_id.to_string()),
+            ..RuntimeOwner::default()
+        },
+        task: "restore the failed turn".to_string(),
+        diagnostic: None,
+        output: None,
+    });
+}
+
+fn action<'a>(
+    projection: &'a viden_gui::D6RecoveryProjection,
+    kind: &str,
+) -> &'a viden_gui::D6ActionProjection {
+    projection
+        .actions
+        .iter()
+        .find(|action| action.kind == kind)
+        .expect("D6 always projects every recovery action")
 }
 
 #[test]
@@ -77,13 +117,10 @@ fn d6_projects_empty_provider_agent_context_and_queue_clear_from_core_facts() {
     stopped.tasks[0].status = AgentTaskStatus::Failed;
     let projection = connected(stopped).d6_recovery();
     assert_eq!(projection.state, D6State::AgentStopped);
-    assert!(
-        projection
-            .actions
-            .iter()
-            .filter(|action| action.kind != "inspect")
-            .all(|action| !action.available)
-    );
+    // A failed task is not a retryable ACP session, so restart stays closed
+    // even though Core reports stopped execution.
+    assert!(!action(&projection, "restart").available);
+    assert!(!action(&projection, "checkpoint").available);
     assert!(
         projection
             .actions
@@ -146,17 +183,176 @@ fn d6_projects_empty_provider_agent_context_and_queue_clear_from_core_facts() {
 }
 
 #[test]
-fn d6_recovery_never_claims_restart_close_or_checkpoint_success_without_core_receipts() {
+fn d6_checkpoint_stays_fail_closed_because_schema_one_has_no_checkpoint_capability() {
     let mut stopped = d1_view();
     stopped.tasks[0].status = AgentTaskStatus::Failed;
+    with_bound_session(
+        &mut stopped,
+        "lane_d1_core",
+        "session_lane_d1_core",
+        AgentSessionStatus::Failed,
+    );
     let projection = connected(stopped).d6_recovery();
-    for kind in ["restart", "close_lane", "checkpoint"] {
-        let action = projection
+    let checkpoint = action(&projection, "checkpoint");
+    assert!(!checkpoint.available);
+    assert_eq!(checkpoint.code, "GUI-CORE-003");
+    assert_eq!(checkpoint.session_id, None);
+    assert_eq!(checkpoint.lane_id, None);
+}
+
+#[test]
+fn d6_restart_names_the_exact_lane_bound_session_core_reports_failed() {
+    let mut failed = d1_view();
+    with_bound_session(
+        &mut failed,
+        "lane_d1_core",
+        "session_lane_d1_core",
+        AgentSessionStatus::Failed,
+    );
+    let projection = connected(failed).d6_recovery();
+    let restart = action(&projection, "restart");
+    assert!(restart.available);
+    assert_eq!(restart.session_id.as_deref(), Some("session_lane_d1_core"));
+    assert_eq!(restart.lane_id.as_deref(), Some("lane_d1_core"));
+
+    // A running session is not retryable, matching D1's own retry rule.
+    let mut running = d1_view();
+    with_bound_session(
+        &mut running,
+        "lane_d1_core",
+        "session_lane_d1_core",
+        AgentSessionStatus::Running,
+    );
+    let projection = connected(running).d6_recovery();
+    assert!(!action(&projection, "restart").available);
+    assert_eq!(action(&projection, "restart").session_id, None);
+
+    // Two retryable sessions are an ambiguous target; D6 must not choose one.
+    let mut ambiguous = d1_view();
+    with_bound_session(
+        &mut ambiguous,
+        "lane_d1_core",
+        "session_lane_d1_core",
+        AgentSessionStatus::Failed,
+    );
+    with_bound_session(
+        &mut ambiguous,
+        "lane_d1_core",
+        "session_second",
+        AgentSessionStatus::Cancelled,
+    );
+    let projection = connected(ambiguous).d6_recovery();
+    assert!(!action(&projection, "restart").available);
+}
+
+#[test]
+fn d6_close_lane_names_the_exact_active_lane_and_fails_closed_when_ambiguous() {
+    let projection = connected(d1_view()).d6_recovery();
+    let close_lane = action(&projection, "close_lane");
+    assert!(close_lane.available);
+    assert_eq!(close_lane.lane_id.as_deref(), Some("lane_d1_core"));
+
+    let mut none_active = d1_view();
+    for lane in &mut none_active.lanes {
+        lane.status = LaneStatus::Done;
+    }
+    let projection = connected(none_active).d6_recovery();
+    assert!(!action(&projection, "close_lane").available);
+    assert_eq!(action(&projection, "close_lane").lane_id, None);
+
+    let mut ambiguous = d1_view();
+    let mut second = ambiguous.lanes[0].clone();
+    second.id = "lane_d1_second".to_string();
+    ambiguous.lanes.push(second);
+    let projection = connected(ambiguous).d6_recovery();
+    assert!(!action(&projection, "close_lane").available);
+}
+
+#[test]
+fn d6_send_intent_dispatches_the_core_lane_and_session_commands() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut failed = d1_view();
+    with_bound_session(
+        &mut failed,
+        "lane_d1_core",
+        "session_lane_d1_core",
+        AgentSessionStatus::Failed,
+    );
+    let mut adapter = connected_recording(failed, Arc::clone(&sent));
+
+    let restart = adapter
+        .send_d6_intent_and_wait(
+            "gui-d6-restart",
+            D6Intent::Restart {
+                session_id: "session_lane_d1_core".to_string(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect("restart dispatches the Core retry command");
+    assert_eq!(
+        restart.pending_command_id.as_deref(),
+        Some("gui-d6-restart")
+    );
+    assert!(
+        restart
+            .projection
             .actions
             .iter()
-            .find(|action| action.kind == kind)
-            .unwrap();
-        assert!(!action.available);
-        assert_eq!(action.code, "GUI-CORE-003");
-    }
+            .any(|a| a.kind == "restart")
+    );
+
+    adapter
+        .send_d6_intent_and_wait(
+            "gui-d6-close",
+            D6Intent::CloseLane {
+                lane_id: "lane_d1_core".to_string(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect("close lane dispatches the Core stop command");
+
+    let commands = sent.lock().expect("sent commands");
+    let kinds = commands
+        .iter()
+        .map(|envelope| envelope.command.clone())
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        kinds.first(),
+        Some(RuntimeCommand::RetryAgentSession { session_id }) if session_id == "session_lane_d1_core"
+    ));
+    assert!(matches!(
+        kinds.get(1),
+        Some(RuntimeCommand::StopLane { lane_id }) if lane_id == "lane_d1_core"
+    ));
+    assert_eq!(
+        commands[0].owner.lane_id.as_deref(),
+        Some("lane_d1_core"),
+        "every D6 command replays the exact Core owner"
+    );
+}
+
+#[test]
+fn d6_send_intent_refuses_a_target_core_has_not_published() {
+    let mut adapter = connected(d1_view());
+    let error = adapter
+        .send_d6_intent_and_wait(
+            "gui-d6-restart",
+            D6Intent::Restart {
+                session_id: "session_unknown".to_string(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect_err("an unpublished session is not a restart target");
+    assert!(error.contains("session_unknown"), "{error}");
+
+    let error = adapter
+        .send_d6_intent_and_wait(
+            "gui-d6-close",
+            D6Intent::CloseLane {
+                lane_id: "lane_unknown".to_string(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .expect_err("an unpublished Lane is not a close target");
+    assert!(error.contains("lane_unknown"), "{error}");
 }

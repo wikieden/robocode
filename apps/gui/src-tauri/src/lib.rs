@@ -38,7 +38,9 @@ pub use d4::{
     D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,
     D4LaneRequest, D4Preset,
 };
-pub use d6::{D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State};
+pub use d6::{
+    D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6RecoveryProjection, D6State,
+};
 pub use d10::{
     D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
 };
@@ -364,6 +366,21 @@ fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProject
     Ok(adapter.d6_recovery())
 }
 
+#[tauri::command]
+fn d6_send_intent(
+    command_id: String,
+    intent: D6Intent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D6IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_d6_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+}
+
 pub fn run() {
     install_desktop_command_path();
     let adapter = match adapter::default_local_adapter() {
@@ -403,7 +420,8 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d13_fleet_workflow,
             d14_audit_timeline,
             agent_content,
-            d6_recover
+            d6_recover,
+            d6_send_intent
         ])
         .setup(|app| {
             spawn_core_event_pump(app.handle().clone());

@@ -73,6 +73,39 @@
   outline-offset: 2px;
 }
 
+/* Expanded `inspect` facts. Reuses the fact-panel treatment so the diagnostic
+   block reads as the same kind of Core-published evidence. */
+.d6-inspect {
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  text-align: start;
+}
+
+.d6-inspect h3 {
+  margin: 0 0 var(--sp-2);
+  color: var(--fg-secondary);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.d6-inspect dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
+}
+
+.d6-inspect dt { color: var(--fg-muted); }
+
+.d6-inspect dd {
+  margin: 0;
+  color: var(--fg-primary);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 [data-d6-success] { color: var(--success); }
 
 @media (prefers-reduced-motion: reduce) {

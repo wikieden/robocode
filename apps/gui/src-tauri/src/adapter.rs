@@ -929,6 +929,98 @@ impl GuiCoreAdapter {
             })
     }
 
+    /// Sends one D6 recovery action as the Core command that owns that fact
+    /// family, then republishes the recovery projection.
+    ///
+    /// The target ids come from the projection the operator acted on, and are
+    /// re-resolved against the current Core view here: a session or Lane that
+    /// disappeared between render and click is rejected instead of being sent
+    /// as a command Core would have to reject.
+    pub fn send_d6_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: crate::D6Intent,
+        event_timeout: Duration,
+    ) -> Result<crate::D6IntentResult, String> {
+        let envelope = self.d6_envelope(command_id, &intent)?;
+        self.client
+            .send(envelope)
+            .map_err(|error| error.to_string())?;
+        // Drain the receipts Core already published so the returned projection
+        // is not a turn stale; the ordered-event pump delivers the rest.
+        self.pump_events(event_timeout);
+        Ok(crate::D6IntentResult {
+            projection: self.d6_recovery(),
+            pending_command_id: Some(command_id.to_string()),
+        })
+    }
+
+    fn d6_envelope(
+        &self,
+        command_id: &str,
+        intent: &crate::D6Intent,
+    ) -> Result<RuntimeCommandEnvelope, String> {
+        let view = self
+            .projection
+            .view()
+            .ok_or_else(|| "Core has not published a recovery projection".to_string())?;
+        let (owner, command) = match intent {
+            crate::D6Intent::Restart { session_id } => {
+                let sessions = view
+                    .agent_sessions
+                    .iter()
+                    .filter(|session| session.session_id == *session_id)
+                    .collect::<Vec<_>>();
+                let [session] = sessions.as_slice() else {
+                    return Err(format!(
+                        "Core has no unique ACP session `{session_id}` to restart"
+                    ));
+                };
+                if !matches!(
+                    session.status,
+                    AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
+                ) {
+                    return Err(format!("ACP session `{session_id}` is not retryable"));
+                }
+                (
+                    session.owner.clone(),
+                    RuntimeCommand::RetryAgentSession {
+                        session_id: session_id.clone(),
+                    },
+                )
+            }
+            crate::D6Intent::CloseLane { lane_id } => {
+                let lane = view
+                    .lanes
+                    .iter()
+                    .find(|lane| lane.id == *lane_id)
+                    .ok_or_else(|| format!("Core has no Lane `{lane_id}` to close"))?;
+                if !lane.is_active() {
+                    return Err(format!("Lane `{lane_id}` is not active"));
+                }
+                // Lane lifecycle is routed by the command's own lane id; the
+                // owner still names the Lane so the audit trail keeps the
+                // exact execution identity.
+                (
+                    self.exact_runtime_owner(lane_id).unwrap_or(RuntimeOwner {
+                        lane_id: Some(lane_id.clone()),
+                        ..RuntimeOwner::default()
+                    }),
+                    RuntimeCommand::StopLane {
+                        lane_id: lane_id.clone(),
+                    },
+                )
+            }
+        };
+        Ok(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "viden-gui".to_string(),
+            command_id: command_id.to_string(),
+            owner,
+            command,
+        })
+    }
+
     pub fn recover(&mut self) -> Result<(), CoreClientError> {
         self.connection = D6ConnectionState::Recovering;
         let snapshot = match self.client.snapshot() {

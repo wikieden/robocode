@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,10 +27,61 @@ pub enum D6State {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D6ActionProjection {
     pub kind: &'static str,
     pub available: bool,
     pub code: &'static str,
+    /// Exact Core ACP session this action acts on, when Core published one.
+    ///
+    /// Only `restart` names a session. The intent replays this id instead of
+    /// rebuilding an identity from display text, so a recovery action can
+    /// never be routed at a session Core did not publish.
+    pub session_id: Option<String>,
+    /// Exact Core Lane this action acts on, when Core published one.
+    ///
+    /// `restart` names the Lane that owns the session; `close_lane` names the
+    /// Lane it stops.
+    pub lane_id: Option<String>,
+}
+
+impl D6ActionProjection {
+    /// A recovery action with no Core target to name.
+    pub(crate) fn untargeted(kind: &'static str, available: bool, code: &'static str) -> Self {
+        Self {
+            kind,
+            available,
+            code,
+            session_id: None,
+            lane_id: None,
+        }
+    }
+}
+
+/// One D6 recovery action the operator asked Core to perform.
+///
+/// Every variant maps to exactly one existing `RuntimeCommand`; D6 owns no
+/// private recovery path. `inspect` is absent on purpose: it expands facts the
+/// projection already carries and never reaches Core.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum D6Intent {
+    /// Re-runs a failed or cancelled ACP session (`RuntimeCommand::RetryAgentSession`).
+    Restart { session_id: String },
+    /// Stops an active Lane (`RuntimeCommand::StopLane`).
+    CloseLane { lane_id: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D6IntentResult {
+    pub projection: D6RecoveryProjection,
+    /// Set while Core has not yet published the receipt for this command.
+    pub pending_command_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

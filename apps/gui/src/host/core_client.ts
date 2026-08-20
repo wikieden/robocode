@@ -1,5 +1,5 @@
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
-import type { D6RecoveryProjection } from "../models/workspace";
+import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type { ResolvedPreferences } from "../preferences";
 import type { D1CockpitProjection, D1Intent, D1IntentResult } from "../screens/d1_cockpit";
 import type { D10LaneMonitorProjection } from "../screens/d10_lane_monitor";
@@ -41,6 +41,8 @@ export interface CoreClient {
     intent: PermissionIntent,
   ): Promise<PermissionIntentResult>;
   d6Recover(): Promise<D6RecoveryProjection>;
+  /** Sends one D6 recovery action as its Core command and re-reads recovery. */
+  d6SendIntent(commandId: string, intent: D6Intent): Promise<D6IntentResult>;
 
   /** Resolve Core-persisted content to an inline data URL the webview can show. */
   agentContent(reference: string): Promise<string>;

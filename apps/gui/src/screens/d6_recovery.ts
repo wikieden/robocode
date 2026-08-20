@@ -1,8 +1,43 @@
 import type { Locale } from "../i18n/catalog";
-import type { D6RecoveryProjection, D6State } from "../models/workspace";
+import type {
+  D6ActionProjection,
+  D6Intent,
+  D6IntentResult,
+  D6RecoveryProjection,
+  D6State,
+} from "../models/workspace";
 import "./d6_recovery.css";
 
-export type { D6RecoveryProjection } from "../models/workspace";
+export type {
+  D6ActionProjection,
+  D6Intent,
+  D6IntentResult,
+  D6RecoveryProjection,
+} from "../models/workspace";
+
+/** Sends one Core-backed recovery action; absent while no host is bound. */
+export type SendD6Intent = (intent: D6Intent) => Promise<D6IntentResult>;
+
+/**
+ * Resolves the Core intent an action stands for, or null when the projection
+ * named no target. A recovery action never invents an id, so an action Core
+ * marked available but did not target stays inert rather than guessing one.
+ */
+/** Localized label for an action kind, falling back to the protocol name. */
+function actionLabel(copy: (typeof COPY)[Locale], kind: string): string {
+  const label = copy[kind as keyof typeof copy];
+  return typeof label === "string" ? label : kind;
+}
+
+function intentFor(action: D6ActionProjection): D6Intent | null {
+  if (action.kind === "restart" && action.sessionId) {
+    return { kind: "restart", sessionId: action.sessionId };
+  }
+  if (action.kind === "close_lane" && action.laneId) {
+    return { kind: "close_lane", laneId: action.laneId };
+  }
+  return null;
+}
 
 const COPY = {
   en: {
@@ -27,6 +62,10 @@ const COPY = {
     tokens: "Tokens",
     missing: "Missing",
     recovered: "Core snapshot is live.",
+    diagnostics: "Diagnostics",
+    connection_label: "Connection",
+    state_label: "State",
+    hint_label: "Hint",
   },
   "zh-CN": {
     empty: ["空工作区", "Core 尚未提供可用 Lane。"],
@@ -50,6 +89,10 @@ const COPY = {
     tokens: "Token",
     missing: "缺失能力",
     recovered: "Core 快照已恢复在线。",
+    diagnostics: "诊断",
+    connection_label: "连接",
+    state_label: "状态",
+    hint_label: "提示",
   },
 } as const;
 
@@ -63,10 +106,69 @@ export function renderD6Recovery(
   reconnect: () => Promise<D6RecoveryProjection>,
   locale: Locale,
   openProject?: () => void,
+  sendIntent?: SendD6Intent,
 ): D6Controller {
   let projection = initial;
-  let reconnecting = false;
+  // One in-flight recovery action at a time: every Core-backed action blocks
+  // the surface until the host returns Core's own projection.
+  let recovering = false;
+  // `inspect` is presentation-only; expanding the facts must never look like a
+  // Core state change, so it lives outside the projection.
+  let inspecting = false;
   const copy = COPY[locale];
+
+  /** Runs one Core-backed action and re-renders from what Core published. */
+  const dispatch = (run: () => Promise<D6RecoveryProjection>): void => {
+    if (recovering) return;
+    recovering = true;
+    render();
+    void run()
+      .then((next) => {
+        // Success is rendered only after the callback returns Core's projection.
+        projection = next;
+      })
+      .finally(() => {
+        recovering = false;
+        render();
+      });
+  };
+
+  /**
+   * Expands the facts this projection already carries. When Core published no
+   * detail or hint, the typed state and the per-action diagnostic codes are
+   * still renderable, so `inspect` always shows why an action is unavailable
+   * rather than opening an empty panel.
+   */
+  const renderInspectDetails = (): HTMLElement => {
+    const details = document.createElement("section");
+    details.id = "d6-inspect";
+    details.className = "d6-inspect";
+    details.dataset.d6Inspect = "true";
+    const heading = document.createElement("h3");
+    heading.textContent = copy.diagnostics;
+    const list = document.createElement("dl");
+    const rows: Array<[string, string]> = [
+      [copy.state_label, projection.state],
+      [copy.connection_label, projection.connection],
+    ];
+    if (projection.detail) rows.push([copy.facts, projection.detail]);
+    if (projection.hint) rows.push([copy.hint_label, projection.hint]);
+    if (projection.missingCapabilities.length > 0) {
+      rows.push([copy.missing, projection.missingCapabilities.join(", ")]);
+    }
+    for (const action of projection.actions) {
+      rows.push([actionLabel(copy, action.kind), action.code]);
+    }
+    for (const [term, value] of rows) {
+      const dt = document.createElement("dt");
+      dt.textContent = term;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      list.append(dt, dd);
+    }
+    details.append(heading, list);
+    return details;
+  };
 
   const render = (): void => {
     const stateCopy = copy[projection.state as D6State];
@@ -74,7 +176,7 @@ export function renderD6Recovery(
     stage.className = "d6-stage";
     stage.dataset.d6State = projection.state;
     stage.setAttribute("aria-live", "polite");
-    stage.setAttribute("aria-busy", String(reconnecting));
+    stage.setAttribute("aria-busy", String(recovering));
 
     const tag = document.createElement("span");
     tag.className = "d6-tag";
@@ -111,21 +213,28 @@ export function renderD6Recovery(
       const actionButton = document.createElement("button");
       actionButton.type = "button";
       actionButton.dataset.d6Action = action.kind;
-      actionButton.disabled = !action.available || reconnecting;
-      const label = copy[action.kind as keyof typeof copy] ?? action.kind;
+      const intent = intentFor(action);
+      // A control is enabled only when it can actually do something: Core said
+      // the action is available, it named a target, and a host can carry it.
+      const operable = action.available
+        && (action.kind === "inspect"
+          || (action.kind === "reconnect" ? true : intent !== null && sendIntent !== undefined));
+      actionButton.disabled = !operable || recovering;
+      const label = actionLabel(copy, action.kind);
       actionButton.textContent = `${label}${action.available ? "" : ` · ${action.code}`}`;
-      if (action.kind === "reconnect" && action.available) {
+      if (operable && action.kind === "reconnect") {
+        actionButton.addEventListener("click", () => dispatch(reconnect));
+      } else if (operable && action.kind === "inspect") {
+        // Local affordance only: it expands facts already in the projection.
+        actionButton.setAttribute("aria-expanded", String(inspecting));
+        actionButton.setAttribute("aria-controls", "d6-inspect");
         actionButton.addEventListener("click", () => {
-          if (reconnecting) return;
-          reconnecting = true;
+          inspecting = !inspecting;
           render();
-          void reconnect().then((next) => {
-            // Success is rendered only after the callback returns Core's live projection.
-            projection = next;
-          }).finally(() => {
-            reconnecting = false;
-            render();
-          });
+        });
+      } else if (operable && intent && sendIntent) {
+        actionButton.addEventListener("click", () => {
+          dispatch(async () => (await sendIntent(intent)).projection);
         });
       }
       actions.append(actionButton);
@@ -139,6 +248,7 @@ export function renderD6Recovery(
       actions.prepend(openProjectButton);
     }
     stage.append(actions);
+    if (inspecting) stage.append(renderInspectDetails());
     if (projection.state === "live" && projection.connection === "live") {
       const success = document.createElement("p");
       success.dataset.d6Success = "true";
@@ -152,7 +262,7 @@ export function renderD6Recovery(
   const controller: D6Controller = {
     applyProjection: (next) => {
       projection = next;
-      if (next.connection === "live") reconnecting = false;
+      if (next.connection === "live") recovering = false;
       render();
     },
   };

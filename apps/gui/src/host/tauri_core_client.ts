@@ -37,6 +37,7 @@ export function createTauriCoreClient(): CoreClient {
     permissionSendIntent: (commandId, intent) =>
       invoke("permission_send_intent", { commandId, intent }),
     d6Recover: () => invoke("d6_recover"),
+    d6SendIntent: (commandId, intent) => invoke("d6_send_intent", { commandId, intent }),
 
     agentContent: (reference) => invoke("agent_content", { reference }),
 

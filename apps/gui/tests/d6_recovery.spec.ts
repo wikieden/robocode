@@ -4,6 +4,8 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   renderD6Recovery,
+  type D6Intent,
+  type D6IntentResult,
   type D6RecoveryProjection,
 } from "../src/screens/d6_recovery";
 
@@ -82,5 +84,124 @@ describe("D6 subordinate recovery surface", () => {
     expect(root.querySelector(".d6-stage")).not.toBeNull();
     expect(root.querySelector(".statebar")).toBeNull();
     expect(root.textContent).not.toContain("D6 concept · draft 01");
+  });
+});
+
+const STOPPED: D6RecoveryProjection = {
+  ...BASE,
+  state: "agent_stopped",
+  detail: "ACP session failed",
+  businessSuccessBlocked: true,
+  actions: [
+    { kind: "reconnect", available: false, code: "GUI-CORE-003" },
+    { kind: "inspect", available: true, code: "presentation_only" },
+    {
+      kind: "restart",
+      available: true,
+      code: "core_command",
+      sessionId: "session-1",
+      laneId: "lane-1",
+    },
+    { kind: "close_lane", available: true, code: "core_command", laneId: "lane-1" },
+    { kind: "checkpoint", available: false, code: "GUI-CORE-003" },
+  ],
+};
+
+function setupWithIntent(projection: D6RecoveryProjection, next?: D6RecoveryProjection) {
+  document.body.innerHTML = '<main id="stage"></main>';
+  const root = document.querySelector<HTMLElement>("#stage")!;
+  const sent: D6Intent[] = [];
+  const sendIntent = vi.fn(async (intent: D6Intent): Promise<D6IntentResult> => {
+    sent.push(intent);
+    return { projection: next ?? projection, pendingCommandId: "gui-d6-1" };
+  });
+  const controller = renderD6Recovery(
+    root,
+    projection,
+    async () => projection,
+    "en",
+    undefined,
+    sendIntent,
+  );
+  return { root, sent, sendIntent, controller };
+}
+
+describe("D6 recovery actions reach the Core commands that own them", () => {
+  test("restart sends the exact session id Core published", async () => {
+    const live: D6RecoveryProjection = { ...STOPPED, state: "live", connection: "live" };
+    const { root, sent, sendIntent } = setupWithIntent(STOPPED, live);
+    const restart = root.querySelector<HTMLButtonElement>('[data-d6-action="restart"]')!;
+
+    expect(restart.disabled).toBe(false);
+    restart.click();
+    expect(root.querySelector("[data-d6-state]")?.getAttribute("aria-busy")).toBe("true");
+
+    await vi.waitFor(() => expect(sendIntent).toHaveBeenCalledOnce());
+    expect(sent).toEqual([{ kind: "restart", sessionId: "session-1" }]);
+    // The surface re-renders from the projection the host returned, never from
+    // an assumed local success.
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-d6-state]")?.getAttribute("data-d6-state")).toBe("live");
+      expect(root.querySelector("[data-d6-state]")?.getAttribute("aria-busy")).toBe("false");
+    });
+  });
+
+  test("close lane sends the exact Lane id Core published", async () => {
+    const { root, sent, sendIntent } = setupWithIntent(STOPPED);
+    root.querySelector<HTMLButtonElement>('[data-d6-action="close_lane"]')!.click();
+
+    await vi.waitFor(() => expect(sendIntent).toHaveBeenCalledOnce());
+    expect(sent).toEqual([{ kind: "close_lane", laneId: "lane-1" }]);
+  });
+
+  test("an available action without a Core target stays inert", () => {
+    const { root, sendIntent } = setupWithIntent({
+      ...STOPPED,
+      actions: STOPPED.actions.map((action) =>
+        action.kind === "restart" ? { ...action, sessionId: undefined } : action,
+      ),
+    });
+    const restart = root.querySelector<HTMLButtonElement>('[data-d6-action="restart"]')!;
+    expect(restart.disabled).toBe(true);
+    restart.click();
+    expect(sendIntent).not.toHaveBeenCalled();
+  });
+
+  test("the unavailable checkpoint action is disabled and never dispatches", () => {
+    const { root, sendIntent } = setupWithIntent(STOPPED);
+    const checkpoint = root.querySelector<HTMLButtonElement>('[data-d6-action="checkpoint"]')!;
+    expect(checkpoint.disabled).toBe(true);
+    checkpoint.click();
+    expect(sendIntent).not.toHaveBeenCalled();
+  });
+
+  test("without a host intent callback the Core-backed actions stay disabled", () => {
+    const { root } = setup(STOPPED);
+    for (const kind of ["restart", "close_lane"]) {
+      expect(
+        root.querySelector<HTMLButtonElement>(`[data-d6-action="${kind}"]`)!.disabled,
+      ).toBe(true);
+    }
+  });
+
+  test("inspect toggles a local details region and calls no Core command", () => {
+    const { root, sendIntent } = setupWithIntent(STOPPED);
+    const inspect = root.querySelector<HTMLButtonElement>('[data-d6-action="inspect"]')!;
+    expect(root.querySelector("[data-d6-inspect]")).toBeNull();
+    expect(inspect.getAttribute("aria-expanded")).toBe("false");
+
+    inspect.click();
+    const details = root.querySelector<HTMLElement>("[data-d6-inspect]")!;
+    expect(details).not.toBeNull();
+    // The diagnostic code block is always renderable, even with no extra facts.
+    expect(details.textContent).toContain("ACP session failed");
+    expect(details.textContent).toContain("GUI-CORE-003");
+    expect(
+      root.querySelector('[data-d6-action="inspect"]')?.getAttribute("aria-expanded"),
+    ).toBe("true");
+
+    root.querySelector<HTMLButtonElement>('[data-d6-action="inspect"]')!.click();
+    expect(root.querySelector("[data-d6-inspect]")).toBeNull();
+    expect(sendIntent).not.toHaveBeenCalled();
   });
 });

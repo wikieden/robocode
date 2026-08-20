@@ -2,7 +2,7 @@ import type { CoreClient } from "./host/core_client";
 import { createTauriCoreClient } from "./host/tauri_core_client";
 import { translate } from "./i18n/catalog";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
-import type { D6RecoveryProjection } from "./models/workspace";
+import type { D6Intent, D6RecoveryProjection } from "./models/workspace";
 import type { ResolvedPreferences } from "./preferences";
 import {
   renderD1Cockpit,
@@ -176,6 +176,8 @@ export async function hydrateShellFromCore(
       const sendPermission = async (intent: PermissionIntent) =>
         await core.permissionSendIntent(`gui-permission-${crypto.randomUUID()}`, intent);
       const recoverD6 = async () => await core.d6Recover();
+      const sendD6Intent = async (intent: D6Intent) =>
+        await core.d6SendIntent(`gui-d6-${crypto.randomUUID()}`, intent);
       let activeD1: D1Controller | null = null;
       const onCoreWake = core.onCoreWake;
 
@@ -216,6 +218,7 @@ export async function hydrateShellFromCore(
             onFullSetup: () => void showD4(),
             onCoreWake,
             resolveContent,
+            sendD6Intent,
             onNavigate: (route: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the rail only names the route.

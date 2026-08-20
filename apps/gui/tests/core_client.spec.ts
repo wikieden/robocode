@@ -41,6 +41,7 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     d14AuditTimeline: unreachable("d14_audit_timeline"),
     permissionSendIntent: unreachable("permission_send_intent"),
     d6Recover: unreachable("d6_recover"),
+    d6SendIntent: unreachable("d6_send_intent"),
     agentContent: unreachable("agent_content"),
     openWorkspace: unreachable("open_workspace"),
     pickProjectFolder: unreachable("pick_project_folder"),
