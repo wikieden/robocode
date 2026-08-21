@@ -273,6 +273,66 @@ fn restore_confirms_on_a_ui_preferences_updated_with_no_persisted_table() {
 }
 
 #[test]
+fn a_later_poll_confirms_a_command_the_send_call_left_pending() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    // Core publishes nothing inside the send call's window; both the
+    // acceptance and the receipt arrive on a later drain.
+    let client = TestCoreClient::new(d1_view(), Arc::clone(&sent))
+        .with_gap()
+        .with_event(RuntimeEventKind::CommandAccepted {
+            command_id: "gui-pref-slow".into(),
+            command: RuntimeCommand::SetUiPreferences {
+                patch: UiPreferencePatch {
+                    density: Some(UiDensity::Comfy),
+                    ..UiPreferencePatch::default()
+                },
+            },
+        })
+        .with_event(RuntimeEventKind::UiPreferencesUpdated {
+            resolved: resolved(UiSkin::Aurora, UiColorMode::Dark),
+            persisted: Some(UiPreferences {
+                locale: LocaleId::ZhCn,
+                skin: UiSkin::Aurora,
+                mode: UiColorMode::Dark,
+                density: UiDensity::Comfy,
+                motion: UiMotion::Reduced,
+            }),
+            diagnostics: Vec::new(),
+        });
+    let mut adapter = connected(client);
+
+    let pending = adapter
+        .send_preference_intent_and_wait(
+            "gui-pref-slow",
+            save_intent(PreferencePatchInput {
+                density: Some("comfy".into()),
+                ..PreferencePatchInput::default()
+            }),
+            Duration::ZERO,
+        )
+        .expect("preference save dispatches");
+    assert_eq!(pending.outcome.state, "pending");
+    assert_eq!(pending.pending_command_id.as_deref(), Some("gui-pref-slow"));
+
+    let confirmed = adapter
+        .poll_preferences(Duration::from_millis(10))
+        .expect("the later poll drains the receipt");
+
+    assert_eq!(confirmed.outcome.state, "confirmed");
+    assert_eq!(confirmed.pending_command_id, None);
+    assert!(confirmed.persisted);
+    assert_eq!(
+        confirmed
+            .preferences
+            .expect("Core republished the resolution")
+            .density,
+        "comfy"
+    );
+    // Exactly one command reached Core; polling never re-sends.
+    assert_eq!(sent_commands(&sent).len(), 1);
+}
+
+#[test]
 fn a_core_rejection_carries_the_reason_through_to_the_client() {
     let sent = Arc::new(Mutex::new(Vec::new()));
     // Plan/Review/Explore deny the mutation; Core answers with CommandRejected
