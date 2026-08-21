@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { renderSettingsPanel } from "../src/components/settings_panel";
 import { renderD1Cockpit } from "../src/screens/d1_cockpit";
@@ -44,10 +44,26 @@ function option(panel: HTMLElement, key: string): HTMLButtonElement {
   return found;
 }
 
+/**
+ * Removes every panel this file mounted, listeners included.
+ *
+ * A panel registers a `document` mousedown listener for its outside-click
+ * dismissal, so one left mounted keeps reacting during the next test. Clearing
+ * `document.body` detaches the DOM but not the listener, which is why the
+ * teardown closes controllers instead of wiping markup.
+ */
+function closeMountedPanels(): void {
+  for (const panel of document.querySelectorAll<HTMLElement>("[data-settings-panel]")) {
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    panel.remove();
+  }
+}
+
 describe("settings panel", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
   });
+  afterEach(closeMountedPanels);
 
   test("renders every Core preference axis with the resolved value selected", () => {
     const spies = handlers();
@@ -280,6 +296,7 @@ describe("cockpit settings entry", () => {
   beforeEach(() => {
     document.body.innerHTML = '<main id="app"></main>';
   });
+  afterEach(closeMountedPanels);
 
   function cockpitRoot(): HTMLElement {
     const root = document.querySelector<HTMLElement>("#app");
@@ -420,6 +437,53 @@ describe("cockpit settings entry", () => {
         "ui.preference_persistence",
       );
     });
+    controller.dispose();
+  });
+
+  test("the gear closes its own panel after a Core-driven rail rebuild", async () => {
+    const root = cockpitRoot();
+    const confirmedRestore: PreferenceIntentOutcome = {
+      status: "confirmed",
+      resolved: RESOLVED,
+      persisted: false,
+      diagnostics: [],
+    };
+    const controller = renderD1Cockpit(
+      root,
+      D1_PROJECTION,
+      async () => idleResult,
+      async () => idleResult,
+      undefined,
+      undefined,
+      {
+        poll: false,
+        preferences: {
+          isAvailable: async () => true,
+          save: async () => confirmedRestore,
+          restore: async () => confirmedRestore,
+        },
+      },
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-settings-toggle]")?.click();
+    await vi.waitFor(() => {
+      expect(document.querySelector("[data-settings-panel]")).not.toBeNull();
+    });
+
+    // A Core refresh rebuilds the rail, so the gear the panel was anchored to
+    // may no longer be the mounted one. The toggle must still close, not
+    // close-then-reopen, and the mounted gear must still report its state.
+    controller.applyProjection({ ...D1_PROJECTION, selectedLaneId: null });
+    const gear = root.querySelector<HTMLButtonElement>("[data-settings-toggle]");
+    expect(gear?.getAttribute("aria-expanded")).toBe("true");
+
+    gear?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    gear?.click();
+
+    expect(document.querySelector("[data-settings-panel]")).toBeNull();
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-settings-toggle]")?.getAttribute("aria-expanded"),
+    ).toBe("false");
     controller.dispose();
   });
 

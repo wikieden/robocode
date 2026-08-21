@@ -390,9 +390,22 @@ export function renderSettingsPanel(
     }
   });
 
+  // The cockpit rebuilds the rail on every Core refresh, so the gear that is
+  // mounted now may not be the node this panel was anchored to. Both the
+  // outside-click guard and the focus hand-back resolve the live gear instead
+  // of a detached one — otherwise the gear could no longer close its own
+  // panel, and Escape would drop focus to the document body.
+  const liveAnchor = (): HTMLButtonElement =>
+    anchor.isConnected
+      ? anchor
+      : (document.querySelector<HTMLButtonElement>("[data-settings-toggle]") ?? anchor);
+
   let closed = false;
   const outside = (event: MouseEvent): void => {
-    if (!panel.contains(event.target as Node) && event.target !== anchor) controller.close();
+    const target = event.target;
+    if (panel.contains(target as Node)) return;
+    if (target instanceof Element && target.closest("[data-settings-toggle]")) return;
+    controller.close();
   };
   const controller: SettingsPanelController = {
     root: panel,
@@ -401,8 +414,9 @@ export function renderSettingsPanel(
       closed = true;
       document.removeEventListener("mousedown", outside);
       panel.remove();
-      anchor.setAttribute("aria-expanded", "false");
-      anchor.focus();
+      const gear = liveAnchor();
+      gear.setAttribute("aria-expanded", "false");
+      gear.focus();
       handlers.onClose();
     },
   };
