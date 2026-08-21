@@ -7,6 +7,7 @@ import type {
 } from "../preferences";
 import type { D1CockpitProjection, D1Intent, D1IntentResult } from "../screens/d1_cockpit";
 import type { D10LaneMonitorProjection } from "../screens/d10_lane_monitor";
+import type { D11Intent, D11IntentResult } from "../screens/d11_intake";
 import type { D12IntegrationGateProjection } from "../screens/d12_integration_gate";
 import type { D13FleetWorkflowProjection } from "../screens/d13_fleet_workflow";
 import type { D14AuditTimelineProjection } from "../screens/d14_audit_timeline";
@@ -70,6 +71,15 @@ export interface CoreClient {
     model: string,
     selectedLaneId: string | null,
   ): Promise<D1IntentResult>;
+
+  /**
+   * D11 project intake. `d11Poll` is also the screen's entry read: it drains
+   * the ordered Core events already queued and returns the current intake
+   * projection plus any command still awaiting its receipt, so the shell never
+   * enters D11 on a stale view or a forgotten in-flight command.
+   */
+  d11SendIntent(commandId: string, intent: D11Intent): Promise<D11IntentResult>;
+  d11Poll(): Promise<D11IntentResult>;
 
   d4SendIntent(commandId: string, intent: D4Intent): Promise<D4IntentResult>;
   d4Poll(): Promise<D4IntentResult>;

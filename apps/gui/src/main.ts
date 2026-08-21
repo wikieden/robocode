@@ -23,6 +23,12 @@ import {
   type D10LaneMonitorProjection,
 } from "./screens/d10_lane_monitor";
 import {
+  draftFromD11Projection,
+  pendingFromD11Result,
+  renderD11Intake,
+  type D11Intent,
+} from "./screens/d11_intake";
+import {
   renderD12IntegrationGate,
   type D12IntegrationGateProjection,
 } from "./screens/d12_integration_gate";
@@ -44,6 +50,7 @@ import {
   renderD4LaneCreate,
   type D4Intent,
   type D4IntentResult,
+  type D4StarterSeed,
 } from "./screens/d4_lane_create";
 import { applyResolvedTheme, resolveTheme } from "./ui/theme";
 import "./ui/theme.css";
@@ -190,6 +197,9 @@ export async function hydrateShellFromCore(
       const sendD4 = async (intent: D4Intent) =>
         await core.d4SendIntent(`gui-d4-${crypto.randomUUID()}`, intent);
       const pollD4 = async () => await core.d4Poll();
+      const sendD11 = async (intent: D11Intent) =>
+        await core.d11SendIntent(`gui-d11-${crypto.randomUUID()}`, intent);
+      const pollD11 = async () => await core.d11Poll();
       const pollD1 = async (laneId?: string, waitForEvent = false) =>
         await core.d1Poll(laneId ?? null, waitForEvent);
       const sendD1 = async (intent: D1Intent) =>
@@ -272,7 +282,10 @@ export async function hydrateShellFromCore(
           sendPermission,
           recoverD6,
           {
-            onFullSetup: () => void showD4(),
+            // "Full setup" is the designed D11 intake flow, not the D4 Lane
+            // form: D4 creates one Lane, D11 walks project probe, config
+            // confirmation, and the starter Lanes it then hands to D4.
+            onFullSetup: () => void showD11(),
             onCoreWake,
             resolveContent,
             sendD6Intent,
@@ -291,13 +304,46 @@ export async function hydrateShellFromCore(
         );
       };
 
-      const showD4 = async () => {
+      // D11 is the full project intake and first-run setup flow. It is entered
+      // from the agent menu's full-setup action and from `?screen=d11`; the
+      // Welcome "Open project" path stays the compact native folder flow.
+      //
+      // Core publishes no first-run signal (the D11 projection carries only
+      // probe/preview/confirmed-config facts), so the shell never redirects
+      // into D11 on its own.
+      const showD11 = async () => {
+        activeD1?.dispose();
+        activeD1 = null;
+        // `d11_poll` is the entry read as well as the wait: it drains the
+        // ordered events already queued and reports any command still awaiting
+        // its Core receipt, so the screen resumes instead of restarting.
+        const result = await pollD11();
+        root.dataset.route = "d11";
+        renderD11Intake(
+          root,
+          result.projection,
+          sendD11,
+          locale,
+          pollD11,
+          {
+            draft: draftFromD11Projection(result.projection),
+            pending: pendingFromD11Result(result),
+          },
+          // Starter Lanes are created by D4, which owns the preview/confirm
+          // receipt loop; D11 only hands over the seeds the operator picked.
+          (queue) => void showD4([...queue]),
+          undefined,
+          () => void showD1(),
+        );
+      };
+
+      const showD4 = async (queue: D4StarterSeed[] = []) => {
         activeD1?.dispose();
         activeD1 = null;
         const d4Result = await pollD4();
         root.dataset.route = "d4";
         renderD4LaneCreate(root, d4Result, sendD4, pollD4, locale, {
-          queue: [],
+          queue,
           queueIndex: 0,
           completedLaneIds: [],
           onCancel: () => void showD1(),
@@ -394,6 +440,8 @@ export async function hydrateShellFromCore(
         const screen = new URLSearchParams(window.location.search).get("screen");
         if (screen === "d4") {
           await showD4();
+        } else if (screen === "d11") {
+          await showD11();
         } else if (screen === "d2") {
           await showD2();
         } else if (screen === "d10") {

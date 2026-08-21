@@ -35,6 +35,9 @@ export function createTauriCoreClient(): CoreClient {
     selectModel: (commandId, providerId, model, selectedLaneId) =>
       invoke("select_model", { commandId, providerId, model, selectedLaneId }),
 
+    d11SendIntent: (commandId, intent) => invoke("d11_send_intent", { commandId, intent }),
+    d11Poll: () => invoke("d11_poll"),
+
     d4SendIntent: (commandId, intent) => invoke("d4_send_intent", { commandId, intent }),
     d4Poll: () => invoke("d4_poll"),
 

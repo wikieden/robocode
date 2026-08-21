@@ -38,6 +38,8 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     setWorkMode: unreachable("set_work_mode"),
     setPermissionLevel: unreachable("set_permission_level"),
     selectModel: unreachable("select_model"),
+    d11SendIntent: unreachable("d11_send_intent"),
+    d11Poll: unreachable("d11_poll"),
     d4SendIntent: unreachable("d4_send_intent"),
     d4Poll: unreachable("d4_poll"),
     d2Decisions: unreachable("d2_decisions"),
