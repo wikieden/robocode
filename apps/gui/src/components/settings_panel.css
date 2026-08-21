@@ -39,6 +39,16 @@
   cursor: progress;
 }
 
+/*
+ * The overlay is portalled out of `.d1-frame` so the auto-hiding rail cannot
+ * clip it, which also puts it outside that frame's focus-ring rule. Repeat
+ * the rule here so every control in the panel keeps a visible focus ring.
+ */
+.gset-panel :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .gset-header {
   display: flex;
   align-items: center;

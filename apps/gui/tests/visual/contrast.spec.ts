@@ -57,6 +57,15 @@ describe("D1 accessibility and contrast semantics", () => {
 
     expect(css).toContain(".d1-frame :focus-visible");
     expect(css).toContain("outline:");
+    // The Settings overlay is portalled outside `.d1-frame`, so it carries
+    // its own copy of the focus-ring rule rather than inheriting one that no
+    // longer applies to it.
+    const settingsCss = readFileSync(
+      join(process.cwd(), "src/components/settings_panel.css"),
+      "utf8",
+    );
+    expect(settingsCss).toContain(".gset-panel :focus-visible");
+    expect(settingsCss).toContain("outline: 2px solid var(--accent)");
     expect(themeCss).toContain('[data-motion="reduced"]');
     expect(themeCss).toContain("prefers-reduced-motion");
     expect(themeCss).toContain("transition: none !important");
