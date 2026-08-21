@@ -111,13 +111,13 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 
 | GUI 区域 | 设计意图 | Core `0.3.5` 状态 | GUI 处理 |
 | --- | --- | --- | --- |
-| 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑；安全 credential ingress 与 GUI recent-work adapter 仍不完整 | Welcome 直接使用原生选择器和 host rebind；D11 只作为项目内显式配置流程，不接管打开文件夹 |
+| 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑；Core 不发布首启接入信号，安全 credential ingress 与 GUI recent-work adapter 仍不完整 | Welcome 直接使用原生选择器和 host rebind；D11 只作为项目内显式配置流程，不接管打开文件夹。入口为 `?screen=d11` 与 agent 菜单的 `Full setup`；shell 不会自行重定向进入 |
 | D4 Lane 创建 | typed role、route、gate strength、mutation policy、target、budget、worktree preview、lane receipt | 已有 `PreviewStarterLane`/`CreateStarterLane`、Core 解析 preview、invalidation、approval、精确 receipt 与 `runtime.starter_lane_preview` 广告 | Task 8 渲染四步复核流程；连接旧版 Core 时仍以可见 unavailable 和零发送 fail closed |
 | D1 驾驶舱 | 无项目欢迎中心、零 Lane 项目驾驶舱、activity/lane rails、streaming transcript/tool rows、Environment、Live Work、composer、evidence/context/cost facts | stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences facts 已有；diff/apply、稳定 audit timeline、可操作 Lane recovery 与 GUI recent-work projection 尚不完整 | 未绑定 host 才显示 Welcome；已绑定空项目仍留在 D1 并提供“新建 Lane”；实时工作从 `RuntimeViewState` 渲染 |
 | Permission dock | scoped approve/deny、risk、target、expiry、default action、audit id | `ApprovalRequestView` 和 `RespondToApproval` 已有 | 可经 Core 使用；GUI 不得直接执行 tool |
 | D2 决策中心 | 跨 Lane 的统一决策队列：闸审批、lane 问询、契约确认共用「上下文 / 证据 / 动作栏」一套卡片骨架 | `pending_approvals` + `RespondToApproval`、`review_requests` + `ReviewRequestStatus`、`contracts` + `ConfirmContract` 已有；评审决定命令、审批的结构化 diff、待确认契约事实缺失 | 入口 `?screen=d2`；闸与契约决定发出 Core 命令，评审以 `GUI-CORE-011` 只读，审批 diff 以 `GUI-CORE-012` 声明不可用，契约分组以 `GUI-CORE-013` 标注为已决历史 |
 | D10 Lane 监视器 | 跨项目每条 Lane 一张卡：门控强度、状态、进度、证据与「等你」计数 | `lanes`、`lane_runtime_owners`、`tasks`、`agent_sessions`、`latest_evidence` 已有；视图状态没有有序事件日志 | 入口 `?screen=d10`；只读，门控强度取自 `AgentLaneRecord.gate_strength` 而非 agent 标签，未绑定 Lane 不显示项目，无 Core 任务的 Lane 不显示进度，事件流以 `GUI-CORE-014` 声明不可用 |
-| D12 集成闸 | 冲突横幅、闸策略、退回原 Lane 的恢复时间线、合入后回滚，且不提供手动 merge | `merge_gates`、`conflict_bounces`、`reverts`、`check_runs` 已有；不发布结构化冲突内容 | 入口 `?screen=d12`；只有闸策略要求的证据 id 全部就位时 `accept` 才开放，时间线与回滚按选中闸限定，冲突 hunk 以 `GUI-CORE-015` 声明不可用 |
+| D12 集成闸 | 冲突横幅、闸策略、退回原 Lane 的恢复时间线、合入后回滚，且不提供手动 merge | `merge_gates`、`conflict_bounces`、`reverts`、`check_runs`、`AcceptMergeGate`、`RejectMergeGate` 已有；不发布结构化冲突内容 | 入口 `?screen=d12`；`批准并合入` 与 `退回原 Lane` 各自发送对应 Core command，只有满足 `decide_merge_gate` 实际执行的规则时才开放，否则标注阻塞代码；时间线与回滚按选中闸限定，冲突 hunk 以 `GUI-CORE-015` 声明不可用 |
 | D14 审计与时间线 | 跨工作区的有序审计轨迹，支持分页 | `CoreClient::replay` 的 `ReplayRequest`/`ReplayBatch` 与 `EventCursor` 已有；视图状态没有事件日志（`GUI-CORE-014`） | 入口 `?screen=d14`；行按 Core 回放 cursor 顺序取得，行标签用 Core 自己的 serde 判别名而非客户端改名，无法解码的事件仍占一行，回放失败显式提示而不是给出更短但看起来完整的轨迹 |
 | D13 Fleet 编排与 Workflow | 每个 workflow DAG 一块看板：声明的依赖边、节点运行状态、阻塞原因与 Lane 交接 | `agent_dags`（含 `AgentDagTaskSpec`）、`tasks`、`dependencies`、`handoffs` 已有 | 入口 `?screen=d13`；只读，依赖边取自任务规格自身的 dependencies，节点只有在 Core 真正跑该任务时才显示状态，阻塞只来自 Core 的 `DependencyState::Blocked` 记录，交接绝不由依赖边推导 |
 | D6 恢复 | 连接中、断连、agent stopped、budget exhausted、gate queue clear、reconnect/restart/close actions | Runtime errors、CoreClient snapshot recovery、context budget facts、queue/gate facts、`RetryAgentSession` 与 `StopLane` 已有；检查点完全未被建模 | Task 10 渲染运行期 Core-owned 恢复状态；无项目 `empty` 状态由 D1 Welcome Center 承担；restart 与 close Lane 针对 Core 发布的唯一目标发送对应 Core 命令，inspect 在本地展开既有事实，checkpoint 仍以 `GUI-CORE-003` 明确禁用（`GUI-CORE-018`） |
@@ -152,6 +152,12 @@ Cancel 只清除内存导航状态，不发生 Core mutation，并返回 D1。We
 后续 probe、preview 或 confirmation 事实。新项目 draft 默认包含必填的 `name` 与 `pack`
 字段。若确认需要 Core 批准，D11 会嵌入与 D1 相同的 typed Permission Dock；
 `Allow once` 或 `Deny` 仍是显式 Core command，不会成为 GUI 侧绕过。
+
+Shell 通过 `?screen=d11` 与 agent 菜单的 `Full setup` 进入 D11：该动作打开完整接入
+流程，而不是单 Lane 的 D4 表单。`d11_poll` 同时充当入口读取与等待，因此重新进入会
+继续等待仍未收到 Core 回执的命令，而不是重新开始；D11 收集的起始 Lane 种子交给 D4，
+由 D4 拥有 preview/confirm 回执循环。没有自动跳转进入 D11：Core 不发布首启接入事实，
+客户端只能凭空编造一个。
 
 ## D4 起始 Lane 复核创建
 
@@ -303,6 +309,31 @@ agent stopped、context overflow、capability、incompatible schema、queue clea
 活跃 Lane 发送 `StopLane`；由于 D6 不携带 Lane 选择，目标不唯一时两者都 fail closed。
 Inspect 只是对投影中既有事实的本地展开，不触达任何 Core 命令。Checkpoint 控件仍可见但以
 `GUI-CORE-003` 禁用（契约请求 `GUI-CORE-018`）；GUI 不伪造 recovery receipt。
+
+## D12 集成闸决策
+
+`批准并合入` 与 `退回原 Lane` 是 D12 仅有的两个变更动作；没有手动 merge 后门，客户端
+也不自行解决冲突。两者分别作为 `AcceptMergeGate` 与 `RejectMergeGate` 发出，且都由
+`RuntimeContract::decide_merge_gate` 与 `validate_reject_actor` 实际执行的规则推导：
+
+- 批准要求每个必需证据类别均已校验、闸策略要求时存在独立验证方、不存在仍待原 Lane
+  复验的冲突退回、actor 与验证方 Lane 匹配（Core 未记录验证方时则等于闸 owner），
+  且 reviewed-evidence bindings 与 Core 记录一致；
+- 驳回直接拒绝默认 owner，其余只接受验证方 Lane 或闸 owner，并要求非空理由；Core
+  将该理由存为闸决策，原 Lane 的 agent 据此工作；
+- 携带所请求状态的 `MergeGateUpdated` 才是确认该决策的业务事实。command acceptance
+  不等于决策本身。
+
+可用性按 fail-closed 推导：以上每个条件都是 Core 接受该命令的**必要**条件，而非充分
+条件。Core 保有 `frontend-contract-v1` 不承载的事实——canonical context item、
+permission snapshot、证据质量——因此本投影允许的命令仍可能被拒绝；拒绝理由以
+`role=alert` 原样呈现，而不是由 GUI 私有闸模型提前判定。被关闭的控件会标注阻塞代码
+（`missing_evidence`、`evidence_not_canonical`、`validator_required`、
+`conflict_pending`、`review_not_pending`、`no_actor`、`gate_closed`），而不是直接变灰。
+
+命令离开 host 之前会针对当前 Core view 重新解析该闸，并从 Core 自身记录中重放 actor
+与证据 bindings，因此渲染与点击之间消失或已关闭的闸会在本地失败，任何 runtime 身份
+或证据哈希都不会从展示文本重建。
 
 ## Production bootstrap
 

@@ -128,13 +128,13 @@ implementation, not editing screens.
 
 | GUI area | Design intent | Core `0.3.5` status | GUI handling |
 | --- | --- | --- | --- |
-| Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding; secure credential ingress and the GUI recent-work adapter remain incomplete | Welcome uses the native folder picker and host rebind directly; D11 stays an explicit in-project configuration flow and never owns folder open |
+| Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding; Core publishes no first-run intake signal, and secure credential ingress and the GUI recent-work adapter remain incomplete | Welcome uses the native folder picker and host rebind directly; D11 stays an explicit in-project configuration flow and never owns folder open. Reachable at `?screen=d11` and from the agent menu's `Full setup`; the shell never redirects into it on its own |
 | D4 lane creation | typed role, route, gate strength, mutation policy, target, budget, worktree preview, lane receipt | `PreviewStarterLane`/`CreateStarterLane`, Core-resolved preview, invalidation, approval, exact receipt, and `runtime.starter_lane_preview` advertisement are available | Task 8 renders the four-step reviewed flow; older Core handshakes still fail closed visibly with zero sends |
 | D1 cockpit | no-project welcome center, zero-Lane project cockpit, activity/lane rails, streaming transcript/tool rows, Environment, Live Work, composer, evidence/context/cost facts | Stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences facts exist; diff/apply, stable audit timeline, actionable lane recovery, and GUI recent-work projection remain incomplete | No bound host renders Welcome; a bound empty project remains D1 and exposes `New Lane`; live work renders from `RuntimeViewState` |
 | Permission dock | scoped approve/deny, risk, target, expiry, default action, audit id | `ApprovalRequestView` and `RespondToApproval` exist | Usable through Core; GUI cannot execute tools directly |
 | D2 decision center | one cross-Lane queue over gate approvals, lane asks, and contract confirmations, on one card skeleton of context, evidence, and action bar | `pending_approvals` with `RespondToApproval`, `review_requests` with `ReviewRequestStatus`, and `contracts` with `ConfirmContract` exist; a review-decision command, a structured approval diff, and a pending-contract fact are missing | Reachable at `?screen=d2`; gate and contract decisions send Core commands, reviews render read-only under `GUI-CORE-011`, the approval diff stays unavailable under `GUI-CORE-012`, and the contract group is labelled decided history under `GUI-CORE-013` |
 | D10 lane monitor | one card per Lane across every project, with gate strength, status, progress, evidence, and an attention count | `lanes`, `lane_runtime_owners`, `tasks`, `agent_sessions`, and `latest_evidence` exist; the view state carries no ordered event log | Reachable at `?screen=d10`; read-only, gate strength comes from `AgentLaneRecord.gate_strength` rather than the agent label, an unbound Lane reports no project, a Lane with no Core task reports no progress, and the event ticker is unavailable under `GUI-CORE-014` |
-| D12 integration gate | conflict banner, gate policy, bounce-to-origin-lane recovery timeline, post-merge rollback, and no manual merge | `merge_gates`, `conflict_bounces`, `reverts`, and `check_runs` exist; no structured conflict content is published | Reachable at `?screen=d12`; `accept` opens only when every evidence id the gate policy requires is present, the timeline and reverts are scoped to the selected gate, and the conflicting hunk is unavailable under `GUI-CORE-015` |
+| D12 integration gate | conflict banner, gate policy, bounce-to-origin-lane recovery timeline, post-merge rollback, and no manual merge | `merge_gates`, `conflict_bounces`, `reverts`, `check_runs`, `AcceptMergeGate`, and `RejectMergeGate` exist; no structured conflict content is published | Reachable at `?screen=d12`; `Accept and merge` and `Bounce to origin Lane` send their Core commands, each opening only when the rules `decide_merge_gate` enforces are met and naming its blocking code otherwise, the timeline and reverts are scoped to the selected gate, and the conflicting hunk is unavailable under `GUI-CORE-015` |
 | D14 audit and timeline | ordered audit trail across the workspace with paging | `CoreClient::replay` with `ReplayRequest`/`ReplayBatch` and `EventCursor` exists; the view state carries no event log (`GUI-CORE-014`) | Reachable at `?screen=d14`; rows come from the replay cursor in Core order, the row label is Core's own serde discriminant rather than a client rename, an undecodable event still occupies a row, and a replay failure is shown instead of a shorter complete-looking trail |
 | D13 fleet and workflow | one board per workflow DAG with declared edges, node runtime status, blockers, and lane handoffs | `agent_dags` with `AgentDagTaskSpec`, `tasks`, `dependencies`, and `handoffs` exist | Reachable at `?screen=d13`; read-only, edges are the task specs' own dependency lists, a node reports status only when Core runs that task, a blocker appears only from a Core `DependencyState::Blocked` record, and a handoff is never derived from an edge |
 | D6 recovery | connecting, disconnected, agent stopped, budget exhausted, gate queue clear, reconnect/restart/close actions | Runtime errors, CoreClient snapshot recovery, context budget facts, queue/gate facts, `RetryAgentSession`, and `StopLane` exist; no checkpoint is modelled at all | Task 10 renders operational Core-owned recovery states; the no-project `empty` state is handled by D1 Welcome Center; restart and close-Lane send their Core commands for the one unambiguous target Core published, inspect expands existing facts locally, and checkpoint remains visibly unavailable under `GUI-CORE-003` (`GUI-CORE-018`) |
@@ -170,6 +170,14 @@ local draft and pending identity, then retry with bounded backoff. Intermediate
 Core projection changes remain visible during that wait. Cancel clears only the
 in-memory navigation state, performs no Core mutation, and returns to D1.
 Welcome never enters this flow: folder selection and host rebinding complete first.
+
+The shell reaches D11 at `?screen=d11` and from the agent menu's `Full setup`
+action, which opens the full intake flow rather than the single-Lane D4 form.
+`d11_poll` is both the entry read and the wait, so re-entering resumes a command
+still awaiting its Core receipt instead of restarting it, and the starter-Lane
+seeds D11 collects are handed to D4, which owns the preview/confirm receipt loop.
+There is no automatic redirect into D11: Core publishes no first-run intake fact,
+so the client would have to invent one.
 
 The standalone host drains ordered command events before refreshing its
 authoritative snapshot, so acceptance cannot hide the later probe, preview, or
@@ -387,6 +395,41 @@ because D6 carries no Lane selection. Inspect is a local toggle over the facts
 already in the projection and reaches no Core command. Checkpoint stays visible
 but disabled under `GUI-CORE-003` (contract request `GUI-CORE-018`); the GUI
 never fabricates recovery receipts.
+
+## D12 merge-gate decisions
+
+`Accept and merge` and `Bounce to origin Lane` are the only two mutations D12
+offers; there is no manual-merge escape hatch and the client resolves no
+conflict itself. Both travel as their Core command — `AcceptMergeGate` and
+`RejectMergeGate` — and both are derived from the rules
+`RuntimeContract::decide_merge_gate` and `validate_reject_actor` actually
+enforce:
+
+- acceptance needs every required evidence kind verified, an independent
+  validator when the gate policy demands one, no conflict bounce still pending
+  origin-Lane revalidation, an actor matching the validator's Lane (or the gate
+  owner when Core recorded no validator), and reviewed-evidence bindings equal
+  to what Core recorded;
+- rejection refuses the default owner outright, otherwise admits the
+  validator's Lane or the gate owner, and requires a non-empty reason, which
+  Core stores as the gate decision and the origin Lane's agent works from;
+- `MergeGateUpdated` carrying the requested status is the business fact that
+  confirms either decision. Command acceptance is not the decision.
+
+Availability is derived fail-closed: every condition above is *necessary* for
+Core to accept the command, never sufficient. Core keeps facts
+`frontend-contract-v1` does not carry — canonical context items, permission
+snapshots, evidence quality — so a command this projection allows may still be
+refused, and the refusal is rendered verbatim in a `role=alert` rather than
+pre-empted by a GUI-private gate model. A closed control names its blocking
+code (`missing_evidence`, `evidence_not_canonical`, `validator_required`,
+`conflict_pending`, `review_not_pending`, `no_actor`, `gate_closed`) instead of
+going dark.
+
+The host re-resolves the gate against the current Core view before the command
+leaves it and replays the actor and evidence bindings from Core's own records,
+so a gate that vanished or closed between render and click fails locally and no
+runtime identity or evidence hash is ever rebuilt from display text.
 
 ## Production bootstrap
 
