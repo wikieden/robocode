@@ -129,15 +129,49 @@
 
 .d12-gatebar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--sp-2);
   margin: 0 var(--sp-4);
   padding-top: var(--sp-3);
   border-top: 1px solid var(--border-soft);
 }
 
+/* The bounce reason travels with the command; the design puts it in the
+   action bar, immediately left of the controls it qualifies. */
+.d12-reason {
+  flex: 1;
+  min-width: 12rem;
+  max-width: 34rem;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-reason:disabled {
+  cursor: not-allowed;
+  color: var(--fg-muted);
+}
+
+.d12-reason:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}
+
 .d12-gbtn:disabled {
   cursor: not-allowed;
   color: var(--fg-muted);
+}
+
+/* Core's own refusal, verbatim. */
+.d12-error {
+  margin: 0 var(--sp-4);
+  color: var(--error);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .d12-unavailable {

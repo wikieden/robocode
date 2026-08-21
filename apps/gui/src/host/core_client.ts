@@ -8,7 +8,11 @@ import type {
 import type { D1CockpitProjection, D1Intent, D1IntentResult } from "../screens/d1_cockpit";
 import type { D10LaneMonitorProjection } from "../screens/d10_lane_monitor";
 import type { D11Intent, D11IntentResult } from "../screens/d11_intake";
-import type { D12IntegrationGateProjection } from "../screens/d12_integration_gate";
+import type {
+  D12IntegrationGateProjection,
+  D12Intent,
+  D12IntentResult,
+} from "../screens/d12_integration_gate";
 import type { D13FleetWorkflowProjection } from "../screens/d13_fleet_workflow";
 import type { D14AuditTimelineProjection } from "../screens/d14_audit_timeline";
 import type { D2DecisionsProjection, D2Intent, D2IntentResult } from "../screens/d2_decisions";
@@ -89,6 +93,13 @@ export interface CoreClient {
 
   d10LaneMonitor(): Promise<D10LaneMonitorProjection | null>;
   d12IntegrationGate(selectedGateId: string | null): Promise<D12IntegrationGateProjection | null>;
+  /**
+   * Sends one merge-gate decision as `AcceptMergeGate` or `RejectMergeGate`.
+   * The host re-resolves the gate against the current Core view and replays
+   * the actor and reviewed-evidence bindings Core itself published, so the
+   * frontend never constructs a runtime identity or an evidence hash.
+   */
+  d12SendIntent(commandId: string, intent: D12Intent): Promise<D12IntentResult>;
   d13FleetWorkflow(): Promise<D13FleetWorkflowProjection | null>;
   d14AuditTimeline(after: string | null, limit: number): Promise<D14AuditTimelineProjection>;
 

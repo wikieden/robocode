@@ -46,6 +46,7 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     d2SendIntent: unreachable("d2_send_intent"),
     d10LaneMonitor: unreachable("d10_lane_monitor"),
     d12IntegrationGate: unreachable("d12_integration_gate"),
+    d12SendIntent: unreachable("d12_send_intent"),
     d13FleetWorkflow: unreachable("d13_fleet_workflow"),
     d14AuditTimeline: unreachable("d14_audit_timeline"),
     permissionSendIntent: unreachable("permission_send_intent"),

@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use viden_core::{
-    ConflictBounce, ConflictBounceStatus, MergeGateStatus, RevertRecord, RuntimeOwner,
-    RuntimeSnapshot, RuntimeViewState,
+    ConflictBounce, ConflictBounceStatus, EvidenceView, MergeGateStatus, RevertRecord,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
 };
-use viden_gui::GuiCoreAdapter;
+use viden_gui::{D12Intent, GuiCoreAdapter, d12_action_code};
 
 mod support;
 use support::TestCoreClient;
@@ -20,6 +21,78 @@ fn owner(lane: &str) -> RuntimeOwner {
         task_id: Some(format!("task-{lane}")),
         ..Default::default()
     }
+}
+
+/// One canonical evidence record shaped exactly as Core publishes it.
+///
+/// Acceptance needs the canonical reference: `decide_merge_gate` builds its
+/// reviewed-evidence bindings from `canonical.source_hash`, so evidence
+/// without one can never satisfy the gate.
+///
+/// Built through the wire form on purpose: `viden-core` re-exports
+/// `EvidenceView` but not the canonical reference's own types, and the GUI
+/// track must not reach around the facade into `viden-types`.
+fn canonical_evidence(id: &str, task_id: &str, hash: &str) -> EvidenceView {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "kind": "test_result",
+        "summary": "replay regression passed",
+        "path": format!("artifacts/{id}.txt"),
+        "source": "core",
+        "canonical": {
+            "item_id": format!("item-{id}"),
+            "bundle_id": "bundle-1",
+            "source_hash": hash,
+            "producer": {
+                "identity": "lane-3",
+                "role": "coder",
+                "task_id": task_id,
+            },
+            "permission_snapshot_id": "permission-1",
+            "permission_scope": { "type": "task", "id": task_id },
+            "evidence_scope": { "type": "task", "id": task_id },
+            "verification": "verified",
+            "quality": { "status": "pass" },
+        },
+        "timestamp": 1_700_000_070,
+    }))
+    .expect("canonical evidence fixture")
+}
+
+/// An open gate whose evidence Core has recorded canonically, owned by a real
+/// Lane. This is the shape both decisions are actually allowed on.
+fn acceptable_gate_view() -> RuntimeViewState {
+    let mut view = gate_view();
+    let task_id = view.merge_gates[0].task_id.clone();
+    view.merge_gates[0].status = MergeGateStatus::NeedsChanges;
+    view.merge_gates[0].owner = owner("lane-3");
+    view.merge_gates[0].required_evidence = vec!["replay-regression".to_string()];
+    view.merge_gates[0].evidence_ids = vec!["replay-regression".to_string()];
+    view.latest_evidence.push(canonical_evidence(
+        "replay-regression",
+        &task_id,
+        "a".repeat(64).as_str(),
+    ));
+    view
+}
+
+fn recording(view: RuntimeViewState) -> (GuiCoreAdapter, Arc<Mutex<Vec<RuntimeCommandEnvelope>>>) {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut adapter = GuiCoreAdapter::new(Box::new(TestCoreClient::new(view, Arc::clone(&sent))));
+    adapter.connect().unwrap();
+    (adapter, sent)
+}
+
+fn accept_code(adapter: &GuiCoreAdapter) -> Option<String> {
+    adapter
+        .d12_integration_gate()
+        .unwrap()
+        .detail
+        .unwrap()
+        .actions
+        .iter()
+        .find(|action| action.kind == "accept")
+        .and_then(|action| action.code.map(str::to_string))
 }
 
 fn gate_view() -> RuntimeViewState {
@@ -102,18 +175,311 @@ fn d12_accept_stays_unavailable_until_every_required_evidence_id_is_present() {
             .all(|action| action.kind == "accept" || action.kind == "reject")
     );
 
+    assert_eq!(
+        accept_code(&connected(view.clone())),
+        Some(d12_action_code::MISSING_EVIDENCE.to_string())
+    );
+
+    // Listing the id is not enough: Core builds the reviewed-evidence
+    // bindings from the canonical reference, so a gate whose evidence has none
+    // still cannot be accepted.
     view.merge_gates[0].evidence_ids = vec!["replay-regression".to_string()];
-    let ready = connected(view).d12_integration_gate().unwrap();
+    let uncanonical = connected(view).d12_integration_gate().unwrap();
+    let uncanonical_detail = uncanonical.detail.expect("detail");
+    assert!(uncanonical_detail.missing_evidence.is_empty());
+    let uncanonical_accept = uncanonical_detail
+        .actions
+        .iter()
+        .find(|action| action.kind == "accept")
+        .unwrap();
+    assert!(!uncanonical_accept.available);
+    assert_eq!(
+        uncanonical_accept.code,
+        Some(d12_action_code::EVIDENCE_NOT_CANONICAL)
+    );
+
+    let ready_view = acceptable_gate_view();
+    let ready = connected(ready_view).d12_integration_gate().unwrap();
     let ready_detail = ready.detail.expect("detail");
     assert!(ready_detail.missing_evidence.is_empty());
-    assert!(
-        ready_detail
-            .actions
-            .iter()
-            .find(|action| action.kind == "accept")
-            .unwrap()
-            .available
+    let ready_accept = ready_detail
+        .actions
+        .iter()
+        .find(|action| action.kind == "accept")
+        .unwrap();
+    assert!(ready_accept.available);
+    assert_eq!(ready_accept.code, None);
+}
+
+#[test]
+fn d12_accept_stays_closed_while_the_policy_validator_is_missing() {
+    let mut view = acceptable_gate_view();
+    view.merge_gates[0]
+        .policy_snapshot
+        .requires_independent_validator = true;
+
+    assert_eq!(
+        accept_code(&connected(view)),
+        Some(d12_action_code::VALIDATOR_REQUIRED.to_string())
     );
+}
+
+#[test]
+fn d12_accept_stays_closed_while_a_conflict_bounce_is_pending() {
+    let mut view = acceptable_gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+    view.merge_gates[0].conflict = Some(ConflictBounce {
+        bounce_id: "bounce-pending".to_string(),
+        gate_id,
+        task_id: view.merge_gates[0].task_id.clone(),
+        original_lane_id: "lane-3".to_string(),
+        owner: owner("lane-3"),
+        reason: "dash.gd conflicts with the merged baseline".to_string(),
+        status: ConflictBounceStatus::Pending,
+        evidence_ids: vec![],
+        baseline_evidence: vec![],
+        revalidation_evidence: vec![],
+        audit_id: "audit-bounce-pending".to_string(),
+        created_at: 1_700_000_700,
+        revalidated_at: None,
+    });
+
+    assert_eq!(
+        accept_code(&connected(view)),
+        Some(d12_action_code::CONFLICT_PENDING.to_string())
+    );
+}
+
+#[test]
+fn d12_bounce_stays_closed_when_core_published_no_actor() {
+    // `validate_reject_actor` refuses the default owner outright, so a gate
+    // Core owns anonymously offers no bounce this client could send.
+    let mut view = acceptable_gate_view();
+    view.merge_gates[0].owner = RuntimeOwner::default();
+
+    let detail = connected(view)
+        .d12_integration_gate()
+        .unwrap()
+        .detail
+        .unwrap();
+    let reject = detail
+        .actions
+        .iter()
+        .find(|action| action.kind == "reject")
+        .unwrap();
+    assert!(!reject.available);
+    assert_eq!(reject.code, Some(d12_action_code::NO_ACTOR));
+}
+
+#[test]
+fn d12_accept_sends_the_gate_owner_and_its_canonical_bindings() {
+    let view = acceptable_gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+    let (mut adapter, sent) = recording(view);
+
+    adapter
+        .send_d12_intent_and_wait(
+            "command-accept",
+            D12Intent::Accept {
+                gate_id: gate_id.clone(),
+                reviewed_evidence: None,
+                decision: Some("evidence reviewed".to_string()),
+            },
+            Duration::ZERO,
+        )
+        .expect("accept is sent");
+
+    let envelopes = sent.lock().unwrap();
+    let [envelope] = envelopes.as_slice() else {
+        panic!("exactly one command must reach Core");
+    };
+    assert_eq!(envelope.command_id, "command-accept");
+    match &envelope.command {
+        RuntimeCommand::AcceptMergeGate {
+            gate_id: sent_gate,
+            actor,
+            reviewed_evidence,
+            decision,
+        } => {
+            assert_eq!(sent_gate, &gate_id);
+            // The actor is replayed from the gate Core published, never
+            // rebuilt from the display text of the screen.
+            assert_eq!(actor, &owner("lane-3"));
+            assert_eq!(
+                reviewed_evidence
+                    .iter()
+                    .map(|binding| binding.evidence_id.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["replay-regression"]
+            );
+            assert_eq!(reviewed_evidence[0].source_hash, "a".repeat(64));
+            assert_eq!(decision.as_deref(), Some("evidence reviewed"));
+        }
+        other => panic!("unexpected command {other:?}"),
+    }
+}
+
+#[test]
+fn d12_bounce_sends_the_operator_reason_and_refuses_an_empty_one() {
+    let view = acceptable_gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+    let (mut adapter, sent) = recording(view);
+
+    let blank = adapter.send_d12_intent_and_wait(
+        "command-blank",
+        D12Intent::Bounce {
+            gate_id: gate_id.clone(),
+            reason: "   ".to_string(),
+        },
+        Duration::ZERO,
+    );
+    assert!(blank.is_err(), "an empty bounce reason never reaches Core");
+    assert!(sent.lock().unwrap().is_empty());
+
+    adapter
+        .send_d12_intent_and_wait(
+            "command-bounce",
+            D12Intent::Bounce {
+                gate_id: gate_id.clone(),
+                reason: "rebase onto the merged baseline, keep the input buffer".to_string(),
+            },
+            Duration::ZERO,
+        )
+        .expect("bounce is sent");
+
+    let envelopes = sent.lock().unwrap();
+    let [envelope] = envelopes.as_slice() else {
+        panic!("exactly one command must reach Core");
+    };
+    match &envelope.command {
+        RuntimeCommand::RejectMergeGate {
+            gate_id: sent_gate,
+            actor,
+            reason,
+        } => {
+            assert_eq!(sent_gate, &gate_id);
+            assert_eq!(actor, &owner("lane-3"));
+            assert_eq!(
+                reason,
+                "rebase onto the merged baseline, keep the input buffer"
+            );
+        }
+        other => panic!("unexpected command {other:?}"),
+    }
+}
+
+#[test]
+fn d12_confirms_a_decision_only_on_the_gate_status_core_published() {
+    let view = acceptable_gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+    let mut accepted_gate = view.merge_gates[0].clone();
+    accepted_gate.status = MergeGateStatus::Accepted;
+    let mut wrong_gate = view.merge_gates[0].clone();
+    wrong_gate.status = MergeGateStatus::Blocked;
+
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent))
+        .with_event(viden_core::RuntimeEventKind::CommandAccepted {
+            command_id: "command-accept".to_string(),
+            command: RuntimeCommand::AcceptMergeGate {
+                gate_id: gate_id.clone(),
+                actor: owner("lane-3"),
+                reviewed_evidence: vec![],
+                decision: None,
+            },
+        })
+        // A transition this command did not ask for must not confirm it.
+        .with_event(viden_core::RuntimeEventKind::MergeGateUpdated { gate: wrong_gate })
+        .with_event(viden_core::RuntimeEventKind::MergeGateUpdated {
+            gate: accepted_gate,
+        });
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+
+    let result = adapter
+        .send_d12_intent_and_wait(
+            "command-accept",
+            D12Intent::Accept {
+                gate_id,
+                reviewed_evidence: None,
+                decision: None,
+            },
+            Duration::ZERO,
+        )
+        .expect("accept is sent");
+
+    assert_eq!(result.outcome.state, "confirmed");
+    assert_eq!(result.pending_command_id, None);
+}
+
+#[test]
+fn d12_passes_a_core_rejection_reason_through_verbatim() {
+    let view = acceptable_gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent)).with_event(
+        viden_core::RuntimeEventKind::CommandRejected {
+            command_id: "command-accept".to_string(),
+            reason: "merge gate `gate_merge` requires an independent validator".to_string(),
+        },
+    );
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+
+    let result = adapter
+        .send_d12_intent_and_wait(
+            "command-accept",
+            D12Intent::Accept {
+                gate_id,
+                reviewed_evidence: None,
+                decision: None,
+            },
+            Duration::ZERO,
+        )
+        .expect("the send itself succeeds");
+
+    assert_eq!(result.outcome.state, "rejected");
+    assert_eq!(
+        result.outcome.reason.as_deref(),
+        Some("merge gate `gate_merge` requires an independent validator")
+    );
+    assert_eq!(result.pending_command_id, None);
+}
+
+#[test]
+fn d12_refuses_a_decision_on_a_gate_that_vanished_or_closed_before_the_click() {
+    let view = acceptable_gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+    let (mut adapter, sent) = recording(view);
+
+    let vanished = adapter.send_d12_intent_and_wait(
+        "command-vanished",
+        D12Intent::Bounce {
+            gate_id: "gate-that-never-existed".to_string(),
+            reason: "stale click".to_string(),
+        },
+        Duration::ZERO,
+    );
+    assert!(vanished.is_err());
+
+    let mut closed_view = acceptable_gate_view();
+    closed_view.merge_gates[0].status = MergeGateStatus::Merged;
+    let (mut closed_adapter, closed_sent) = recording(closed_view);
+    let closed = closed_adapter.send_d12_intent_and_wait(
+        "command-closed",
+        D12Intent::Accept {
+            gate_id,
+            reviewed_evidence: None,
+            decision: None,
+        },
+        Duration::ZERO,
+    );
+    assert!(closed.is_err());
+
+    // Fail-closed means nothing left the host.
+    assert!(sent.lock().unwrap().is_empty());
+    assert!(closed_sent.lock().unwrap().is_empty());
 }
 
 #[test]

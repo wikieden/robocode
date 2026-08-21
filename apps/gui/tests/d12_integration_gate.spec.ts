@@ -5,6 +5,8 @@ import { describe, expect, test, vi } from "vitest";
 import {
   renderD12IntegrationGate,
   type D12IntegrationGateProjection,
+  type D12Intent,
+  type D12IntentResult,
 } from "../src/screens/d12_integration_gate";
 
 const GATE = {
@@ -46,12 +48,39 @@ const PROJECTION: D12IntegrationGateProjection = {
   unavailable: [{ key: "d12.conflict.noStructuredHunk", code: "GUI-CORE-015" }],
 };
 
-function setup(projection: D12IntegrationGateProjection = PROJECTION) {
+/// An open gate Core would let the operator decide on.
+const OPEN_GATE = { ...GATE, requiresIndependentValidator: false, hasValidator: true };
+
+const DECIDABLE: D12IntegrationGateProjection = {
+  ...PROJECTION,
+  gates: [OPEN_GATE],
+  detail: {
+    ...PROJECTION.detail!,
+    gate: OPEN_GATE,
+    missingEvidence: [],
+    actions: [
+      { kind: "accept", available: true, code: null },
+      { kind: "reject", available: true, code: null },
+    ],
+  },
+};
+
+function setup(
+  projection: D12IntegrationGateProjection = PROJECTION,
+  send?: (intent: D12Intent) => Promise<D12IntentResult>,
+) {
   document.body.innerHTML = '<div id="host"></div>';
   const root = document.querySelector<HTMLElement>("#host")!;
   const onSelect = vi.fn();
-  renderD12IntegrationGate(root, projection, "en", onSelect);
+  renderD12IntegrationGate(root, projection, "en", onSelect, send);
   return { root, onSelect };
+}
+
+function result(
+  projection: D12IntegrationGateProjection,
+  outcome: D12IntentResult["outcome"] = { state: "confirmed", reason: null },
+): D12IntentResult {
+  return { projection, pendingCommandId: null, outcome };
 }
 
 describe("D12 integration gate", () => {
@@ -71,7 +100,9 @@ describe("D12 integration gate", () => {
     const accept = root.querySelector<HTMLButtonElement>("[data-d12-action='accept']");
     const reject = root.querySelector<HTMLButtonElement>("[data-d12-action='reject']");
     expect(accept?.disabled).toBe(true);
-    expect(reject?.disabled).toBe(false);
+    // Core marks the bounce available, but it still needs a reason and a host
+    // callback before it can be sent; this render has neither.
+    expect(reject?.disabled).toBe(true);
     expect(root.querySelector("[data-d12-missing]")?.textContent).toContain(
       "replay-regression",
     );
@@ -123,5 +154,141 @@ describe("D12 integration gate", () => {
       root.querySelector<HTMLElement>("[data-d12-unavailable]")?.dataset.d12Unavailable,
     ).toBe("GUI-CORE-015");
     expect(root.querySelector(".d12-diff")).toBeNull();
+  });
+
+  test("names why a closed action is closed instead of going dark", () => {
+    const { root } = setup({
+      ...PROJECTION,
+      detail: {
+        ...PROJECTION.detail!,
+        actions: [
+          { kind: "accept", available: false, code: "validator_required" },
+          { kind: "reject", available: true, code: null },
+        ],
+      },
+    });
+    const accept = root.querySelector<HTMLButtonElement>("[data-d12-action='accept']");
+    expect(accept?.dataset.d12ActionCode).toBe("validator_required");
+    expect(accept?.textContent).toContain("independent validator");
+  });
+});
+
+describe("D12 merge-gate decisions", () => {
+  test("accept dispatches the Core command for the selected gate", async () => {
+    const sent: D12Intent[] = [];
+    const send = vi.fn(async (intent: D12Intent) => {
+      sent.push(intent);
+      return result({
+        ...DECIDABLE,
+        detail: {
+          ...DECIDABLE.detail!,
+          gate: { ...OPEN_GATE, status: "accepted" },
+          actions: [
+            { kind: "accept", available: false, code: "gate_closed" },
+            { kind: "reject", available: false, code: "gate_closed" },
+          ],
+        },
+      });
+    });
+    const { root } = setup(DECIDABLE, send);
+
+    const accept = root.querySelector<HTMLButtonElement>("[data-d12-action='accept']")!;
+    expect(accept.disabled).toBe(false);
+    accept.click();
+    // The screen states it is waiting for Core rather than claiming success.
+    expect(root.querySelector("[data-route='d12']")?.getAttribute("aria-busy")).toBe("true");
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(sent).toEqual([{ type: "accept", gateId: "gate-1" }]);
+    // Re-rendered from the projection Core confirmed, not from the click.
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLElement>("[data-d12-banner]")?.dataset.d12Banner).toBe(
+        "resolved",
+      ),
+    );
+    expect(root.querySelector<HTMLButtonElement>("[data-d12-action='accept']")?.disabled).toBe(
+      true,
+    );
+  });
+
+  test("bounce requires a reason and sends the one the operator typed", async () => {
+    const sent: D12Intent[] = [];
+    const send = vi.fn(async (intent: D12Intent) => {
+      sent.push(intent);
+      return result(DECIDABLE);
+    });
+    const { root } = setup(DECIDABLE, send);
+
+    const bounce = root.querySelector<HTMLButtonElement>("[data-d12-action='reject']")!;
+    // Core refuses an empty rejection reason, so the control stays closed.
+    expect(bounce.disabled).toBe(true);
+    bounce.click();
+    expect(send).not.toHaveBeenCalled();
+
+    const reason = root.querySelector<HTMLInputElement>("[data-d12-reason]")!;
+    expect(reason.disabled).toBe(false);
+    reason.value = "  rebase onto the merged baseline  ";
+    reason.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(bounce.disabled).toBe(false);
+    bounce.click();
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(sent).toEqual([
+      { type: "bounce", gateId: "gate-1", reason: "rebase onto the merged baseline" },
+    ]);
+  });
+
+  test("renders a Core rejection verbatim as an alert", async () => {
+    const send = vi.fn(async () =>
+      result(DECIDABLE, {
+        state: "rejected",
+        reason: "merge gate `gate-1` requires an independent validator",
+      }),
+    );
+    const { root } = setup(DECIDABLE, send);
+
+    root.querySelector<HTMLButtonElement>("[data-d12-action='accept']")?.click();
+
+    const alert = await vi.waitFor(() => {
+      const node = root.querySelector<HTMLElement>("[data-d12-error]");
+      if (!node) throw new Error("no rejection alert");
+      return node;
+    });
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toBe("merge gate `gate-1` requires an independent validator");
+    expect(root.querySelector("[data-route='d12']")?.getAttribute("aria-busy")).toBe("false");
+  });
+
+  test("keeps both controls closed when no host callback is injected", () => {
+    const { root } = setup(DECIDABLE);
+    expect(root.querySelector<HTMLButtonElement>("[data-d12-action='accept']")?.disabled).toBe(
+      true,
+    );
+    expect(root.querySelector<HTMLButtonElement>("[data-d12-action='reject']")?.disabled).toBe(
+      true,
+    );
+    expect(root.querySelector<HTMLInputElement>("[data-d12-reason]")?.disabled).toBe(true);
+  });
+
+  test("keeps both controls closed when Core says the gate is undecidable", () => {
+    const send = vi.fn(async () => result(PROJECTION));
+    const { root } = setup(
+      {
+        ...PROJECTION,
+        detail: {
+          ...PROJECTION.detail!,
+          actions: [
+            { kind: "accept", available: false, code: "missing_evidence" },
+            { kind: "reject", available: false, code: "gate_closed" },
+          ],
+        },
+      },
+      send,
+    );
+
+    root.querySelector<HTMLButtonElement>("[data-d12-action='accept']")?.click();
+    root.querySelector<HTMLButtonElement>("[data-d12-action='reject']")?.click();
+    expect(send).not.toHaveBeenCalled();
+    expect(root.querySelector<HTMLInputElement>("[data-d12-reason]")?.disabled).toBe(true);
   });
 });

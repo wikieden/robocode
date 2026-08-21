@@ -6,9 +6,9 @@ use viden_core::{
     ConflictBounceStatus, ContractDecision, ContractRecord, CredentialHandle, DependencyState,
     EventCursor, GateStrength, LaneStatus, LocaleId, MergeGateStatus, MergeGateType,
     MutationPolicy, ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
-    ReviewRequestStatus, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope,
-    RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
-    WorkspaceSourceStatus,
+    ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
+    WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -32,7 +32,7 @@ use crate::d10::{
 };
 use crate::d12::{
     D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
-    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection, d12_action_code,
 };
 use crate::d13::{
     D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
@@ -653,6 +653,15 @@ impl RuntimeProjection {
 
     /// Projects the D12 integration gate, its bounce timeline, and any
     /// post-merge revert. `selected` is presentation state from the shell.
+    ///
+    /// The two actions are derived from the rules
+    /// `RuntimeContract::decide_merge_gate` actually enforces, and they are
+    /// derived fail-closed: every condition below is *necessary* for Core to
+    /// accept the command, never sufficient. Core keeps facts the frontend
+    /// contract does not carry (canonical context items, permission
+    /// snapshots, evidence quality), so a command this projection allows may
+    /// still be rejected — the rejection reason is rendered verbatim rather
+    /// than pre-empted by a GUI-private gate model.
     pub fn d12_integration_gate(
         &self,
         selected: Option<&str>,
@@ -682,6 +691,10 @@ impl RuntimeProjection {
 
         let detail = selected_gate_id.as_deref().and_then(|gate_id| {
             let gate = gates.iter().find(|gate| gate.gate_id == gate_id)?.clone();
+            let record = view
+                .merge_gates
+                .iter()
+                .find(|record| record.gate_id == gate_id)?;
             // A strong gate cannot be bypassed: `accept` opens only when Core
             // has recorded every evidence id the gate policy requires.
             let missing_evidence: Vec<String> = gate
@@ -727,17 +740,19 @@ impl RuntimeProjection {
                 })
                 .collect();
             let terminal = matches!(gate.status.as_str(), "merged" | "reverted" | "accepted");
+            let accept_block = d12_accept_block(view, record, terminal, &missing_evidence);
+            let reject_block = d12_reject_block(record, terminal);
             Some(D12GateDetailProjection {
                 actions: vec![
                     D12ActionProjection {
                         kind: "accept".to_string(),
-                        available: missing_evidence.is_empty() && !terminal,
-                        code: None,
+                        available: accept_block.is_none(),
+                        code: accept_block,
                     },
                     D12ActionProjection {
                         kind: "reject".to_string(),
-                        available: !terminal,
-                        code: None,
+                        available: reject_block.is_none(),
+                        code: reject_block,
                     },
                 ],
                 gate,
@@ -1759,6 +1774,149 @@ fn conflict_bounce_status(status: ConflictBounceStatus) -> &'static str {
         ConflictBounceStatus::Revalidated => "revalidated",
         ConflictBounceStatus::Resolved => "resolved",
     }
+}
+
+/// The exact `RuntimeOwner` Core will demand as the acceptance actor.
+///
+/// `decide_merge_gate` splits on the validator: with one recorded, acceptance
+/// must come from a Lane matching the validator's owner
+/// (`runtime_owner_matches_validator_lane`, which requires a Lane id);
+/// without one, the actor must equal the gate owner. Anything else is a
+/// rejection, so a gate with no actor this client can replay stays closed.
+pub(crate) fn d12_accept_actor(gate: &viden_core::MergeGateRecord) -> Option<RuntimeOwner> {
+    match &gate.validator {
+        Some(validator) => validator
+            .owner
+            .lane_id
+            .is_some()
+            .then(|| validator.owner.clone()),
+        None => Some(gate.owner.clone()),
+    }
+}
+
+/// The exact `RuntimeOwner` Core will accept as the rejection actor.
+///
+/// `validate_reject_actor` refuses the default owner outright, then admits
+/// either the validator's Lane or the gate owner. The gate owner is preferred
+/// because it satisfies the second branch without the validator's Lane-id
+/// requirement.
+pub(crate) fn d12_reject_actor(gate: &viden_core::MergeGateRecord) -> Option<RuntimeOwner> {
+    if gate.owner != RuntimeOwner::default() {
+        return Some(gate.owner.clone());
+    }
+    gate.validator
+        .as_ref()
+        .filter(|validator| validator.owner.lane_id.is_some())
+        .filter(|validator| validator.owner != RuntimeOwner::default())
+        .map(|validator| validator.owner.clone())
+}
+
+/// The reviewed-evidence bindings Core will compare the acceptance against.
+///
+/// With a validator, `decide_merge_gate` requires the bindings to equal the
+/// review request's recorded set exactly; without one it requires the
+/// bindings derived from the gate's own evidence, except for a default-owner
+/// gate, where Core fills an empty list in itself. Each case is replayed from
+/// Core's own records rather than rebuilt from display text.
+pub(crate) fn d12_reviewed_evidence(
+    view: &RuntimeViewState,
+    gate: &viden_core::MergeGateRecord,
+) -> Option<Vec<viden_core::ReviewedEvidenceBinding>> {
+    if let Some(validator) = &gate.validator {
+        let review = view
+            .review_requests
+            .iter()
+            .find(|review| review.review_id == validator.review_request_id)?;
+        return Some(review.evidence_bindings.clone());
+    }
+    if gate.owner == RuntimeOwner::default() {
+        return Some(Vec::new());
+    }
+    d12_canonical_bindings(view, gate)
+}
+
+/// Rebuilds the gate's evidence bindings from the canonical references Core
+/// published. `None` when any listed evidence is absent or not canonical:
+/// Core cannot verify such a gate, so the client must not offer to accept it.
+fn d12_canonical_bindings(
+    view: &RuntimeViewState,
+    gate: &viden_core::MergeGateRecord,
+) -> Option<Vec<viden_core::ReviewedEvidenceBinding>> {
+    let mut bindings = Vec::with_capacity(gate.evidence_ids.len());
+    for evidence_id in &gate.evidence_ids {
+        let evidence = view
+            .latest_evidence
+            .iter()
+            .find(|evidence| evidence.id == *evidence_id)?;
+        let canonical = evidence.canonical.as_ref()?;
+        bindings.push(viden_core::ReviewedEvidenceBinding {
+            evidence_id: evidence_id.clone(),
+            source_hash: canonical.source_hash.clone(),
+        });
+    }
+    bindings.sort();
+    bindings.dedup();
+    Some(bindings)
+}
+
+/// Why Core would refuse `AcceptMergeGate`, or `None` when nothing the client
+/// can see blocks it.
+fn d12_accept_block(
+    view: &RuntimeViewState,
+    gate: &viden_core::MergeGateRecord,
+    terminal: bool,
+    missing_evidence: &[String],
+) -> Option<&'static str> {
+    if terminal {
+        return Some(d12_action_code::GATE_CLOSED);
+    }
+    if !missing_evidence.is_empty() {
+        return Some(d12_action_code::MISSING_EVIDENCE);
+    }
+    if gate.policy_snapshot.requires_independent_validator
+        && !gate
+            .validator
+            .as_ref()
+            .is_some_and(|validator| validator.independent)
+    {
+        return Some(d12_action_code::VALIDATOR_REQUIRED);
+    }
+    // A pending bounce means the origin Lane has not revalidated yet; Core
+    // refuses acceptance until it has.
+    if gate
+        .conflict
+        .as_ref()
+        .is_some_and(|conflict| conflict.status == ConflictBounceStatus::Pending)
+    {
+        return Some(d12_action_code::CONFLICT_PENDING);
+    }
+    if d12_canonical_bindings(view, gate).is_none() {
+        return Some(d12_action_code::EVIDENCE_NOT_CANONICAL);
+    }
+    if let Some(validator) = &gate.validator {
+        let pending_review = view.review_requests.iter().any(|review| {
+            review.review_id == validator.review_request_id
+                && review.status == ReviewRequestStatus::Pending
+        });
+        if !pending_review {
+            return Some(d12_action_code::REVIEW_NOT_PENDING);
+        }
+    }
+    if d12_accept_actor(gate).is_none() || d12_reviewed_evidence(view, gate).is_none() {
+        return Some(d12_action_code::NO_ACTOR);
+    }
+    None
+}
+
+/// Why Core would refuse `RejectMergeGate`, or `None` when nothing blocks it.
+fn d12_reject_block(gate: &viden_core::MergeGateRecord, terminal: bool) -> Option<&'static str> {
+    if terminal {
+        return Some(d12_action_code::GATE_CLOSED);
+    }
+    if d12_reject_actor(gate).is_none() {
+        return Some(d12_action_code::NO_ACTOR);
+    }
+    None
 }
 
 /// Projects a Core content part. Nothing is resolved or fetched here: the

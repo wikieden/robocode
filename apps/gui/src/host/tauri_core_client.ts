@@ -46,6 +46,7 @@ export function createTauriCoreClient(): CoreClient {
 
     d10LaneMonitor: () => invoke("d10_lane_monitor"),
     d12IntegrationGate: (selectedGateId) => invoke("d12_integration_gate", { selectedGateId }),
+    d12SendIntent: (commandId, intent) => invoke("d12_send_intent", { commandId, intent }),
     d13FleetWorkflow: () => invoke("d13_fleet_workflow"),
     d14AuditTimeline: (after, limit) => invoke("d14_audit_timeline", { after, limit }),
 

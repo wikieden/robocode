@@ -31,6 +31,7 @@ import {
 import {
   renderD12IntegrationGate,
   type D12IntegrationGateProjection,
+  type D12Intent,
 } from "./screens/d12_integration_gate";
 import {
   renderD13FleetWorkflow,
@@ -397,7 +398,14 @@ export async function hydrateShellFromCore(
           throw new Error("Core did not provide the D12 integration gate projection");
         }
         root.dataset.route = "d12";
-        renderD12IntegrationGate(root, projection, locale, (next) => void showD12(next));
+        renderD12IntegrationGate(
+          root,
+          projection,
+          locale,
+          (next) => void showD12(next),
+          async (intent: D12Intent) =>
+            await core.d12SendIntent(`gui-d12-${crypto.randomUUID()}`, intent),
+        );
       };
 
       // D14 is the audit trail. It pages the Core replay cursor and never

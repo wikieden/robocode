@@ -7,11 +7,12 @@ use sha2::{Digest, Sha256};
 use viden_core::{
     AgentSessionInput, AgentSessionRequest, AgentSessionStatus, ApprovalDecision,
     ApprovalRequestView, ApprovalResponse, ApprovalScope, BoundCoreClient, CoreClient,
-    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, LocaleId, PermissionLevel,
-    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeWireEvent, StarterLanePreset,
-    StarterLaneRequest, TranscriptPage, TranscriptPageRequest, UiColorMode, UiDensity, UiMotion,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceOpenRequest,
+    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, LocaleId, MergeGateStatus,
+    PermissionLevel, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
+    UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
+    WorkspaceOpenRequest,
 };
 
 use crate::d1::{
@@ -45,6 +46,11 @@ pub struct GuiCoreAdapter {
     pub(crate) d4_outcome: D4OutcomeProjection,
     pending_d1: Option<PendingD1>,
     d1_outcome: D1OutcomeProjection,
+    /// One merge-gate decision at a time. Gate decisions are project-scoped
+    /// rather than Lane-scoped, so they keep their own slot instead of
+    /// blocking (or being blocked by) the D1 composer slot.
+    pending_d12: Option<PendingD12>,
+    d12_outcome: D1OutcomeProjection,
     pending_permission: Option<PendingPermission>,
     permission_outcome: PermissionOutcomeProjection,
     /// One preference command at a time. Preferences are workspace-scoped
@@ -477,6 +483,72 @@ impl PendingD1 {
     }
 }
 
+/// One in-flight merge-gate decision awaiting its ordered Core receipt.
+struct PendingD12 {
+    command_id: String,
+    gate_id: String,
+    /// Which decision was asked for, so a `MergeGateUpdated` that only reports
+    /// some other transition cannot be read as this command's confirmation.
+    status: MergeGateStatus,
+    accepted: bool,
+}
+
+enum D12Observation {
+    Continue,
+    Confirmed,
+    Rejected(String),
+}
+
+impl PendingD12 {
+    /// Reconciles one ordered event against this decision.
+    ///
+    /// Acceptance is not the decision: only a `MergeGateUpdated` naming this
+    /// gate, carrying the status this command asked for, confirms it. Core
+    /// emits exactly that event from `decide_merge_gate`, so the client never
+    /// has to infer the outcome from a republished snapshot.
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> D12Observation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return D12Observation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                D12Observation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            }
+            | RuntimeEventKind::LaneCommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id && self.matches_command(command) => {
+                self.accepted = true;
+                D12Observation::Continue
+            }
+            RuntimeEventKind::MergeGateUpdated { gate }
+                if self.accepted && gate.gate_id == self.gate_id && gate.status == self.status =>
+            {
+                D12Observation::Confirmed
+            }
+            _ => D12Observation::Continue,
+        }
+    }
+
+    fn matches_command(&self, command: &RuntimeCommand) -> bool {
+        match command {
+            RuntimeCommand::AcceptMergeGate { gate_id, .. } => {
+                self.status == MergeGateStatus::Accepted && gate_id == &self.gate_id
+            }
+            RuntimeCommand::RejectMergeGate { gate_id, .. } => {
+                self.status == MergeGateStatus::NeedsChanges && gate_id == &self.gate_id
+            }
+            _ => false,
+        }
+    }
+}
+
 /// One in-flight preference command awaiting its ordered Core receipt.
 struct PendingPreference {
     command_id: String,
@@ -730,6 +802,8 @@ impl GuiCoreAdapter {
             d4_outcome: D4OutcomeProjection::idle(),
             pending_d1: None,
             d1_outcome: D1OutcomeProjection::idle(),
+            pending_d12: None,
+            d12_outcome: D1OutcomeProjection::idle(),
             pending_permission: None,
             permission_outcome: PermissionOutcomeProjection::idle(),
             pending_preference: None,
@@ -908,6 +982,204 @@ impl GuiCoreAdapter {
         gate_id: &str,
     ) -> Option<crate::D12IntegrationGateProjection> {
         self.projection.d12_integration_gate(Some(gate_id))
+    }
+
+    /// Sends one merge-gate decision as the Core command that owns it, then
+    /// republishes the gate projection.
+    ///
+    /// The gate id comes from the projection the operator acted on and is
+    /// re-resolved against the current Core view here: a gate that
+    /// disappeared, closed, or lost its actor between render and click is
+    /// rejected locally instead of being sent as a command Core would have to
+    /// reject. The actor and reviewed-evidence bindings are replayed from
+    /// Core's own records — the GUI never rebuilds an identity or a hash from
+    /// display text.
+    pub fn send_d12_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: crate::D12Intent,
+        event_timeout: Duration,
+    ) -> Result<crate::D12IntentResult, String> {
+        if let Some(pending) = &self.pending_d12 {
+            return Err(format!(
+                "merge gate command `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let gate_id = match &intent {
+            crate::D12Intent::Accept { gate_id, .. } | crate::D12Intent::Bounce { gate_id, .. } => {
+                gate_id.clone()
+            }
+        };
+        let status = match &intent {
+            crate::D12Intent::Accept { .. } => MergeGateStatus::Accepted,
+            crate::D12Intent::Bounce { .. } => MergeGateStatus::NeedsChanges,
+        };
+        let envelope = self.d12_envelope(command_id, &intent)?;
+        self.pending_d12 = Some(PendingD12 {
+            command_id: command_id.to_string(),
+            gate_id: gate_id.clone(),
+            status,
+            accepted: false,
+        });
+        self.client.send(envelope).map_err(|error| {
+            self.pending_d12 = None;
+            error.to_string()
+        })?;
+        self.d12_outcome = D1OutcomeProjection::pending();
+        self.poll_d12(&gate_id, event_timeout)
+    }
+
+    /// Drains ordered Core events for an in-flight gate decision without
+    /// sending a command or creating GUI-owned runtime state.
+    pub fn poll_d12(
+        &mut self,
+        gate_id: &str,
+        event_timeout: Duration,
+    ) -> Result<crate::D12IntentResult, String> {
+        let mut received = false;
+        for _ in 0..8 {
+            let event = match self
+                .receive_event_until(if received {
+                    Duration::ZERO
+                } else {
+                    event_timeout
+                })
+                .map_err(|error| error.to_string())?
+            {
+                Some(event) => event,
+                None => break,
+            };
+            received = true;
+            if self.observe_pending_d12(&event) {
+                break;
+            }
+        }
+        if received {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        let projection = self
+            .d12_integration_gate_for(gate_id)
+            .or_else(|| self.d12_integration_gate())
+            .ok_or_else(|| "Core has not published an integration gate projection".to_string())?;
+        Ok(crate::D12IntentResult {
+            projection,
+            pending_command_id: self
+                .pending_d12
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            outcome: self.d12_outcome.clone(),
+        })
+    }
+
+    /// Reconciles one ordered event against the in-flight gate decision.
+    /// Returns whether the decision reached a terminal outcome.
+    fn observe_pending_d12(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let Some(pending) = self.pending_d12.as_mut() else {
+            return false;
+        };
+        match pending.observe(event) {
+            D12Observation::Continue => false,
+            D12Observation::Confirmed => {
+                self.pending_d12 = None;
+                self.d12_outcome = D1OutcomeProjection::confirmed();
+                true
+            }
+            D12Observation::Rejected(reason) => {
+                self.pending_d12 = None;
+                self.d12_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
+    }
+
+    fn d12_envelope(
+        &self,
+        command_id: &str,
+        intent: &crate::D12Intent,
+    ) -> Result<RuntimeCommandEnvelope, String> {
+        let view = self
+            .projection
+            .view()
+            .ok_or_else(|| "Core has not published an integration gate projection".to_string())?;
+        let gate_id = match intent {
+            crate::D12Intent::Accept { gate_id, .. } | crate::D12Intent::Bounce { gate_id, .. } => {
+                gate_id.as_str()
+            }
+        };
+        let gate = view
+            .merge_gates
+            .iter()
+            .find(|gate| gate.gate_id == gate_id)
+            .ok_or_else(|| format!("Core has no merge gate `{gate_id}` to decide"))?;
+        if !gate.status.is_open() {
+            return Err(format!("merge gate `{gate_id}` is no longer open"));
+        }
+        let (owner, command) = match intent {
+            crate::D12Intent::Accept {
+                reviewed_evidence,
+                decision,
+                ..
+            } => {
+                let actor = crate::projection::d12_accept_actor(gate).ok_or_else(|| {
+                    format!("merge gate `{gate_id}` has no Core owner this client may accept as")
+                })?;
+                // A client-supplied binding set is honoured verbatim so a
+                // reviewer can accept exactly what they read; otherwise the
+                // bindings are replayed from Core's own canonical records.
+                let reviewed_evidence = match reviewed_evidence {
+                    Some(bindings) => bindings
+                        .iter()
+                        .map(|binding| viden_core::ReviewedEvidenceBinding {
+                            evidence_id: binding.evidence_id.clone(),
+                            source_hash: binding.source_hash.clone(),
+                        })
+                        .collect(),
+                    None => {
+                        crate::projection::d12_reviewed_evidence(view, gate).ok_or_else(|| {
+                            format!(
+                                "merge gate `{gate_id}` has no canonical evidence Core could verify"
+                            )
+                        })?
+                    }
+                };
+                (
+                    actor.clone(),
+                    RuntimeCommand::AcceptMergeGate {
+                        gate_id: gate_id.to_string(),
+                        actor,
+                        reviewed_evidence,
+                        decision: decision.clone(),
+                    },
+                )
+            }
+            crate::D12Intent::Bounce { reason, .. } => {
+                // Core stores the reason as the gate decision and refuses an
+                // empty one, so the client will not send a blank bounce.
+                if reason.trim().is_empty() {
+                    return Err("a bounce to the origin Lane requires a reason".to_string());
+                }
+                let actor = crate::projection::d12_reject_actor(gate).ok_or_else(|| {
+                    format!("merge gate `{gate_id}` has no Core owner this client may bounce as")
+                })?;
+                (
+                    actor.clone(),
+                    RuntimeCommand::RejectMergeGate {
+                        gate_id: gate_id.to_string(),
+                        actor,
+                        reason: reason.clone(),
+                    },
+                )
+            }
+        };
+        Ok(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "viden-gui".to_string(),
+            command_id: command_id.to_string(),
+            owner,
+            command,
+        })
     }
 
     pub fn d10_lane_monitor(&self) -> Option<crate::D10LaneMonitorProjection> {
@@ -2162,6 +2434,7 @@ impl GuiCoreAdapter {
             self.observe_pending_permission(&event);
             self.observe_pending_preference(&event);
             self.observe_pending(&event);
+            self.observe_pending_d12(&event);
             self.observe_d4(&event);
         }
         if received {

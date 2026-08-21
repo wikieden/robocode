@@ -76,6 +76,37 @@ export interface D12Controller {
   applyProjection: (projection: D12IntegrationGateProjection) => void;
 }
 
+export interface D12ReviewedEvidence {
+  evidenceId: string;
+  sourceHash: string;
+}
+
+/// One merge-gate decision. Both map to a single Core command
+/// (`AcceptMergeGate` / `RejectMergeGate`); the screen never merges anything
+/// itself and never invents an actor or an evidence hash — the host replays
+/// those from the gate Core published.
+export type D12Intent =
+  | {
+      type: "accept";
+      gateId: string;
+      reviewedEvidence?: D12ReviewedEvidence[];
+      decision?: string;
+    }
+  | { type: "bounce"; gateId: string; reason: string };
+
+export interface D12Outcome {
+  state: string;
+  reason: string | null;
+}
+
+export interface D12IntentResult {
+  projection: D12IntegrationGateProjection;
+  pendingCommandId: string | null;
+  outcome: D12Outcome;
+}
+
+type SendD12Intent = (intent: D12Intent) => Promise<D12IntentResult>;
+
 type Copy = Record<string, string>;
 
 const COPY: Record<Locale, Copy> = {
@@ -95,7 +126,16 @@ const COPY: Record<Locale, Copy> = {
     checks: "Checks",
     accept: "Accept and merge",
     reject: "Bounce to origin Lane",
+    reasonLabel: "Bounce reason",
+    reasonPlaceholder: "Why the origin Lane is getting this back",
     noGate: "Core published no integration gate.",
+    gate_closed: "the gate is already decided",
+    missing_evidence: "Core is missing required evidence",
+    evidence_not_canonical: "Core recorded no canonical evidence to verify",
+    validator_required: "the policy requires an independent validator",
+    conflict_pending: "the origin Lane has not revalidated the conflict",
+    review_not_pending: "the validator's review request is not pending",
+    no_actor: "Core published no owner this client may act as",
     "d12.conflict.noStructuredHunk":
       "Core publishes no structured conflict content, so the conflicting hunk cannot be shown.",
   },
@@ -115,7 +155,16 @@ const COPY: Record<Locale, Copy> = {
     checks: "检查",
     accept: "批准并合入",
     reject: "退回原 Lane",
+    reasonLabel: "退回理由",
+    reasonPlaceholder: "说明原 Lane 为什么要收回这份工作",
     noGate: "Core 未发布任何集成闸。",
+    gate_closed: "该闸已决",
+    missing_evidence: "Core 缺少必需证据",
+    evidence_not_canonical: "Core 未记录可校验的规范化证据",
+    validator_required: "策略要求独立验证方",
+    conflict_pending: "原 Lane 尚未完成冲突复验",
+    review_not_pending: "验证方的评审请求不处于待决状态",
+    no_actor: "Core 未发布本客户端可代表的负责人",
     "d12.conflict.noStructuredHunk": "Core 不发布结构化冲突内容，冲突 hunk 无法展示。",
   },
 };
@@ -132,9 +181,40 @@ export function renderD12IntegrationGate(
   initial: D12IntegrationGateProjection,
   locale: Locale,
   onSelect?: (gateId: string) => void,
+  send?: SendD12Intent,
 ): D12Controller {
   let projection = initial;
   const copy = COPY[locale];
+  let busy = false;
+  // Core's own words for the last refused decision. Never a locally invented
+  // sentence: the screen has no model of why a gate may be accepted.
+  let decisionError: string | null = null;
+  // Draft only. The reason travels with the command and is never persisted
+  // client-side; Core stores it as the gate decision.
+  let bounceReason = "";
+
+  const dispatch = (intent: D12Intent): void => {
+    if (busy || !send) return;
+    busy = true;
+    decisionError = null;
+    render();
+    void send(intent)
+      .then((result) => {
+        // Success is rendered only from the projection Core confirmed.
+        projection = result.projection;
+        decisionError = result.outcome.state === "rejected" ? result.outcome.reason : null;
+        if (result.outcome.state !== "rejected" && intent.type === "bounce") {
+          bounceReason = "";
+        }
+      })
+      .catch((error: unknown) => {
+        decisionError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        busy = false;
+        render();
+      });
+  };
 
   const section = (titleKey: string): HTMLElement => {
     const heading = document.createElement("div");
@@ -147,6 +227,7 @@ export function renderD12IntegrationGate(
     const stage = document.createElement("section");
     stage.className = "d12-stage";
     stage.dataset.route = "d12";
+    stage.setAttribute("aria-busy", String(busy));
 
     const bar = document.createElement("div");
     bar.className = "d12-head";
@@ -261,16 +342,77 @@ export function renderD12IntegrationGate(
 
     const bar2 = document.createElement("div");
     bar2.className = "d12-gatebar";
+
+    const rejectAction = detail.actions.find((action) => action.kind === "reject");
+    // Core refuses an empty rejection reason, so the client does too.
+    const canBounce = (): boolean =>
+      Boolean(rejectAction?.available) &&
+      send !== undefined &&
+      !busy &&
+      bounceReason.trim().length > 0;
+
+    // The design bounces *with a reason*: the reason field sits in the action
+    // bar next to the bounce control, because Core stores it as the gate
+    // decision and the origin Lane's agent works from it.
+    const reason = document.createElement("input");
+    reason.type = "text";
+    reason.className = "d12-reason";
+    reason.dataset.d12Reason = "true";
+    reason.value = bounceReason;
+    reason.placeholder = copy.reasonPlaceholder;
+    reason.setAttribute("aria-label", copy.reasonLabel);
+    reason.disabled = busy || !send || !rejectAction?.available;
+    reason.addEventListener("input", () => {
+      bounceReason = reason.value;
+      // Keep the bounce control in step with the reason without re-rendering
+      // the field the operator is typing into.
+      const bounce = bar2.querySelector<HTMLButtonElement>("[data-d12-action='reject']");
+      if (bounce) bounce.disabled = !canBounce();
+    });
+    bar2.append(reason);
+
     for (const action of detail.actions) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "d12-gbtn";
       button.dataset.d12Action = action.kind;
-      button.disabled = !action.available;
-      button.textContent = label(copy, action.kind);
+      // A control is enabled only when it can actually do something: Core
+      // says the action is available, a host callback can carry it, and — for
+      // a bounce — the operator supplied the mandatory reason.
+      const operable = action.available && send !== undefined && !busy;
+      button.disabled =
+        action.kind === "reject" ? !canBounce() : !operable;
+      button.textContent = action.available
+        ? label(copy, action.kind)
+        : `${label(copy, action.kind)} · ${label(copy, action.code ?? "")}`;
+      if (action.code) button.dataset.d12ActionCode = action.code;
+      if (operable) {
+        button.addEventListener("click", () => {
+          if (action.kind === "accept") {
+            dispatch({ type: "accept", gateId: detail.gate.gateId });
+            return;
+          }
+          if (action.kind === "reject" && bounceReason.trim().length > 0) {
+            dispatch({
+              type: "bounce",
+              gateId: detail.gate.gateId,
+              reason: bounceReason.trim(),
+            });
+          }
+        });
+      }
       bar2.append(button);
     }
     stage.append(bar2);
+
+    if (decisionError) {
+      const failure = document.createElement("p");
+      failure.className = "d12-error";
+      failure.dataset.d12Error = "true";
+      failure.setAttribute("role", "alert");
+      failure.textContent = decisionError;
+      stage.append(failure);
+    }
 
     for (const entry of projection.unavailable) {
       const note = document.createElement("p");

@@ -49,7 +49,8 @@ pub use d10::{
 };
 pub use d12::{
     D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
-    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12Intent, D12IntentResult,
+    D12RevertProjection, D12ReviewedEvidenceInput, d12_action_code,
 };
 pub use d13::{
     D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
@@ -471,6 +472,27 @@ fn d12_integration_gate(
     })
 }
 
+/// Sends one merge-gate decision (`AcceptMergeGate` / `RejectMergeGate`) and
+/// waits briefly for the ordered Core receipt.
+///
+/// The gate is re-resolved against the current Core view before the command
+/// leaves the host, so a decision on a gate that vanished or closed fails here
+/// rather than becoming a command Core has to reject.
+#[tauri::command]
+fn d12_send_intent(
+    command_id: String,
+    intent: D12Intent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D12IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_d12_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+}
+
 #[tauri::command]
 fn d10_lane_monitor(
     state: tauri::State<'_, DesktopState>,
@@ -588,6 +610,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d2_send_intent,
             d10_lane_monitor,
             d12_integration_gate,
+            d12_send_intent,
             d13_fleet_workflow,
             d14_audit_timeline,
             agent_content,
