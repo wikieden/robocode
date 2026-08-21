@@ -21,13 +21,13 @@ describe("localized catalog contract", () => {
 
   test("interpolates typed arguments in both built-in locales", () => {
     expect(
-      translate("en", "preferences.unavailable", { capability: "GUI-CORE-005" }),
-    ).toContain("GUI-CORE-005");
+      translate("en", "preferences.unavailable", { capability: "ui.preference_persistence" }),
+    ).toContain("ui.preference_persistence");
     expect(
       translate("zh-CN", "preferences.unavailable", {
-        capability: "GUI-CORE-005",
+        capability: "ui.preference_persistence",
       }),
-    ).toContain("GUI-CORE-005");
+    ).toContain("ui.preference_persistence");
   });
 
   test("renders a visible sentinel for a missing key without a fallback loop", () => {

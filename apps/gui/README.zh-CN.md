@@ -121,7 +121,7 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 | D14 审计与时间线 | 跨工作区的有序审计轨迹，支持分页 | `CoreClient::replay` 的 `ReplayRequest`/`ReplayBatch` 与 `EventCursor` 已有；视图状态没有事件日志（`GUI-CORE-014`） | 入口 `?screen=d14`；行按 Core 回放 cursor 顺序取得，行标签用 Core 自己的 serde 判别名而非客户端改名，无法解码的事件仍占一行，回放失败显式提示而不是给出更短但看起来完整的轨迹 |
 | D13 Fleet 编排与 Workflow | 每个 workflow DAG 一块看板：声明的依赖边、节点运行状态、阻塞原因与 Lane 交接 | `agent_dags`（含 `AgentDagTaskSpec`）、`tasks`、`dependencies`、`handoffs` 已有 | 入口 `?screen=d13`；只读，依赖边取自任务规格自身的 dependencies，节点只有在 Core 真正跑该任务时才显示状态，阻塞只来自 Core 的 `DependencyState::Blocked` 记录，交接绝不由依赖边推导 |
 | D6 恢复 | 连接中、断连、agent stopped、budget exhausted、gate queue clear、reconnect/restart/close actions | Runtime errors、CoreClient snapshot recovery、context budget facts、queue/gate facts、`RetryAgentSession` 与 `StopLane` 已有；检查点完全未被建模 | Task 10 渲染运行期 Core-owned 恢复状态；无项目 `empty` 状态由 D1 Welcome Center 承担；restart 与 close Lane 针对 Core 发布的唯一目标发送对应 Core 命令，inspect 在本地展开既有事实，checkpoint 仍以 `GUI-CORE-003` 明确禁用（`GUI-CORE-018`） |
-| Locale 与换肤 | `en`/`zh-CN`、Aurora/Ice/Mono/Amber/Phosphor、明暗约束、density、motion | 已有 `RuntimeSnapshot.ui_preferences`、`SetUiPreferences`、`ResetUiPreferences`、`UiPreferencesUpdated`、持久化和安全回退诊断 | GUI 渲染 Core resolved preferences；正式 Settings 控件仍是前端实现任务，并且必须等待有序 Core event |
+| Locale 与换肤 | `en`/`zh-CN`、Aurora/Ice/Mono/Amber/Phosphor、明暗约束、density、motion | 已有 `RuntimeSnapshot.ui_preferences`、`SetUiPreferences`、`ResetUiPreferences`、`UiPreferencesUpdated`、持久化和安全回退诊断，并以 `ui.preference_persistence` 公布 | rail 上的设置齿轮编辑未保存 draft 并发送 `SetUiPreferences`/`ResetUiPreferences`；只有有序的 `UiPreferencesUpdated` 才改变渲染状态，缺少该 capability 时面板以只读方式打开 |
 
 开放请求记录在 [contract-requests.md](contract-requests.md) 和
 [contract-requests.zh-CN.md](contract-requests.zh-CN.md)。GUI 不得用私有 reducer 或直接访问
@@ -250,6 +250,24 @@ pill 都只按 Core 重新发布的 snapshot 重绘，因此选择“规划”�
 surface（`role=alert`）上。弹层遵循 agent-menu 约定：Escape 关闭并把焦点交还 pill，
 外部点击关闭，方向键移动选项焦点。
 
+活动 rail 在 spacer 之后以原型的设置齿轮收尾。它打开语言、皮肤、明暗、密度与
+动效的设置浮层，取自注册设计组件 `GUI/gui-settings.jsx`，只使用共享 token。所有
+控件都只编辑未保存的 GUI 本地 draft：未改动任何轴时“保存”保持禁用，并且只有操作
+者真正选择过的轴才进入 patch，未触碰的轴继续沿用 Core 的解析结果。保存经由 host
+命令 `preferences_save`、`preferences_restore`、`preferences_poll` 发送
+`SetUiPreferences`，“恢复默认”发送 `ResetUiPreferences`。
+
+确认的唯一依据是有序的 `UiPreferencesUpdated`：重新发布的 snapshot 不是持久化回执；
+保存只有在持久化的 `[ui]` 表带回 patch 请求的每个值时才算确认；恢复则以该表消失、
+而 resolved 回退仍可渲染为确认。确认后面板采用 Core 的解析结果——包括点击并未请求、
+由 Core 联动改动的轴——并应用到实时主题与文档语言。客户端不预先校验皮肤/明暗组合，
+因此 Amber 配浅色这类组合仍可选中，并以 Core 自己的拒绝理由出现在 `role=alert`
+行中，与 Core 的 diagnostic 并列；规划/评审/探索模式的拒绝走同一条路径，配置文件
+字节保持不变。命令在途时面板 `aria-busy` 且所有控件禁用。当 Core 握手未公布
+`ui.preference_persistence` 时，齿轮仍会打开只读面板并写明该 capability——既不隐藏
+入口，也不给出可点击但无响应的控件。浮层遵循 agent-menu 约定：Escape 关闭并把焦点
+交还齿轮，外部点击关闭，方向键移动选项焦点。
+
 驾驶舱状态栏按终端词表渲染 host 计算的 statusbar 投影分段：`MODE`、`PERM`、
 `CONTEXT`（最近的工作区预算）、`EVENTS`（重放游标流位置；frontend-contract-v1 没有
 事件计数器，因此以位置标注）、`LANE`（选中 Lane、其唯一绑定 agent、状态与任务进度）、
@@ -308,10 +326,12 @@ Tauri CSS adapter 直接 import `docs/viden-design/Viden/tokens.css`。运行
 `tools/check-generated-tokens.sh` 会检查 SHA-256、semantic roles、theme/density
 矩阵、adapter import 和 generated metadata；production GUI source 不手抄 token 值。
 
-Preference 控件可以保留未保存的内存 draft。Save/restore 必须使用
+Preference 控件保留未保存的内存 draft。Save/restore 使用
 `SetUiPreferences` 或 `ResetUiPreferences`：GUI 不写 browser storage、文件、config，
 也不建立私有 preference authority；只有 `UiPreferencesUpdated` 提供新的 resolved
-projection 后才能改变渲染状态。
+projection 后才能改变渲染状态。可用性来自握手 capability
+`ui.preference_persistence`（`preferences_available`）；客户端不自定义更细粒度的
+preference capability。
 
 默认原生 binary 在未显式设置 `VIDEN_GUI_WORKSPACE` 时不预绑工作区。D1 Welcome 打开
 系统文件夹选择器，`LocalCoreHost` 在注入的 frontend-safe `CoreClient` 背后构造并持有

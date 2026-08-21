@@ -138,7 +138,7 @@ implementation, not editing screens.
 | D14 audit and timeline | ordered audit trail across the workspace with paging | `CoreClient::replay` with `ReplayRequest`/`ReplayBatch` and `EventCursor` exists; the view state carries no event log (`GUI-CORE-014`) | Reachable at `?screen=d14`; rows come from the replay cursor in Core order, the row label is Core's own serde discriminant rather than a client rename, an undecodable event still occupies a row, and a replay failure is shown instead of a shorter complete-looking trail |
 | D13 fleet and workflow | one board per workflow DAG with declared edges, node runtime status, blockers, and lane handoffs | `agent_dags` with `AgentDagTaskSpec`, `tasks`, `dependencies`, and `handoffs` exist | Reachable at `?screen=d13`; read-only, edges are the task specs' own dependency lists, a node reports status only when Core runs that task, a blocker appears only from a Core `DependencyState::Blocked` record, and a handoff is never derived from an edge |
 | D6 recovery | connecting, disconnected, agent stopped, budget exhausted, gate queue clear, reconnect/restart/close actions | Runtime errors, CoreClient snapshot recovery, context budget facts, queue/gate facts, `RetryAgentSession`, and `StopLane` exist; no checkpoint is modelled at all | Task 10 renders operational Core-owned recovery states; the no-project `empty` state is handled by D1 Welcome Center; restart and close-Lane send their Core commands for the one unambiguous target Core published, inspect expands existing facts locally, and checkpoint remains visibly unavailable under `GUI-CORE-003` (`GUI-CORE-018`) |
-| Locale and skin system | `en`/`zh-CN`, Aurora/Ice/Mono/Amber/Phosphor, dark/light constraints, density, motion | `RuntimeSnapshot.ui_preferences`, `SetUiPreferences`, `ResetUiPreferences`, and `UiPreferencesUpdated` exist with persistence and safe fallback diagnostics | GUI renders resolved Core preferences; production Settings controls remain frontend implementation work and must wait for the ordered Core event |
+| Locale and skin system | `en`/`zh-CN`, Aurora/Ice/Mono/Amber/Phosphor, dark/light constraints, density, motion | `RuntimeSnapshot.ui_preferences`, `SetUiPreferences`, `ResetUiPreferences`, and `UiPreferencesUpdated` exist with persistence and safe fallback diagnostics, advertised as `ui.preference_persistence` | The rail's Settings gear edits an unsaved draft and sends `SetUiPreferences`/`ResetUiPreferences`; rendered state changes only on the ordered `UiPreferencesUpdated`, and an absent capability opens the panel read-only |
 
 Open requests are recorded in [contract-requests.md](contract-requests.md) and
 [contract-requests.zh-CN.md](contract-requests.zh-CN.md). GUI must not close
@@ -312,6 +312,33 @@ D1 rejection surface (`role=alert`). Popovers follow the agent-menu
 conventions: Escape closes and returns focus to the pill, an outside click
 closes, and arrow keys move option focus.
 
+The activity rail closes with the prototype's Settings gear below the spacer.
+It opens the Settings overlay for language, skin, mode, density, and motion,
+built from the registered design component `GUI/gui-settings.jsx` with shared
+tokens only. Every control edits an unsaved GUI-local draft: Save stays
+disabled until an axis is drafted, and only the axes the operator actually
+selected enter the patch, so an untouched axis keeps whatever Core resolves.
+Save sends `SetUiPreferences` and Restore defaults sends `ResetUiPreferences`
+through the host commands `preferences_save`, `preferences_restore`, and
+`preferences_poll`.
+
+Confirmation is the ordered `UiPreferencesUpdated` fact and nothing else: a
+republished snapshot is not a persistence receipt, a save confirms only when
+the persisted `[ui]` table carries every value the patch asked for, and a
+restore confirms when that table is gone while the resolved fallback still
+renders. On confirmation the panel adopts Core's resolution — including axes
+Core coupled in that the click never asked for — and applies it to the live
+theme and document language. The skin/mode pair is not pre-validated in the
+client, so an unsupported pair such as Amber with Light stays selectable and
+comes back as Core's own rejection in a `role=alert` line beside Core's
+diagnostics; a Plan/Review/Explore denial arrives the same way, with the
+config bytes unchanged. While a command is in flight the panel is `aria-busy`
+and every control is disabled. When Core's handshake does not advertise
+`ui.preference_persistence` the gear still opens the panel, read-only, naming
+that capability — never a hidden entry and never an enabled-and-inert control.
+The overlay follows the agent-menu conventions: Escape closes and returns
+focus to the gear, an outside click closes, and arrow keys move option focus.
+
 The cockpit statusbar renders the host-computed statusbar projection as
 terminal-vocabulary segments: `MODE`, `PERM`, `CONTEXT` (the most recent
 workspace budget), `EVENTS` (the replay-cursor stream position, titled as a
@@ -387,10 +414,13 @@ safe fallback and retain diagnostics. The Tauri CSS adapter imports
 theme/density matrices, adapter import, and generated metadata. Production GUI
 source contains no copied token values.
 
-Preference controls may keep an unsaved in-memory draft. Save and restore must
-use `SetUiPreferences` or `ResetUiPreferences`: the GUI does not use browser
+Preference controls keep an unsaved in-memory draft. Save and restore use
+`SetUiPreferences` or `ResetUiPreferences`: the GUI does not use browser
 storage, files, config, or a private preference authority, and rendered state
 changes only after `UiPreferencesUpdated` supplies a new resolved projection.
+Availability comes from the handshake capability `ui.preference_persistence`
+(`preferences_available`); the client defines no finer-grained preference
+capability of its own.
 
 The default native binary launches without a bound workspace unless
 `VIDEN_GUI_WORKSPACE` is explicit. D1 Welcome opens a native folder chooser,
