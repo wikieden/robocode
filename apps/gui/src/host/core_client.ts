@@ -1,6 +1,10 @@
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
-import type { ResolvedPreferences } from "../preferences";
+import type {
+  PreferenceIntentResult,
+  PreferencePatch,
+  ResolvedPreferences,
+} from "../preferences";
 import type { D1CockpitProjection, D1Intent, D1IntentResult } from "../screens/d1_cockpit";
 import type { D10LaneMonitorProjection } from "../screens/d10_lane_monitor";
 import type { D12IntegrationGateProjection } from "../screens/d12_integration_gate";
@@ -20,6 +24,25 @@ import type { D4Intent, D4IntentResult } from "../screens/d4_lane_create";
  */
 export interface CoreClient {
   resolvedPreferences(): Promise<ResolvedPreferences | null>;
+
+  /**
+   * Whether Core's handshake published `ui.preference_persistence`.
+   *
+   * The Settings panel reads this before it renders so an absent capability
+   * shows as an honest read-only state instead of controls that cannot reach
+   * Core — and never as a client-side write.
+   */
+  preferencesAvailable(): Promise<boolean>;
+  /**
+   * Sends one preference change as Core's `SetUiPreferences`. Only the axes in
+   * `patch` are requested; Core owns persistence, the permission gate,
+   * precedence, and the skin/mode rule.
+   */
+  preferencesSave(commandId: string, patch: PreferencePatch): Promise<PreferenceIntentResult>;
+  /** Sends `ResetUiPreferences`, dropping the user `[ui]` table. */
+  preferencesRestore(commandId: string): Promise<PreferenceIntentResult>;
+  /** Drains ordered Core events while a preference command is still pending. */
+  preferencesPoll(): Promise<PreferenceIntentResult>;
 
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;

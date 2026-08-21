@@ -772,6 +772,9 @@ describe("D1 canonical streaming cockpit", () => {
       "Evidence",
       "Diagnostics",
       "Inbox",
+      // The cockpit prototype closes the rail with the Settings gear below
+      // the spacer.
+      "Settings",
     ]);
   });
 

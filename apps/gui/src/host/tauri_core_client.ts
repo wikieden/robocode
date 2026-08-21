@@ -18,6 +18,11 @@ export function createTauriCoreClient(): CoreClient {
   return {
     resolvedPreferences: () => invoke("resolved_preferences"),
 
+    preferencesAvailable: () => invoke("preferences_available"),
+    preferencesSave: (commandId, patch) => invoke("preferences_save", { commandId, patch }),
+    preferencesRestore: (commandId) => invoke("preferences_restore", { commandId }),
+    preferencesPoll: () => invoke("preferences_poll"),
+
     d1Cockpit: (selectedLaneId) => invoke("d1_cockpit", { selectedLaneId }),
     d1SendIntent: (commandId, intent) => invoke("d1_send_intent", { commandId, intent }),
     d1Poll: (selectedLaneId, waitForEvent) =>

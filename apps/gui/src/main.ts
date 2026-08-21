@@ -4,7 +4,13 @@ import { translate } from "./i18n/catalog";
 import type { ComposerControlIntent } from "./models/composer";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
 import type { D6Intent, D6RecoveryProjection } from "./models/workspace";
-import type { ResolvedPreferences } from "./preferences";
+import {
+  requestPreferenceRestore,
+  requestPreferenceSave,
+  type PreferenceIntentOutcome,
+  type PreferenceState,
+  type ResolvedPreferences,
+} from "./preferences";
 import {
   renderD1Cockpit,
   type D1Controller,
@@ -206,6 +212,29 @@ export async function hydrateShellFromCore(
         }
         return await core.selectModel(commandId, intent.providerId, intent.model, selectedLaneId);
       };
+      // The Core-owned preference loop. Only a confirmed Core result reaches
+      // the live document: the theme and the `lang` attribute follow the
+      // resolution Core published, never the operator's unsaved draft.
+      const applyConfirmedPreferences = (
+        outcome: PreferenceIntentOutcome,
+      ): PreferenceIntentOutcome => {
+        if (outcome.status === "confirmed") {
+          document.documentElement.lang = outcome.resolved.locale;
+          applyResolvedTheme(document.documentElement, resolveTheme(outcome.resolved));
+        }
+        return outcome;
+      };
+      const preferencePort = {
+        isAvailable: async () => await core.preferencesAvailable(),
+        save: async (state: PreferenceState) =>
+          applyConfirmedPreferences(
+            await requestPreferenceSave(state, core, `gui-pref-${crypto.randomUUID()}`),
+          ),
+        restore: async () =>
+          applyConfirmedPreferences(
+            await requestPreferenceRestore(core, `gui-pref-${crypto.randomUUID()}`),
+          ),
+      };
       let activeD1: D1Controller | null = null;
       const onCoreWake = core.onCoreWake;
 
@@ -248,6 +277,7 @@ export async function hydrateShellFromCore(
             resolveContent,
             sendD6Intent,
             sendComposerControl,
+            preferences: preferencePort,
             onNavigate: (route: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the rail only names the route.
@@ -394,7 +424,15 @@ export async function hydrateShellFromCore(
           }),
           undefined,
           undefined,
-          { onOpenProject: openProject, showWelcome: true, poll: false },
+          {
+            onOpenProject: openProject,
+            showWelcome: true,
+            poll: false,
+            // A host is bound even without a project, so the gear opens the
+            // panel and states what Core has not published rather than
+            // disappearing.
+            preferences: preferencePort,
+          },
         );
       }
   } catch {

@@ -149,6 +149,24 @@ fn preferences_save(
         )
 }
 
+/// Drains ordered Core events for a preference command still in flight.
+///
+/// A slow Core can leave the send call without its receipt; the panel keeps
+/// waiting through this rather than reporting a persistence result Core has
+/// not published.
+#[tauri::command]
+fn preferences_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<PreferenceIntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_preferences(Duration::from_millis(250))
+}
+
 /// Sends `ResetUiPreferences`, dropping the user `[ui]` table.
 ///
 /// A confirmed restore reports `persisted: false` while the resolved fallback
@@ -551,6 +569,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             preferences_available,
             preferences_save,
             preferences_restore,
+            preferences_poll,
             d11_intake,
             d11_send_intent,
             d11_poll,

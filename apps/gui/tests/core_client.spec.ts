@@ -24,6 +24,10 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
   };
   return {
     resolvedPreferences: async () => PREFERENCES,
+    preferencesAvailable: async () => true,
+    preferencesSave: unreachable("preferences_save"),
+    preferencesRestore: unreachable("preferences_restore"),
+    preferencesPoll: unreachable("preferences_poll"),
     d1Cockpit: async () => D1_PROJECTION,
     d1SendIntent: unreachable("d1_send_intent"),
     d1Poll: async () => ({

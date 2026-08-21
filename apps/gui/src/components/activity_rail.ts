@@ -21,6 +21,7 @@ export type CanonicalGuiIcon =
   | "evidence"
   | "diagnostics"
   | "inbox"
+  | "settings"
   | "panel";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -84,6 +85,13 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
     svg.append(svgNode("path", { d: "M3 12h4l3 8 4-16 3 8h4" }));
   } else if (name === "inbox") {
     svg.append(svgNode("path", { d: "M22 12h-6l-2 3h-4l-2-3H2M5 5h14l3 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z" }));
+  } else if (name === "settings") {
+    svg.append(
+      svgNode("circle", { cx: "12", cy: "12", r: "3" }),
+      svgNode("path", {
+        d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+      }),
+    );
   } else {
     svg.append(
       svgNode("rect", { x: "3", y: "4", width: "18", height: "16", rx: "2" }),
@@ -119,6 +127,13 @@ export interface ActivityRailOptions {
   /// rail owns no screen state, so the cockpit supplies the focus target;
   /// without it the slot is disabled rather than enabled and inert.
   onFocusWork?: () => void;
+  /// Opens the Settings overlay from the rail's bottom gear, matching the
+  /// cockpit prototype. Absent while no host is bound, which disables the
+  /// gear rather than opening a panel that cannot reach Core. A *bound* host
+  /// always supplies it, even without the preference capability, so the
+  /// unavailable state is something the operator can open and read.
+  onOpenSettings?: () => void;
+  settingsOpen?: boolean;
 }
 
 export function renderActivityRail(
@@ -174,5 +189,22 @@ export function renderActivityRail(
   spacer.className = "actspacer";
   spacer.ariaHidden = "true";
   activity.append(spacer);
+
+  // The cockpit prototype puts ⚙ below the rail spacer; the accepted design
+  // component is `GUI/gui-settings.jsx`.
+  const settings = document.createElement("button");
+  settings.type = "button";
+  settings.className = "actbtn d1-action";
+  settings.dataset.settingsToggle = "true";
+  settings.title = translate(locale, "d1.activity.settings", {});
+  settings.setAttribute("aria-label", translate(locale, "d1.activity.settings", {}));
+  settings.setAttribute("aria-haspopup", "dialog");
+  settings.setAttribute("aria-expanded", String(options.settingsOpen === true));
+  settings.append(createCanonicalGuiIcon("settings"));
+  settings.disabled = !options.onOpenSettings;
+  if (options.onOpenSettings) {
+    settings.addEventListener("click", () => options.onOpenSettings?.());
+  }
+  activity.append(settings);
   return activity;
 }

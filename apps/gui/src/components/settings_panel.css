@@ -1,0 +1,270 @@
+/*
+ * Settings overlay chrome.
+ *
+ * The visual vocabulary is the registered design component
+ * `docs/viden-design/Viden/GUI/gui-settings.jsx` (card / chd / setrow / seg /
+ * skinrow), expressed with shared tokens only — no private palette. The
+ * anchoring and portal behaviour follow the agent-menu popover conventions.
+ */
+
+.gset-panel {
+  position: fixed;
+  z-index: 21;
+  inset-block-end: clamp(
+    var(--sp-3),
+    calc(100dvh - var(--gset-anchor-block)),
+    calc(100dvh - var(--sp-6))
+  );
+  inset-inline-start: clamp(
+    var(--sp-3),
+    var(--gset-anchor-inline),
+    calc(100vw - min(30rem, calc(100vw - var(--sp-6))) - var(--sp-3))
+  );
+  width: min(30rem, calc(100vw - var(--sp-6)));
+  max-height: calc(100dvh - var(--sp-6));
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  color: var(--fg-primary);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-active);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+  font: var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.gset-panel[aria-busy="true"] {
+  cursor: progress;
+}
+
+.gset-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.gset-heading {
+  margin: 0;
+  color: var(--fg-primary);
+  font: 700 var(--fs-base)/var(--lh-tight) var(--font-sans);
+}
+
+.gset-source {
+  padding: 2px var(--sp-2);
+  color: var(--fg-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  font: var(--fs-micro)/var(--lh-ui) var(--font-mono);
+}
+
+.gset-close {
+  margin-inline-start: auto;
+  padding: 0 var(--sp-1);
+  color: var(--fg-muted);
+  background: transparent;
+  border: 0;
+  font: 500 var(--fs-lead)/1 var(--font-sans);
+}
+
+.gset-close:hover {
+  color: var(--fg-primary);
+}
+
+.gset-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.gset-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) - 2px);
+  color: var(--fg-muted);
+  font: 700 var(--fs-micro)/var(--lh-ui) var(--font-mono);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+}
+
+.gset-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-block-start: 1px solid var(--border-soft);
+  min-height: 2.75rem;
+}
+
+.gset-row-labels {
+  min-width: 0;
+  flex: 1;
+}
+
+.gset-row-title {
+  color: var(--fg-primary);
+  font: 600 var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.gset-row-detail {
+  margin-block-start: 2px;
+  color: var(--fg-muted);
+  font: var(--fs-micro)/var(--lh-tight) var(--font-sans);
+}
+
+/* Segmented option group, per the design's `.seg`. */
+.gset-seg {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-void);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+.gset-option {
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  font: 600 var(--fs-micro)/var(--lh-ui) var(--font-mono);
+  white-space: nowrap;
+}
+
+.gset-option:hover:not(:disabled) {
+  color: var(--fg-secondary);
+}
+
+.gset-option[aria-checked="true"] {
+  color: var(--accent-bright);
+  background: var(--bg-sel);
+}
+
+.gset-option:focus-visible {
+  border-color: var(--accent-bright);
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 1px;
+}
+
+.gset-option:disabled {
+  opacity: 0.55;
+}
+
+/* Skin chips, per the design's `.skinrow` / `.skdot`. */
+.gset-skins {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.gset-skins .gset-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--bg-void);
+  border-color: var(--border-soft);
+  min-height: 1.9rem;
+}
+
+.gset-skins .gset-option[aria-checked="true"] {
+  background: var(--bg-sel);
+  border-color: var(--accent-dim);
+}
+
+.gset-skin-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.gset-option:not([aria-checked="true"]) .gset-skin-dot {
+  filter: saturate(0.55) opacity(0.7);
+}
+
+.gset-skin-note {
+  color: var(--fg-faint);
+  font-size: var(--fs-micro);
+}
+
+.gset-diagnostics {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.gset-diagnostic {
+  color: var(--warning);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.gset-alert,
+.gset-status,
+.gset-unavailable {
+  margin: 0;
+  font: var(--fs-xs)/var(--lh-ui) var(--font-sans);
+}
+
+.gset-alert {
+  color: var(--error);
+}
+
+.gset-status {
+  color: var(--success);
+}
+
+.gset-unavailable {
+  color: var(--warning);
+}
+
+.gset-actions {
+  position: sticky;
+  inset-block-end: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  background: var(--bg-elev);
+}
+
+.gset-actions button {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+}
+
+.gset-save {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.gset-save:disabled,
+.gset-restore:disabled,
+.gset-cancel:disabled {
+  opacity: 0.55;
+}
+
+.gset-restore {
+  margin-inline-end: auto;
+  color: var(--fg-muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.gset-restore:hover:not(:disabled) {
+  color: var(--fg-primary);
+}

@@ -14,6 +14,10 @@ import {
   type ComposerControlKind,
   type ComposerControlsHandle,
 } from "../components/composer_controls";
+import {
+  renderSettingsPanel,
+  type SettingsPanelController,
+} from "../components/settings_panel";
 import { renderStatusbar } from "../components/statusbar";
 import { renderContextDock } from "../components/context_dock";
 import { renderLaneRail } from "../components/lane_rail";
@@ -32,6 +36,15 @@ import { appendTypedWorkCards } from "../components/tool_row";
 import { renderLiveWorkBar } from "../components/live_work";
 import { renderWelcomeCenter } from "../components/welcome_center";
 import type { ComposerControlIntent, D1Intent } from "../models/composer";
+import {
+  cancelPreferenceDraft,
+  createPreferenceState,
+  resolvedPreferencesFromWire,
+  updatePreferenceDraft,
+  type PreferenceDraft,
+  type PreferenceIntentOutcome,
+  type PreferenceState,
+} from "../preferences";
 import { BoundedTranscript, type D1TranscriptRow } from "../models/transcript";
 import type { D1CockpitProjection, D6RecoveryProjection } from "../models/workspace";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
@@ -109,6 +122,18 @@ export interface D1RenderOptions {
     intent: ComposerControlIntent,
     selectedLaneId: string | null,
   ) => Promise<D1IntentResult>;
+  /**
+   * The Core-owned preference loop behind the rail's gear. Absent while no
+   * host is bound, which disables the gear rather than opening a panel that
+   * cannot reach Core; a bound host supplies it even without the
+   * `ui.preference_persistence` capability, so the operator can open the panel
+   * and read why saving is unavailable.
+   */
+  preferences?: {
+    isAvailable: () => Promise<boolean>;
+    save: (state: PreferenceState) => Promise<PreferenceIntentOutcome>;
+    restore: () => Promise<PreferenceIntentOutcome>;
+  };
 }
 
 type FocusedConversation =
@@ -384,6 +409,19 @@ export function renderD1Cockpit(
   let controlInFlight = false;
   let controlReturnFocus: ComposerControlKind | null = null;
   let controlsHandle: ComposerControlsHandle | null = null;
+  // Settings overlay state. The draft is GUI-local and unsaved; `resolved`
+  // only ever changes on a confirmed Core result, so a rejected or pending
+  // command can never leave the panel showing a preference Core did not
+  // publish.
+  let settingsOpen = false;
+  let settingsController: SettingsPanelController | null = null;
+  let remountingSettings = false;
+  let preferenceState: PreferenceState = createPreferenceState(
+    resolvedPreferencesFromWire(initial.preferences),
+  );
+  let preferencesAvailable = false;
+  let preferenceSaving = false;
+  let preferenceOutcome: PreferenceIntentOutcome | null = null;
   let agentMenuOpen = false;
   let remountingAgentMenu = false;
   let agentMenuComposing = false;
@@ -555,6 +593,9 @@ export function renderD1Cockpit(
     dispose: () => {
       disposed = true;
       agentMenuOpen = false;
+      settingsOpen = false;
+      settingsController?.close();
+      settingsController = null;
       menuController?.close();
       controlsHandle?.dispose();
       controlsHandle = null;
@@ -850,6 +891,133 @@ export function renderD1Cockpit(
     return agentDiscoveryStarted && !agentDiscoveryComplete;
   }
 
+  /// Rebuilds the Settings overlay against the current model.
+  ///
+  /// The panel DOM is disposable, so the draft, the in-flight flag, and the
+  /// last Core outcome live here rather than in the DOM: a Core refresh that
+  /// redraws the cockpit must not silently discard an unsaved draft.
+  function mountSettingsPanel(): SettingsPanelController | null {
+    if (!settingsOpen || disposed || settingsController) return settingsController;
+    const anchor = root.querySelector<HTMLButtonElement>("[data-settings-toggle]");
+    if (!anchor) return null;
+    settingsController = renderSettingsPanel(
+      anchor,
+      {
+        locale,
+        state: preferenceState,
+        available: preferencesAvailable,
+        saving: preferenceSaving,
+        outcome: preferenceOutcome,
+      },
+      {
+        onDraft: (update: PreferenceDraft) => {
+          preferenceState = updatePreferenceDraft(preferenceState, update);
+          // A new edit supersedes the previous result; keeping a stale
+          // "saved" line next to an unsaved draft would misreport Core.
+          preferenceOutcome = null;
+          remountSettingsPanel();
+        },
+        onCancel: () => {
+          preferenceState = cancelPreferenceDraft(preferenceState);
+          preferenceOutcome = null;
+          remountSettingsPanel();
+        },
+        onSave: () => void runPreferenceCommand(() => options.preferences?.save(preferenceState)),
+        onRestore: () => void runPreferenceCommand(() => options.preferences?.restore()),
+        onClose: () => {
+          settingsController = null;
+          // A remount closes the old controller on purpose; only an operator
+          // dismissal (Escape, ×, outside click) actually closes the overlay.
+          if (!remountingSettings) settingsOpen = false;
+        },
+      },
+    );
+    return settingsController;
+  }
+
+  /// Replaces the overlay in place, preserving the operator's keyboard place.
+  ///
+  /// The panel DOM is rebuilt on every model change, so which control has
+  /// focus is model state: closing the old controller hands focus back to the
+  /// gear, and the equivalent control in the new panel takes it back.
+  function remountSettingsPanel(): void {
+    if (!settingsOpen || disposed) return;
+    const active = document.activeElement as HTMLElement | null;
+    const focusedOption = active?.dataset.settingsOption ?? null;
+    const focusedAction = ["settingsSave", "settingsCancel", "settingsRestore"].find(
+      (name) => active?.dataset[name] !== undefined,
+    );
+    remountingSettings = true;
+    settingsController?.close();
+    remountingSettings = false;
+    settingsController = null;
+    const next = mountSettingsPanel();
+    const restored = focusedOption
+      ? next?.root.querySelector<HTMLElement>(`[data-settings-option="${focusedOption}"]`)
+      : focusedAction
+        ? next?.root.querySelector<HTMLElement>(
+            `[data-${focusedAction.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}]`,
+          )
+        : null;
+    if (restored instanceof HTMLButtonElement && !restored.disabled) {
+      restored.tabIndex = 0;
+      restored.focus();
+    }
+  }
+
+  /// Runs one preference command and renders only what Core confirmed.
+  async function runPreferenceCommand(
+    send: () => Promise<PreferenceIntentOutcome> | undefined,
+  ): Promise<void> {
+    if (preferenceSaving) return;
+    preferenceSaving = true;
+    preferenceOutcome = null;
+    remountSettingsPanel();
+    try {
+      const outcome = await send();
+      if (disposed || !outcome) return;
+      preferenceOutcome = outcome;
+      if (outcome.status === "confirmed") {
+        // Core's resolution is the only thing that becomes authority; the
+        // draft is cleared because Core has answered it.
+        preferenceState = {
+          resolved: outcome.resolved,
+          draft: null,
+          dirty: false,
+        };
+        locale = outcome.resolved.locale;
+      }
+      if (outcome.status === "unavailable") preferencesAvailable = false;
+    } catch (error: unknown) {
+      if (disposed) return;
+      preferenceOutcome = { status: "rejected", reason: String(error), diagnostics: [] };
+    } finally {
+      preferenceSaving = false;
+      if (!disposed) {
+        remountSettingsPanel();
+        render(false);
+      }
+    }
+  }
+
+  /// Opens the overlay after reading the capability from the handshake, so an
+  /// absent capability renders as a read-only panel instead of controls that
+  /// cannot reach Core.
+  async function openSettingsPanel(): Promise<void> {
+    if (settingsOpen || disposed) return;
+    settingsOpen = true;
+    preferenceOutcome = null;
+    preferenceState = createPreferenceState(resolvedPreferencesFromWire(projection.preferences));
+    try {
+      preferencesAvailable = (await options.preferences?.isAvailable()) === true;
+    } catch {
+      preferencesAvailable = false;
+    }
+    if (disposed || !settingsOpen) return;
+    render(false);
+    mountSettingsPanel();
+  }
+
   function mountAgentMenu(): void {
     if (!agentMenuOpen || disposed) return;
     const anchor = root.querySelector<HTMLButtonElement>("[data-create-lane]");
@@ -1131,6 +1299,16 @@ export function renderD1Cockpit(
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
         render(false);
       },
+      settingsOpen,
+      onOpenSettings: !options.preferences
+        ? undefined
+        : () => {
+            if (settingsOpen) {
+              settingsController?.close();
+              return;
+            }
+            void openSettingsPanel();
+          },
     });
     const lanes = renderLaneRail({
       projection,
@@ -1493,6 +1671,9 @@ export function renderD1Cockpit(
     }
 
     if (agentMenuOpen) mountAgentMenu();
+    // The rail is rebuilt every render, so a still-open overlay must be
+    // re-anchored to the gear that actually exists in this frame.
+    if (settingsOpen && !settingsController) mountSettingsPanel();
 
     // Control popovers and pills are rebuilt each render, so keyboard focus
     // is model state: an open popover regains its focused (else selected,
