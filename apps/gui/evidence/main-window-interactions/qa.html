@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-skin="aurora" data-mode="dark" data-density="regular">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viden main-window interactions — capture harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      #app {
+        display: block;
+        height: 100vh;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <!--
+      One state per `?state=`; `&mode=` and `&locale=` are accepted on every
+      state. All rendering lives in `qa.ts` so `tsc --noEmit` typechecks the
+      harness against the production render signatures.
+    -->
+    <script type="module" src="./qa.ts"></script>
+  </body>
+</html>
