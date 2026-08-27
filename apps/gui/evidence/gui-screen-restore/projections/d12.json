@@ -61,12 +61,12 @@
       {
         "kind": "accept",
         "available": false,
-        "code": null
+        "code": "missing_evidence"
       },
       {
         "kind": "reject",
-        "available": true,
-        "code": null
+        "available": false,
+        "code": "no_actor"
       }
     ]
   },
