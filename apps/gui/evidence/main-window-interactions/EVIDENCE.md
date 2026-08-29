@@ -44,6 +44,7 @@ typechecks the harness against the production render signatures.
 | `d1*`, `settings*`, `d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | the shared D1 fixture the vitest suites mount |
 | `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | **generated** by `tests/capture_projections.rs` |
 | `d11` | mirrors the fixtures in `tests/d11_intake.spec.ts` | hand-written; D11 has no generated capture projection yet |
+| `lane-rail`, `project-picker`, `project-switch-confirm` | the shared D1 fixture plus a hand-written `RecentWorkResult` | hand-written; `frontend-contract-v1` has no canonical recent-work capture projection yet, so the shapes mirror `tests/recent_work.rs` and `tests/project_picker.spec.ts` |
 
 The D12 projection is never hand-written. `tests/capture_projections.rs` runs
 the real Rust projection over the canonical `frontend-contract-v1`
@@ -72,6 +73,14 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d12-actions` | required evidence recorded, validator satisfied, both actions available with a `null` code | the `DECIDABLE` fixture in `tests/d12_integration_gate.spec.ts` |
 | `d11` | a probed `/workspace/demo` rust project with a credential-locked provider | the probed-project fixture in `tests/d11_intake.spec.ts` |
 | `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
+| `lane-rail`, `project-picker`, `project-switch-confirm` | a two-project `RecentWorkResult` whose timestamps are offsets from the frozen clock, so the rendered ages are stable. The open root is included on purpose — the picker must drop it from Recent rather than offer a switch to the project already open | the `RecentWorkLoaded` payloads asserted in `tests/recent_work.rs` |
+
+The shared D1 fixture's `topbarSource.project` now carries `viden` rather than
+`null`. That is the name Core publishes, and it is what the titlebar selector,
+the rail's `.wsroot` group header, and the picker's "In workspace" row all
+render; the path-fallback path keeps its own coverage in
+`tests/cockpit_topbar.spec.ts` and `tests/lane_rail.spec.ts`, which override it
+to `null` explicitly.
 
 ## How to run it
 
@@ -95,6 +104,9 @@ All URLs share the prefix
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | the work-mode popover open over the composer, with the current mode marked selected |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | the model popover open, showing both the provider group and the adapter group Core published |
 | `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the permanently disabled Files row naming `GUI-CORE-022` |
+| `lane-rail` | `…/qa.html?state=lane-rail` | the rail pinned open (it auto-hides), showing the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
+| `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
+| `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
 | `settings` | `…/qa.html?state=settings` | the Settings overlay open over the cockpit with an unsaved draft; Cancel and Save enabled |
 | `settings-unavailable` | `…/qa.html?state=settings-unavailable` | the same overlay read-only, naming the absent `ui.preference_persistence` capability; Save disabled |
 | `d6-actions` | `…/qa.html?state=d6-actions` | the recovery surface with Restart agent and Close Lane enabled, and the inspect facts expanded |
@@ -144,6 +156,18 @@ prefix legend, all four sections, kbd hints, and the disabled Files row).
 | File | State | Viewport | Mode | Locale |
 | --- | --- | --- | --- | --- |
 | [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
+
+## Recapture pending
+
+The three states added with the project picker and the grouped rail
+(`lane-rail`, `project-picker`, `project-switch-confirm`) have **no committed
+PNG yet**, and the eight topbar-bearing captures above are now stale: the
+titlebar selector gained the design's `▾` and button chrome, and the rail
+gained its `.wsroot` group header and `＋ Add project…` footer. All three new
+states were DOM-verified at 1440x900 against this harness on the vite dev
+server (capture-ready attribute present, all three picker columns and both
+disabled rows resolved, the rail rendering exactly one group, no console
+errors). An operator recaptures them after review.
 
 ## Known limitation
 

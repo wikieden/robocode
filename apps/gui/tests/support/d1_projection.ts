@@ -11,9 +11,11 @@ export const D1_PROJECTION: D1CockpitProjection = {
   },
   selectedLaneId: "lane-core",
   // The titlebar git block, projected from the same workspace source the
-  // context dock renders: one active Lane, one worktree.
+  // context dock renders: one active Lane, one worktree. `project` carries the
+  // name Core published, which is also what the rail's `.wsroot` group header
+  // and the picker's "In workspace" row render.
   topbarSource: {
-    project: null,
+    project: "viden",
     branch: "codex/lane-core",
     ahead: 1,
     behind: 0,

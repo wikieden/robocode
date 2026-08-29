@@ -157,8 +157,11 @@ describe("project picker", () => {
     expect(confirm.textContent).toContain(MULTI_WORKSPACE_CODE);
     const impact = confirm.querySelector<HTMLElement>("[data-picker-confirm-impact]")!;
     expect(impact.dataset.pickerConfirmImpact).toBe("running");
-    expect(impact.textContent).toContain("2 running Lanes");
-    expect(impact.textContent).toContain("1 Agent sessions");
+    // Counted from the current projection, never guessed: two Lanes are in
+    // flight and one Agent session is live.
+    expect(impact.textContent).toContain("Lanes: 2");
+    expect(impact.textContent).toContain("Agent sessions: 1");
+    expect(impact.textContent).toContain("viden");
     // Nothing has been opened yet.
     expect(onSwitchWorkspace).not.toHaveBeenCalled();
 

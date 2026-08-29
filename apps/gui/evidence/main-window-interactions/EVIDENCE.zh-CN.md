@@ -37,6 +37,7 @@ D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填�
 | `d1*`、`settings*`、`d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | vitest 各套件共用的 D1 fixture |
 | `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | 由 `tests/capture_projections.rs`**生成** |
 | `d11` | 镜像 `tests/d11_intake.spec.ts` 里的 fixture | 手写；D11 目前还没有生成的捕获投影 |
+| `lane-rail`、`project-picker`、`project-switch-confirm` | 共享 D1 fixture 加一份手写的 `RecentWorkResult` | 手写；`frontend-contract-v1` 目前还没有规范的最近工作捕获投影，因此形状镜像 `tests/recent_work.rs` 与 `tests/project_picker.spec.ts` |
 
 D12 投影从不手写。`tests/capture_projections.rs` 用真实 Rust 投影跑规范
 `frontend-contract-v1` 的 `merge-gate.json` fixture 并序列化结果，因此截出来
@@ -64,6 +65,12 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `d12-actions` | 已记录必需证据、验证方满足，两个动作都可用且 code 为 `null` | `tests/d12_integration_gate.spec.ts` 中的 `DECIDABLE` fixture |
 | `d11` | 已探测的 `/workspace/demo` rust 项目，提供方处于凭据锁定状态 | `tests/d11_intake.spec.ts` 中的已探测项目 fixture |
 | `palette` | 交给 `loadPaletteCrossLane` 的一条跨 Lane 合并闸与一条询问 | `tests/d12_integration_gate.spec.ts` 的闸 fixture，以及 D1 fixture 本就带的那条 `liveWork.approvals` |
+| `lane-rail`、`project-picker`、`project-switch-confirm` | 一份两项目的 `RecentWorkResult`，时间戳是相对冻结时钟的偏移，因此渲染出的相对时间稳定。当前打开的根目录被刻意包含在内——选择器必须把它从「最近」中剔除，而不是提供切换到已经打开的项目 | `tests/recent_work.rs` 断言的 `RecentWorkLoaded` 载荷 |
+
+共享 D1 fixture 的 `topbarSource.project` 现在携带 `viden` 而不是 `null`。这是 Core
+发布的名称，也正是标题栏选择器、侧栏 `.wsroot` 分组头与选择器「工作区内」一行共同
+渲染的内容；回退到路径的分支仍由 `tests/cockpit_topbar.spec.ts` 与
+`tests/lane_rail.spec.ts` 覆盖，它们显式把该字段覆写为 `null`。
 
 ## 如何运行
 
@@ -93,6 +100,9 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | 同一闸的批准不可用并点名 `missing_evidence`，理由输入框禁用 |
 | `d11` | `…/qa.html?state=d11` | 项目接入屏，显示已探测项目与提供方告警 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及点名 `GUI-CORE-022` 的永久禁用「文件」行 |
+| `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
+| `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
+| `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | 同一选择器在点击最近项目后进入内联确认：目标根目录、点名 `GUI-CORE-023` 的替换说明、正在运行的工作计数，以及「取消」与「切换工作区」两个按钮 |
 
 `mode=dark|light` 与 `locale=en|zh-CN` 每个状态都接受，并统一走共享的
 `resolveTheme`，harness 不携带第二套配色。`mode=light` 同时选用 `ice` 皮肤，
@@ -131,6 +141,15 @@ DOM 级验证)。
 | 文件 | 状态 | 视口 | 模式 | 语言 |
 | --- | --- | --- | --- | --- |
 | [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
+
+## 待重新采集
+
+随项目选择器与分组侧栏新增的三个状态（`lane-rail`、`project-picker`、
+`project-switch-confirm`）**尚无已提交的 PNG**，且上文八张带标题栏的截图现已过时：
+标题栏选择器获得了设计稿的 `▾` 与按钮外观，侧栏获得了 `.wsroot` 分组头与
+`＋ 添加项目…` 页脚。三个新状态已在 vite 开发服务器上以 1440x900 对本 harness 做过
+DOM 级验证（capture-ready 属性存在，选择器三列与两行禁用行均已解析，侧栏只渲染一个
+分组，无控制台错误）。评审后由操作者重新采集。
 
 ## 已知限制
 

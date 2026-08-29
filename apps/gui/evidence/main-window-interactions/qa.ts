@@ -34,6 +34,7 @@ import "../../src/ui/window_chrome.css";
 
 import type { Locale } from "../../src/i18n/catalog";
 import type { ComposerControlIntent } from "../../src/models/composer";
+import type { RecentWorkResult } from "../../src/models/recent_work";
 import type { PreferenceIntentOutcome } from "../../src/preferences";
 import {
   renderD1Cockpit,
@@ -66,6 +67,8 @@ import { D1_PROJECTION } from "../../tests/support/d1_projection";
 /// unfrozen clock would make two captures of the same state differ.
 const FROZEN_EPOCH_MS = Date.parse("2026-01-01T00:00:00.000Z");
 Date.now = () => FROZEN_EPOCH_MS;
+/// The same instant in the epoch seconds Core's recent-work DTOs carry.
+const FROZEN_EPOCH = Math.floor(FROZEN_EPOCH_MS / 1000);
 Math.random = () => 0;
 
 /// A host callback that never answers. A screenshot state must not move after
@@ -219,6 +222,8 @@ interface CockpitOptions {
   d6Rejects?: boolean;
   /** Present so the command palette's `Jump to` section resolves. */
   crossLane?: boolean;
+  /** Present so the titlebar selector and the rail footer open the picker. */
+  projectPicker?: boolean;
 }
 
 function mountCockpit(options: CockpitOptions): void {
@@ -243,6 +248,11 @@ function mountCockpit(options: CockpitOptions): void {
       loadPaletteCrossLane: options.crossLane
         ? async () => PALETTE_CROSS_LANE
         : undefined,
+      loadRecentWork: options.projectPicker ? async () => RECENT_WORK : undefined,
+      // The chooser never resolves, so `Add directory…` cannot advance the
+      // capture past the columns it is framing.
+      onPickProjectFolder: options.projectPicker ? () => never<string | null>() : undefined,
+      onOpenWorkspace: options.projectPicker ? () => never<void>() : undefined,
       preferences:
         options.preferencesAvailable === undefined
           ? undefined
@@ -268,6 +278,38 @@ const PALETTE_CROSS_LANE = {
   asks: [
     { id: "approval-shell", title: "Allow test", kind: "approval", laneId: "lane-core" },
   ],
+};
+
+/**
+ * The recent-work answer the picker and Welcome read.
+ *
+ * Delta on no fixture: `frontend-contract-v1` has no canonical recent-work
+ * capture projection yet, so these mirror the shapes asserted in
+ * `tests/recent_work.rs` and `tests/project_picker.spec.ts`. Timestamps are
+ * offsets from the frozen clock, so the rendered ages are stable. The open
+ * root appears here on purpose — the picker must drop it from Recent rather
+ * than offer a switch to the project already open.
+ */
+const RECENT_WORK: RecentWorkResult = {
+  outcome: { state: "confirmed", reason: null },
+  projects: [
+    {
+      canonicalRoot: "/workspace/spatial-lm",
+      displayName: "spatial-lm",
+      lastUpdatedAt: FROZEN_EPOCH - 2 * 24 * 60 * 60,
+      latestSessionId: "session-spatial",
+    },
+    {
+      canonicalRoot: "/workspace/viden",
+      displayName: "viden",
+      lastUpdatedAt: FROZEN_EPOCH - 60 * 60,
+      latestSessionId: "session-viden",
+    },
+  ],
+  sessions: [],
+  diagnostics: [],
+  pendingCommandId: null,
+  capabilityAvailable: true,
 };
 
 /* ------------------------------------------------------------------ */
@@ -397,6 +439,54 @@ async function renderState(): Promise<void> {
       mountCockpit({ projection: d1Base(), preferencesAvailable: true });
       click("[data-control-toggle='model']");
       await waitFor("[data-control-popover='model']");
+      return;
+    }
+
+    case "lane-rail": {
+      // The rail auto-hides, so the capture pins it open. It must show the
+      // one `.wsroot` project group Core supervises, its Lanes nested beneath,
+      // and the `＋ Add project…` footer — with no fabricated second group and
+      // no "Global" section.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        projectPicker: true,
+      });
+      click("[data-lanes-toggle]");
+      await waitFor("#d1-lane-rail[data-open='true']");
+      await waitFor("[data-add-project]");
+      return;
+    }
+
+    case "project-picker": {
+      // Opened from the titlebar. The capture must show all three columns at
+      // once: the one real Add action beside the two disabled rows naming
+      // GUI-CORE-023, the single "In workspace" row for the project Core
+      // actually supervises, and one Recent row.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        projectPicker: true,
+      });
+      click("[data-project-selector]");
+      await waitFor("[data-project-picker]");
+      await waitFor("[data-picker-recent='/workspace/spatial-lm']");
+      return;
+    }
+
+    case "project-switch-confirm": {
+      // The guarded step: opening a project replaces the workspace, so the
+      // confirmation names the running Lanes and Agent sessions it tears down
+      // before anything is opened.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        projectPicker: true,
+      });
+      click("[data-project-selector]");
+      await waitFor("[data-picker-recent='/workspace/spatial-lm']");
+      click("[data-picker-recent='/workspace/spatial-lm']");
+      await waitFor("[data-picker-confirm]");
       return;
     }
 

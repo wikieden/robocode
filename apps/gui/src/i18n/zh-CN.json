@@ -123,7 +123,7 @@
   "d1.picker.recent.empty": "没有其他最近项目",
   "d1.picker.confirm.title": "切换工作区？",
   "d1.picker.confirm.body": "Viden 一次只托管一个工作区，打开这个项目会替换当前工作区（{code}）。",
-  "d1.picker.confirm.impact": "{project} 中正在运行的 {lanes} 条 Lane 与 {sessions} 个 Agent 会话会被停止，常驻 Agent 一并关闭。",
+  "d1.picker.confirm.impact": "{project} 中正在运行的工作会停止——Lane：{lanes}，Agent 会话：{sessions}；常驻 Agent 一并关闭。",
   "d1.picker.confirm.impactIdle": "{project} 中没有正在运行的工作，但它的会话会被关闭并为新工作区重建。",
   "d1.picker.confirm.accept": "切换工作区",
   "d1.picker.confirm.cancel": "取消",

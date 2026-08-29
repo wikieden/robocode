@@ -123,7 +123,7 @@
   "d1.picker.recent.empty": "No other recent projects",
   "d1.picker.confirm.title": "Switch workspace?",
   "d1.picker.confirm.body": "Viden supervises one workspace at a time, so opening this project replaces the current one ({code}).",
-  "d1.picker.confirm.impact": "{lanes} running Lanes and {sessions} Agent sessions in {project} are stopped and their resident Agents shut down.",
+  "d1.picker.confirm.impact": "Running work in {project} stops — Lanes: {lanes}, Agent sessions: {sessions}. Their resident Agents shut down.",
   "d1.picker.confirm.impactIdle": "Nothing is running in {project}, but its session is closed and rebuilt for the new workspace.",
   "d1.picker.confirm.accept": "Switch workspace",
   "d1.picker.confirm.cancel": "Cancel",
