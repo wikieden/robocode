@@ -128,3 +128,7 @@ path = "../tests/agent_streaming.rs"
 [[test]]
 name = "preferences"
 path = "../tests/preferences.rs"
+
+[[test]]
+name = "recent_work"
+path = "../tests/recent_work.rs"

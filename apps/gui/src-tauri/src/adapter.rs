@@ -14,6 +14,7 @@ use viden_core::{
     UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
     WorkspaceOpenRequest,
 };
+use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
 use crate::d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
@@ -23,6 +24,9 @@ use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
 use crate::projection::{
     PreferenceDiagnosticProjection, ResolvedPreferencesProjection, exact_terminal_agent_session,
     preference_diagnostic_projection,
+};
+use crate::recent_work::{
+    RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
 };
 use crate::ui_preferences::{
     PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
@@ -62,6 +66,14 @@ pub struct GuiCoreAdapter {
     /// event fills this, so the client cannot render a persistence claim the
     /// ordered Core stream never made.
     preference_receipt: Option<PreferenceReceipt>,
+    /// One recent-work read at a time. `RecentWorkLoaded` carries no command
+    /// id, so a second concurrent read could not be told apart from the first
+    /// one's answer; the slot makes that impossible instead of guessing.
+    pending_recent_work: Option<PendingRecentWork>,
+    recent_work_outcome: D1OutcomeProjection,
+    /// The last confirmed `RecentWorkLoaded` fact. Only a confirming event
+    /// fills this, so the client cannot render an inventory Core never sent.
+    recent_work_receipt: Option<RecentWorkReceipt>,
     connection: D6ConnectionState,
     connection_detail: Option<String>,
     /// D2 queue selection. Presentation state only: it never gates a Core
@@ -615,6 +627,81 @@ impl PendingPreference {
     }
 }
 
+/// One in-flight `QueryRecentWork` awaiting its ordered Core answer.
+struct PendingRecentWork {
+    command_id: String,
+    accepted: bool,
+}
+
+/// What Core published for the last completed recent-work read.
+struct RecentWorkReceipt {
+    projects: Vec<RecentProjectProjection>,
+    sessions: Vec<RecentSessionProjection>,
+    diagnostics: Vec<String>,
+}
+
+enum RecentWorkObservation {
+    Continue,
+    Confirmed,
+    Rejected(String),
+}
+
+impl PendingRecentWork {
+    /// Reconciles one ordered event against this read.
+    ///
+    /// Core answers a `QueryRecentWork` with exactly `CommandAccepted` then
+    /// `RecentWorkLoaded`. The loaded fact carries no command id, so it only
+    /// counts once *this* command was accepted — an inventory answer that
+    /// arrives before the acceptance belongs to someone else's read, and a
+    /// republished snapshot is never an answer at all.
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> RecentWorkObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return RecentWorkObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                RecentWorkObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id
+                && matches!(command, RuntimeCommand::QueryRecentWork { .. }) =>
+            {
+                self.accepted = true;
+                RecentWorkObservation::Continue
+            }
+            RuntimeEventKind::RecentWorkLoaded { .. } if self.accepted => {
+                RecentWorkObservation::Confirmed
+            }
+            _ => RecentWorkObservation::Continue,
+        }
+    }
+}
+
+fn recent_project_projection(summary: &RecentProjectSummary) -> RecentProjectProjection {
+    RecentProjectProjection {
+        canonical_root: summary.canonical_root.clone(),
+        display_name: summary.display_name.clone(),
+        last_updated_at: summary.last_updated_at,
+        latest_session_id: summary.latest_session_id.clone(),
+    }
+}
+
+fn recent_session_projection(summary: &RecentSessionSummary) -> RecentSessionProjection {
+    RecentSessionProjection {
+        canonical_root: summary.canonical_root.clone(),
+        session_id: summary.session_id.clone(),
+        created_at: summary.created_at,
+        last_updated_at: summary.last_updated_at,
+        message_count: summary.message_count,
+        tool_call_count: summary.tool_call_count,
+        command_count: summary.command_count,
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum D11Intent {
@@ -809,6 +896,9 @@ impl GuiCoreAdapter {
             pending_preference: None,
             preference_outcome: D1OutcomeProjection::idle(),
             preference_receipt: None,
+            pending_recent_work: None,
+            recent_work_outcome: D1OutcomeProjection::idle(),
+            recent_work_receipt: None,
             connection: D6ConnectionState::Disconnected,
             connection_detail: None,
             d2_selected: None,
@@ -2166,6 +2256,152 @@ impl GuiCoreAdapter {
         }
     }
 
+    /// Whether Core's handshake published the recent-work inventory.
+    ///
+    /// Welcome and the project picker read this before they render, so an
+    /// absent capability shows as an honest unavailable section instead of an
+    /// empty list that looks like "you have no history".
+    pub fn supports_recent_work(&self) -> bool {
+        self.supports(RECENT_WORK_CAPABILITY)
+    }
+
+    /// Sends one `QueryRecentWork` and waits for the ordered Core answer.
+    ///
+    /// The read is available in Plan mode and never requests approval. `limit`
+    /// is passed through untouched: Core owns the `1..=100` clamp, and a client
+    /// that pre-clamped would hide a future contract change.
+    pub fn query_recent_work_and_wait(
+        &mut self,
+        command_id: &str,
+        limit: u16,
+        event_timeout: Duration,
+    ) -> Result<RecentWorkResult, String> {
+        if !self.supports_recent_work() {
+            return Err(format!(
+                "missing Core capability `{RECENT_WORK_CAPABILITY}`"
+            ));
+        }
+        if let Some(pending) = &self.pending_recent_work {
+            return Err(format!(
+                "recent work command `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The inventory spans projects, so it is user-scoped rather
+                // than bound to the open workspace's Lane owner.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::QueryRecentWork {
+                    query: RecentWorkQuery { limit },
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_recent_work = Some(PendingRecentWork {
+            command_id: command_id.to_string(),
+            accepted: false,
+        });
+        self.recent_work_outcome = D1OutcomeProjection::pending();
+        self.recent_work_receipt = None;
+        self.poll_recent_work(event_timeout)
+    }
+
+    /// Drains ordered Core events for a recent-work read still in flight.
+    pub fn poll_recent_work(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<RecentWorkResult, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    // The transport state is already classified by receive_event.
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_recent_work(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.recent_work_result())
+    }
+
+    /// Reconciles one ordered event against the in-flight recent-work read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain can never swallow the only
+    /// answer the picker is waiting for.
+    fn observe_pending_recent_work(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_recent_work
+            .as_mut()
+            .map_or(RecentWorkObservation::Continue, |pending| {
+                pending.observe(event)
+            });
+        match observation {
+            RecentWorkObservation::Continue => false,
+            RecentWorkObservation::Confirmed => {
+                self.pending_recent_work = None;
+                self.recent_work_outcome = D1OutcomeProjection::confirmed();
+                // The confirming fact is the authority for the rows and for
+                // what Core had to skip; nothing is re-ordered or recomputed.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::RecentWorkLoaded {
+                        projects,
+                        sessions,
+                        diagnostics,
+                    } = &known.kind
+                {
+                    self.recent_work_receipt = Some(RecentWorkReceipt {
+                        projects: projects.iter().map(recent_project_projection).collect(),
+                        sessions: sessions.iter().map(recent_session_projection).collect(),
+                        diagnostics: diagnostics.clone(),
+                    });
+                }
+                true
+            }
+            RecentWorkObservation::Rejected(reason) => {
+                self.pending_recent_work = None;
+                self.recent_work_outcome = D1OutcomeProjection::rejected(reason);
+                self.recent_work_receipt = None;
+                true
+            }
+        }
+    }
+
+    fn recent_work_result(&self) -> RecentWorkResult {
+        let receipt = self.recent_work_receipt.as_ref();
+        RecentWorkResult {
+            outcome: self.recent_work_outcome.clone(),
+            projects: receipt
+                .map(|receipt| receipt.projects.clone())
+                .unwrap_or_default(),
+            sessions: receipt
+                .map(|receipt| receipt.sessions.clone())
+                .unwrap_or_default(),
+            diagnostics: receipt
+                .map(|receipt| receipt.diagnostics.clone())
+                .unwrap_or_default(),
+            pending_command_id: self
+                .pending_recent_work
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_recent_work(),
+        }
+    }
+
     fn observe_pending_permission(&mut self, event: &RuntimeEventEnvelope) -> bool {
         let observation = self
             .pending_permission
@@ -2433,6 +2669,7 @@ impl GuiCoreAdapter {
             received = true;
             self.observe_pending_permission(&event);
             self.observe_pending_preference(&event);
+            self.observe_pending_recent_work(&event);
             self.observe_pending(&event);
             self.observe_pending_d12(&event);
             self.observe_d4(&event);

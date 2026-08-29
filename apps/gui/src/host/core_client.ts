@@ -1,4 +1,5 @@
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
+import type { RecentWorkResult } from "../models/recent_work";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type {
   PreferenceIntentResult,
@@ -48,6 +49,16 @@ export interface CoreClient {
   preferencesRestore(commandId: string): Promise<PreferenceIntentResult>;
   /** Drains ordered Core events while a preference command is still pending. */
   preferencesPoll(): Promise<PreferenceIntentResult>;
+
+  /**
+   * Sends Core's read-only `QueryRecentWork` and resolves with whatever the
+   * ordered `RecentWorkLoaded` fact published. Core owns the scan, the
+   * `1..=100` clamp, the ordering, and the whitelist DTOs; the frontend never
+   * inspects the session home, a transcript, or the SQLite index.
+   */
+  queryRecentWork(commandId: string, limit: number): Promise<RecentWorkResult>;
+  /** Drains ordered Core events while a recent-work read is still pending. */
+  recentWorkPoll(): Promise<RecentWorkResult>;
 
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;

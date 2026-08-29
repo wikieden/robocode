@@ -23,6 +23,9 @@ export function createTauriCoreClient(): CoreClient {
     preferencesRestore: (commandId) => invoke("preferences_restore", { commandId }),
     preferencesPoll: () => invoke("preferences_poll"),
 
+    queryRecentWork: (commandId, limit) => invoke("query_recent_work", { commandId, limit }),
+    recentWorkPoll: () => invoke("recent_work_poll"),
+
     d1Cockpit: (selectedLaneId) => invoke("d1_cockpit", { selectedLaneId }),
     d1SendIntent: (commandId, intent) => invoke("d1_send_intent", { commandId, intent }),
     d1Poll: (selectedLaneId, waitForEvent) =>
