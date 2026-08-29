@@ -190,3 +190,51 @@ revocation path that makes it safe to grant, models an Edit decision that
 carries the revised command back through the same approval gate, and the
 canonical fixture covers both. The GUI will then restore the design's
 `Shift+A` binding.
+
+## GUI-CORE-020: Operator-initiated git actions
+
+The cockpit titlebar can now show what the workspace's source control looks
+like — branch, ahead/behind, dirty — because Core samples `WorkspaceSourceView`
+from the workspace root and publishes it on `RuntimeViewState.workspace_source`.
+Nothing lets the operator act on it. `RuntimeCommand` models no commit, push,
+pull, sync, fetch, stage, or branch switch, and the model-facing Git tools in
+`crates/tools` are `pub(crate)`: they are reachable by an agent turn under the
+permission gate and by nothing else, which is the correct boundary — a frontend
+must not call a tool directly.
+
+So the design's sync chip ships as a `role=status` element rather than a
+button, and the design's "Commit or push" affordance is not built at all. The
+GUI must not shell out, drive a tool call it invented, or present a git action
+that resolves to nothing.
+
+The natural seam is the one the runtime already owns: a typed effect on
+`LaneEffectExecutor` (`crates/runtime/src/lane_runtime.rs`), so an operator git
+action passes the same permission gate, produces the same evidence, and lands
+in the same append-only session facts as an agent-initiated one.
+
+Close this request when Core publishes typed operator git commands with
+per-command permission gating, ordered events carrying each outcome (including
+refusal and conflict), and a canonical `frontend-contract-v1` fixture covering
+a refused and an accepted action. The GUI will then promote the sync chip to a
+real control and add the design's commit/push affordance.
+
+## GUI-CORE-021: Pull request and forge status
+
+The design's titlebar and Lane surfaces carry a "Pull request status" row:
+whether the branch has an open PR, its review state, and its checks. Schema 1
+models no forge at all — no remote, no pull request record, no review or check
+state originating outside the workspace. `CheckRunView` is the local check
+runner, not a forge's CI, and `MergeGateView` is Viden's own gate, not a
+remote's merge state.
+
+The GUI therefore renders no PR row and no forge badge. It must not derive one
+from a branch name, infer a remote from the ahead/behind counts in
+`WorkspaceSourceView`, or call a forge API directly: a frontend that talks to a
+network service is outside the client boundary, and forge credentials belong to
+the same credential path Core already owns.
+
+Close this request when Core publishes a typed forge-status record — the
+association between a Lane's branch and a remote pull request, its review
+state, and its check results — with the credential and data-egress policy that
+makes fetching it safe, plus a canonical `frontend-contract-v1` fixture that
+covers a branch with a pull request and one without.

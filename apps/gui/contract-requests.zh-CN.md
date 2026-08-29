@@ -152,3 +152,41 @@ fail-closed 的 `GUI-CORE-003` 占位，且 `PermissionChoice::Always` 与
 当 Core 建模持久的 Always 作用域及使其可安全授予的撤销路径、建模能让修改后的命令
 重新通过同一审批门禁的 Edit 决定，且规范 fixture 覆盖两者时，关闭此请求。届时 GUI
 将恢复设计规定的 `Shift+A` 绑定。
+
+## GUI-CORE-020：面向操作者的 git 动作
+
+驾驶舱标题栏现在可以显示工作区源码管理的样子——分支、ahead/behind、dirty——因为
+Core 会从工作区根采样 `WorkspaceSourceView` 并发布在
+`RuntimeViewState.workspace_source` 上。但操作者无法对它做任何事。`RuntimeCommand`
+没有建模 commit、push、pull、sync、fetch、stage 或切换分支；`crates/tools` 中面向
+模型的 Git 工具是 `pub(crate)`：只有走权限门禁的 agent 轮次能触达它们，其他任何路径
+都不能——这正是正确的边界，前端不得直接调用工具。
+
+因此设计稿的 sync chip 以 `role=status` 元素而非按钮发布，设计稿的「提交或推送」
+入口则完全不做。GUI 不得 shell out、不得驱动自己编造的工具调用，也不得呈现一个
+落不到实处的 git 动作。
+
+自然的接缝是 runtime 已经拥有的那一处：`LaneEffectExecutor`
+（`crates/runtime/src/lane_runtime.rs`）上的类型化 effect，让操作者发起的 git 动作
+经过同一道权限门禁、产出同样的证据，并落入同一份 append-only 会话事实。
+
+当 Core 发布带逐命令权限门禁的类型化操作者 git 命令、发布携带每次结果（含拒绝与
+冲突）的有序事件，且规范 `frontend-contract-v1` fixture 覆盖一次被拒与一次被接受的
+动作时，关闭此请求。届时 GUI 会把 sync chip 升级为真实控件，并补上设计稿的
+提交/推送入口。
+
+## GUI-CORE-021：Pull request 与 forge 状态
+
+设计稿的标题栏与 Lane 界面带有一行「Pull request status」：分支是否有开启的 PR、
+其评审状态与检查结果。schema 1 完全没有建模 forge——没有 remote、没有 pull request
+记录，也没有来自工作区之外的评审或检查状态。`CheckRunView` 是本地检查运行器，不是
+forge 的 CI；`MergeGateView` 是 Viden 自己的门禁，不是远端的合并状态。
+
+因此 GUI 不渲染 PR 行，也不渲染 forge 徽标。它不得从分支名推导 PR、不得用
+`WorkspaceSourceView` 的 ahead/behind 计数推断 remote，也不得直接调用 forge API：
+访问网络服务的前端已在客户端边界之外，而 forge 凭据属于 Core 已经拥有的那条凭据
+路径。
+
+当 Core 发布类型化的 forge 状态记录——Lane 分支与远端 pull request 的关联、其评审
+状态与检查结果——连同使拉取安全的凭据与数据外发策略，且规范
+`frontend-contract-v1` fixture 覆盖「有 PR 的分支」与「无 PR 的分支」时，关闭此请求。
