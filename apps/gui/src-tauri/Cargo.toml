@@ -46,6 +46,10 @@ name = "statusbar_projection"
 path = "../tests/statusbar_projection.rs"
 
 [[test]]
+name = "topbar_source_projection"
+path = "../tests/topbar_source_projection.rs"
+
+[[test]]
 name = "composer_ime"
 path = "../tests/composer_ime.rs"
 

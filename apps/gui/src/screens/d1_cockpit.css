@@ -52,11 +52,53 @@
 
 .d1-topbar-lane {
   min-width: 0;
+  margin-inline-start: var(--sp-1);
   overflow: hidden;
   color: var(--fg-muted);
   font-family: var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The `.gitops` chips carry the design-kit metrics; only the read-only
+ * affordances are adjusted here. The sync chip is a status element, so it
+ * loses the kit's pointer cursor, and the worktree chip is a real button,
+ * so it inherits the surrounding type instead of the UA button defaults. */
+.d1-topbar-gitops {
+  flex: none;
+}
+
+.d1-topbar-sync {
+  cursor: default;
+}
+
+.d1-topbar-worktrees {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.d1-topbar-worktrees:disabled {
+  color: var(--fg-faint);
+  cursor: default;
+}
+
+.d1-topbar-worktrees:disabled:hover {
+  background: none;
+}
+
+.d1-topbar-truncated {
+  flex: none;
+  color: var(--warning);
+  font-family: var(--font-mono);
+}
+
+.d1-topbar-dirty {
+  margin-inline-start: var(--sp-1);
+  color: var(--warning);
+  font-size: var(--fs-xs);
 }
 
 .d1-titlebar .tbtools {

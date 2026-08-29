@@ -1274,7 +1274,7 @@ export function renderD1Cockpit(
     const composerFocusable = !showWelcome && !showRecovery && projection.composer.editable;
 
     frame.dataset.nativeWindowShell = "true";
-    const topbar = renderCockpitTopbar(projection, locale, showWelcome);
+    const topbar = renderCockpitTopbar(projection, locale, showWelcome, options.onNavigate);
     const titlebar = topbar.element;
 
     const body = document.createElement("div");

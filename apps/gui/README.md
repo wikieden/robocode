@@ -347,6 +347,24 @@ that capability — never a hidden entry and never an enabled-and-inert control.
 The overlay follows the agent-menu conventions: Escape closes and returns
 focus to the gear, an outside click closes, and arrow keys move option focus.
 
+The cockpit titlebar carries the workspace's source-control facts, computed by
+the host from Core's `workspace_source` sample and projected as `topbarSource`.
+The project selector shows the project name Core published — or the workspace
+path when Core named none, never a name derived from the path — followed by
+`⎇ <branch>` and a dirty marker when the sample reports uncommitted changes.
+The `.gitops` block beside it holds two chips: `↑ahead ↓behind`, a `role=status`
+element rather than a button because frontend-contract-v1 publishes no operator
+git command (contract request `GUI-CORE-020`), and `⎇ N worktrees`, the block's
+only control, which opens the D10 Lane monitor and is disabled when no
+navigation handler is injected. `N` counts the distinct worktrees of the
+project's active Lanes: Core publishes no git worktree inventory, and two Lanes
+sharing a worktree are one worktree. When Core publishes no workspace source,
+or reports it unavailable, the whole block is omitted rather than rendering
+zeroes that would read as a clean, in-sync tree; a truncated sample keeps its
+published counts behind a truncation marker. The design's `▾` project picker is
+deliberately absent until the multi-project rail exists — the GUI ships no
+enabled-and-inert control.
+
 The cockpit statusbar renders the host-computed statusbar projection as
 terminal-vocabulary segments: `MODE`, `PERM`, `CONTEXT` (the most recent
 workspace budget), `EVENTS` (the replay-cursor stream position, titled as a

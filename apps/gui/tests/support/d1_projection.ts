@@ -10,6 +10,18 @@ export const D1_PROJECTION: D1CockpitProjection = {
     diagnostics: [],
   },
   selectedLaneId: "lane-core",
+  // The titlebar git block, projected from the same workspace source the
+  // context dock renders: one active Lane, one worktree.
+  topbarSource: {
+    project: null,
+    branch: "codex/lane-core",
+    ahead: 1,
+    behind: 0,
+    dirty: true,
+    status: "ready",
+    truncated: false,
+    laneWorktreeCount: 1,
+  },
   contextDock: {
     source: {
       status: "ready",

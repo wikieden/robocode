@@ -90,7 +90,7 @@ All URLs share the prefix
 
 | State | URL | What the capture must show |
 | --- | --- | --- |
-| `d1` | `…/qa.html?state=d1` | the full cockpit; all nine statusbar segments carrying a fact plus the pending-gate chip; the three composer selector pills |
+| `d1` | `…/qa.html?state=d1` | the full cockpit; the titlebar project selector with its branch and dirty marker beside the `↑/↓` and worktree chips; all nine statusbar segments carrying a fact plus the pending-gate chip; the three composer selector pills |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | the work-mode popover open over the composer, with the current mode marked selected |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | the model popover open, showing both the provider group and the adapter group Core published |
 | `settings` | `…/qa.html?state=settings` | the Settings overlay open over the cockpit with an unsaved draft; Cancel and Save enabled |
@@ -127,6 +127,12 @@ review; all 11 DOM-verified at build time).
 | [d12-blocked-1440x900-dark-en.png](d12-blocked-1440x900-dark-en.png) | d12-blocked | 1440x900 | dark | en |
 | [d11-1440x900-dark-en.png](d11-1440x900-dark-en.png) | d11 | 1440x900 | dark | en |
 | [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
+
+Every capture above predates the titlebar git block added on
+`claude/gui-titlebar-git`. The shared D1 fixture now carries a `topbarSource`,
+so each `d1*`, `settings*`, and `d6-*` state renders the project selector with
+its branch and the two `.gitops` chips; the committed PNGs still show the
+titlebar without them and need a recapture by an operator.
 
 ## Known limitation
 

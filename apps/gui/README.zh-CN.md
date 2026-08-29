@@ -274,6 +274,18 @@ surface（`role=alert`）上。弹层遵循 agent-menu 约定：Escape 关闭并
 入口，也不给出可点击但无响应的控件。浮层遵循 agent-menu 约定：Escape 关闭并把焦点
 交还齿轮，外部点击关闭，方向键移动选项焦点。
 
+驾驶舱标题栏承载工作区的源码管理事实：host 依据 Core 的 `workspace_source` 采样
+计算，投影为 `topbarSource`。项目选择器显示 Core 发布的项目名——Core 未命名时显示
+它确实发布的工作区路径，绝不从路径推导名称——其后是 `⎇ <分支>`，采样报告有未提交
+更改时再加一个 dirty 标记。旁边的 `.gitops` 块含两个 chip：`↑ahead ↓behind` 是
+`role=status` 元素而非按钮，因为 frontend-contract-v1 没有发布任何面向操作者的 git
+命令（契约请求 `GUI-CORE-020`）；`⎇ N 个工作树` 是该块唯一的控件，点击进入 D10 Lane
+监视墙，未注入导航回调时禁用。`N` 统计项目活跃 Lane 的去重工作树：Core 没有发布 git
+worktree 清单，且两个 Lane 共用一个工作树只算一个。Core 未发布工作区源或报告其
+unavailable 时，整块省略，而不是渲染会被读成「干净且已同步」的零值；truncated 采样
+保留已发布计数，但加上截断标记。设计稿的 `▾` 项目选择器在多项目栏出现前刻意缺席
+——GUI 不发布可点击但无响应的控件。
+
 驾驶舱状态栏按终端词表渲染 host 计算的 statusbar 投影分段：`MODE`、`PERM`、
 `CONTEXT`（最近的工作区预算）、`EVENTS`（重放游标流位置；frontend-contract-v1 没有
 事件计数器，因此以位置标注）、`LANE`（选中 Lane、其唯一绑定 agent、状态与任务进度）、

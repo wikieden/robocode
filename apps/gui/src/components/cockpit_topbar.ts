@@ -1,5 +1,5 @@
 import { translate, type Locale } from "../i18n/catalog";
-import type { D1CockpitProjection } from "../models/workspace";
+import type { D1CockpitProjection, TopbarSourceProjection } from "../models/workspace";
 import { createCanonicalGuiIcon } from "./activity_rail";
 
 const BRAND_MARK_URL = new URL(
@@ -7,15 +7,87 @@ const BRAND_MARK_URL = new URL(
   import.meta.url,
 ).href;
 
+/// The design's branch glyph, shared by the project selector and the worktree
+/// chip. Registered in the GUI design kit; never an emoji.
+const BRANCH_GLYPH = "⎇";
+
 export interface CockpitTopbar {
   element: HTMLElement;
   contextDrawerToggle: HTMLButtonElement;
+}
+
+/// The `.gitops` block: the workspace's source-control facts exactly as the
+/// host projected them.
+///
+/// Read-only by contract. frontend-contract-v1 publishes no operator git
+/// command (`GUI-CORE-020`), so the sync chip is a status element rather than
+/// a button, and the only control is the worktree chip, which navigates.
+function renderGitOps(
+  source: TopbarSourceProjection,
+  locale: Locale,
+  onNavigate?: (route: string) => void,
+): HTMLElement {
+  const gitops = document.createElement("span");
+  gitops.className = "gitops d1-topbar-gitops";
+  gitops.dataset.topbarGitops = "true";
+  gitops.dataset.tauriDragRegion = "true";
+
+  const sync = document.createElement("span");
+  sync.className = "gitchip d1-topbar-sync";
+  sync.dataset.topbarSync = "true";
+  // Status, not a control: there is nothing to press, so it must not be
+  // announced or focused as if there were.
+  sync.setAttribute("role", "status");
+  sync.title = translate(locale, "d1.topbar.syncTitle", {
+    ahead: String(source.ahead),
+    behind: String(source.behind),
+  });
+  const ahead = document.createElement("span");
+  ahead.className = "up";
+  ahead.textContent = `↑${source.ahead}`;
+  const behind = document.createElement("span");
+  behind.className = "down";
+  behind.textContent = `↓${source.behind}`;
+  sync.append(ahead, behind);
+  gitops.append(sync);
+
+  if (source.truncated) {
+    // Core sampled only part of the workspace. The counts above stay visible
+    // because they are real, but they are never presented as complete.
+    const marker = document.createElement("span");
+    marker.className = "d1-topbar-truncated";
+    marker.dataset.topbarTruncated = "true";
+    marker.textContent = "…";
+    marker.title = translate(locale, "d1.topbar.truncated", {});
+    gitops.append(marker);
+  }
+
+  const worktrees = document.createElement("button");
+  worktrees.type = "button";
+  worktrees.className = "gitchip d1-topbar-worktrees";
+  worktrees.dataset.topbarWorktrees = "true";
+  worktrees.title = translate(locale, "d1.topbar.worktreesTitle", {});
+  // Two catalog forms rather than one, so a single worktree does not read as
+  // "1 worktrees". Locales without a plural distinction carry the same string.
+  const worktreeLabel =
+    source.laneWorktreeCount === 1 ? "d1.topbar.worktrees.one" : "d1.topbar.worktrees.other";
+  worktrees.textContent = `${BRANCH_GLYPH} ${translate(locale, worktreeLabel, {
+    count: String(source.laneWorktreeCount),
+  })}`;
+  // The Lane monitor is where the project's worktrees are actually inspected.
+  // Without a router the chip stays visible and inert rather than lying.
+  worktrees.disabled = !onNavigate;
+  worktrees.addEventListener("click", () => onNavigate?.("d10"));
+  gitops.append(worktrees);
+
+  return gitops;
 }
 
 export function renderCockpitTopbar(
   projection: D1CockpitProjection,
   locale: Locale,
   showWelcome: boolean,
+  onNavigate?: (route: string) => void,
 ): CockpitTopbar {
   const titlebar = document.createElement("header");
   titlebar.className = "titlebar vbar d1-titlebar";
@@ -47,16 +119,40 @@ export function renderCockpitTopbar(
   wordmark.textContent = "viden";
   brand.append(mark, wordmark);
 
+  const source = showWelcome ? null : projection.topbarSource;
+
+  // The design draws a `▾` project picker here. It stays out until the
+  // multi-project rail exists: an enabled control that cannot open anything is
+  // worse than no control. The chevron and its handler arrive together with
+  // that work.
   const project = document.createElement("span");
   project.className = "projsel d1-topbar-project";
   project.dataset.tauriDragRegion = "true";
-  project.textContent = showWelcome
-    ? translate(locale, "d1.welcome.noProject", {})
-    : projection.environment.cwd;
+  if (showWelcome) {
+    project.textContent = translate(locale, "d1.welcome.noProject", {});
+  } else {
+    // Core's project name when it published one; otherwise the workspace path
+    // it did publish. A name is never derived from the path.
+    project.append(source?.project ?? projection.environment.cwd);
+    if (source?.branch) {
+      const branch = document.createElement("span");
+      branch.className = "br";
+      branch.textContent = `${BRANCH_GLYPH} ${source.branch}`;
+      project.append(" ", branch);
+    }
+    if (source?.dirty) {
+      const marker = document.createElement("span");
+      marker.className = "d1-topbar-dirty";
+      marker.dataset.topbarDirty = "true";
+      marker.textContent = "●";
+      marker.title = translate(locale, "d1.topbar.dirty", {});
+      project.append(marker);
+    }
+  }
 
   const lane = projection.lanes.find((candidate) => candidate.id === projection.selectedLaneId);
   const laneSummary = document.createElement("span");
-  laneSummary.className = "gitops d1-topbar-lane";
+  laneSummary.className = "d1-topbar-lane";
   laneSummary.dataset.tauriDragRegion = "true";
   laneSummary.textContent = lane
     ? `${lane.id} · ${lane.summary}${lane.branch ? ` · ${lane.branch}` : ""}`
@@ -79,6 +175,8 @@ export function renderCockpitTopbar(
   tools.className = "tbtools";
   tools.append(contextDrawerToggle);
   if (!nativeShell) titlebar.append(lights);
-  titlebar.append(brand, project, laneSummary, tools);
+  titlebar.append(brand, project);
+  if (source) titlebar.append(renderGitOps(source, locale, onNavigate));
+  titlebar.append(laneSummary, tools);
   return { element: titlebar, contextDrawerToggle };
 }

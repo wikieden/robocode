@@ -76,6 +76,9 @@ function shellProjection(
       diagnostics: [],
     },
     selectedLaneId: null,
+    // The shell has no confirmed view, so it has no workspace source either:
+    // the titlebar's git block stays absent rather than showing a clean tree.
+    topbarSource: null,
     contextDock: {
       source: null,
       context: null,

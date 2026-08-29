@@ -101,6 +101,29 @@ export interface WorkspaceSourceProjection {
   dirty: boolean;
 }
 
+/**
+ * Titlebar source-control facts, computed by the host from the confirmed Core
+ * view. `null` on the cockpit projection means Core published no workspace
+ * source, or one it could not sample: the titlebar then omits the git block
+ * rather than rendering zeroes as a clean, in-sync tree.
+ *
+ * Read-only. frontend-contract-v1 carries no operator git command, so nothing
+ * here backs a commit, push, or sync action (`GUI-CORE-020`).
+ */
+export interface TopbarSourceProjection {
+  /** Project name Core published; `null` when Core named none. */
+  project: string | null;
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  status: "ready" | "truncated";
+  /** Core sampled only part of the workspace; the counts are partial. */
+  truncated: boolean;
+  /** Distinct worktrees across the project's active Lanes. */
+  laneWorktreeCount: number;
+}
+
 export interface ContextUsageProjection {
   budgetId: string;
   usedTokens: number;
@@ -199,6 +222,7 @@ export interface D1CockpitProjection {
     diagnostics: unknown[];
   };
   selectedLaneId: string | null;
+  topbarSource: TopbarSourceProjection | null;
   contextDock: ContextDockProjection;
   lanes: Array<{
     id: string;

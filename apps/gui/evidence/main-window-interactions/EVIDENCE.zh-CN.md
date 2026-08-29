@@ -81,7 +81,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 
 | 状态 | URL | 截图必须体现什么 |
 | --- | --- | --- |
-| `d1` | `…/qa.html?state=d1` | 完整驾驶舱；九个状态栏分段全部带事实，另加待决闸提示；三个 Composer 选择器胶囊 |
+| `d1` | `…/qa.html?state=d1` | 完整驾驶舱；标题栏项目选择器带分支与 dirty 标记，旁边是 `↑/↓` 与工作树 chip；九个状态栏分段全部带事实，另加待决闸提示；三个 Composer 选择器胶囊 |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | 工作模式弹层在 Composer 上方展开，当前模式标记为选中 |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | 模型弹层展开，同时显示提供方分组与 Core 发布的适配器分组 |
 | `settings` | `…/qa.html?state=settings` | 设置面板覆盖在驾驶舱上并带未保存草稿；取消与保存均可用 |
@@ -117,6 +117,11 @@ DOM 级验证)。
 | [d12-blocked-1440x900-dark-en.png](d12-blocked-1440x900-dark-en.png) | d12-blocked | 1440x900 | dark | en |
 | [d11-1440x900-dark-en.png](d11-1440x900-dark-en.png) | d11 | 1440x900 | dark | en |
 | [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
+
+上表所有截图都早于 `claude/gui-titlebar-git` 上新增的标题栏 git 块。共享 D1
+fixture 现在带 `topbarSource`，因此每个 `d1*`、`settings*` 与 `d6-*` 状态都会渲染
+带分支的项目选择器与两个 `.gitops` chip；已提交的 PNG 仍是没有它们的旧标题栏，
+需要操作者重新截图。
 
 ## 已知限制
 

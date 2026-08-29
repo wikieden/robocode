@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 use viden_core::{
     AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
@@ -19,8 +21,9 @@ use crate::d1::{
     D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
     D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
     D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
-    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TranscriptRowProjection,
-    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
+    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TopbarSourceProjection,
+    D1TranscriptRowProjection, D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection,
+    unavailable_features,
 };
 use crate::d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
@@ -1339,6 +1342,27 @@ impl RuntimeProjection {
                     .filter(|gate| gate.status.is_open())
                     .count() as u64,
         };
+        // The titlebar git block is a workspace-level read, not a Lane-scoped
+        // one: Core samples `workspace_source` from the workspace root. An
+        // absent or unavailable sample projects `None`, so the titlebar omits
+        // the block instead of rendering zeroes as a clean, in-sync tree.
+        let topbar_source = view
+            .workspace_source
+            .as_ref()
+            .filter(|source| source.status != WorkspaceSourceStatus::Unavailable)
+            .map(|source| D1TopbarSourceProjection {
+                project: view
+                    .project_probe
+                    .as_ref()
+                    .and_then(|probe| probe.project_name.clone()),
+                branch: source.branch.clone(),
+                ahead: source.ahead,
+                behind: source.behind,
+                dirty: source.dirty,
+                status: workspace_source_status(source.status),
+                truncated: source.status == WorkspaceSourceStatus::Truncated,
+                lane_worktree_count: lane_worktree_count(view),
+            });
         let recovery = if supports_owner && exact_owner_count > 1 {
             // An ambiguous execution identity is not renderable. Enter the
             // existing snapshot/replay recovery path instead of choosing one.
@@ -1354,6 +1378,7 @@ impl RuntimeProjection {
         Some(D1CockpitProjection {
             preferences: self.preferences()?,
             selected_lane_id,
+            topbar_source,
             context_dock,
             lanes: view
                 .lanes
@@ -1500,6 +1525,21 @@ impl RuntimeProjection {
             unavailable_features: unavailable_features(),
         })
     }
+}
+
+/// Distinct worktrees held by the project's active Lanes.
+///
+/// Core publishes no git worktree inventory, so the Lane records' `worktree`
+/// names are the only published fact behind the titlebar's worktree chip.
+/// Finished Lanes are excluded (their worktree is no longer live work) and
+/// duplicates collapse, because two Lanes sharing a worktree are one worktree.
+fn lane_worktree_count(view: &RuntimeViewState) -> u32 {
+    view.lanes
+        .iter()
+        .filter(|lane| lane.is_active())
+        .filter_map(|lane| lane.worktree.as_deref())
+        .collect::<BTreeSet<_>>()
+        .len() as u32
 }
 
 /// A GUI mutation may use an owner only when Core publishes exactly one binding for that Lane.

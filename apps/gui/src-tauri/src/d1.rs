@@ -16,6 +16,41 @@ pub struct D1WorkspaceSourceProjection {
     pub dirty: bool,
 }
 
+/// Titlebar source-control facts for the cockpit's project selector and the
+/// design's `.gitops` chips.
+///
+/// The whole struct is `Option` on the cockpit projection: `None` means Core
+/// published no workspace source, or published one it could not sample, and
+/// the titlebar omits the git block entirely (the design's `git:false` mode).
+/// Rendering zeroes from an unavailable sample would read as "clean tree, in
+/// sync", which is a fabricated fact.
+///
+/// Every field is read-only. frontend-contract-v1 carries no operator git
+/// command, so nothing here backs a commit, push, or sync action
+/// (`GUI-CORE-020`).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1TopbarSourceProjection {
+    /// The project name Core published through its project probe. `None` when
+    /// Core named none; the frontend then keeps showing the workspace path it
+    /// already renders instead of deriving a name from it.
+    pub project: Option<String>,
+    pub branch: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub dirty: bool,
+    pub status: &'static str,
+    /// `true` when Core could only sample part of the workspace. The counts
+    /// are still rendered, but behind a truncation marker so they are never
+    /// read as complete.
+    pub truncated: bool,
+    /// Distinct worktrees across the project's active Lanes. Core publishes no
+    /// git worktree inventory, so this counts the `worktree` names on Lane
+    /// records — deduplicated, because the chip's label counts worktrees and
+    /// two Lanes may share one.
+    pub lane_worktree_count: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D1ContextUsageProjection {
@@ -459,6 +494,7 @@ pub enum ComposerControlIntent {
 pub struct D1CockpitProjection {
     pub preferences: ResolvedPreferencesProjection,
     pub selected_lane_id: Option<String>,
+    pub topbar_source: Option<D1TopbarSourceProjection>,
     pub context_dock: D1ContextDockProjection,
     pub lanes: Vec<D1LaneProjection>,
     pub environment: D1EnvironmentProjection,

@@ -30,7 +30,7 @@ pub use d1::{
     D1OutcomeProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
     D1StarterLaneReceiptProjection, D1StatusbarContextProjection, D1StatusbarLaneProjection,
     D1StatusbarLatencyProjection, D1StatusbarProjection, D1StatusbarRequestsProjection,
-    D1StatusbarTokensProjection, D1WorkspaceSourceProjection,
+    D1StatusbarTokensProjection, D1TopbarSourceProjection, D1WorkspaceSourceProjection,
 };
 pub use d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
