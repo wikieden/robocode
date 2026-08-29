@@ -63,6 +63,7 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `d6-actions`、`d6-error` | 一个已停止的会话，其 `restart` 携带 session id、`close_lane` 携带 lane id | `tests/d6_recovery.spec.ts` 中的 `STOPPED` fixture |
 | `d12-actions` | 已记录必需证据、验证方满足，两个动作都可用且 code 为 `null` | `tests/d12_integration_gate.spec.ts` 中的 `DECIDABLE` fixture |
 | `d11` | 已探测的 `/workspace/demo` rust 项目，提供方处于凭据锁定状态 | `tests/d11_intake.spec.ts` 中的已探测项目 fixture |
+| `palette` | 交给 `loadPaletteCrossLane` 的一条跨 Lane 合并闸与一条询问 | `tests/d12_integration_gate.spec.ts` 的闸 fixture，以及 D1 fixture 本就带的那条 `liveWork.approvals` |
 
 ## 如何运行
 
@@ -91,6 +92,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d12-actions` | `…/qa.html?state=d12-actions` | 合并闸的批准可用，退回理由输入框已填写且可用 |
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | 同一闸的批准不可用并点名 `missing_evidence`，理由输入框禁用 |
 | `d11` | `…/qa.html?state=d11` | 项目接入屏，显示已探测项目与提供方告警 |
+| `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及点名 `GUI-CORE-022` 的永久禁用「文件」行 |
 
 `mode=dark|light` 与 `locale=en|zh-CN` 每个状态都接受，并统一走共享的
 `resolveTheme`，harness 不携带第二套配色。`mode=light` 同时选用 `ice` 皮肤，
@@ -121,6 +123,11 @@ DOM 级验证)。
 八张带标题栏的截图（`d1*`、`settings*`、`d6-*`）已于 2026-08-21 在标题栏 git 块
 落地后重新采集，显示带分支与脏标记点的项目选择器及两个 `.gitops` chip
 （`↑1 ↓0`、`⎇ 1 个工作树`）；独立屏 `d11`/`d12*` 不含驾驶舱标题栏，原截图仍然有效。
+
+**待重新采集。** 命令面板在 `.tbtools` 中新增了一个 `.tbtbtn` 按钮，因此上表中每一张
+带标题栏的截图都早于当前发布的标题栏，新的 `palette` 状态则还没有图片。harness 状态
+已提交且可复现；八张 `d1*`/`settings*`/`d6-*` 图片与 `palette` 需由操作者在 1440x900
+下重新采集。
 
 ## 已知限制
 

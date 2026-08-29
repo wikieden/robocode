@@ -217,6 +217,8 @@ interface CockpitOptions {
   preferencesAvailable?: boolean;
   /** Rejects instead of hanging, for the recovery-alert state. */
   d6Rejects?: boolean;
+  /** Present so the command palette's `Jump to` section resolves. */
+  crossLane?: boolean;
 }
 
 function mountCockpit(options: CockpitOptions): void {
@@ -238,6 +240,9 @@ function mountCockpit(options: CockpitOptions): void {
       sendD6Intent: options.d6Rejects
         ? () => Promise.reject(new Error(D6_REJECTION))
         : () => never<D6IntentResult>(),
+      loadPaletteCrossLane: options.crossLane
+        ? async () => PALETTE_CROSS_LANE
+        : undefined,
       preferences:
         options.preferencesAvailable === undefined
           ? undefined
@@ -249,6 +254,21 @@ function mountCockpit(options: CockpitOptions): void {
     },
   );
 }
+
+/**
+ * The cross-Lane gates and asks the palette reads when it opens.
+ *
+ * Delta on the shared fixtures: `gate-core` mirrors the merge gate in
+ * `tests/d12_integration_gate.spec.ts`, and the ask mirrors the single
+ * `liveWork.approvals` entry the D1 fixture already carries, so the capture
+ * shows a populated `Jump to` section without inventing a decision.
+ */
+const PALETTE_CROSS_LANE = {
+  gates: [{ gateId: "gate-core", taskId: "task-core", status: "blocked" }],
+  asks: [
+    { id: "approval-shell", title: "Allow test", kind: "approval", laneId: "lane-core" },
+  ],
+};
 
 /* ------------------------------------------------------------------ */
 /* D11 intake projection                                               */
@@ -377,6 +397,19 @@ async function renderState(): Promise<void> {
       mountCockpit({ projection: d1Base(), preferencesAvailable: true });
       click("[data-control-toggle='model']");
       await waitFor("[data-control-popover='model']");
+      return;
+    }
+
+    case "palette": {
+      // The palette opens on an empty query on purpose: every section the
+      // design draws (Actions, Jump to, Settings, Files) is visible at once,
+      // which a filtered query would collapse to a single group.
+      mountCockpit({ projection: d1Base(), preferencesAvailable: true, crossLane: true });
+      click("[data-command-palette-toggle]");
+      await waitFor("[data-command-palette]");
+      // The cross-Lane read resolves after the overlay mounts; wait for the
+      // gate row so the capture never freezes on the pending note.
+      await waitFor("[data-palette-row][data-palette-item-id='gate:gate-core']");
       return;
     }
 

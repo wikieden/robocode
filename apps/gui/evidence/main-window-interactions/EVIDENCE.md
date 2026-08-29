@@ -71,6 +71,7 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d6-actions`, `d6-error` | a stopped session whose `restart` carries a session id and `close_lane` a lane id | the `STOPPED` fixture in `tests/d6_recovery.spec.ts` |
 | `d12-actions` | required evidence recorded, validator satisfied, both actions available with a `null` code | the `DECIDABLE` fixture in `tests/d12_integration_gate.spec.ts` |
 | `d11` | a probed `/workspace/demo` rust project with a credential-locked provider | the probed-project fixture in `tests/d11_intake.spec.ts` |
+| `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
 
 ## How to run it
 
@@ -93,6 +94,7 @@ All URLs share the prefix
 | `d1` | `…/qa.html?state=d1` | the full cockpit; the titlebar project selector with its branch and dirty marker beside the `↑/↓` and worktree chips; all nine statusbar segments carrying a fact plus the pending-gate chip; the three composer selector pills |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | the work-mode popover open over the composer, with the current mode marked selected |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | the model popover open, showing both the provider group and the adapter group Core published |
+| `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the permanently disabled Files row naming `GUI-CORE-022` |
 | `settings` | `…/qa.html?state=settings` | the Settings overlay open over the cockpit with an unsaved draft; Cancel and Save enabled |
 | `settings-unavailable` | `…/qa.html?state=settings-unavailable` | the same overlay read-only, naming the absent `ui.preference_persistence` capability; Save disabled |
 | `d6-actions` | `…/qa.html?state=d6-actions` | the recovery surface with Restart agent and Close Lane enabled, and the inspect facts expanded |
@@ -133,6 +135,12 @@ on 2026-08-21 after the titlebar git block landed and show the project
 selector with its branch, the dirty dot, and both `.gitops` chips
 (`↑1 ↓0`, `⎇ 1 worktree`); the standalone `d11`/`d12*` screens carry no
 cockpit titlebar, so their earlier captures remain valid.
+
+**Recapture pending.** The command palette added a `.tbtbtn` toggle to
+`.tbtools`, so every topbar-bearing capture above now predates the shipped
+titlebar, and the new `palette` state has no image at all. The harness state is
+committed and reproducible; the eight `d1*`/`settings*`/`d6-*` images plus
+`palette` are to be recaptured by an operator at 1440x900.
 
 ## Known limitation
 
