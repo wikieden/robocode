@@ -12,7 +12,10 @@ use viden_types::{
 mod project;
 mod ui_preferences;
 
-pub use project::{ProjectFileConfig, parse_project_config};
+pub use project::{
+    EgressMode, EgressPolicy, OwnershipRule, ProjectFileConfig, ToolAllowlists,
+    parse_project_config,
+};
 pub use ui_preferences::{
     UiPreferenceFileState, preview_reset_user_ui_preferences_at, preview_user_ui_preferences_at,
     reset_user_ui_preferences_at, resolve_user_ui_preferences_at, save_user_ui_preferences_at,
