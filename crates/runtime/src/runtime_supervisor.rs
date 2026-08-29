@@ -33,7 +33,10 @@ use crate::{
     },
     event_journal::RuntimeEventJournal,
     lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
-    lane_supervisor::{LanePersistence, LaneSupervisor, WorkflowLanePersistence},
+    lane_supervisor::{
+        LaneCommandRedactor, LanePersistence, LaneSupervisor, WorkflowLanePersistence,
+    },
+    lane_worker::LaneApprovalResolver,
     project_runtime::SupervisorProjectMutationPreparation,
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,
@@ -551,12 +554,29 @@ impl RuntimeSupervisor {
                 .map(|state| state.live_view.snapshot.work_mode)
                 .unwrap_or(viden_types::WorkMode::Plan)
         });
+        // The lane subsystem re-validates queued approvals and redacts the
+        // commands it announces, but neither policy belongs to it: both are
+        // injected here so the shared permission gate and the event redaction
+        // contract stay owned by the runtime.
+        let lane_approvals: LaneApprovalResolver =
+            Arc::new(|permissions, tool, input, response: ApprovalResponse| {
+                crate::permission_gate::resolve(
+                    permissions,
+                    tool,
+                    &tool.name,
+                    input,
+                    |_ask, _prompt| response.clone(),
+                )
+            });
+        let lane_redact_command: LaneCommandRedactor = Arc::new(redacted_runtime_command_for_event);
         let lane_supervisor = Arc::new(LaneSupervisor::new(
             lane_repo,
             lane_persistence,
             lane_permissions,
             lane_effects,
             lane_events,
+            lane_approvals,
+            lane_redact_command,
             lane_mode,
             approval_ttl_secs,
         ));

@@ -21,6 +21,22 @@ use crate::lane_supervisor::LanePersistence;
 
 pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
 
+/// Re-validates a queued lane-mutation approval against a lane-scoped
+/// permission engine.
+///
+/// The lane subsystem owns *when* a queued operator response is replayed, but
+/// not *how* a permission is resolved: that sequence (`decide` -> ask ->
+/// `apply_approval`, whose plan-mode re-check can still deny an operator
+/// "allow") belongs to the embedding runtime's shared permission gate. It is
+/// injected rather than called upward so the lane crate keeps no dependency on
+/// the gate module. The queued `ApprovalResponse` stands in for the interactive
+/// ask flow, and the returned decision is never `Ask`.
+pub(crate) type LaneApprovalResolver = Arc<
+    dyn Fn(&mut PermissionEngine, &ToolSpec, &ToolInput, ApprovalResponse) -> PermissionDecision
+        + Send
+        + Sync,
+>;
+
 struct LanePermissionState {
     // Keep the decision engine and its generation under one lock so a request
     // never observes a new policy with an old epoch (or the reverse).
@@ -79,6 +95,7 @@ impl LaneWorkerHandle {
         permission_epoch: u64,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
+        approvals: LaneApprovalResolver,
         approval_ttl_secs: u64,
         registered: bool,
         terminal_sender: Sender<LaneTerminalCompletion>,
@@ -106,6 +123,7 @@ impl LaneWorkerHandle {
                 permissions: worker_permissions,
                 effects,
                 events,
+                approvals,
                 pending_mutation: None,
                 pending_approval: worker_pending_approval,
                 terminal_completion: worker_terminal_completion,
@@ -250,6 +268,7 @@ struct LaneWorker {
     permissions: Arc<Mutex<LanePermissionState>>,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
+    approvals: LaneApprovalResolver,
     pending_mutation: Option<PendingMutation>,
     pending_approval: Arc<Mutex<Option<String>>>,
     terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
@@ -756,16 +775,15 @@ impl LaneWorker {
         let current_epoch = permission_epoch == pending.permission_epoch;
         let permission_allowed =
             if valid_scope && unexpired && current_epoch && response.is_allowed() {
-                // Re-check through the shared permission gate: the queued
+                // Re-check through the injected permission gate: the queued
                 // operator response stands in for the interactive ask flow, so
                 // the plan-mode re-check in apply_approval still applies.
                 matches!(
-                    crate::permission_gate::resolve(
+                    (self.approvals)(
                         &mut permissions,
                         &pending.tool,
-                        &pending.tool.name,
                         &pending.input,
-                        |_ask, _prompt| response.clone(),
+                        response.clone(),
                     ),
                     PermissionDecision::Allow(_)
                 )

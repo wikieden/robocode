@@ -25,8 +25,18 @@ use viden_workflows::{
 use crate::lane_runtime::{
     LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, resolve_lane_target,
 };
-use crate::lane_worker::{LaneEventSink, LaneTerminalKind, LaneWorkerHandle, LaneWorkerMessage};
-use crate::runtime_contract::redacted_runtime_command_for_event;
+use crate::lane_worker::{
+    LaneApprovalResolver, LaneEventSink, LaneTerminalKind, LaneWorkerHandle, LaneWorkerMessage,
+};
+
+/// Redacts a `RuntimeCommand` before the lane supervisor publishes it on a
+/// `LaneCommandAccepted` event.
+///
+/// The redaction policy is a property of the runtime's event contract, not of
+/// lane orchestration, so it is injected instead of imported: the lane crate
+/// decides which commands are announced, the runtime decides what an announced
+/// command is allowed to reveal.
+pub(crate) type LaneCommandRedactor = Arc<dyn Fn(&RuntimeCommand) -> RuntimeCommand + Send + Sync>;
 
 pub(crate) trait LanePersistence: Send + Sync {
     fn append(&self, event: &LaneEvent) -> Result<(), String>;
@@ -74,6 +84,8 @@ pub(crate) struct LaneSupervisor {
     permission_epoch: AtomicU64,
     effects: Arc<dyn LaneEffectExecutor>,
     events: LaneEventSink,
+    approvals: LaneApprovalResolver,
+    redact_command: LaneCommandRedactor,
     work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
     approval_ttl_secs: u64,
     lanes: Arc<Mutex<BTreeMap<String, LaneWorkerHandle>>>,
@@ -163,12 +175,15 @@ impl LaneSupervisor {
         Ok((permissions.mode(), epoch))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         repo: PathBuf,
         persistence: Arc<dyn LanePersistence>,
         permissions: Arc<Mutex<PermissionEngine>>,
         effects: Arc<dyn LaneEffectExecutor>,
         events: LaneEventSink,
+        approvals: LaneApprovalResolver,
+        redact_command: LaneCommandRedactor,
         work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
         approval_ttl_secs: u64,
     ) -> Self {
@@ -263,6 +278,8 @@ impl LaneSupervisor {
             permission_epoch: AtomicU64::new(0),
             effects,
             events,
+            approvals,
+            redact_command,
             work_mode,
             approval_ttl_secs,
             lanes,
@@ -541,6 +558,7 @@ impl LaneSupervisor {
                         self.permission_epoch(),
                         self.worker_effects(),
                         self.worker_event_sink(),
+                        Arc::clone(&self.approvals),
                         self.approval_ttl_secs,
                         true,
                         self.terminal_sender
@@ -572,7 +590,7 @@ impl LaneSupervisor {
             owner.clone(),
             RuntimeEventKind::LaneCommandAccepted {
                 command_id: command_id.clone(),
-                command: redacted_runtime_command_for_event(&command),
+                command: (self.redact_command)(&command),
             },
         );
         if spawned_worker {
@@ -727,9 +745,7 @@ impl LaneSupervisor {
             owner.clone(),
             RuntimeEventKind::CommandAccepted {
                 command_id,
-                command: redacted_runtime_command_for_event(&RuntimeCommand::PreviewStarterLane {
-                    request,
-                }),
+                command: (self.redact_command)(&RuntimeCommand::PreviewStarterLane { request }),
             },
         );
         self.emit(owner, RuntimeEventKind::StarterLanePreviewed { preview });
@@ -1034,7 +1050,7 @@ impl LaneSupervisor {
                     owner.clone(),
                     RuntimeEventKind::LaneCommandAccepted {
                         command_id: command_id.clone(),
-                        command: redacted_runtime_command_for_event(&accepted_command),
+                        command: (self.redact_command)(&accepted_command),
                     },
                 );
                 return worker.send(LaneWorkerMessage::Command {
@@ -1066,7 +1082,7 @@ impl LaneSupervisor {
             owner.clone(),
             RuntimeEventKind::LaneCommandAccepted {
                 command_id: command_id.clone(),
-                command: redacted_runtime_command_for_event(&accepted_command),
+                command: (self.redact_command)(&accepted_command),
             },
         );
         let worker = LaneWorkerHandle::spawn(
@@ -1078,6 +1094,7 @@ impl LaneSupervisor {
             self.permission_epoch(),
             self.worker_effects(),
             self.worker_event_sink(),
+            Arc::clone(&self.approvals),
             self.approval_ttl_secs,
             false,
             self.terminal_sender
