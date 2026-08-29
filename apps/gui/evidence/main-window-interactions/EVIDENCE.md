@@ -43,7 +43,7 @@ typechecks the harness against the production render signatures.
 | --- | --- | --- |
 | `d1*`, `settings*`, `d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | the shared D1 fixture the vitest suites mount |
 | `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | **generated** by `tests/capture_projections.rs` |
-| `d11` | mirrors the fixtures in `tests/d11_intake.spec.ts` | hand-written; D11 has no generated capture projection yet |
+| `d11`, `d11-recent` | mirrors the fixtures in `tests/d11_intake.spec.ts`, plus the hand-written `RecentWorkResult` below for the history panel | hand-written; D11 has no generated capture projection yet |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | the shared D1 fixture plus a hand-written `RecentWorkResult` | hand-written; `frontend-contract-v1` has no canonical recent-work capture projection yet, so the shapes mirror `tests/recent_work.rs` and `tests/project_picker.spec.ts` |
 
 The D12 projection is never hand-written. `tests/capture_projections.rs` runs
@@ -72,6 +72,7 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d6-actions`, `d6-error` | a stopped session whose `restart` carries a session id and `close_lane` a lane id | the `STOPPED` fixture in `tests/d6_recovery.spec.ts` |
 | `d12-actions` | required evidence recorded, validator satisfied, both actions available with a `null` code | the `DECIDABLE` fixture in `tests/d12_integration_gate.spec.ts` |
 | `d11` | a probed `/workspace/demo` rust project with a credential-locked provider | the probed-project fixture in `tests/d11_intake.spec.ts` |
+| `d11`, `d11-recent` | the shared two-project `RecentWorkResult` handed to the screen's recent-work port | the loaded-rows fixture in `tests/d11_intake.spec.ts` |
 | `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | a two-project `RecentWorkResult` whose timestamps are offsets from the frozen clock, so the rendered ages are stable. The open root is included on purpose — the picker must drop it from Recent rather than offer a switch to the project already open | the `RecentWorkLoaded` payloads asserted in `tests/recent_work.rs` |
 
@@ -114,6 +115,7 @@ All URLs share the prefix
 | `d12-actions` | `…/qa.html?state=d12-actions` | the merge gate with Accept available and the bounce reason input filled and enabled |
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | the same gate with Accept unavailable, naming `missing_evidence`, and the reason input disabled |
 | `d11` | `…/qa.html?state=d11` | the project intake screen with the probed project and the provider warning |
+| `d11-recent` | `…/qa.html?state=d11-recent` | the same intake screen scrolled to its Recent work panel, showing the Core `QueryRecentWork` rows — name, relative age, session count, canonical root — instead of the retired static unavailability sentence |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -140,13 +142,18 @@ review; all 11 DOM-verified at build time).
 | [d12-actions-1440x900-dark-en.png](d12-actions-1440x900-dark-en.png) | d12-actions | 1440x900 | dark | en |
 | [d12-blocked-1440x900-dark-en.png](d12-blocked-1440x900-dark-en.png) | d12-blocked | 1440x900 | dark | en |
 | [d11-1440x900-dark-en.png](d11-1440x900-dark-en.png) | d11 | 1440x900 | dark | en |
+| [d11-recent-1440x900-dark-en.png](d11-recent-1440x900-dark-en.png) | d11-recent | 1440x900 | dark | en |
 | [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
 
 The eight topbar-bearing captures (`d1*`, `settings*`, `d6-*`) were recaptured
 on 2026-08-21 after the titlebar git block landed and show the project
 selector with its branch, the dirty dot, and both `.gitops` chips
-(`↑1 ↓0`, `⎇ 1 worktree`); the standalone `d11`/`d12*` screens carry no
-cockpit titlebar, so their earlier captures remain valid.
+(`↑1 ↓0`, `⎇ 1 worktree`); the standalone `d12*` screens carry no
+cockpit titlebar, so their earlier captures remain valid. `d11-recent` was
+first captured on 2026-08-29, when the history panel began rendering Core's
+recent-work rows instead of the retired `GUI-CORE-007` sentence; a same-day
+recapture of `d11` came out byte-identical because the panel sits below that
+viewport's fold.
 
 The command palette added a `.tbtbtn` toggle to `.tbtools`; the eight
 topbar-bearing images plus the new `palette` state were recaptured on

@@ -4,6 +4,7 @@ import { translate } from "./i18n/catalog";
 import type { ComposerControlIntent } from "./models/composer";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
 import type { D6Intent, D6RecoveryProjection } from "./models/workspace";
+import type { RecentWorkResult } from "./models/recent_work";
 import {
   requestPreferenceRestore,
   requestPreferenceSave,
@@ -330,6 +331,9 @@ export async function hydrateShellFromCore(
         // its Core receipt, so the screen resumes instead of restarting.
         const result = await pollD11();
         root.dataset.route = "d11";
+        // One bounded Core read per D11 entry: intent-driven rerenders reuse
+        // the same inventory instead of reissuing `QueryRecentWork` each time.
+        let recentWorkRead: Promise<RecentWorkResult> | null = null;
         renderD11Intake(
           root,
           result.projection,
@@ -345,6 +349,7 @@ export async function hydrateShellFromCore(
           (queue) => void showD4([...queue]),
           undefined,
           () => void showD1(),
+          { load: () => (recentWorkRead ??= loadRecentWork()) },
         );
       };
 

@@ -186,9 +186,10 @@ density、两套 catalog 和 reduced-motion 行为仍由自动化测试覆盖。
 配置 rail 只渲染 Core 返回的 `viden.toml` 精确复核内容，confirm 的 preview id 与 SHA
 也从当前 Core projection 复制。Credential 行只显示 masked handle。由于尚无
 frontend-safe 平台 credential staging channel，raw credential 输入与 webview
-`StoreCredentialHandle` 路径以 `GUI-CORE-001` 明确禁用。D11 自身的历史面板仍以
-`GUI-CORE-007` typed unavailable 呈现最近工作；由 Core 支撑的最近工作界面是下文的
-Welcome 中心与项目选择器，二者同样不扫描 local storage、JSONL 或 SQLite。
+`StoreCredentialHandle` 路径以 `GUI-CORE-001` 明确禁用。D11 的历史面板现与下文的
+Welcome 中心和项目选择器渲染同一份 Core `QueryRecentWork` 清单，以
+`runtime.recent_work` capability 为门（旧的 `GUI-CORE-007` 临时文案已退役）；
+这些界面都不扫描 local storage、JSONL 或 SQLite。
 project switching 现通过 Core-owned `LocalCoreHost::open_workspace` 完成；
 安全 raw credential staging 仍是 `GUI-CORE-001` 的未完成部分。
 

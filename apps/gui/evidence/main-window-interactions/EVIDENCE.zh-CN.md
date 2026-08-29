@@ -36,7 +36,7 @@ D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填�
 | --- | --- | --- |
 | `d1*`、`settings*`、`d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | vitest 各套件共用的 D1 fixture |
 | `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | 由 `tests/capture_projections.rs`**生成** |
-| `d11` | 镜像 `tests/d11_intake.spec.ts` 里的 fixture | 手写；D11 目前还没有生成的捕获投影 |
+| `d11`、`d11-recent` | 镜像 `tests/d11_intake.spec.ts` 里的 fixture，历史面板另用下文手写的 `RecentWorkResult` | 手写；D11 目前还没有生成的捕获投影 |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 共享 D1 fixture 加一份手写的 `RecentWorkResult` | 手写；`frontend-contract-v1` 目前还没有规范的最近工作捕获投影，因此形状镜像 `tests/recent_work.rs` 与 `tests/project_picker.spec.ts` |
 
 D12 投影从不手写。`tests/capture_projections.rs` 用真实 Rust 投影跑规范
@@ -64,6 +64,7 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `d6-actions`、`d6-error` | 一个已停止的会话，其 `restart` 携带 session id、`close_lane` 携带 lane id | `tests/d6_recovery.spec.ts` 中的 `STOPPED` fixture |
 | `d12-actions` | 已记录必需证据、验证方满足，两个动作都可用且 code 为 `null` | `tests/d12_integration_gate.spec.ts` 中的 `DECIDABLE` fixture |
 | `d11` | 已探测的 `/workspace/demo` rust 项目，提供方处于凭据锁定状态 | `tests/d11_intake.spec.ts` 中的已探测项目 fixture |
+| `d11`、`d11-recent` | 交给屏幕最近工作端口的同一份两项目 `RecentWorkResult` | `tests/d11_intake.spec.ts` 中的已加载行 fixture |
 | `palette` | 交给 `loadPaletteCrossLane` 的一条跨 Lane 合并闸与一条询问 | `tests/d12_integration_gate.spec.ts` 的闸 fixture，以及 D1 fixture 本就带的那条 `liveWork.approvals` |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 一份两项目的 `RecentWorkResult`，时间戳是相对冻结时钟的偏移，因此渲染出的相对时间稳定。当前打开的根目录被刻意包含在内——选择器必须把它从「最近」中剔除，而不是提供切换到已经打开的项目 | `tests/recent_work.rs` 断言的 `RecentWorkLoaded` 载荷 |
 
@@ -99,6 +100,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d12-actions` | `…/qa.html?state=d12-actions` | 合并闸的批准可用，退回理由输入框已填写且可用 |
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | 同一闸的批准不可用并点名 `missing_evidence`，理由输入框禁用 |
 | `d11` | `…/qa.html?state=d11` | 项目接入屏，显示已探测项目与提供方告警 |
+| `d11-recent` | `…/qa.html?state=d11-recent` | 同一接入屏滚动到「最近工作」面板，显示 Core `QueryRecentWork` 行（名称、相对时间、会话数、规范根目录），替代已退役的静态不可用文案 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及点名 `GUI-CORE-022` 的永久禁用「文件」行 |
 | `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
@@ -128,11 +130,15 @@ DOM 级验证)。
 | [d12-actions-1440x900-dark-en.png](d12-actions-1440x900-dark-en.png) | d12-actions | 1440x900 | dark | en |
 | [d12-blocked-1440x900-dark-en.png](d12-blocked-1440x900-dark-en.png) | d12-blocked | 1440x900 | dark | en |
 | [d11-1440x900-dark-en.png](d11-1440x900-dark-en.png) | d11 | 1440x900 | dark | en |
+| [d11-recent-1440x900-dark-en.png](d11-recent-1440x900-dark-en.png) | d11-recent | 1440x900 | dark | en |
 | [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
 
 八张带标题栏的截图（`d1*`、`settings*`、`d6-*`）已于 2026-08-21 在标题栏 git 块
 落地后重新采集，显示带分支与脏标记点的项目选择器及两个 `.gitops` chip
-（`↑1 ↓0`、`⎇ 1 个工作树`）；独立屏 `d11`/`d12*` 不含驾驶舱标题栏，原截图仍然有效。
+（`↑1 ↓0`、`⎇ 1 个工作树`）；独立屏 `d12*` 不含驾驶舱标题栏，原截图仍然有效。
+`d11-recent` 于 2026-08-29 首次采集——历史面板自此渲染 Core 的最近工作行，
+替代已退役的 `GUI-CORE-007` 文案；同日重采的 `d11` 与原图逐字节一致，
+因为该面板位于此视口折叠线之下。
 
 命令面板在 `.tbtools` 中新增了一个 `.tbtbtn` 按钮;八张带标题栏的截图与新的
 `palette` 状态已于 2026-08-21 在 1440x900 下重新采集并人工目检(palette 截图

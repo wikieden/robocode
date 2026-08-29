@@ -65,6 +65,42 @@ export type RecentWorkState =
   | { kind: "loaded"; projects: RecentProjectView[]; diagnostics: string[] };
 
 /**
+ * Derives the renderable state from one `QueryRecentWork` round trip.
+ *
+ * Shared by every surface that issues the read — the cockpit picker, the
+ * Welcome centre, and D11 intake — so all of them report Core identically.
+ * The reason copy is injected because localization lives with the caller's
+ * locale, not with this model.
+ */
+export function recentWorkStateFromResult(
+  result: RecentWorkResult,
+  copy: { unavailable: string; pending: string },
+): { state: RecentWorkState; sessions: RecentSessionView[] } {
+  if (!result.capabilityAvailable) {
+    return { state: { kind: "unavailable", reason: copy.unavailable }, sessions: [] };
+  }
+  if (result.outcome.state === "rejected") {
+    // Core's own words, not a client paraphrase.
+    return {
+      state: { kind: "failed", reason: result.outcome.reason ?? copy.pending },
+      sessions: [],
+    };
+  }
+  if (result.outcome.state !== "confirmed") {
+    // Accepted but unanswered is not "no history"; it is an unanswered read.
+    return { state: { kind: "failed", reason: copy.pending }, sessions: [] };
+  }
+  return {
+    state: {
+      kind: "loaded",
+      projects: result.projects,
+      diagnostics: result.diagnostics,
+    },
+    sessions: result.sessions,
+  };
+}
+
+/**
  * Coarse "how long ago" buckets for a Core timestamp.
  *
  * Presentation only: the authority stays the epoch seconds Core published, and

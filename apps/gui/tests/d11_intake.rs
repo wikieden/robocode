@@ -159,13 +159,34 @@ fn d11_projection_contains_only_authoritative_safe_facts() {
         projection.credential_handles[0].masked_handle,
         "keychain:deepseek-primary"
     );
-    assert_eq!(projection.recent_work.code, "GUI-CORE-007");
-    assert!(!projection.recent_work.available);
+    assert!(projection.recent_work.available);
+    assert_eq!(projection.recent_work.code, "core_command");
     assert!(!projection.credential_ingress.available);
 
     let wire = serde_json::to_string(&projection).expect("serialize D11 projection");
     assert!(!wire.contains("api_key"));
     assert!(!wire.contains("secret"));
+}
+
+#[test]
+fn d11_recent_work_availability_follows_the_core_capability() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let mut client = D11Client::new(d11_view(), Arc::clone(&sent));
+    client.capabilities.remove("runtime.recent_work");
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter
+        .connect()
+        .expect("base handshake remains compatible");
+
+    let projection = adapter.projection().d11_intake().expect("D11 projection");
+    assert!(!projection.recent_work.available);
+    assert_eq!(projection.recent_work.code, "capability_missing");
+    assert!(
+        projection
+            .recent_work
+            .message
+            .contains("runtime.recent_work")
+    );
 }
 
 #[test]

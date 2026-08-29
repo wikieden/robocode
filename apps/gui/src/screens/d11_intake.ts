@@ -7,6 +7,14 @@ import {
   renderProviderHealth,
   type ProviderHealthView,
 } from "../components/provider_health";
+import {
+  RECENT_WORK_CAPABILITY,
+  recentWorkStateFromResult,
+  type RecentSessionView,
+  type RecentWorkResult,
+  type RecentWorkState,
+} from "../models/recent_work";
+import { recentAgeLabel } from "../components/project_picker";
 import "./d11_intake.css";
 import type { D4StarterSeed } from "./d4_lane_create";
 
@@ -74,6 +82,18 @@ export interface D11Controller {
   draft: D11Draft;
 }
 
+/**
+ * The shared Core recent-work read (`QueryRecentWork` -> `RecentWorkLoaded`),
+ * exactly as the shell already wires it for the Welcome centre and the project
+ * picker. D11 renders the same bounded inventory; it never scans session
+ * storage, JSONL, or SQLite itself.
+ */
+export interface D11RecentWorkPort {
+  load: () => Promise<RecentWorkResult>;
+  /** Injected so relative ages stay deterministic in tests and captures. */
+  now?: () => number;
+}
+
 type SendD11Intent = (intent: D11Intent) => Promise<D11IntentResult>;
 type PollD11Intent = () => Promise<D11IntentResult>;
 type RenderPendingPermission = (host: HTMLElement) => void;
@@ -102,6 +122,7 @@ function publishIntentResult(
   reviewStarterQueue?: (queue: readonly D4StarterSeed[]) => void,
   renderPendingPermission?: RenderPendingPermission,
   onExitToCockpit?: () => void,
+  recentWork?: D11RecentWorkPort,
 ): void {
   const pending =
     result.pendingCommandId && result.pendingIntent
@@ -119,6 +140,7 @@ function publishIntentResult(
     reviewStarterQueue,
     renderPendingPermission,
     onExitToCockpit,
+    recentWork,
   );
 }
 
@@ -171,6 +193,7 @@ export function renderD11Intake(
   reviewStarterQueue?: (queue: readonly D4StarterSeed[]) => void,
   renderPendingPermission?: RenderPendingPermission,
   onExitToCockpit?: () => void,
+  recentWork?: D11RecentWorkPort,
 ): D11Controller {
   const draft: D11Draft =
     renderState?.draft ?? draftFromD11Projection(projection);
@@ -213,6 +236,7 @@ export function renderD11Intake(
           reviewStarterQueue,
           renderPendingPermission,
           onExitToCockpit,
+          recentWork,
         );
       })
       .catch((error: unknown) => {
@@ -356,7 +380,7 @@ export function renderD11Intake(
   }
   content.append(presetFieldset, starter, laneState);
 
-  appendSafeFacts(content, projection, locale);
+  appendSafeFacts(content, projection, locale, recentWork);
 
   const tomlRail = document.createElement("aside");
   tomlRail.className = "tomlrail";
@@ -451,6 +475,7 @@ export function renderD11Intake(
                 reviewStarterQueue,
                 renderPendingPermission,
                 onExitToCockpit,
+                recentWork,
               );
             }
           })
@@ -470,6 +495,7 @@ function appendSafeFacts(
   content: HTMLElement,
   projection: D11IntakeProjection,
   locale: Locale,
+  recentWork?: D11RecentWorkPort,
 ): void {
   const credential = document.createElement("section");
   credential.className = "d11-safe-facts";
@@ -486,13 +512,105 @@ function appendSafeFacts(
   ingress.disabled = !projection.credentialIngress.available;
   credential.append(ingress);
 
+  // Recent work is the same Core read the Welcome centre and project picker
+  // use. The rendered states stay distinct — an absent capability, a Core
+  // rejection, an unanswered read, and a genuinely empty inventory are
+  // different facts — and nothing here scans the session home as a fallback.
   const recent = document.createElement("section");
-  recent.className = "d11-safe-facts";
+  recent.className = "d11-safe-facts d11-recent";
+  recent.dataset.recentCode = projection.recentWork.code;
   const recentTitle = document.createElement("h2");
   recentTitle.textContent = translate(locale, "d11.history", {});
-  const recentStatus = document.createElement("p");
-  recentStatus.textContent = projection.recentWork.message;
-  recentStatus.title = projection.recentWork.code;
-  recent.append(recentTitle, recentStatus);
+
+  const renderRecentState = (
+    state: RecentWorkState,
+    sessions: readonly RecentSessionView[],
+  ): void => {
+    recent.dataset.recentState = state.kind;
+    recent.replaceChildren(recentTitle);
+    if (state.kind === "loading") {
+      const note = document.createElement("p");
+      note.setAttribute("role", "status");
+      note.textContent = translate(locale, "d1.picker.recent.loading", {});
+      recent.append(note);
+      return;
+    }
+    if (state.kind !== "loaded") {
+      const note = document.createElement("p");
+      note.className = "d11-unavailable";
+      note.setAttribute("role", "status");
+      note.textContent = state.reason;
+      recent.append(note);
+      return;
+    }
+    if (state.projects.length === 0) {
+      const empty = document.createElement("p");
+      empty.setAttribute("role", "status");
+      empty.textContent = translate(locale, "d1.welcome.recentEmpty", {});
+      recent.append(empty);
+      return;
+    }
+    const list = document.createElement("ul");
+    list.className = "d11-recent-list";
+    const now = recentWork?.now?.() ?? Date.now();
+    for (const project of state.projects) {
+      // The session count comes from the same bounded `RecentWorkLoaded`
+      // fact; nothing is counted from a directory or a transcript.
+      const sessionCount = sessions.filter(
+        (session) => session.canonicalRoot === project.canonicalRoot,
+      ).length;
+      const item = document.createElement("li");
+      item.dataset.recentProject = project.canonicalRoot;
+      const name = document.createElement("strong");
+      name.textContent = project.displayName;
+      const meta = document.createElement("small");
+      meta.textContent = `${recentAgeLabel(locale, project.lastUpdatedAt, now)} · ${translate(
+        locale,
+        sessionCount === 1
+          ? "d1.welcome.recentSessions.one"
+          : "d1.welcome.recentSessions.other",
+        { count: String(sessionCount) },
+      )}`;
+      const path = document.createElement("small");
+      path.className = "d11-recent-path";
+      path.textContent = project.canonicalRoot;
+      item.append(name, meta, path);
+      list.append(item);
+    }
+    recent.append(list);
+    for (const diagnostic of state.diagnostics) {
+      // Core's diagnostics render verbatim; the client never rewords them.
+      const note = document.createElement("p");
+      note.dataset.recentDiagnostic = diagnostic;
+      note.textContent = diagnostic;
+      recent.append(note);
+    }
+  };
+
+  const unavailableReason = translate(locale, "d1.recent.unavailable", {
+    capability: RECENT_WORK_CAPABILITY,
+  });
+  if (!projection.recentWork.available || !recentWork) {
+    // Core's handshake lacks the read, or the shell wired no port; either way
+    // the operator sees the same named-capability gap, never an empty list.
+    renderRecentState({ kind: "unavailable", reason: unavailableReason }, []);
+  } else {
+    renderRecentState({ kind: "loading" }, []);
+    void recentWork
+      .load()
+      .then((result) => {
+        // Rerenders replace the whole screen; a stale read must not touch it.
+        if (!recent.isConnected) return;
+        const derived = recentWorkStateFromResult(result, {
+          unavailable: unavailableReason,
+          pending: translate(locale, "d1.recent.pending", {}),
+        });
+        renderRecentState(derived.state, derived.sessions);
+      })
+      .catch((error: unknown) => {
+        if (!recent.isConnected) return;
+        renderRecentState({ kind: "failed", reason: String(error) }, []);
+      });
+  }
   content.append(credential, recent);
 }

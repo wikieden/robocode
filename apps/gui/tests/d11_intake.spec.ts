@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   D11IntakeProjection,
   D11IntentResult,
+  D11RecentWorkPort,
 } from "../src/screens/d11_intake";
+import type { RecentWorkResult } from "../src/models/recent_work";
 import { renderD11Intake } from "../src/screens/d11_intake";
 import type { D4StarterSeed } from "../src/screens/d4_lane_create";
 
@@ -19,9 +21,9 @@ const EMPTY_PROJECTION: D11IntakeProjection = {
   pendingApproval: null,
   lastError: null,
   recentWork: {
-    available: false,
-    code: "GUI-CORE-007",
-    message: "Recent project and session history is unavailable.",
+    available: true,
+    code: "core_command",
+    message: "Recent project and session history is served by Core.",
   },
   credentialIngress: {
     available: false,
@@ -41,6 +43,7 @@ function setup(
   reviewStarterQueue = vi.fn<(queue: readonly D4StarterSeed[]) => void>(),
   renderPendingPermission = vi.fn<(host: HTMLElement) => void>(),
   onExitToCockpit = vi.fn<() => void>(),
+  recentWork?: D11RecentWorkPort,
 ) {
   document.body.innerHTML = '<main id="app"></main>';
   const root = document.querySelector<HTMLElement>("#app");
@@ -60,6 +63,7 @@ function setup(
     reviewStarterQueue,
     renderPendingPermission,
     onExitToCockpit,
+    recentWork,
   );
   return {
     root,
@@ -457,5 +461,120 @@ describe("D11 project intake", () => {
     const permissionHost = root.querySelector<HTMLElement>("[data-d11-permission-host]");
     expect(permissionHost).not.toBeNull();
     expect(renderPendingPermission).toHaveBeenCalledWith(permissionHost);
+  });
+
+  test("renders Core recent-work rows through the shared read port", async () => {
+    const loaded: RecentWorkResult = {
+      outcome: { state: "confirmed", reason: null },
+      projects: [
+        {
+          canonicalRoot: "/workspace/viden",
+          displayName: "viden",
+          lastUpdatedAt: 1_767_222_000,
+          latestSessionId: "session-viden",
+        },
+      ],
+      sessions: [
+        {
+          canonicalRoot: "/workspace/viden",
+          sessionId: "session-viden",
+          createdAt: 1_767_221_000,
+          lastUpdatedAt: 1_767_222_000,
+          messageCount: 4,
+          toolCallCount: 1,
+          commandCount: 2,
+        },
+      ],
+      diagnostics: ["skipped 1 legacy record"],
+      pendingCommandId: null,
+      capabilityAvailable: true,
+    };
+    const load = vi.fn(async () => loaded);
+    const { root } = setup(EMPTY_PROJECTION, undefined, undefined, undefined, undefined, {
+      load,
+      now: () => 1_767_225_600_000,
+    });
+
+    const recent = root.querySelector<HTMLElement>(".d11-recent");
+    expect(recent?.dataset.recentState).toBe("loading");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(recent?.dataset.recentState).toBe("loaded");
+    const row = recent?.querySelector<HTMLElement>('[data-recent-project="/workspace/viden"]');
+    expect(row?.textContent).toContain("viden");
+    expect(row?.textContent).toContain("1 session");
+    expect(recent?.textContent).toContain("skipped 1 legacy record");
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports an empty inventory as empty, not as unavailable", async () => {
+    const load = vi.fn(
+      async (): Promise<RecentWorkResult> => ({
+        outcome: { state: "confirmed", reason: null },
+        projects: [],
+        sessions: [],
+        diagnostics: [],
+        pendingCommandId: null,
+        capabilityAvailable: true,
+      }),
+    );
+    const { root } = setup(EMPTY_PROJECTION, undefined, undefined, undefined, undefined, {
+      load,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    const recent = root.querySelector<HTMLElement>(".d11-recent");
+    expect(recent?.dataset.recentState).toBe("loaded");
+    expect(recent?.textContent).toContain("No recent projects yet");
+  });
+
+  test("names the missing capability instead of claiming an empty history", () => {
+    const load = vi.fn(async (): Promise<RecentWorkResult> => {
+      throw new Error("must not be read without the capability");
+    });
+    const { root } = setup(
+      {
+        ...EMPTY_PROJECTION,
+        recentWork: {
+          available: false,
+          code: "capability_missing",
+          message: "Core did not publish runtime.recent_work; recent history is unavailable.",
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { load },
+    );
+
+    const recent = root.querySelector<HTMLElement>(".d11-recent");
+    expect(recent?.dataset.recentState).toBe("unavailable");
+    expect(recent?.dataset.recentCode).toBe("capability_missing");
+    expect(recent?.textContent).toContain("runtime.recent_work");
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("reports a rejected recent-work read in Core's own words", async () => {
+    const load = vi.fn(
+      async (): Promise<RecentWorkResult> => ({
+        outcome: { state: "rejected", reason: "inventory rebuild failed" },
+        projects: [],
+        sessions: [],
+        diagnostics: [],
+        pendingCommandId: null,
+        capabilityAvailable: true,
+      }),
+    );
+    const { root } = setup(EMPTY_PROJECTION, undefined, undefined, undefined, undefined, {
+      load,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    const recent = root.querySelector<HTMLElement>(".d11-recent");
+    expect(recent?.dataset.recentState).toBe("failed");
+    expect(recent?.textContent).toContain("inventory rebuild failed");
   });
 });

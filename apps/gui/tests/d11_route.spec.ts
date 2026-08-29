@@ -29,10 +29,12 @@ const D11_PROJECTION: D11IntakeProjection = {
   starterLanes: [],
   pendingApproval: null,
   lastError: null,
+  // Unavailable keeps the route spec free of the recent-work read: the
+  // section renders the named capability gap and never calls the port.
   recentWork: {
     available: false,
-    code: "GUI-CORE-007",
-    message: "Recent project and session history is unavailable.",
+    code: "capability_missing",
+    message: "Core did not publish runtime.recent_work; recent history is unavailable.",
   },
   credentialIngress: {
     available: false,

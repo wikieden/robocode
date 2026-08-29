@@ -220,11 +220,11 @@ The config rail renders only Core's exact reviewed `viden.toml` contents, and
 confirmation copies the preview id and SHA from the current Core projection.
 Credential rows contain masked handles only. Because no frontend-safe platform
 credential staging channel exists, raw credential entry and the webview
-`StoreCredentialHandle` path are disabled with `GUI-CORE-001`. D11's own history
-panel still declares recent work unavailable as `GUI-CORE-007`; the Core-backed
-recent-work surfaces are the Welcome centre and the project picker described
-below, and neither the screen nor those surfaces scan local storage, JSONL, or
-SQLite. Project switching now uses the Core-owned
+`StoreCredentialHandle` path are disabled with `GUI-CORE-001`. D11's history
+panel renders the same Core `QueryRecentWork` inventory as the Welcome centre
+and the project picker described below, gated on the `runtime.recent_work`
+capability (the old `GUI-CORE-007` stopgap is retired); none of these surfaces
+scan local storage, JSONL, or SQLite. Project switching now uses the Core-owned
 `LocalCoreHost::open_workspace` boundary; secure raw credential staging remains
 the outstanding `GUI-CORE-001` part.
 

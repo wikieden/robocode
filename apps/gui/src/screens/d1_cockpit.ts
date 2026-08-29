@@ -58,6 +58,7 @@ import {
 import { BoundedTranscript, type D1TranscriptRow } from "../models/transcript";
 import {
   RECENT_WORK_CAPABILITY,
+  recentWorkStateFromResult,
   type RecentSessionView,
   type RecentWorkResult,
   type RecentWorkState,
@@ -1158,29 +1159,15 @@ export function renderD1Cockpit(
     try {
       const result: RecentWorkResult = await options.loadRecentWork();
       if (disposed) return;
-      if (!result.capabilityAvailable) {
-        recentState = {
-          kind: "unavailable",
-          reason: translate(locale, "d1.recent.unavailable", {
-            capability: RECENT_WORK_CAPABILITY,
-          }),
-        };
-      } else if (result.outcome.state === "rejected") {
-        // Core's own words, not a client paraphrase.
-        recentState = {
-          kind: "failed",
-          reason: result.outcome.reason ?? translate(locale, "d1.recent.pending", {}),
-        };
-      } else if (result.outcome.state !== "confirmed") {
-        // Accepted but unanswered is not "no history"; it is an unanswered read.
-        recentState = { kind: "failed", reason: translate(locale, "d1.recent.pending", {}) };
-      } else {
-        recentState = {
-          kind: "loaded",
-          projects: result.projects,
-          diagnostics: result.diagnostics,
-        };
-        recentSessions = result.sessions;
+      const derived = recentWorkStateFromResult(result, {
+        unavailable: translate(locale, "d1.recent.unavailable", {
+          capability: RECENT_WORK_CAPABILITY,
+        }),
+        pending: translate(locale, "d1.recent.pending", {}),
+      });
+      recentState = derived.state;
+      if (derived.state.kind === "loaded") {
+        recentSessions = derived.sessions;
       }
     } catch (error: unknown) {
       if (disposed) return;

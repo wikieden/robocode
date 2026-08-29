@@ -143,6 +143,29 @@
   color: var(--warning);
 }
 
+.d11-recent-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: var(--sp-3);
+  list-style: none;
+}
+
+.d11-recent-list li {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.d11-recent-list strong {
+  color: var(--fg-primary);
+}
+
+.d11-recent-path {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 .tomlrail {
   display: flex;
   min-width: 0;

@@ -1058,10 +1058,21 @@ impl RuntimeProjection {
                     title: approval.title.clone(),
                 }),
             last_error: view.errors.last().map(|error| error.message.clone()),
-            recent_work: D11AvailabilityProjection {
-                available: false,
-                code: "GUI-CORE-007",
-                message: "Recent project and session history is unavailable.",
+            // Availability mirrors Core's handshake: the rows themselves come
+            // from the shared `QueryRecentWork` read, not from this snapshot
+            // projection, so the flag only says whether that read exists.
+            recent_work: if supports(crate::RECENT_WORK_CAPABILITY) {
+                D11AvailabilityProjection {
+                    available: true,
+                    code: "core_command",
+                    message: "Recent project and session history is served by Core.",
+                }
+            } else {
+                D11AvailabilityProjection {
+                    available: false,
+                    code: "capability_missing",
+                    message: "Core did not publish runtime.recent_work; recent history is unavailable.",
+                }
             },
             credential_ingress: D11AvailabilityProjection {
                 available: false,

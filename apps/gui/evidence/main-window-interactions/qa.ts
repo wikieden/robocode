@@ -346,9 +346,9 @@ const D11_PROJECTION: D11IntakeProjection = {
   pendingApproval: null,
   lastError: null,
   recentWork: {
-    available: false,
-    code: "GUI-CORE-007",
-    message: "Recent project and session history is unavailable.",
+    available: true,
+    code: "core_command",
+    message: "Recent project and session history is served by Core.",
   },
   credentialIngress: {
     available: false,
@@ -572,7 +572,41 @@ async function renderState(): Promise<void> {
     }
 
     case "d11": {
-      renderD11Intake(root!, D11_PROJECTION, never<D11IntentResult>, locale);
+      renderD11Intake(
+        root!,
+        D11_PROJECTION,
+        never<D11IntentResult>,
+        locale,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        // The same frozen inventory the Welcome capture uses; Date.now is
+        // already frozen above, so the relative ages stay deterministic.
+        { load: async () => RECENT_WORK },
+      );
+      return;
+    }
+
+    case "d11-recent": {
+      // The same intake screen scrolled to its history panel, proving the
+      // Core `QueryRecentWork` rows replaced the old static unavailability
+      // sentence. The rows load in a microtask, so the capture waits for one.
+      renderD11Intake(
+        root!,
+        D11_PROJECTION,
+        never<D11IntentResult>,
+        locale,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { load: async () => RECENT_WORK },
+      );
+      const row = await waitFor("[data-recent-project]");
+      row?.scrollIntoView({ block: "center" });
       return;
     }
 
