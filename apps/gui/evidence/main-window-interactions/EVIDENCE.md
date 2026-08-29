@@ -128,11 +128,11 @@ review; all 11 DOM-verified at build time).
 | [d11-1440x900-dark-en.png](d11-1440x900-dark-en.png) | d11 | 1440x900 | dark | en |
 | [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
 
-Every capture above predates the titlebar git block added on
-`claude/gui-titlebar-git`. The shared D1 fixture now carries a `topbarSource`,
-so each `d1*`, `settings*`, and `d6-*` state renders the project selector with
-its branch and the two `.gitops` chips; the committed PNGs still show the
-titlebar without them and need a recapture by an operator.
+The eight topbar-bearing captures (`d1*`, `settings*`, `d6-*`) were recaptured
+on 2026-08-21 after the titlebar git block landed and show the project
+selector with its branch, the dirty dot, and both `.gitops` chips
+(`↑1 ↓0`, `⎇ 1 worktree`); the standalone `d11`/`d12*` screens carry no
+cockpit titlebar, so their earlier captures remain valid.
 
 ## Known limitation
 

@@ -118,10 +118,9 @@ DOM 级验证)。
 | [d11-1440x900-dark-en.png](d11-1440x900-dark-en.png) | d11 | 1440x900 | dark | en |
 | [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
 
-上表所有截图都早于 `claude/gui-titlebar-git` 上新增的标题栏 git 块。共享 D1
-fixture 现在带 `topbarSource`，因此每个 `d1*`、`settings*` 与 `d6-*` 状态都会渲染
-带分支的项目选择器与两个 `.gitops` chip；已提交的 PNG 仍是没有它们的旧标题栏，
-需要操作者重新截图。
+八张带标题栏的截图（`d1*`、`settings*`、`d6-*`）已于 2026-08-21 在标题栏 git 块
+落地后重新采集，显示带分支与脏标记点的项目选择器及两个 `.gitops` chip
+（`↑1 ↓0`、`⎇ 1 个工作树`）；独立屏 `d11`/`d12*` 不含驾驶舱标题栏，原截图仍然有效。
 
 ## 已知限制
 
