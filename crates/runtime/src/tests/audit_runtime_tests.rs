@@ -18,7 +18,7 @@ use viden_types::{
 use super::{SequenceProvider, temp_dir};
 use crate::SessionEngine;
 
-fn owner(lane_id: &str, task_id: &str) -> RuntimeOwner {
+pub(super) fn owner(lane_id: &str, task_id: &str) -> RuntimeOwner {
     RuntimeOwner {
         workspace_id: "workspace-1".to_string(),
         project_id: "project-1".to_string(),
@@ -29,7 +29,7 @@ fn owner(lane_id: &str, task_id: &str) -> RuntimeOwner {
     }
 }
 
-fn start_gate(
+pub(super) fn start_gate(
     engine: &mut SessionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     task_id: &str,
@@ -58,7 +58,7 @@ fn start_gate(
         .unwrap();
 }
 
-fn record_canonical_patch(
+pub(super) fn record_canonical_patch(
     cwd: &std::path::Path,
     engine: &mut SessionEngine,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -117,7 +117,7 @@ fn record_canonical_patch(
     binding
 }
 
-fn all_audit_records(engine: &SessionEngine) -> Vec<AuditRecord> {
+pub(super) fn all_audit_records(engine: &SessionEngine) -> Vec<AuditRecord> {
     engine
         .workflow_store()
         .query_audit(&AuditQuery {
@@ -131,7 +131,7 @@ fn all_audit_records(engine: &SessionEngine) -> Vec<AuditRecord> {
         .records
 }
 
-fn only_record<'a>(records: &'a [AuditRecord], action: &str) -> &'a AuditRecord {
+pub(super) fn only_record<'a>(records: &'a [AuditRecord], action: &str) -> &'a AuditRecord {
     let matching = records
         .iter()
         .filter(|record| record.action == action)
@@ -145,7 +145,7 @@ fn only_record<'a>(records: &'a [AuditRecord], action: &str) -> &'a AuditRecord 
     matching[0]
 }
 
-fn links(record: &AuditRecord, kind: &str, id: &str) -> bool {
+pub(super) fn links(record: &AuditRecord, kind: &str, id: &str) -> bool {
     record
         .objects
         .iter()

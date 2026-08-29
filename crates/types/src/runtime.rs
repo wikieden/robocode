@@ -11,7 +11,7 @@ use crate::{
     EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord,
     MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
     RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner,
+    RevertRecord, ReviewRequestRecord, ReviewVerdict, ReviewedEvidenceBinding, RuntimeOwner,
     RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
     StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
     TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
@@ -194,6 +194,18 @@ pub enum RuntimeCommand {
         reviewer_lane_id: crate::AgentLaneId,
         owner: RuntimeOwner,
         evidence_ids: Vec<EvidenceId>,
+    },
+    /// Records the independent reviewer lane's verdict on a pending review.
+    ///
+    /// The gate decision commands stay separate: this settles the review fact
+    /// only, and `AcceptMergeGate` still fails closed against a rejected one.
+    DecideReview {
+        review_id: String,
+        verdict: ReviewVerdict,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feedback: Option<String>,
+        #[serde(default)]
+        actor: RuntimeOwner,
     },
     ConfirmContract {
         contract_id: String,

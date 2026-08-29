@@ -1148,6 +1148,12 @@ fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
                 source_hash: "ab".repeat(32),
             },
         },
+        RuntimeCommand::DecideReview {
+            review_id: "review-trust".to_string(),
+            verdict: ReviewVerdict::Accepted,
+            feedback: Some("evidence matches the request".to_string()),
+            actor: owner.clone(),
+        },
         RuntimeCommand::RevertAppliedChange {
             gate_id: "gate-trust".to_string(),
             owner,
@@ -1165,10 +1171,43 @@ fn schema_one_trust_loop_commands_roundtrip_as_additive_typed_variants() {
         "set_dependency",
         "bounce_merge_conflict",
         "revalidate_merge_conflict",
+        "decide_review",
         "revert_applied_change",
     ] {
         assert!(encoded.contains(command_type));
     }
+    assert!(encoded.contains("\"verdict\":\"accepted\""));
+}
+
+#[test]
+fn schema_one_review_request_feedback_is_additive_and_optional() {
+    // Legacy records written before the review verdict carried feedback must
+    // still deserialize, and an absent verdict note must not appear on the wire.
+    let legacy: ReviewRequestRecord = serde_json::from_value(serde_json::json!({
+        "review_id": "review-legacy",
+        "gate_id": "gate-legacy",
+        "task_id": "task-legacy",
+        "requester_lane_id": "lane-coder",
+        "reviewer_lane_id": "lane-reviewer",
+        "owner": RuntimeOwner::default(),
+        "evidence_ids": ["evidence-legacy"],
+        "status": "pending",
+        "audit_id": "audit-legacy",
+        "updated_at": 7
+    }))
+    .unwrap();
+    assert_eq!(legacy.feedback, None);
+    let encoded = serde_json::to_value(&legacy).unwrap();
+    assert!(encoded.get("feedback").is_none());
+
+    let decided = ReviewRequestRecord {
+        status: ReviewRequestStatus::Rejected,
+        feedback: Some("missing regression coverage".to_string()),
+        ..legacy
+    };
+    let round_tripped: ReviewRequestRecord =
+        serde_json::from_value(serde_json::to_value(&decided).unwrap()).unwrap();
+    assert_eq!(round_tripped, decided);
 }
 
 #[test]

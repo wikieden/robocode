@@ -1,0 +1,363 @@
+{
+  "fixture_id": "review-decision",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.merge_gate",
+    "runtime.snapshot",
+    "runtime.trust_loop"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_review-decision",
+        "task_id": null,
+        "turn_id": "turn_review-decision"
+      },
+      "cursor": {
+        "stream_id": "fixture:review-decision",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000101,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "ev_review_patch",
+              "kind": "patch",
+              "summary": "canonical patch under review",
+              "path": "artifacts/ev_review_patch.txt",
+              "source": "core",
+              "timestamp": 1700000070
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_review-decision",
+        "task_id": null,
+        "turn_id": "turn_review-decision"
+      },
+      "cursor": {
+        "stream_id": "fixture:review-decision",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000102,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate_review_decision",
+              "task_id": "task_review_decision",
+              "status": "collecting_evidence",
+              "required_evidence": [
+                "patch"
+              ],
+              "evidence_ids": [
+                "ev_review_patch"
+              ],
+              "gate_type": "review",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_review_origin",
+                "session_id": "session_review_origin",
+                "task_id": "task_review_decision",
+                "turn_id": null
+              },
+              "validator": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_review_independent",
+                  "session_id": null,
+                  "task_id": "task_review_decision",
+                  "turn_id": null
+                },
+                "review_request_id": "review_decision",
+                "independent": true,
+                "validated_at": null
+              },
+              "policy_snapshot": {
+                "required_evidence": [
+                  "patch"
+                ],
+                "permission_snapshot_id": "permission_review_decision",
+                "requires_independent_validator": true,
+                "captured_at": 1700000101
+              },
+              "decision": {
+                "outcome": "awaiting_evidence",
+                "reason": "independent_review_required",
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_review_origin",
+                  "session_id": "session_review_origin",
+                  "task_id": "task_review_decision",
+                  "turn_id": null
+                },
+                "evidence_ids": [
+                  "ev_review_patch"
+                ],
+                "reviewed_evidence": [
+                  {
+                    "evidence_id": "ev_review_patch",
+                    "source_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+                  }
+                ],
+                "review_request_id": "review_decision",
+                "audit_id": "audit_review_requested",
+                "decided_at": 1700000101
+              },
+              "audit_ids": [
+                "audit_review_requested"
+              ],
+              "updated_at": 1700000101
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_review-decision",
+        "task_id": null,
+        "turn_id": "turn_review-decision"
+      },
+      "cursor": {
+        "stream_id": "fixture:review-decision",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000103,
+        "kind": {
+          "type": "review_request_updated",
+          "payload": {
+            "review": {
+              "review_id": "review_decision",
+              "gate_id": "gate_review_decision",
+              "task_id": "task_review_decision",
+              "requester_lane_id": "lane_review_origin",
+              "reviewer_lane_id": "lane_review_independent",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_review_origin",
+                "session_id": "session_review_origin",
+                "task_id": "task_review_decision",
+                "turn_id": null
+              },
+              "evidence_ids": [
+                "ev_review_patch"
+              ],
+              "evidence_bindings": [
+                {
+                  "evidence_id": "ev_review_patch",
+                  "source_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+                }
+              ],
+              "status": "pending",
+              "audit_id": "audit_review_requested",
+              "updated_at": 1700000101
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_review-decision",
+        "task_id": null,
+        "turn_id": "turn_review-decision"
+      },
+      "cursor": {
+        "stream_id": "fixture:review-decision",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000104,
+        "kind": {
+          "type": "review_request_updated",
+          "payload": {
+            "review": {
+              "review_id": "review_decision",
+              "gate_id": "gate_review_decision",
+              "task_id": "task_review_decision",
+              "requester_lane_id": "lane_review_origin",
+              "reviewer_lane_id": "lane_review_independent",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_review_origin",
+                "session_id": "session_review_origin",
+                "task_id": "task_review_decision",
+                "turn_id": null
+              },
+              "evidence_ids": [
+                "ev_review_patch"
+              ],
+              "evidence_bindings": [
+                {
+                  "evidence_id": "ev_review_patch",
+                  "source_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+                }
+              ],
+              "status": "accepted",
+              "feedback": "review.feedback.evidence_matches_request",
+              "audit_id": "audit_review_decided",
+              "updated_at": 1700000102
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_review-decision",
+        "task_id": null,
+        "turn_id": "turn_review-decision"
+      },
+      "cursor": {
+        "stream_id": "fixture:review-decision",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000105,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate_review_decision",
+              "task_id": "task_review_decision",
+              "status": "collecting_evidence",
+              "required_evidence": [
+                "patch"
+              ],
+              "evidence_ids": [
+                "ev_review_patch"
+              ],
+              "gate_type": "review",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_review_origin",
+                "session_id": "session_review_origin",
+                "task_id": "task_review_decision",
+                "turn_id": null
+              },
+              "validator": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_review_independent",
+                  "session_id": null,
+                  "task_id": "task_review_decision",
+                  "turn_id": null
+                },
+                "review_request_id": "review_decision",
+                "independent": true,
+                "validated_at": 1700000102
+              },
+              "policy_snapshot": {
+                "required_evidence": [
+                  "patch"
+                ],
+                "permission_snapshot_id": "permission_review_decision",
+                "requires_independent_validator": true,
+                "captured_at": 1700000101
+              },
+              "decision": {
+                "outcome": "awaiting_evidence",
+                "reason": "independent_review_required",
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_review_origin",
+                  "session_id": "session_review_origin",
+                  "task_id": "task_review_decision",
+                  "turn_id": null
+                },
+                "evidence_ids": [
+                  "ev_review_patch"
+                ],
+                "reviewed_evidence": [
+                  {
+                    "evidence_id": "ev_review_patch",
+                    "source_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+                  }
+                ],
+                "review_request_id": "review_decision",
+                "audit_id": "audit_review_requested",
+                "decided_at": 1700000101
+              },
+              "audit_ids": [
+                "audit_review_requested",
+                "audit_review_decided"
+              ],
+              "updated_at": 1700000102
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:review-decision",
+    "sequence": 5
+  },
+  "expected_view_sha256": "38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c"
+}

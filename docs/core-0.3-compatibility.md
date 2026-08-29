@@ -107,15 +107,19 @@ projection vectors are omitted during serialization, so replaying the frozen
 
 `runtime.trust_loop` adds typed handoff, review request, contract, dependency,
 merge-gate policy/validator/decision, conflict-bounce, and revert facts. The
-seven new cross-lane commands, including explicit `RevalidateMergeConflict`,
-and their events are permission-gated and replay through
+eight new cross-lane commands, including explicit `RevalidateMergeConflict`
+and `DecideReview`, and their events are permission-gated and replay through
 the shared reducer. Schema remains `1`: new record fields use defaults, unknown
 fields remain ignorable, and a pre-extension string merge decision deserializes
 as a read-only `legacy` decision. New writes always serialize a typed decision.
 Only real ContextStore bytes with a Core-issued permission receipt can produce
 canonical acceptance; display summaries never substitute for evidence. Assigned
 validators bind the exact id/hash set, while `RequestReview` itself is
-authorized by the requesting gate owner. Dependency ids are stable edge ids and
+authorized by the requesting gate owner. `DecideReview` is authorized only for
+the independent reviewer lane, requires the reviewed evidence bindings to be
+unchanged, stamps the gate validator on an accepted verdict, and blocks
+`AcceptMergeGate` after a rejected one; a settled review is never overwritten by
+a later gate decision. Dependency ids are stable edge ids and
 cannot be rebound to different endpoints. Pure trust preflight completes before
 approval. Merge persists a private content-addressed recovery snapshot and
 workflow precommit before changing files; duplicate preimage blobs are reused,
@@ -211,12 +215,13 @@ the tested fixture values and must change with the corresponding fixture state.
 | `d1-vertical-slice` | D1-visible transcript/tool, lane/task, decision, evidence/gate, context/cost, recovery, and UI preferences | `7dd8faf04cca9f3013198e25823894eae91c2869e27087aa1eb0a34890cdf804` |
 
 The original nine rows above are the frozen base corpus. The separately
-registered schema-1 extension fixture is:
+registered schema-1 extension fixtures are:
 
 | Fixture id | Extension scenario | Expected final view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI preference persistence, safe recent work, reviewed starter-Lane preview/create/invalidation, exact live Lane owner, and one tolerated future optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
 | `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
+| `review-decision` | Independent review verdict: `ReviewRequestStatus` `Pending -> Accepted` with reviewer feedback and the stamped gate validator, while the gate decision stays separate | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 
 The extension fixture uses the six real known events
 `UiPreferencesUpdated`, `RecentWorkLoaded`, `StarterLanePreviewed`,

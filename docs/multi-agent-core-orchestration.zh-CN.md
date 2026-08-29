@@ -212,6 +212,7 @@ session 或 workflow state 时有 durable log 支撑。
 | `MergeAgentPatch` | 应用 accepted unified-diff patch evidence；成功时标记 merged，冲突时退回 needs-changes。 |
 | `CreateHandoff` | 在不同 Lane 间记录 typed accepted/rejected ownership transfer。 |
 | `RequestReview` | 把 independent reviewer 与 evidence set 绑定到 merge gate。 |
+| `DecideReview` | 记录独立评审 Lane 对 pending review 的接受/驳回结论，并可附带反馈。 |
 | `ConfirmContract` | 记录 task 的 typed contract confirmation/rejection。 |
 | `SetDependency` | 持久化确定性的 dependency block/unblock state。 |
 | `BounceMergeConflict` | 把 structured conflict 返回原 Lane。 |

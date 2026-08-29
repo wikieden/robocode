@@ -19,13 +19,13 @@ use viden_types::{
     CostUsageOutcome, CostUsageRecord, EventCursor, EvidenceView, ExecutionTarget,
     FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
     MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
-    MergeGateStatus, MergeGateType, MutationPolicy, PermissionLevel, PermissionMode,
-    ProjectConfigState, ProjectProbe, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
-    ResolvedUiPreferences, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
-    TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
-    WorkspaceEligibility,
+    MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, PermissionLevel,
+    PermissionMode, ProjectConfigState, ProjectProbe, QueuedInputView, RecentProjectSummary,
+    RecentSessionSummary, ResolvedUiPreferences, ReviewRequestStatus, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
+    RuntimeViewState, RuntimeWireEvent, SchemaVersion, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView, TokenUsage,
+    UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode, WorkspaceEligibility,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -138,7 +138,7 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
     assert!(extension_manifest.contains("candidate_component_version = \"0.3.5\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
-    assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 7"));
+    assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 8"));
     assert_eq!(CORE_CLIENT_VERSION, "0.3.5");
     assert_eq!(local_core_handshake().core_version, "0.3.5");
 }
@@ -438,6 +438,99 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert!(release_manifest.contains(
         "view_sha256 = \"46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0\""
     ));
+}
+
+/// GUI-CORE-011: canonical proof that a review verdict is readable as a
+/// `ReviewRequestStatus` transition in the contract stream.
+///
+/// Registered as a post-freeze schema-1 extension fixture, so the frozen base
+/// corpus of nine `0.3.0` fixtures keeps its byte and digest identity.
+#[test]
+fn review_decision_fixture_replays_the_review_verdict_transition() {
+    let name = "review-decision.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read review decision fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "review_decision_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact review decision fixture bytes"
+    );
+    assert!(extension_manifest.contains("review_decision_fixture = \"review-decision.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    // The stream is exactly what a request followed by a verdict publishes.
+    let statuses = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => match &event.kind {
+                RuntimeEventKind::ReviewRequestUpdated { review } => Some(review.status),
+                _ => None,
+            },
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        [ReviewRequestStatus::Pending, ReviewRequestStatus::Accepted],
+        "the fixture must carry the Pending -> Accepted transition itself"
+    );
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    let review = first_view
+        .review_requests
+        .iter()
+        .find(|review| review.review_id == "review_decision")
+        .expect("the fixture must project its review request");
+    assert_eq!(review.status, ReviewRequestStatus::Accepted);
+    assert_eq!(
+        review.feedback.as_deref(),
+        Some("review.feedback.evidence_matches_request")
+    );
+    assert_eq!(review.audit_id, "audit_review_decided");
+
+    let gate = first_view
+        .merge_gates
+        .iter()
+        .find(|gate| gate.gate_id == "gate_review_decision")
+        .expect("the fixture must project its merge gate");
+    let validator = gate.validator.as_ref().expect("independent validator");
+    assert_eq!(validator.review_request_id, review.review_id);
+    assert_eq!(
+        validator.validated_at,
+        Some(1_700_000_102),
+        "an accepted verdict stamps the validator it settled"
+    );
+    // The verdict settles the review only: deciding the gate stays a separate
+    // permission-gated operator command.
+    assert_eq!(gate.status, MergeGateStatus::CollectingEvidence);
+}
+
+#[test]
+#[ignore = "manual review decision fixture refresh; normal tests validate committed JSON only"]
+fn refresh_review_decision_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = review_decision_fixture();
+    fs::write(
+        root.join("review-decision.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1095,6 +1188,161 @@ fn build_fixtures() -> Vec<FrontendContractFixtureOut> {
             ),
         ),
     ]
+}
+
+/// Canonical proof of the `ReviewRequestStatus` transition a review decision
+/// publishes (GUI-CORE-011).
+///
+/// The stream is exactly what `DecideReview` emits: the settled review fact
+/// followed by the gate whose independent validator the accepted verdict
+/// stamped. Frontends read the transition from these facts, never from the
+/// gate decision text.
+fn review_decision_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "review-decision";
+    let requester = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_review_origin".to_string()),
+        session_id: Some("session_review_origin".to_string()),
+        task_id: Some("task_review_decision".to_string()),
+        turn_id: None,
+    };
+    let reviewer = RuntimeOwner {
+        lane_id: Some("lane_review_independent".to_string()),
+        session_id: None,
+        ..requester.clone()
+    };
+    let patch = evidence("ev_review_patch", "patch", "canonical patch under review");
+    let binding = viden_types::ReviewedEvidenceBinding {
+        evidence_id: patch.id.clone(),
+        source_hash: "a1".repeat(32),
+    };
+    let pending_review = viden_types::ReviewRequestRecord {
+        review_id: "review_decision".to_string(),
+        gate_id: "gate_review_decision".to_string(),
+        task_id: "task_review_decision".to_string(),
+        requester_lane_id: "lane_review_origin".to_string(),
+        reviewer_lane_id: "lane_review_independent".to_string(),
+        owner: requester.clone(),
+        evidence_ids: vec![patch.id.clone()],
+        evidence_bindings: vec![binding.clone()],
+        status: viden_types::ReviewRequestStatus::Pending,
+        feedback: None,
+        audit_id: "audit_review_requested".to_string(),
+        updated_at: 1_700_000_101,
+    };
+    let decided_review = viden_types::ReviewRequestRecord {
+        status: viden_types::ReviewRequestStatus::Accepted,
+        feedback: Some("review.feedback.evidence_matches_request".to_string()),
+        audit_id: "audit_review_decided".to_string(),
+        updated_at: 1_700_000_102,
+        ..pending_review.clone()
+    };
+    let validator = MergeGateValidator {
+        owner: reviewer,
+        review_request_id: pending_review.review_id.clone(),
+        independent: true,
+        validated_at: None,
+    };
+    let collecting_gate = MergeGateRecord {
+        gate_id: "gate_review_decision".to_string(),
+        task_id: "task_review_decision".to_string(),
+        status: MergeGateStatus::CollectingEvidence,
+        required_evidence: vec!["patch".to_string()],
+        evidence_ids: vec![patch.id.clone()],
+        gate_type: MergeGateType::Review,
+        owner: requester.clone(),
+        validator: Some(validator.clone()),
+        policy_snapshot: MergeGatePolicySnapshot {
+            required_evidence: vec!["patch".to_string()],
+            permission_snapshot_id: Some("permission_review_decision".to_string()),
+            requires_independent_validator: true,
+            captured_at: Some(1_700_000_101),
+        },
+        decision: Some(MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::AwaitingEvidence,
+            reason: "independent_review_required".to_string(),
+            owner: requester,
+            evidence_ids: vec![patch.id.clone()],
+            reviewed_evidence: vec![binding],
+            review_request_id: Some(pending_review.review_id.clone()),
+            audit_id: "audit_review_requested".to_string(),
+            decided_at: 1_700_000_101,
+        }),
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: vec!["audit_review_requested".to_string()],
+        updated_at: Some(1_700_000_101),
+    };
+    let validated_gate = MergeGateRecord {
+        validator: Some(MergeGateValidator {
+            validated_at: Some(1_700_000_102),
+            ..validator
+        }),
+        audit_ids: vec![
+            "audit_review_requested".to_string(),
+            "audit_review_decided".to_string(),
+        ],
+        updated_at: Some(1_700_000_102),
+        ..collecting_gate.clone()
+    };
+
+    let kinds = vec![
+        RuntimeEventKind::EvidenceRecorded { evidence: patch },
+        RuntimeEventKind::MergeGateUpdated {
+            gate: collecting_gate,
+        },
+        RuntimeEventKind::ReviewRequestUpdated {
+            review: pending_review,
+        },
+        RuntimeEventKind::ReviewRequestUpdated {
+            review: decided_review,
+        },
+        RuntimeEventKind::MergeGateUpdated {
+            gate: validated_gate,
+        },
+    ];
+    let events = kinds
+        .into_iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner: RuntimeOwner {
+                    workspace_id: "workspace_contract_v1".to_string(),
+                    project_id: "project_viden".to_string(),
+                    lane_id: None,
+                    session_id: Some(format!("session_{fixture_id}")),
+                    task_id: None,
+                    turn_id: Some(format!("turn_{fixture_id}")),
+                },
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(1_700_000_100 + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect();
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.events",
+            "runtime.evidence",
+            "runtime.merge_gate",
+            "runtime.snapshot",
+            "runtime.trust_loop",
+        ],
+        snapshot(WorkMode::Build),
+        events,
+    )
 }
 
 fn frontend_host_services_fixture() -> FrontendContractFixtureOut {

@@ -6,6 +6,7 @@ use viden_provider::ModelProvider;
 use viden_types::{ModelEvent, ModelRequest, fresh_id};
 
 mod audit_runtime_tests;
+mod decide_review_tests;
 mod frontend_services_tests;
 mod git_command_tests;
 mod interrupted_turn_recovery_tests;

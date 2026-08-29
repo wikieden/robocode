@@ -108,7 +108,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Agent workflow visibility | Mission Control board、workflow strip、plan/now/done/acceptance/blocked columns | `AgentDagRecord`、`AgentTaskRecord`、`EvidenceView`、`MergeGateRecord`、`RuntimeErrorView` | 现有 workflow/task/evidence/merge commands | 提案 |
 | ContextBundle | context panel、token pressure meter、omitted-source list | `ContextBundleRecord`、`ContextSourceRecord`、token budgets | 当前无直接 mutation；后续增加 context-policy commands | 部分落地 |
 | Evidence and merge gate | evidence center、diff/test/review checklist、merge gate card | `EvidenceView`、`MergeGateRecord` | `RecordAgentEvidence`、`AcceptMergeGate`、`RejectMergeGate`、`AcceptAgentArtifact`、`RejectAgentArtifact`、`MergeAgentPatch` | `0.2.3` reducer 第一刀已落地 |
-| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
+| 跨 Lane trust loop | handoff/review/contract/dependency cards、conflict 与 revert recovery | `HandoffRecord`、`ReviewRequestRecord`、`ContractRecord`、`DependencyRecord`、typed `MergeGateRecord`、`ConflictBounce`、`RevertRecord` | `CreateHandoff`、`RequestReview`、`DecideReview`、`ConfirmContract`、`SetDependency`、`BounceMergeConflict`、`RevalidateMergeConflict`、`RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
 | 原生与 ACP agent session | 内置 DeepSeek/OpenAI 工作，以及 Codex/Claude/Kiro ACP session | `AgentAdapterView.startability`、`AgentSessionView`、`RuntimeViewState.agent_session_inputs`、有序 `agent_conversation` | `StartAgentSession`、`SendAgentSessionInput`、`RetryAgentSession`、`CancelAgentSession` | Core `0.3.5` extensions `runtime.agent_adapters`、`runtime.agent_sessions`、`runtime.agent_session_input`、`runtime.agent_conversation` |
@@ -426,6 +426,11 @@ command transport 零发送。未来未知 runtime-owner event 只作为可检�
   不能创建自我授权的 review request。`dependency_id` 绑定唯一
   `(task_id, depends_on_task_id)` edge，包含 `Unblocked` 更新在内都不能重绑到另一条
   edge。
+- `DecideReview` 记录 reviewer 对 pending review 的结论。只有独立评审 Lane 可以决定；
+  被评审的 evidence binding 必须仍与请求一致；接受结论会为 gate validator 打上
+  `validated_at`；已结算的评审不会被后续 gate 决定覆盖。关联评审为 rejected 时
+  `AcceptMergeGate` 失败关闭，`RejectMergeGate` 仍然可用。可选 `feedback` 只是评审记录
+  上的 reviewer 文本，在发布的 command event 中与 rejection reason 一样被脱敏。
 - evidence 被 reject 后 gate 进入 `needs_changes`，并从 gate/task evidence 列表移除该
   evidence id。`RejectMergeGate` 和 `RejectAgentArtifact` 带显式 `actor`；Core 会在
   approval 前拒绝缺失或未授权 actor，并把通过校验的真实 actor 写入 typed decision。

@@ -70,7 +70,7 @@ pub use trust::{
     ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,
     DependencyState, HandoffAcceptance, HandoffRecord, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateType, MergeGateValidator, RecoverySnapshotReference,
-    RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewedEvidenceBinding,
+    RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
 };
 pub use ui_preferences::{
     LocaleId, ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiMotion,

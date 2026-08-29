@@ -113,7 +113,7 @@ self-referential inside the payload commit.
 | Agent workflow visibility | Mission Control board, workflow strip, plan/now/done/acceptance/blocked columns | `AgentDagRecord`, `AgentTaskRecord`, `EvidenceView`, `MergeGateRecord`, `RuntimeErrorView` | existing workflow/task/evidence/merge commands | proposed |
 | ContextBundle | context panel, token pressure meter, omitted-source list | `ContextBundleRecord`, `ContextSourceRecord`, token budgets | no direct mutation; future context-policy commands | partial |
 | Evidence and merge gate | evidence center, diff/test/review checklist, merge gate card | `EvidenceView`, `MergeGateRecord` | `RecordAgentEvidence`, `AcceptMergeGate`, `RejectMergeGate`, `AcceptAgentArtifact`, `RejectAgentArtifact`, `MergeAgentPatch` | reducer first slice landed in `0.2.3` |
-| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
+| Cross-lane trust loop | handoff/review/contract/dependency cards, conflict and revert recovery | `HandoffRecord`, `ReviewRequestRecord`, `ContractRecord`, `DependencyRecord`, typed `MergeGateRecord`, `ConflictBounce`, `RevertRecord` | `CreateHandoff`, `RequestReview`, `DecideReview`, `ConfirmContract`, `SetDependency`, `BounceMergeConflict`, `RevalidateMergeConflict`, `RevertAppliedChange` | Core `0.3.2` extension `runtime.trust_loop` |
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
 | Native and ACP agent sessions | built-in DeepSeek/OpenAI work and Codex/Claude/Kiro ACP sessions | `AgentAdapterView.startability`, `AgentSessionView`, `RuntimeViewState.agent_session_inputs`, ordered `agent_conversation` | `StartAgentSession`, `SendAgentSessionInput`, `RetryAgentSession`, `CancelAgentSession` | Core `0.3.5` extensions `runtime.agent_adapters`, `runtime.agent_sessions`, `runtime.agent_session_input`, `runtime.agent_conversation` |
@@ -491,6 +491,13 @@ Current `0.2.3` reducer behavior:
   `reviewer_lane_id`, so a reviewer cannot create a self-authorizing review
   request. `dependency_id` is bound to one `(task_id, depends_on_task_id)` edge
   and cannot be rebound to another edge, including by an `Unblocked` update.
+- `DecideReview` records the reviewer verdict on a pending review. Only the
+  independent reviewer lane may decide, the reviewed evidence bindings must
+  still match the request, an accepted verdict stamps the gate validator, and a
+  settled review is never overwritten by a later gate decision. `AcceptMergeGate`
+  fails closed while the linked review is rejected; `RejectMergeGate` stays
+  available. Optional `feedback` is reviewer prose on the review record only and
+  is redacted in published command events like a rejection reason.
 - Rejected evidence moves the gate to `needs_changes` and removes that evidence
   id from the gate/task evidence lists. `RejectMergeGate` and
   `RejectAgentArtifact` carry an explicit `actor`; Core rejects missing or

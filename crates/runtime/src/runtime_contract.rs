@@ -715,6 +715,21 @@ impl SessionEngine {
                     );
                 }
             },
+            RuntimeCommand::DecideReview {
+                review_id,
+                verdict,
+                feedback,
+                actor,
+            } => match self.decide_review(review_id, verdict, feedback, actor, approver) {
+                Ok(trust_events) => append_resequenced(&mut events, trust_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
             RuntimeCommand::ConfirmContract {
                 contract_id,
                 task_id,
@@ -2530,8 +2545,14 @@ impl SessionEngine {
                 .iter()
                 .find(|review| review.review_id == validator.review_request_id)
                 .ok_or_else(|| "merge gate validator review request does not exist".to_string())?;
-            if review.status != ReviewRequestStatus::Pending {
-                return Err("merge gate review request is not pending".to_string());
+            // `DecideReview` owns settled reviews: an accepted verdict still
+            // lets the operator decide the gate, but a rejected one fails
+            // closed here rather than being overwritten by the gate decision.
+            if review.status == ReviewRequestStatus::Rejected {
+                return Err(format!(
+                    "cannot accept merge gate `{gate_id}`: independent review `{}` was rejected",
+                    review.review_id
+                ));
             }
             if current_bindings != review.evidence_bindings
                 || reviewed_evidence != review.evidence_bindings
@@ -2859,8 +2880,13 @@ impl SessionEngine {
                     .ok_or_else(|| {
                         "merge gate validator review request does not exist".to_string()
                     })?;
-                if review.status != ReviewRequestStatus::Pending {
-                    return Err("merge gate review request is not pending".to_string());
+                // See `preflight_accept_merge_gate`: a rejected independent
+                // review blocks acceptance; an accepted one is honoured.
+                if review.status == ReviewRequestStatus::Rejected {
+                    return Err(format!(
+                        "cannot accept merge gate `{gate_id}`: independent review `{}` was rejected",
+                        review.review_id
+                    ));
                 }
                 if current_bindings != review.evidence_bindings
                     || reviewed_evidence != review.evidence_bindings
@@ -2979,11 +3005,15 @@ impl SessionEngine {
             1,
             RuntimeEventKind::MergeGateUpdated { gate },
         )];
+        // Legacy auto-flip: a gate decided without an explicit `DecideReview`
+        // settles its still-pending review. A review already settled by the
+        // reviewer lane is authoritative and is never overwritten here.
         if let Some(review_request_id) = review_request_id
             && let Some(review) = self
                 .runtime_review_requests
                 .iter_mut()
                 .find(|review| review.review_id == review_request_id)
+            && review.status == ReviewRequestStatus::Pending
         {
             review.status = if status == MergeGateStatus::Accepted {
                 ReviewRequestStatus::Accepted
@@ -4479,6 +4509,7 @@ fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
             | RuntimeCommand::RevalidateMergeConflict { .. }
             | RuntimeCommand::CreateHandoff { .. }
             | RuntimeCommand::RequestReview { .. }
+            | RuntimeCommand::DecideReview { .. }
             | RuntimeCommand::ConfirmContract { .. }
             | RuntimeCommand::SetDependency { .. }
             | RuntimeCommand::BounceMergeConflict { .. }
@@ -5982,6 +6013,19 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
                 .iter()
                 .map(|id| redact_identifier_for_event(id))
                 .collect(),
+        },
+        RuntimeCommand::DecideReview {
+            review_id,
+            verdict,
+            feedback,
+            actor,
+        } => RuntimeCommand::DecideReview {
+            review_id: redact_identifier_for_event(review_id),
+            verdict: *verdict,
+            // Reviewer prose is redacted exactly like a gate rejection reason:
+            // the verdict and the ids are contract facts, the note is not.
+            feedback: feedback.as_deref().map(redact_command_text),
+            actor: redacted_runtime_owner(actor),
         },
         RuntimeCommand::ConfirmContract {
             contract_id,

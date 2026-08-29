@@ -46,6 +46,15 @@ Owner 的选中 Lane 投影时，关闭此请求。
 当 Core 发布携带评审 id、结论、可选反馈与审计 id 的评审决定命令，且规范 fixture
 证明 `ReviewRequestStatus` 的状态迁移时，关闭此请求。
 
+Core 状态：已在 `core-v0.3.2`（提交待定）交付
+`RuntimeCommand::DecideReview { review_id, verdict, feedback, actor }`。只有独立
+评审 Lane 可以做出决定；该结论结算评审事实，接受时为 gate validator 打上
+`validated_at`；已结算的接受结论不会被后续 gate 决定覆盖；评审被驳回后
+`AcceptMergeGate` 失败关闭。`ReviewRequestRecord` 新增可选且向后兼容的
+`feedback` 字段。schema-1 扩展 fixture `review-decision.json` 证明
+`Pending -> Accepted` 迁移。GUI 接线仍未完成：在客户端发送 `DecideReview` 之前，
+D2 仍以该编码把接受/驳回动作置为禁用。
+
 ## GUI-CORE-012：审批的结构化决策上下文
 
 `ApprovalRequestView` 只携带 `input_preview` 这一不透明展示字符串。D2 设计稿要求

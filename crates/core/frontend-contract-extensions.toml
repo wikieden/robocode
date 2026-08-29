@@ -9,6 +9,9 @@ extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d
 interaction_fixture = "interaction-closed-loop.json"
 interaction_fixture_sha256 = "78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5"
 interaction_view_sha256 = "46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0"
+review_decision_fixture = "review-decision.json"
+review_decision_fixture_sha256 = "b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b"
+review_decision_view_sha256 = "38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c"
 
 [runtime_agent_session_input]
 commands = ["send_agent_session_input", "retry_agent_session"]
@@ -76,7 +79,8 @@ events = ["lane_command_accepted", "lane_updated", "lane_output_appended", "lane
 legacy_clients = "require frozen capabilities only; preserve unsupported event payloads as unknown"
 
 [runtime_trust_loop]
-command_count = 7
+command_count = 8
 events = ["handoff_updated", "review_request_updated", "contract_updated", "dependency_updated", "merge_conflict_bounced", "revert_recorded", "merge_gate_updated"]
+review_decision = "decide_review records the independent reviewer lane verdict; the requester lane is never accepted as decider and a rejected review blocks accept_merge_gate"
 decision_compatibility = "schema-1 legacy string decisions deserialize as read-only legacy facts; new writes are typed"
 evidence_boundary = "canonical evidence is required for acceptance; summary-only evidence never satisfies a merge gate"

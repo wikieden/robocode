@@ -244,6 +244,7 @@ Proposed `RuntimeCommand` additions:
 | `MergeAgentPatch` | Apply accepted unified-diff patch evidence, mark it merged on success, or return the gate to needs-changes on conflict. |
 | `CreateHandoff` | Record typed accepted/rejected ownership transfer between distinct lanes. |
 | `RequestReview` | Bind an independent reviewer and evidence set to a merge gate. |
+| `DecideReview` | Record the independent reviewer lane's accepted/rejected verdict, with optional feedback, on a pending review. |
 | `ConfirmContract` | Record typed contract confirmation/rejection for a task. |
 | `SetDependency` | Persist deterministic dependency block/unblock state. |
 | `BounceMergeConflict` | Return a structured conflict to its originating lane. |

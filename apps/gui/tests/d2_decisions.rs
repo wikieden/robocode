@@ -66,6 +66,7 @@ fn decision_view() -> (RuntimeViewState, ApprovalRequestView) {
         evidence_ids: vec!["evidence-playtest".to_string()],
         evidence_bindings: Vec::new(),
         status: ReviewRequestStatus::Pending,
+        feedback: None,
         audit_id: "audit-review".to_string(),
         updated_at: 1_700_000_200,
     });

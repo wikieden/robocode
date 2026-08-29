@@ -32,6 +32,38 @@ pub enum ReviewRequestStatus {
     Rejected,
 }
 
+/// The verdict an independent reviewer lane records on a pending review.
+///
+/// `ReviewRequestStatus` also carries `Pending`, which is a lifecycle state and
+/// never a decision, so the command surface uses this narrower type: a review
+/// decision can only settle a review, never reopen one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewVerdict {
+    Accepted,
+    Rejected,
+}
+
+impl ReviewVerdict {
+    /// Stable audit/permission token. Kept separate from `Debug` so the audit
+    /// timeline never depends on a derived formatting detail.
+    pub fn as_token(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+impl From<ReviewVerdict> for ReviewRequestStatus {
+    fn from(verdict: ReviewVerdict) -> Self {
+        match verdict {
+            ReviewVerdict::Accepted => Self::Accepted,
+            ReviewVerdict::Rejected => Self::Rejected,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ReviewedEvidenceBinding {
     pub evidence_id: EvidenceId,
@@ -50,6 +82,11 @@ pub struct ReviewRequestRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence_bindings: Vec<ReviewedEvidenceBinding>,
     pub status: ReviewRequestStatus,
+    /// Reviewer prose attached to a recorded verdict. Additive and optional so
+    /// schema-1 records written before review decisions still deserialize, and
+    /// so a pending review never carries an empty note on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<String>,
     pub audit_id: String,
     pub updated_at: u64,
 }

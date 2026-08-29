@@ -53,6 +53,17 @@ Close this request when Core publishes a review-decision command carrying the
 review id, verdict, optional feedback, and audit id, and the canonical fixture
 proves the resulting `ReviewRequestStatus` transition.
 
+Core status: delivered in `core-v0.3.2` (commit pending) as
+`RuntimeCommand::DecideReview { review_id, verdict, feedback, actor }`. Only
+the independent reviewer lane may decide; the verdict settles the review and
+stamps the gate validator on accept, an accepted verdict is never overwritten
+by a later gate decision, and `AcceptMergeGate` fails closed after a rejected
+review. `ReviewRequestRecord` gained an additive optional `feedback`. The
+schema-1 extension fixture `review-decision.json` proves the
+`Pending -> Accepted` transition. GUI wiring is still open: D2 keeps rendering
+the accept/reject actions disabled with this code until the client sends
+`DecideReview`.
+
 ## GUI-CORE-012: Structured decision context for an approval
 
 `ApprovalRequestView` carries only `input_preview`, an opaque display string.

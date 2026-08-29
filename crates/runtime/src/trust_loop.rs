@@ -134,6 +134,18 @@ impl SessionEngine {
                     format!("gate={gate_id} reviewer={reviewer_lane_id}"),
                 )
             }
+            viden_types::RuntimeCommand::DecideReview {
+                review_id,
+                verdict,
+                feedback,
+                actor,
+            } => {
+                self.preflight_decide_review(review_id, feedback.as_deref(), actor)?;
+                (
+                    "decide_review",
+                    format!("review={review_id} verdict={}", verdict.as_token()),
+                )
+            }
             viden_types::RuntimeCommand::ConfirmContract {
                 contract_id,
                 task_id,
@@ -538,6 +550,7 @@ impl SessionEngine {
             evidence_ids,
             evidence_bindings,
             status: ReviewRequestStatus::Pending,
+            feedback: None,
             audit_id: audit_id.clone(),
             updated_at: now,
         };
@@ -563,6 +576,124 @@ impl SessionEngine {
         Ok(vec![
             RuntimeEvent::new(1, RuntimeEventKind::ReviewRequestUpdated { review }),
             RuntimeEvent::new(2, RuntimeEventKind::MergeGateUpdated { gate: gate.clone() }),
+        ])
+    }
+
+    /// Validates a review decision without mutating anything.
+    ///
+    /// Shared by the permission descriptor and the mutation so the classified
+    /// action and the executed action can never disagree about who may decide.
+    /// Returns the index of the pending review.
+    pub(crate) fn preflight_decide_review(
+        &self,
+        review_id: &str,
+        feedback: Option<&str>,
+        actor: &RuntimeOwner,
+    ) -> Result<usize, String> {
+        validate_trust_id("review_id", review_id)?;
+        let review_index = self
+            .runtime_review_requests
+            .iter()
+            .position(|review| review.review_id == review_id)
+            .ok_or_else(|| format!("review request `{review_id}` does not exist"))?;
+        let review = &self.runtime_review_requests[review_index];
+        if review.status != ReviewRequestStatus::Pending {
+            return Err(format!("review `{review_id}` is already decided"));
+        }
+        validate_review_decider(review, actor)?;
+        // Evidence-binding drift guard: the verdict may only settle the exact
+        // canonical receipts the reviewer was asked about. Anything recorded on
+        // the gate since the request invalidates the review instead of being
+        // silently blessed by it.
+        let gate_index = self.require_merge_gate_index(&review.gate_id)?;
+        let current = self
+            .validated_evidence_bindings_for_ids(gate_index, &review.evidence_ids)
+            .map_err(|error| {
+                format!("review evidence drifted since the request; re-request review: {error}")
+            })?;
+        if current != review.evidence_bindings {
+            return Err("review evidence drifted since the request; re-request review".to_string());
+        }
+        if let Some(feedback) = feedback {
+            validate_trust_text("review feedback", feedback.to_string(), 500)?;
+        }
+        Ok(review_index)
+    }
+
+    pub(crate) fn decide_review<F>(
+        &mut self,
+        review_id: String,
+        verdict: viden_types::ReviewVerdict,
+        feedback: Option<String>,
+        actor: RuntimeOwner,
+        approver: &mut F,
+    ) -> Result<Vec<RuntimeEvent>, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        let review_index = self.preflight_decide_review(&review_id, feedback.as_deref(), &actor)?;
+        let feedback = feedback
+            .map(|feedback| validate_trust_text("review feedback", feedback, 500))
+            .transpose()?;
+        self.require_trust_permission(
+            "decide_review",
+            &format!("review={review_id} verdict={}", verdict.as_token()),
+            approver,
+        )?;
+
+        let now = now_timestamp();
+        let audit_id = fresh_id("audit");
+        let review = &self.runtime_review_requests[review_index];
+        let gate_id = review.gate_id.clone();
+        let task_id = review.task_id.clone();
+        let requester_lane_id = review.requester_lane_id.clone();
+        let reviewer_lane_id = review.reviewer_lane_id.clone();
+        let gate_index = self.require_merge_gate_index(&gate_id)?;
+        // Audit before mutation, the same rule as every other trust site: the
+        // reviewer verdict is what later authorizes (or blocks) the merge gate,
+        // so a failed append must fail the decision instead of leaving an
+        // unauditable settlement. Reviewer prose never enters the audit args.
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &actor,
+            "review.decided",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_REVIEW_REQUEST, &review_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, &gate_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, &requester_lane_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, &reviewer_lane_id),
+            ],
+            &[("verdict", verdict.as_token())],
+        )?)?;
+
+        let review = &mut self.runtime_review_requests[review_index];
+        review.status = ReviewRequestStatus::from(verdict);
+        review.feedback = feedback;
+        review.audit_id = audit_id.clone();
+        review.updated_at = now;
+        let review = review.clone();
+
+        let gate = &mut self.runtime_merge_gates[gate_index];
+        // Only the validator this review was installed for is stamped: a gate
+        // whose validator moved on to another review must not inherit this
+        // verdict's independent validation.
+        if verdict == viden_types::ReviewVerdict::Accepted
+            && let Some(validator) = gate.validator.as_mut()
+            && validator.review_request_id == review_id
+        {
+            validator.validated_at = Some(now);
+        }
+        // A rejection leaves the gate status to the operator's own gate
+        // decision, but the gate still joins this audit fact either way.
+        gate.audit_ids.push(audit_id);
+        gate.updated_at = Some(now);
+        let gate = gate.clone();
+
+        Ok(vec![
+            RuntimeEvent::new(1, RuntimeEventKind::ReviewRequestUpdated { review }),
+            RuntimeEvent::new(2, RuntimeEventKind::MergeGateUpdated { gate }),
         ])
     }
 
@@ -1287,6 +1418,29 @@ fn validate_review_requester(
         return Err(
             "review request owner must match the complete merge gate owner scope".to_string(),
         );
+    }
+    Ok(())
+}
+
+/// Only the independent reviewer lane may settle a review.
+///
+/// The requester owns the gate and the evidence, so letting it record its own
+/// verdict would collapse the two-lane trust loop into self-approval.
+fn validate_review_decider(
+    review: &ReviewRequestRecord,
+    actor: &RuntimeOwner,
+) -> Result<(), String> {
+    if actor == &RuntimeOwner::default() {
+        return Err("review decision requires an actor".to_string());
+    }
+    if actor.lane_id.as_deref() != Some(review.reviewer_lane_id.as_str()) {
+        return Err("review decision requires the independent reviewer lane".to_string());
+    }
+    validate_owner(actor, Some(&review.reviewer_lane_id), &review.task_id)?;
+    if actor.workspace_id != review.owner.workspace_id
+        || actor.project_id != review.owner.project_id
+    {
+        return Err("review decision actor does not match the review workspace scope".to_string());
     }
     Ok(())
 }

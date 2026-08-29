@@ -1579,6 +1579,7 @@ fn run_supervisor_worker(
                     | RuntimeCommand::ResetUiPreferences
                     | RuntimeCommand::CreateHandoff { .. }
                     | RuntimeCommand::RequestReview { .. }
+                    | RuntimeCommand::DecideReview { .. }
                     | RuntimeCommand::ConfirmContract { .. }
                     | RuntimeCommand::SetDependency { .. }
                     | RuntimeCommand::AcceptMergeGate { .. }

@@ -94,14 +94,17 @@ availability/auth facts，不包含 raw command、环境引用或 agent-native c
 因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
 
 `runtime.trust_loop` 新增 typed handoff、review request、contract、dependency、
-merge-gate policy/validator/decision、conflict bounce 与 revert facts。七个新增跨 Lane
-command（含显式 `RevalidateMergeConflict`）及其 events 均经过权限门禁并由共享
+merge-gate policy/validator/decision、conflict bounce 与 revert facts。八个新增跨 Lane
+command（含显式 `RevalidateMergeConflict` 与 `DecideReview`）及其 events 均经过权限门禁并由共享
 reducer 重放。Schema 仍为 `1`：新增
 record fields 提供默认值，未知字段可忽略；扩展前的 string merge decision 会读取为只读
 `legacy` decision，新写入则始终序列化 typed decision。只有绑定真实 ContextStore bytes
 与 Core 签发 permission receipt 的 evidence 才能产生 canonical acceptance；展示摘要不能
 替代 evidence。指定 validator 必须绑定精确 id/hash 集，且所有 trust 纯 preflight 在
-approval 前完成；`RequestReview` 本身由发起请求的 gate owner 授权。Dependency id 是稳定
+approval 前完成；`RequestReview` 本身由发起请求的 gate owner 授权。`DecideReview` 只
+授权给独立评审 Lane，要求被评审的 evidence binding 未发生漂移，接受结论会为 gate
+validator 打戳，驳回结论则阻断 `AcceptMergeGate`；已结算的评审不会被后续 gate 决定
+覆盖。Dependency id 是稳定
 edge id，不能重绑到不同端点。Merge 在改动文件前持久化私有 content-addressed recovery
 snapshot 与 workflow precommit；重复 preimage blob 会复用，私有 recovery lock 拒绝
 symlink traversal，从而在不把 raw preimage 写入 event log 的前提下支持重启后 audited revert。
@@ -182,6 +185,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI 偏好持久化、安全 recent work、reviewed starter-Lane preview/create/invalidation、精确 live Lane owner，以及一个可容忍的未来 optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
 | `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
+| `review-decision` | 独立评审结论：`ReviewRequestStatus` 由 `Pending` 迁移到 `Accepted`，携带 reviewer feedback 与被打戳的 gate validator，同时 gate 决定仍然独立 | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 
 扩展 fixture 使用六个正式 known event：`UiPreferencesUpdated`、`RecentWorkLoaded`、
 `StarterLanePreviewed`、`StarterLaneCreated`、`StarterLanePreviewInvalidated`、
