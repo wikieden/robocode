@@ -208,3 +208,47 @@ forge 的 CI；`MergeGateView` 是 Viden 自己的门禁，不是远端的合并
 并与其他工作区读取走同一道权限门禁——且规范 `frontend-contract-v1` fixture 覆盖
 「有清单」与「无清单」两种项目时，关闭此请求。届时 GUI 会在面板中启用 `~` 作用域，
 TUI 也会启用同一选择器。
+
+## GUI-CORE-023：并发多工作区托管
+
+Core 一次只托管一个工作区。`LocalCoreHost::open_workspace`
+（`crates/core/src/host.rs:166-234`）每次调用都会新建一个 `RuntimeSupervisor`，
+而桌面宿主只是替换它那唯一的 `Mutex<Option<GuiCoreAdapter>>` 槽位
+（`apps/gui/src-tauri/src/lib.rs:79-94`）。因此打开一个项目会**替换**当前打开的
+项目：旧 supervisor 被 drop 时（`crates/runtime/src/runtime_supervisor.rs:1373-1404`）
+会 join 其工作线程并关闭所有常驻 ACP 会话，旧工作区里正在运行的每条 Lane 与
+Agent 都会停止。
+
+这与设计稿画的不一致。`WorkspacePanel` 渲染了多个 `.wsroot` 项目分组以及一个跨项目
+的「Global」lane 分区，`ProjectPicker` 的「工作区内」一列带项目计数和每项目 lane
+计数，D13 展示的是跨项目的舰队视图。在单根 supervisor 之上，这些都无法表达。
+
+在 Core 发布多根托管之前，GUI 守住以下边界：
+
+- 侧栏只渲染一个分组——当前打开的项目——不伪造同级项目，也没有「Global」分区；
+- 选择器的「工作区内」一列只有一行，标记为当前项且不可点击，因为工作区内部没有可
+  切换的目标；
+- 其他任何项目都是一次**切换**，必须先经过内联确认，确认文案点名将被拆除的正在运行
+  的 Lane 与 Agent 会话数量；
+- `克隆仓库…` 与 `新建空项目` 渲染为禁用并点名本请求：`frontend-contract-v1` 没有
+  发布仓库克隆命令，也没有项目脚手架命令，而 GUI 不得自行 shell out 调用
+  `git clone` 或写出项目骨架——这两者都是绕过 Core 权限门禁的变更。
+
+当 Core 发布以下内容时，关闭此请求：
+
+1. **N 根托管**——同时托管多个工作区，`open_workspace` 变为叠加语义（或获得显式的
+   替换标志），而不是静默替换；
+2. **项目注册表**——把已挂载的根集合作为 `RuntimeViewState` 中类型化、有序的事实
+   发布，使侧栏分组来自 Core 而不是来自单一的 `environment.cwd`；
+3. **跨项目 Lane 枚举**——可跨已挂载根读取 Lane、会话、闸门与审批事实，这正是设计稿
+   的「Global」分区与 D13 舰队看板真正展示的内容；
+4. **`RuntimeOwner.project_id` 推导规则**——从规范根到 `RuntimeOwner` 已携带的
+   `project_id` 的稳定且有文档的映射，使客户端无需按路径做字符串匹配即可把
+   owner 绑定事实归属到项目；
+5. **项目初始化命令**——把「克隆进工作区」与「脚手架新建项目」作为 Core 命令发布，
+   并与其他所有变更走同一道权限门禁，这才是解锁两行禁用选项的前提；
+6. **规范 `frontend-contract-v1` fixture**，覆盖单根与双根两种情况，让分组侧栏与跨
+   项目舰队拥有生成的证据而非手写投影。
+
+最近工作清单（`runtime.recent_work`）**不是**这个缺口：它已经能让客户端列出可以打开
+的项目。缺的是同时打开多个项目的能力。

@@ -128,9 +128,9 @@ implementation, not editing screens.
 
 | GUI area | Design intent | Core `0.3.5` status | GUI handling |
 | --- | --- | --- | --- |
-| Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding; Core publishes no first-run intake signal, and secure credential ingress and the GUI recent-work adapter remain incomplete | Welcome uses the native folder picker and host rebind directly; D11 stays an explicit in-project configuration flow and never owns folder open. Reachable at `?screen=d11` and from the agent menu's `Full setup`; the shell never redirects into it on its own |
+| Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding and `runtime.recent_work` answers `QueryRecentWork`; Core publishes no first-run intake signal, no repository-clone or project-scaffold command, and no concurrent multi-root supervision | Welcome uses the native folder picker and host rebind directly and lists Core's recent projects; the titlebar project picker adds the guarded switch. D11 stays an explicit in-project configuration flow and never owns folder open. Reachable at `?screen=d11` and from the agent menu's `Full setup`; the shell never redirects into it on its own |
 | D4 lane creation | typed role, route, gate strength, mutation policy, target, budget, worktree preview, lane receipt | `PreviewStarterLane`/`CreateStarterLane`, Core-resolved preview, invalidation, approval, exact receipt, and `runtime.starter_lane_preview` advertisement are available | Task 8 renders the four-step reviewed flow; older Core handshakes still fail closed visibly with zero sends |
-| D1 cockpit | no-project welcome center, zero-Lane project cockpit, activity/lane rails, streaming transcript/tool rows, Environment, Live Work, composer, evidence/context/cost facts | Stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences facts exist; diff/apply, stable audit timeline, actionable lane recovery, and GUI recent-work projection remain incomplete | No bound host renders Welcome; a bound empty project remains D1 and exposes `New Lane`; live work renders from `RuntimeViewState` |
+| D1 cockpit | no-project welcome center, zero-Lane project cockpit, activity/lane rails, streaming transcript/tool rows, Environment, Live Work, composer, evidence/context/cost facts | Stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences/recent-work facts exist; diff/apply, stable audit timeline, actionable lane recovery, and concurrent multi-workspace supervision remain incomplete | No bound host renders Welcome; a bound empty project remains D1 and exposes `New Lane`; the Lane rail groups its Lanes under the one project Core supervises (`GUI-CORE-023`); live work renders from `RuntimeViewState` |
 | Permission dock | scoped approve/deny, risk, target, expiry, default action, audit id | `ApprovalRequestView` and `RespondToApproval` exist | Usable through Core; GUI cannot execute tools directly |
 | D2 decision center | one cross-Lane queue over gate approvals, lane asks, and contract confirmations, on one card skeleton of context, evidence, and action bar | `pending_approvals` with `RespondToApproval`, `review_requests` with `ReviewRequestStatus`, and `contracts` with `ConfirmContract` exist; a review-decision command, a structured approval diff, and a pending-contract fact are missing | Reachable at `?screen=d2`; gate and contract decisions send Core commands, reviews render read-only under `GUI-CORE-011`, the approval diff stays unavailable under `GUI-CORE-012`, and the contract group is labelled decided history under `GUI-CORE-013` |
 | D10 lane monitor | one card per Lane across every project, with gate strength, status, progress, evidence, and an attention count | `lanes`, `lane_runtime_owners`, `tasks`, `agent_sessions`, and `latest_evidence` exist; the view state carries no ordered event log | Reachable at `?screen=d10`; read-only, gate strength comes from `AgentLaneRecord.gate_strength` rather than the agent label, an unbound Lane reports no project, a Lane with no Core task reports no progress, and the event ticker is unavailable under `GUI-CORE-014` |
@@ -220,9 +220,11 @@ The config rail renders only Core's exact reviewed `viden.toml` contents, and
 confirmation copies the preview id and SHA from the current Core projection.
 Credential rows contain masked handles only. Because no frontend-safe platform
 credential staging channel exists, raw credential entry and the webview
-`StoreCredentialHandle` path are disabled with `GUI-CORE-001`. Cross-project
-recent work remains typed unavailable as `GUI-CORE-007`; the GUI does not scan
-local storage, JSONL, or SQLite. Project switching now uses the Core-owned
+`StoreCredentialHandle` path are disabled with `GUI-CORE-001`. D11's own history
+panel still declares recent work unavailable as `GUI-CORE-007`; the Core-backed
+recent-work surfaces are the Welcome centre and the project picker described
+below, and neither the screen nor those surfaces scan local storage, JSONL, or
+SQLite. Project switching now uses the Core-owned
 `LocalCoreHost::open_workspace` boundary; secure raw credential staging remains
 the outstanding `GUI-CORE-001` part.
 
@@ -389,6 +391,59 @@ includes a supplemental Context Dock bottom-state capture that proves lower
 facts are reachable by internal scrolling. Diff, apply, audit, and untyped
 recovery actions remain explicit unavailable facts; D1 never fabricates a
 successful placeholder.
+
+## Projects, recent work, and the grouped rail
+
+Core supervises **one** workspace at a time.
+`LocalCoreHost::open_workspace` builds a new `RuntimeSupervisor` per call and
+the desktop host swaps its single adapter slot, so a successful open *replaces*
+the current workspace: dropping the previous supervisor joins its worker and
+shuts down every resident ACP session. Everything below follows from that fact.
+
+**Recent work** is a Core read, not a client scan. `queryRecentWork` sends
+`QueryRecentWork` and treats only the ordered `RecentWorkLoaded` fact as the
+answer — the `CommandAccepted` that precedes it is matched by command id *and*
+variant, a republished snapshot never confirms it, and an inventory answer that
+arrives before this command's acceptance belongs to another reader. Core owns
+the scan of the shared session home, the `1..=100` clamp, the whitelist DTOs,
+and the ordering; the GUI re-serializes what arrives without re-sorting it and
+renders Core's diagnostics verbatim. Four states stay distinct rather than
+collapsing into one empty list: an absent `runtime.recent_work` capability, a
+Core rejection, a read Core accepted but has not answered, and a genuinely
+empty inventory.
+
+**Welcome** lists those projects with a relative age and the session count from
+the same bounded fact. Welcome renders only when no workspace is bound, so a
+recent row opens directly — there is nothing to replace.
+
+**The project picker** opens from the titlebar `.projsel` (which gains the
+design's `▾` and button semantics only where the picker can actually open) and
+from the rail's `＋ Add project…` footer. It draws the design's three columns:
+
+| Column | Contents |
+| --- | --- |
+| Add | `Add directory…` runs the native chooser, then the switch confirmation. `Clone repo…` and `New empty project` are visible and **disabled**, naming `GUI-CORE-023` |
+| In workspace | exactly one row — the open project, marked current and non-actionable, with its Lane count |
+| Recent | Core's recent projects minus the open root; each opens the switch confirmation |
+
+**Every switch is confirmed inline** — never through a browser `confirm()`.
+The step names the target root, states that Viden supervises one workspace so
+this replaces the current one (`GUI-CORE-023`), and counts the running Lanes
+and Agent sessions the replacement tears down. An idle workspace still
+confirms, with a milder sentence: nothing is interrupted, but the session is
+still closed and rebuilt. Escape inside the confirmation backs out to the
+columns rather than also dismissing the popover; Escape at the columns closes
+it and hands focus back to whichever anchor opened it, resolving the *live*
+anchor because a Core refresh rebuilds both the titlebar and the rail.
+
+**The Lane rail** is the design's workspace explorer: one `.wsroot` group
+header carrying the project name Core published (or the workspace path when it
+published none), a `▸`/`▾` collapse whose state is GUI-local and survives
+ordered Core refreshes, the per-group `＋` — the same Lane creation action, now
+with an accessible name behind the design's bare glyph — and the Lanes nested
+beneath it. The design draws several project groups and a cross-project
+"Global" section; both are mock data, so the rail renders exactly **one** group
+with no fabricated siblings. That is the visible half of `GUI-CORE-023`.
 
 ## Command palette
 

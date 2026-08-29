@@ -261,3 +261,59 @@ path list with whatever scoping and ignore rules Core owns, under the same
 permission gate as other workspace reads — plus a canonical
 `frontend-contract-v1` fixture covering a project with and without one. The GUI
 will then enable the `~` scope in the palette and the same selector in the TUI.
+
+## GUI-CORE-023: Concurrent multi-workspace supervision
+
+Core supervises exactly one workspace at a time.
+`LocalCoreHost::open_workspace` (`crates/core/src/host.rs:166-234`) builds a
+new `RuntimeSupervisor` on every call, and the desktop host swaps its single
+`Mutex<Option<GuiCoreAdapter>>` slot (`apps/gui/src-tauri/src/lib.rs:79-94`).
+Opening a project therefore *replaces* the open one: dropping the previous
+supervisor (`crates/runtime/src/runtime_supervisor.rs:1373-1404`) joins its
+worker and shuts down every resident ACP session, so each Lane and Agent
+running in the old workspace stops.
+
+That is not what the design draws. `WorkspacePanel` renders several `.wsroot`
+project groups plus a cross-project "Global" lane section, `ProjectPicker`
+lists an "In workspace" column with a project count and a per-project lane
+count, and D13 shows a fleet spanning projects. None of that is expressible
+against a single-root supervisor.
+
+Until Core publishes multi-root supervision, the GUI holds these lines:
+
+- the rail renders exactly one group — the open project — with no fabricated
+  siblings and no "Global" bucket;
+- the picker's "In workspace" column holds exactly one row, marked current and
+  non-actionable, because there is nothing to switch *to* within the workspace;
+- every other project is a **switch**, guarded by an inline confirmation that
+  names the running Lanes and Agent sessions the replacement tears down;
+- `Clone repo…` and `New empty project` render disabled naming this request:
+  `frontend-contract-v1` publishes no repository-clone and no project-scaffold
+  command, and the GUI must not shell out to `git clone` or write a project
+  skeleton itself — both are mutations outside the Core permission gate.
+
+Close this request when Core publishes:
+
+1. **N-root supervision** — more than one workspace supervised concurrently,
+   with `open_workspace` becoming additive (or gaining an explicit replace flag)
+   instead of silently replacing;
+2. **a project registry** — the set of attached roots as a typed, ordered fact
+   in `RuntimeViewState`, so the rail renders groups from Core rather than from
+   one `environment.cwd`;
+3. **cross-project lane enumeration** — Lane, session, gate, and approval facts
+   readable across attached roots, which is what the design's "Global" section
+   and the D13 fleet board actually show;
+4. **a `RuntimeOwner.project_id` derivation rule** — a documented, stable
+   mapping from a canonical root to the `project_id` already carried in
+   `RuntimeOwner`, so a client can attribute an owner-bound fact to a project
+   without string-matching a path;
+5. **a project bootstrap command** — clone-into-a-workspace and
+   scaffold-a-new-project as Core commands under the same permission gate as
+   every other mutation, which is what unlocks the two disabled picker rows;
+6. **canonical `frontend-contract-v1` fixtures** covering one attached root and
+   two, so the grouped rail and the cross-project fleet have generated evidence
+   rather than hand-written projections.
+
+The recent-work inventory (`runtime.recent_work`) is *not* this gap: it already
+lets a client list projects it could open. What is missing is the ability to
+have more than one of them open at once.

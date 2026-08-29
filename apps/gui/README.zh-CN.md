@@ -111,9 +111,9 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 
 | GUI 区域 | 设计意图 | Core `0.3.5` 状态 | GUI 处理 |
 | --- | --- | --- | --- |
-| 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑；Core 不发布首启接入信号，安全 credential ingress 与 GUI recent-work adapter 仍不完整 | Welcome 直接使用原生选择器和 host rebind；D11 只作为项目内显式配置流程，不接管打开文件夹。入口为 `?screen=d11` 与 agent 菜单的 `Full setup`；shell 不会自行重定向进入 |
+| 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑，`runtime.recent_work` 已响应 `QueryRecentWork`；Core 不发布首启接入信号，也没有仓库克隆命令、项目脚手架命令与并发多根托管 | Welcome 直接使用原生选择器和 host rebind，并列出 Core 的最近项目；标题栏项目选择器提供带确认的切换。D11 只作为项目内显式配置流程，不接管打开文件夹。入口为 `?screen=d11` 与 agent 菜单的 `Full setup`；shell 不会自行重定向进入 |
 | D4 Lane 创建 | typed role、route、gate strength、mutation policy、target、budget、worktree preview、lane receipt | 已有 `PreviewStarterLane`/`CreateStarterLane`、Core 解析 preview、invalidation、approval、精确 receipt 与 `runtime.starter_lane_preview` 广告 | Task 8 渲染四步复核流程；连接旧版 Core 时仍以可见 unavailable 和零发送 fail closed |
-| D1 驾驶舱 | 无项目欢迎中心、零 Lane 项目驾驶舱、activity/lane rails、streaming transcript/tool rows、Environment、Live Work、composer、evidence/context/cost facts | stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences facts 已有；diff/apply、稳定 audit timeline、可操作 Lane recovery 与 GUI recent-work projection 尚不完整 | 未绑定 host 才显示 Welcome；已绑定空项目仍留在 D1 并提供“新建 Lane”；实时工作从 `RuntimeViewState` 渲染 |
+| D1 驾驶舱 | 无项目欢迎中心、零 Lane 项目驾驶舱、activity/lane rails、streaming transcript/tool rows、Environment、Live Work、composer、evidence/context/cost facts | stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences/recent-work facts 已有；diff/apply、稳定 audit timeline、可操作 Lane recovery 与并发多工作区托管尚不完整 | 未绑定 host 才显示 Welcome；已绑定空项目仍留在 D1 并提供“新建 Lane”；Lane 侧栏把 Lane 收拢在 Core 托管的那一个项目分组下（`GUI-CORE-023`）；实时工作从 `RuntimeViewState` 渲染 |
 | Permission dock | scoped approve/deny、risk、target、expiry、default action、audit id | `ApprovalRequestView` 和 `RespondToApproval` 已有 | 可经 Core 使用；GUI 不得直接执行 tool |
 | D2 决策中心 | 跨 Lane 的统一决策队列：闸审批、lane 问询、契约确认共用「上下文 / 证据 / 动作栏」一套卡片骨架 | `pending_approvals` + `RespondToApproval`、`review_requests` + `ReviewRequestStatus`、`contracts` + `ConfirmContract` 已有；评审决定命令、审批的结构化 diff、待确认契约事实缺失 | 入口 `?screen=d2`；闸与契约决定发出 Core 命令，评审以 `GUI-CORE-011` 只读，审批 diff 以 `GUI-CORE-012` 声明不可用，契约分组以 `GUI-CORE-013` 标注为已决历史 |
 | D10 Lane 监视器 | 跨项目每条 Lane 一张卡：门控强度、状态、进度、证据与「等你」计数 | `lanes`、`lane_runtime_owners`、`tasks`、`agent_sessions`、`latest_evidence` 已有；视图状态没有有序事件日志 | 入口 `?screen=d10`；只读，门控强度取自 `AgentLaneRecord.gate_strength` 而非 agent 标签，未绑定 Lane 不显示项目，无 Core 任务的 Lane 不显示进度，事件流以 `GUI-CORE-014` 声明不可用 |
@@ -186,8 +186,9 @@ density、两套 catalog 和 reduced-motion 行为仍由自动化测试覆盖。
 配置 rail 只渲染 Core 返回的 `viden.toml` 精确复核内容，confirm 的 preview id 与 SHA
 也从当前 Core projection 复制。Credential 行只显示 masked handle。由于尚无
 frontend-safe 平台 credential staging channel，raw credential 输入与 webview
-`StoreCredentialHandle` 路径以 `GUI-CORE-001` 明确禁用。跨项目 recent work 继续以
-`GUI-CORE-007` typed unavailable 呈现；GUI 不扫描 local storage、JSONL 或 SQLite。
+`StoreCredentialHandle` 路径以 `GUI-CORE-001` 明确禁用。D11 自身的历史面板仍以
+`GUI-CORE-007` typed unavailable 呈现最近工作；由 Core 支撑的最近工作界面是下文的
+Welcome 中心与项目选择器，二者同样不扫描 local storage、JSONL 或 SQLite。
 project switching 现通过 Core-owned `LocalCoreHost::open_workspace` 完成；
 安全 raw credential staging 仍是 `GUI-CORE-001` 的未完成部分。
 
@@ -302,6 +303,47 @@ dark/regular 英文、Ice light/regular 英文、Aurora dark/regular 中文、co
 reference。它还包含一个补充 Context Dock bottom-state capture，用于证明下方事实可通过内部
 滚动到达。Diff、apply、audit 与未类型化 recovery actions 始终是明确 unavailable facts；D1
 不会伪造成功占位。
+
+## 项目、最近工作与分组侧栏
+
+Core 一次只托管**一个**工作区。`LocalCoreHost::open_workspace` 每次调用都会新建一个
+`RuntimeSupervisor`，桌面宿主只是替换它唯一的 adapter 槽位，因此一次成功的打开会
+**替换**当前工作区：旧 supervisor 被 drop 时会 join 其工作线程并关闭所有常驻 ACP
+会话。下面的一切都由这条事实推导而来。
+
+**最近工作**是一次 Core 读取，而不是客户端扫描。`queryRecentWork` 发送
+`QueryRecentWork`，并且只把有序的 `RecentWorkLoaded` 事实当作答复——先行的
+`CommandAccepted` 按命令 id **与**命令变体双重匹配，重新发布的快照永远不构成确认，
+在本命令被接受之前到达的清单答复属于其他读取方。Core 拥有共享会话主目录的扫描、
+`1..=100` 的钳制、白名单 DTO 与排序；GUI 原样重新序列化并且不重新排序，Core 的诊断
+逐字渲染。四种状态保持区分，不会塌缩成同一个空列表：缺少 `runtime.recent_work`
+能力、Core 拒绝、Core 已接受但尚未答复的读取，以及确实为空的清单。
+
+**Welcome** 用相对时间与来自同一条有界事实的会话计数列出这些项目。Welcome 只在没有
+绑定工作区时渲染，因此点击最近项目会直接打开——没有需要替换的对象。
+
+**项目选择器**从标题栏 `.projsel`（只有在选择器确实能打开时，它才获得设计稿的 `▾`
+与按钮语义）与侧栏的 `＋ 添加项目…` 页脚打开，绘制设计稿的三列：
+
+| 列 | 内容 |
+| --- | --- |
+| 添加 | `添加目录…` 调起原生选择器，随后进入切换确认。`克隆仓库…` 与 `新建空项目` 可见且**禁用**，并点名 `GUI-CORE-023` |
+| 工作区内 | 恰好一行——当前打开的项目，标记为当前项且不可点击，附带 Lane 计数 |
+| 最近 | Core 的最近项目，排除已打开的根；点击进入切换确认 |
+
+**每一次切换都要内联确认**，绝不使用浏览器 `confirm()`。确认步骤点名目标根目录，
+说明 Viden 一次只托管一个工作区因而这会替换当前工作区（`GUI-CORE-023`），并计出将被
+拆除的正在运行的 Lane 与 Agent 会话数量。空闲工作区同样需要确认，只是文案更温和：
+没有工作被中断，但会话仍会被关闭并重建。确认中按 Escape 退回三列而不会同时关闭浮层；
+在三列状态按 Escape 关闭浮层并把焦点交还给打开它的锚点，且解析的是**当前存活的**锚点
+——因为一次 Core 刷新会重建标题栏与侧栏。
+
+**Lane 侧栏**就是设计稿的工作区浏览器：一个 `.wsroot` 分组头，承载 Core 发布的项目
+名（Core 未发布时用工作区路径）、一个 `▸`/`▾` 折叠控件（状态属于 GUI 本地状态，能跨
+有序 Core 刷新保留）、分组内的 `＋`（仍是同一个创建 Lane 动作，只是在设计稿的裸字形
+背后补上了可访问名称），以及嵌套其下的 Lane 行。设计稿画了多个项目分组和一个跨项目的
+「Global」分区，两者都是 mock 数据，因此侧栏只渲染**一个**分组，不伪造同级项目。这就
+是 `GUI-CORE-023` 可见的那一半。
 
 ## 命令面板
 
