@@ -61,6 +61,8 @@ flowchart TB
   preservation-safe atomic user UI preference persistence.
 - `crates/runtime`: shared startup bootstrap, session engine, and turn
   orchestration.
+- `crates/lanes`: lane lifecycle orchestration and lane-local side effects,
+  below the runtime and driven entirely through injected seams.
 - `crates/provider`: provider host/runtime, HTTP adapters, provider registry, and tool-calling protocol translation.
 - `crates/plugin-api`: shared plugin manifests, capabilities, permissions, provider descriptors, and ABI symbols.
 - `crates/plugin-host`: plugin discovery, registry, validation, and lifecycle boundary.

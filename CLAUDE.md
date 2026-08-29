@@ -42,6 +42,8 @@ and multiple clients:
 - `apps/gui`: planned desktop client boundary;
 - `crates/core`: stable multi-frontend facade;
 - `crates/runtime`: session and agent execution orchestration;
+- `crates/lanes`: lane lifecycle orchestration and lane-local side effects,
+  below the runtime;
 - `crates/context`: context, evidence-reference, retrieval, and cost engine;
 - `crates/types`: shared domain and protocol types;
 - `crates/session`: canonical JSONL session facts and rebuildable SQLite index;
@@ -97,6 +99,7 @@ Focused and full tests:
 cargo test -p viden-types
 cargo test -p viden-session
 cargo test -p viden-workflows
+cargo test -p viden-lanes
 cargo test -p viden-runtime
 cargo test -p viden-core
 cargo test -p viden-tui

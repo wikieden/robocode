@@ -6,6 +6,7 @@
 - `apps/tui` owns terminal rendering, input orchestration, previews, and app-specific TUI state.
 - `crates/core` is the stable facade that re-exports runtime and contract types for TUI, GUI, CLI, and future API surfaces.
 - `crates/runtime` depends on LSP, provider, permissions, session, tools, types, and workflows to orchestrate turns and commands.
+- `crates/lanes` owns lane lifecycle orchestration below the runtime; it depends only on permissions, tools, types, and workflows, and receives runtime policy through injected seams.
 - `crates/plugin-api` defines shared plugin manifest, capability, permission, and provider descriptor contracts.
 - `crates/plugin-host` owns shared plugin discovery/registry boundaries.
 - `plugins/providers/deepseek` is the first first-party provider plugin using the plugin API.
@@ -69,6 +70,7 @@ Missing: MCP, general skills/plugins beyond provider plugins, multi-agent/team c
 - `apps/cli/README.md`
 - `crates/config/README.md`
 - `crates/runtime/README.md`
+- `crates/lanes/README.md`
 - `crates/lsp/README.md`
 - `crates/provider/README.md`
 - `crates/tools/README.md`

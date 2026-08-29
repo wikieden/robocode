@@ -60,6 +60,7 @@ GUI branches have started from it.
 cargo test -p viden-types
 cargo test -p viden-session
 cargo test -p viden-workflows
+cargo test -p viden-lanes
 cargo test -p viden-runtime
 cargo test -p viden-core
 scripts/check-dependency-boundaries.sh

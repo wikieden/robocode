@@ -6,6 +6,7 @@
 - `apps/tui` 负责 terminal rendering、input orchestration、previews 和 app-specific TUI state。
 - `crates/core` 是稳定 facade，向 TUI、GUI、CLI 和未来 API surface 重导出 runtime 与 contract 类型。
 - `crates/runtime` 依赖 LSP、provider、permissions、session、tools、types、workflows，用来编排 turns 和 commands。
+- `crates/lanes` 负责 runtime 之下的 lane 生命周期编排；它只依赖 permissions、tools、types、workflows，并通过注入的接缝接收 runtime 策略。
 - `crates/plugin-api` 定义共享 plugin manifest、capability、permission 和 provider descriptor 契约。
 - `crates/plugin-host` 承载共享 plugin discovery / registry 边界。
 - `plugins/providers/deepseek` 是第一批使用 plugin API 的 first-party provider plugin。
@@ -65,6 +66,7 @@ Mainline landed：
 - `apps/cli/README.zh-CN.md`
 - `crates/config/README.zh-CN.md`
 - `crates/runtime/README.zh-CN.md`
+- `crates/lanes/README.zh-CN.md`
 - `crates/lsp/README.zh-CN.md`
 - `crates/provider/README.zh-CN.md`
 - `crates/tools/README.zh-CN.md`

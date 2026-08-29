@@ -51,6 +51,9 @@ Workspace code is split by product surface and reusable core:
 - `crates/context`: native context selection, immutable content references,
   retrieval, compaction, quality, and cost accounting.
 - `crates/runtime`: session engine, slash commands, provider/tool loop, workflow command routing.
+- `crates/lanes`: lane lifecycle orchestration and lane-local side effects,
+  below the runtime; runtime policy such as the permission gate and event
+  redaction is injected into it, never imported by it.
 - `crates/provider`: provider abstraction, registry, and protocol adapters.
 - `crates/plugin-api`: shared plugin manifest, capability, permission, and provider descriptor contracts.
 - `crates/plugin-host`: static plugin registry boundary for provider/tool/agent/workflow plugins.
@@ -166,6 +169,7 @@ Choose verification by change scope. Use focused checks while developing:
 cargo test -p viden-types
 cargo test -p viden-session
 cargo test -p viden-workflows
+cargo test -p viden-lanes
 cargo test -p viden-runtime
 ```
 

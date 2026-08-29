@@ -58,6 +58,8 @@ flowchart TB
   前不把这些 host services 作为 frontend handshake capability 对外公布
 - `crates/config`：配置加载、优先级合并、启动默认值，以及保留未知字段的原子 user UI 偏好持久化
 - `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
+- `crates/lanes`：lane 生命周期编排与 lane 本地副作用，位于 runtime 之下，
+  完全通过注入的接缝驱动
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
 - `crates/plugin-api`：共享 plugin manifest、capability、permission、provider descriptor 和 ABI symbol
 - `crates/plugin-host`：plugin discovery、registry、validation 和 lifecycle 边界
