@@ -157,17 +157,20 @@ prefix legend, all four sections, kbd hints, and the disabled Files row).
 | --- | --- | --- | --- | --- |
 | [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
 
-## Recapture pending
+## Project picker and grouped rail captures
 
-The three states added with the project picker and the grouped rail
-(`lane-rail`, `project-picker`, `project-switch-confirm`) have **no committed
-PNG yet**, and the eight topbar-bearing captures above are now stale: the
-titlebar selector gained the design's `▾` and button chrome, and the rail
-gained its `.wsroot` group header and `＋ Add project…` footer. All three new
-states were DOM-verified at 1440x900 against this harness on the vite dev
-server (capture-ready attribute present, all three picker columns and both
-disabled rows resolved, the rail rendering exactly one group, no console
-errors). An operator recaptures them after review.
+The nine topbar-bearing images (the titlebar selector gained the design's `▾`
+and button chrome; the rail gained its `.wsroot` group header and
+`＋ Add project…` footer) plus the three new states were recaptured on
+2026-08-21 at 1440x900 and visually reviewed (all three picker columns with
+both `GUI-CORE-023` disabled rows, the current-project and recent rows, and
+the switch confirmation naming the replacement semantics and impact counts).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [project-picker-1440x900-dark-en.png](project-picker-1440x900-dark-en.png) | project-picker | 1440x900 | dark | en |
+| [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
+| [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
 
 ## Known limitation
 

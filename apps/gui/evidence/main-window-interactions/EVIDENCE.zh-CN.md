@@ -142,14 +142,18 @@ DOM 级验证)。
 | --- | --- | --- | --- | --- |
 | [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
 
-## 待重新采集
+## 项目选择器与分组侧栏截图
 
-随项目选择器与分组侧栏新增的三个状态（`lane-rail`、`project-picker`、
-`project-switch-confirm`）**尚无已提交的 PNG**，且上文八张带标题栏的截图现已过时：
-标题栏选择器获得了设计稿的 `▾` 与按钮外观，侧栏获得了 `.wsroot` 分组头与
-`＋ 添加项目…` 页脚。三个新状态已在 vite 开发服务器上以 1440x900 对本 harness 做过
-DOM 级验证（capture-ready 属性存在，选择器三列与两行禁用行均已解析，侧栏只渲染一个
-分组，无控制台错误）。评审后由操作者重新采集。
+九张带标题栏的截图(标题栏选择器获得设计稿的 `▾` 与按钮外观;侧栏获得 `.wsroot`
+分组头与 `＋ 添加项目…` 页脚)连同三个新状态已于 2026-08-21 在 1440x900 下重新
+采集并人工目检(选择器三列含两行 `GUI-CORE-023` 禁用行、当前项目与最近项目行、
+切换确认对话框明示替换语义与影响计数)。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [project-picker-1440x900-dark-en.png](project-picker-1440x900-dark-en.png) | project-picker | 1440x900 | dark | en |
+| [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
+| [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
 
 ## 已知限制
 
