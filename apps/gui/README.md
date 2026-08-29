@@ -390,6 +390,72 @@ facts are reachable by internal scrolling. Diff, apply, audit, and untyped
 recovery actions remain explicit unavailable facts; D1 never fabricates a
 successful placeholder.
 
+## Command palette
+
+The titlebar's palette button and **⌘K** (⌃K off macOS) open the cockpit
+command palette drawn in `Viden - 桌面驾驶舱 (GUI).html` (`scrim top` /
+`palette` / `palin` / `palsec` / `palrow`). **⌃P** opens the same overlay
+pre-scoped to `>`, matching the composer caption the design draws
+(`⌘K palette · ⌃P commands`).
+
+The query grammar and the fuzzy scorer are a deliberate port of the TUI jump
+index (`apps/tui/src/tui/jump.rs`), so the selector language is one language
+across frontends:
+
+| Sigil | Scope |
+| --- | --- |
+| `:` | lanes |
+| `@` | Agent sessions |
+| `#` | merge gates and asks |
+| `>` | commands (the Actions and Settings sections) |
+| `~` | files |
+| _none_ | every kind |
+
+An unsigilled query matches by subsequence over each row's title, context, and
+keywords using the same position-plus-adjacency score the TUI computes. Rows are
+not re-ranked under the cursor: the design's section order (Actions, Jump to,
+Settings, Files) is preserved, exactly as the TUI preserves its group order.
+
+Selecting a Lane or an Agent session selects it **in the cockpit** through the
+same path the Lane rail uses, then focuses the composer; the palette never
+navigates away for something the current screen already owns. A merge gate opens
+D12 and an ask opens D2, each carrying the exact Core id, and the target screen
+still re-reads its own Core projection before it renders.
+
+Cross-Lane gates and asks are not in the Lane-scoped D1 projection, so the shell
+reads `d2_decisions` and `d12_integration_gate` — projections that already exist
+— when the palette opens. The read is eager, so `#` is answerable the moment it
+is typed, and fail-soft: a rejection degrades that one section to a note
+carrying Core's own words while lanes, sessions, and actions keep working. The
+`Files` section is one permanently disabled row naming `GUI-CORE-022`
+(no workspace file inventory), mirroring the TUI's own disabled row.
+
+### Keybinding divergence from the TUI
+
+The GUI follows its own design here, and it is the inverse of the terminal
+client:
+
+| Chord | GUI | TUI (`apps/tui/src/tui/keymap.rs`) |
+| --- | --- | --- |
+| ⌘K / Ctrl+K | open the palette | command palette |
+| Ctrl+P | open the palette scoped to `>` | jump index |
+
+This is deliberate, not drift. ⌘K is the desktop convention the cockpit design
+commits to in its titlebar tooltip and composer caption, and the GUI palette is
+a single surface that already contains both halves the TUI splits across two
+chords — so binding ⌃P to the command scope of that one surface keeps the
+design's caption honest while preserving the muscle memory of "⌃P means
+commands". The two clients' *query* grammars remain identical, which is the
+parity that matters when an operator moves between them.
+
+Escape inside the palette closes it and stops there. The cockpit binds a
+window-level Escape to "cancel the running turn", so the overlay consumes its
+own dismissal rather than cancelling Core work on the way out. The overlay is
+`role="dialog"` / `aria-modal`, the input is a labelled `combobox` owning a
+`listbox`, the highlighted row is its `aria-activedescendant`, and focus returns
+to the titlebar toggle — re-resolved on close, because a Core refresh may have
+rebuilt the titlebar while the palette was open.
+
 ## Permission dock and D6 recovery
 
 Task 10 places the canonical `.gperm.dock` immediately above the D1 composer.

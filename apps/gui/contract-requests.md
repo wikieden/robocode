@@ -238,3 +238,26 @@ association between a Lane's branch and a remote pull request, its review
 state, and its check results — with the credential and data-egress policy that
 makes fetching it safe, plus a canonical `frontend-contract-v1` fixture that
 covers a branch with a pull request and one without.
+
+## GUI-CORE-022: Workspace file inventory
+
+The command palette ports the TUI jump index's `~` selector, and the TUI ships
+the same gap: `RuntimeViewState` carries lanes, sessions, merge gates, and
+approvals, but no inventory of the files in the workspace. There is no typed
+path list, no search index, and no read that would let a frontend enumerate the
+tree without walking the filesystem itself — which is outside the client
+boundary, and would also bypass the permission gate that governs every other
+path read.
+
+The GUI therefore renders the `Files` section as exactly one permanently
+disabled row naming this request, the same honest-disabled row
+`apps/tui/src/tui/jump.rs` renders. It must not walk the workspace, shell out to
+a file lister, or reconstruct a tree from the paths that happen to appear in
+evidence records or tool previews: a partial inventory presented as an
+inventory is worse than a stated gap.
+
+Close this request when Core publishes a typed workspace file inventory — the
+path list with whatever scoping and ignore rules Core owns, under the same
+permission gate as other workspace reads — plus a canonical
+`frontend-contract-v1` fixture covering a project with and without one. The GUI
+will then enable the `~` scope in the palette and the same selector in the TUI.

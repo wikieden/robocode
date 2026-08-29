@@ -303,6 +303,61 @@ reference。它还包含一个补充 Context Dock bottom-state capture，用于�
 滚动到达。Diff、apply、audit 与未类型化 recovery actions 始终是明确 unavailable facts；D1
 不会伪造成功占位。
 
+## 命令面板
+
+标题栏的面板按钮与 **⌘K**（macOS 之外为 ⌃K）打开 `Viden - 桌面驾驶舱 (GUI).html`
+里绘制的驾驶舱命令面板（`scrim top` / `palette` / `palin` / `palsec` / `palrow`）。
+**⌃P** 打开同一层浮层并预置 `>` 作用域，与设计稿 Composer 说明
+（`⌘K palette · ⌃P commands`）一致。
+
+查询语法与模糊打分是对 TUI jump 索引（`apps/tui/src/tui/jump.rs`）的刻意移植，
+因此跨前端只有一套选择器语言：
+
+| 前缀 | 作用域 |
+| --- | --- |
+| `:` | Lane |
+| `@` | Agent 会话 |
+| `#` | 合并闸与询问 |
+| `>` | 命令（动作与设置两个分区） |
+| `~` | 文件 |
+| _无_ | 所有类别 |
+
+不带前缀的查询按子序列匹配每一行的标题、上下文与关键词，采用与 TUI 相同的
+「位置分 + 相邻加成」算法。行不会在光标下被重新排序：设计稿的分区顺序（动作、
+跳转到、设置、文件）保持不变，正如 TUI 保持其分组顺序。
+
+选中 Lane 或 Agent 会话会走与 Lane rail 完全相同的路径**在驾驶舱内**完成选择，
+随后聚焦 Composer；对当前屏已经拥有的东西，面板绝不跳转离开。合并闸打开 D12，
+询问打开 D2，各自携带确切的 Core id，而目标屏在渲染前仍会自行重读它自己的 Core
+投影。
+
+跨 Lane 的闸与询问不在按 Lane 作用域的 D1 投影里，因此打开面板时由外壳读取
+`d2_decisions` 与 `d12_integration_gate`——这两个投影本就存在。读取是预取的，
+所以 `#` 一敲下去就有答案；也是 fail-soft 的：读取被拒时只把那一个分区降级为一条
+携带 Core 原话的提示，Lane、会话与动作照常可用。「文件」分区是恰好一行、点名
+`GUI-CORE-022`（没有工作区文件清单）的永久禁用行，与 TUI 自己的禁用行一致。
+
+### 与 TUI 的按键分歧
+
+GUI 在这里遵循它自己的设计，而它与终端客户端正好相反：
+
+| 组合键 | GUI | TUI（`apps/tui/src/tui/keymap.rs`） |
+| --- | --- | --- |
+| ⌘K / Ctrl+K | 打开面板 | 命令面板 |
+| Ctrl+P | 打开面板并限定 `>` | jump 索引 |
+
+这是刻意为之，不是漂移。⌘K 是驾驶舱设计在标题栏 tooltip 与 Composer 说明中明确
+承诺的桌面惯例；GUI 面板是一个单一界面，本就同时包含 TUI 拆到两个组合键上的两半，
+因此把 ⌃P 绑到这一个界面的命令作用域，既让设计稿的说明文字诚实，也保留了
+「⌃P 意味着命令」的肌肉记忆。两个客户端的**查询**语法完全一致——操作者在两者之间
+切换时，真正重要的正是这份一致。
+
+面板内的 Escape 只负责关闭它自己。驾驶舱在 window 级把 Escape 绑到「取消进行中的
+轮次」，因此浮层会吞掉自己的关闭键，而不是在退出时顺手取消 Core 的工作。浮层是
+`role="dialog"` / `aria-modal`，输入框是带标签、拥有一个 `listbox` 的 `combobox`，
+高亮行是它的 `aria-activedescendant`，焦点在关闭时交回标题栏按钮——并在关闭那一刻
+重新解析，因为面板打开期间 Core 刷新可能已经重建过标题栏。
+
 ## Permission Dock 与 D6 恢复
 
 Task 10 把规范 `.gperm.dock` 紧贴放在 D1 composer 上方。它精确展示 Core approval 的
