@@ -26,6 +26,11 @@ import {
 import { renderStatusbar } from "../components/statusbar";
 import { renderContextDock } from "../components/context_dock";
 import { renderLaneRail } from "../components/lane_rail";
+import {
+  renderProjectPicker,
+  type ProjectPickerAnchorKind,
+  type ProjectPickerController,
+} from "../components/project_picker";
 import { renderLaneWorkSurface } from "../components/lane_work_surface";
 import {
   renderPermissionDock,
@@ -51,7 +56,18 @@ import {
   type PreferenceState,
 } from "../preferences";
 import { BoundedTranscript, type D1TranscriptRow } from "../models/transcript";
-import type { D1CockpitProjection, D6RecoveryProjection } from "../models/workspace";
+import {
+  RECENT_WORK_CAPABILITY,
+  type RecentSessionView,
+  type RecentWorkResult,
+  type RecentWorkState,
+} from "../models/recent_work";
+import {
+  activeWorkCounts,
+  currentProjectLabel,
+  type D1CockpitProjection,
+  type D6RecoveryProjection,
+} from "../models/workspace";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
 import "./d1_cockpit.css";
 
@@ -156,6 +172,21 @@ export interface D1RenderOptions {
     save: (state: PreferenceState) => Promise<PreferenceIntentOutcome>;
     restore: () => Promise<PreferenceIntentOutcome>;
   };
+  /**
+   * Reads Core's bounded recent-work inventory (`QueryRecentWork` ->
+   * `RecentWorkLoaded`). Absent while no host is bound, which states the
+   * Recent sections as unavailable rather than showing an empty list that
+   * would read as "you have no history".
+   */
+  loadRecentWork?: () => Promise<RecentWorkResult>;
+  /** Native folder chooser behind the picker's `Add directory…` row. */
+  onPickProjectFolder?: () => Promise<string | null>;
+  /**
+   * Replaces the open workspace with another project root. Core supervises one
+   * workspace, so this is destructive: the picker confirms it first, naming
+   * the running Lanes and Agent sessions it tears down.
+   */
+  onOpenWorkspace?: (root: string) => void | Promise<void>;
 }
 
 type FocusedConversation =
@@ -452,6 +483,19 @@ export function renderD1Cockpit(
   let remountingPalette = false;
   let paletteQuery = "";
   let paletteCrossLane: PaletteCrossLane | null = null;
+  // Project picker state. Like the other popovers the DOM is disposable, so
+  // the open flag, which anchor opened it, and the recent-work answer live
+  // here. The collapse flag is the rail's own presentation state: an ordered
+  // Core refresh must not re-expand a group the operator folded away.
+  let pickerOpen = false;
+  let pickerController: ProjectPickerController | null = null;
+  let remountingPicker = false;
+  let pickerAnchorKind: ProjectPickerAnchorKind = "titlebar";
+  let laneGroupCollapsed = false;
+  let recentState: RecentWorkState = { kind: "loading" };
+  let recentSessions: RecentSessionView[] = [];
+  let recentWorkInFlight = false;
+  let recentWorkRequested = false;
   /// Discards the answer to a read whose palette has already been closed.
   let paletteReadToken = 0;
   let agentMenuOpen = false;
@@ -662,6 +706,9 @@ export function renderD1Cockpit(
       settingsOpen = false;
       settingsController?.close();
       settingsController = null;
+      pickerOpen = false;
+      pickerController?.close();
+      pickerController = null;
       menuController?.close();
       controlsHandle?.dispose();
       controlsHandle = null;
@@ -1088,6 +1135,127 @@ export function renderD1Cockpit(
     mountSettingsPanel();
   }
 
+  /// Reads Core's bounded recent-work inventory at most once per controller.
+  ///
+  /// The four rendered states stay distinct: an absent capability, a Core
+  /// rejection, a read Core has not answered, and a genuinely empty inventory
+  /// are different facts, and flattening them into one empty list would
+  /// misreport Core. Nothing here scans the session home as a fallback.
+  async function ensureRecentWork(): Promise<void> {
+    if (recentWorkRequested || disposed) return;
+    recentWorkRequested = true;
+    if (!options.loadRecentWork) {
+      recentState = {
+        kind: "unavailable",
+        reason: translate(locale, "d1.recent.unavailable", {
+          capability: RECENT_WORK_CAPABILITY,
+        }),
+      };
+      return;
+    }
+    recentWorkInFlight = true;
+    recentState = { kind: "loading" };
+    try {
+      const result: RecentWorkResult = await options.loadRecentWork();
+      if (disposed) return;
+      if (!result.capabilityAvailable) {
+        recentState = {
+          kind: "unavailable",
+          reason: translate(locale, "d1.recent.unavailable", {
+            capability: RECENT_WORK_CAPABILITY,
+          }),
+        };
+      } else if (result.outcome.state === "rejected") {
+        // Core's own words, not a client paraphrase.
+        recentState = {
+          kind: "failed",
+          reason: result.outcome.reason ?? translate(locale, "d1.recent.pending", {}),
+        };
+      } else if (result.outcome.state !== "confirmed") {
+        // Accepted but unanswered is not "no history"; it is an unanswered read.
+        recentState = { kind: "failed", reason: translate(locale, "d1.recent.pending", {}) };
+      } else {
+        recentState = {
+          kind: "loaded",
+          projects: result.projects,
+          diagnostics: result.diagnostics,
+        };
+        recentSessions = result.sessions;
+      }
+    } catch (error: unknown) {
+      if (disposed) return;
+      recentState = { kind: "failed", reason: String(error) };
+    } finally {
+      recentWorkInFlight = false;
+      if (!disposed) {
+        remountProjectPicker();
+        render(false);
+      }
+    }
+  }
+
+  /// Rebuilds the project picker against the current projection and read state.
+  function mountProjectPicker(): ProjectPickerController | null {
+    if (!pickerOpen || disposed || pickerController) return pickerController;
+    const anchor = root.querySelector<HTMLElement>(
+      pickerAnchorKind === "titlebar" ? "[data-project-selector]" : "[data-add-project]",
+    );
+    if (!anchor) return null;
+    const active = activeWorkCounts(projection);
+    pickerController = renderProjectPicker(
+      anchor,
+      pickerAnchorKind,
+      {
+        locale,
+        current: {
+          displayName: currentProjectLabel(projection),
+          canonicalRoot: projection.environment.cwd,
+          activeLaneCount: active.lanes,
+          activeSessionCount: active.sessions,
+          laneCount: projection.lanes.length,
+        },
+        recent: recentWorkInFlight ? { kind: "loading" } : recentState,
+        now: Date.now(),
+      },
+      {
+        onPickDirectory: async () => (await options.onPickProjectFolder?.()) ?? null,
+        onSwitchWorkspace: async (nextRoot) => {
+          await options.onOpenWorkspace?.(nextRoot);
+        },
+        onClose: () => {
+          pickerController = null;
+          // A remount closes the old controller on purpose; only an operator
+          // dismissal actually closes the picker.
+          if (!remountingPicker) pickerOpen = false;
+        },
+      },
+    );
+    return pickerController;
+  }
+
+  function remountProjectPicker(): void {
+    if (!pickerOpen || disposed) return;
+    remountingPicker = true;
+    pickerController?.close();
+    remountingPicker = false;
+    pickerController = null;
+    mountProjectPicker();
+  }
+
+  /// Opens the picker from whichever anchor asked for it.
+  function openProjectPicker(anchorKind: ProjectPickerAnchorKind): void {
+    if (disposed) return;
+    if (pickerOpen) {
+      pickerController?.close();
+      return;
+    }
+    pickerOpen = true;
+    pickerAnchorKind = anchorKind;
+    void ensureRecentWork();
+    render(false);
+    mountProjectPicker();
+  }
+
   /// The single in-cockpit Lane selection path.
   ///
   /// Shared by the Lane rail and the command palette so both leave the cockpit
@@ -1465,9 +1633,18 @@ export function renderD1Cockpit(
     const composerFocusable = !showWelcome && !showRecovery && projection.composer.editable;
 
     frame.dataset.nativeWindowShell = "true";
+    // The picker replaces the open workspace, so it exists only where there is
+    // one to replace: never on the no-project Welcome, and never without the
+    // host callbacks that actually reach Core.
+    const projectPickerAvailable =
+      !showWelcome && !!options.onPickProjectFolder && !!options.onOpenWorkspace;
     const topbar = renderCockpitTopbar(projection, locale, showWelcome, options.onNavigate, {
       onToggleCommandPalette: () => togglePalette(""),
       commandPaletteOpen: paletteOpen,
+      onOpenProjectPicker: projectPickerAvailable
+        ? () => openProjectPicker("titlebar")
+        : undefined,
+      projectPickerOpen: pickerOpen,
     });
     const titlebar = topbar.element;
 
@@ -1524,11 +1701,33 @@ export function renderD1Cockpit(
         focusedConversation = conversationForLane(projection, laneId);
         sendIntent({ type: "retry_agent_session", laneId, sessionId });
       },
+      collapsed: laneGroupCollapsed,
+      onToggleCollapsed: () => {
+        laneGroupCollapsed = !laneGroupCollapsed;
+        render(false);
+      },
+      onAddProject: projectPickerAvailable ? () => openProjectPicker("rail") : undefined,
     });
     const workSurface = document.createElement("section");
     workSurface.className = "d1-work-surface";
     if (showWelcome) {
-      renderWelcomeCenter(workSurface, locale, options.onOpenProject);
+      // Welcome renders only when no workspace is bound, so opening a recent
+      // project replaces nothing and needs no switch confirmation — unlike the
+      // picker, which always has a workspace to tear down.
+      void ensureRecentWork();
+      renderWelcomeCenter(
+        workSurface,
+        locale,
+        options.onOpenProject,
+        !options.onOpenWorkspace
+          ? undefined
+          : {
+              state: recentWorkInFlight ? { kind: "loading" } : recentState,
+              sessions: recentSessions,
+              now: Date.now(),
+              onOpenRecent: (canonicalRoot) => options.onOpenWorkspace?.(canonicalRoot),
+            },
+      );
     } else if (showRecovery) {
       renderD6Recovery(
         workSurface,
@@ -1862,6 +2061,16 @@ export function renderD1Cockpit(
     // The rail is rebuilt every render, so a still-open overlay must be
     // re-anchored to the gear that actually exists in this frame.
     if (settingsOpen && !settingsController) mountSettingsPanel();
+    // Same for the project picker: a full-frame rebuild detaches its portal,
+    // and its anchor (the titlebar selector or the rail footer) was rebuilt
+    // too, so it re-anchors to the node that exists in this frame.
+    if (pickerOpen && !pickerController?.root.isConnected) {
+      remountingPicker = true;
+      pickerController?.close();
+      remountingPicker = false;
+      pickerController = null;
+      mountProjectPicker();
+    }
     // A full-frame rebuild detaches the palette portal. Remount it against the
     // frame that exists now, carrying the operator's query so the search does
     // not restart under their cursor. The index itself is re-read from the

@@ -309,3 +309,44 @@ export interface D1CockpitProjection {
     message: string;
   }>;
 }
+
+/**
+ * The label the titlebar, the rail group, and the picker all use for the open
+ * project: Core's published project name when it has one, otherwise the
+ * workspace path Core opened. A name is never derived from the path.
+ */
+export function currentProjectLabel(projection: D1CockpitProjection): string {
+  return projection.topbarSource?.project ?? projection.environment.cwd;
+}
+
+/**
+ * Lane statuses that represent no work in flight.
+ *
+ * Counting the *terminal* set rather than the running one is deliberate: an
+ * unrecognized status then counts as active, which errs toward warning the
+ * operator that a workspace switch will interrupt something.
+ */
+const SETTLED_LANE_STATUSES = new Set(["draft", "detached", "done", "failed", "cancelled"]);
+
+/** Agent session statuses Core treats as finished. */
+const SETTLED_SESSION_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/**
+ * How much running work a workspace switch tears down.
+ *
+ * `LocalCoreHost::open_workspace` builds a new supervisor and the desktop host
+ * swaps its single adapter slot, so dropping the old supervisor joins its
+ * worker and shuts down every resident ACP session. These counts are what the
+ * switch confirmation states before the operator commits.
+ */
+export function activeWorkCounts(projection: D1CockpitProjection): {
+  lanes: number;
+  sessions: number;
+} {
+  return {
+    lanes: projection.lanes.filter((lane) => !SETTLED_LANE_STATUSES.has(lane.status)).length,
+    sessions: projection.agentSessions.filter(
+      (session) => !SETTLED_SESSION_STATUSES.has(session.status),
+    ).length,
+  };
+}

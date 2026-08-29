@@ -1,4 +1,6 @@
 import { translate, type Locale } from "../i18n/catalog";
+import type { RecentSessionView, RecentWorkState } from "../models/recent_work";
+import { recentAgeLabel } from "./project_picker";
 import "./welcome_center.css";
 
 const BRAND_MARK_URL = new URL(
@@ -6,10 +8,25 @@ const BRAND_MARK_URL = new URL(
   import.meta.url,
 ).href;
 
+export interface WelcomeRecentWork {
+  state: RecentWorkState;
+  /** Sessions Core returned alongside the projects, for the per-project count. */
+  sessions: readonly RecentSessionView[];
+  /** Injected so relative ages stay deterministic in tests and captures. */
+  now: number;
+  /**
+   * Opens one recent project. Welcome renders only when no workspace is bound,
+   * so this replaces nothing and needs no switch confirmation — unlike the
+   * project picker, which always has a workspace to tear down.
+   */
+  onOpenRecent: (canonicalRoot: string) => void | Promise<void>;
+}
+
 export function renderWelcomeCenter(
   root: HTMLElement,
   locale: Locale,
   openProject?: () => void | Promise<void>,
+  recentWork?: WelcomeRecentWork,
 ): void {
   const welcome = document.createElement("section");
   welcome.className = "d1-welcome";
@@ -75,20 +92,111 @@ export function renderWelcomeCenter(
   });
   start.append(startTitle, open);
 
+  // Recent work is a Core read (`QueryRecentWork` -> `RecentWorkLoaded`), not a
+  // client scan of the session home. The four states stay distinct: an absent
+  // capability, a Core rejection, and a genuinely empty inventory are different
+  // facts, and collapsing them into one empty list would misreport Core.
   const recent = document.createElement("section");
   recent.className = "d1-welcome-section";
+  recent.dataset.welcomeRecent = recentWork?.state.kind ?? "unavailable";
   const recentTitle = document.createElement("h3");
   recentTitle.textContent = translate(locale, "d1.welcome.recent", {});
-  const unavailable = document.createElement("div");
-  unavailable.className = "d1-welcome-unavailable";
-  unavailable.dataset.unavailableFeature = "recent-work";
-  unavailable.setAttribute("aria-disabled", "true");
-  const unavailableTitle = document.createElement("strong");
-  unavailableTitle.textContent = translate(locale, "d1.welcome.recentUnavailable", {});
-  const unavailableDetail = document.createElement("span");
-  unavailableDetail.textContent = translate(locale, "d1.welcome.recentHint", {});
-  unavailable.append(unavailableTitle, unavailableDetail);
-  recent.append(recentTitle, unavailable);
+  recent.append(recentTitle);
+
+  const stateNote = (detail: string, kind: string): HTMLElement => {
+    const note = document.createElement("div");
+    note.className = "d1-welcome-unavailable";
+    note.dataset.unavailableFeature = "recent-work";
+    note.dataset.recentState = kind;
+    note.setAttribute("aria-disabled", "true");
+    const title = document.createElement("strong");
+    title.textContent = translate(locale, "d1.welcome.recentUnavailable", {});
+    const body = document.createElement("span");
+    body.textContent = detail;
+    note.append(title, body);
+    return note;
+  };
+
+  const state = recentWork?.state ?? {
+    kind: "unavailable" as const,
+    reason: translate(locale, "d1.recent.unavailable", { capability: "runtime.recent_work" }),
+  };
+  if (state.kind === "loading") {
+    const note = document.createElement("p");
+    note.className = "d1-welcome-recent-loading";
+    note.dataset.recentState = "loading";
+    note.setAttribute("role", "status");
+    note.textContent = translate(locale, "d1.picker.recent.loading", {});
+    recent.append(note);
+  } else if (state.kind !== "loaded") {
+    recent.append(stateNote(state.reason, state.kind));
+  } else if (state.projects.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "d1-welcome-recent-empty";
+    empty.dataset.recentState = "empty";
+    empty.setAttribute("role", "status");
+    empty.textContent = translate(locale, "d1.welcome.recentEmpty", {});
+    recent.append(empty);
+  } else {
+    const list = document.createElement("ul");
+    list.className = "d1-welcome-recent";
+    for (const project of state.projects) {
+      // The session count comes from the same bounded `RecentWorkLoaded` fact;
+      // nothing is counted from a directory or a transcript.
+      const sessions = (recentWork?.sessions ?? []).filter(
+        (session) => session.canonicalRoot === project.canonicalRoot,
+      ).length;
+      const item = document.createElement("li");
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "d1-welcome-recent-item";
+      open.dataset.recentProject = project.canonicalRoot;
+      const name = document.createElement("strong");
+      name.textContent = project.displayName;
+      const meta = document.createElement("small");
+      const age = recentAgeLabel(locale, project.lastUpdatedAt, recentWork?.now ?? Date.now());
+      meta.textContent = `${age} · ${translate(
+        locale,
+        sessions === 1 ? "d1.welcome.recentSessions.one" : "d1.welcome.recentSessions.other",
+        { count: String(sessions) },
+      )}`;
+      const path = document.createElement("small");
+      path.className = "d1-welcome-recent-path";
+      path.textContent = project.canonicalRoot;
+      open.append(name, meta, path);
+      open.addEventListener("click", () => {
+        if (!recentWork) return;
+        open.disabled = true;
+        open.setAttribute("aria-busy", "true");
+        welcome.querySelector("[data-open-project-error]")?.remove();
+        void Promise.resolve(recentWork.onOpenRecent(project.canonicalRoot))
+          .catch((error: unknown) => {
+            const message = document.createElement("p");
+            message.className = "d1-welcome-error";
+            message.dataset.openProjectError = "true";
+            message.setAttribute("role", "alert");
+            message.textContent = String(error);
+            recent.append(message);
+          })
+          .finally(() => {
+            if (!welcome.isConnected) return;
+            open.disabled = false;
+            open.removeAttribute("aria-busy");
+          });
+      });
+      item.append(open);
+      list.append(item);
+    }
+    recent.append(list);
+    for (const diagnostic of state.diagnostics) {
+      // Core's diagnostics render verbatim; the client never rewords them.
+      const note = document.createElement("p");
+      note.className = "d1-welcome-recent-diagnostic";
+      note.dataset.recentDiagnostic = diagnostic;
+      note.textContent = diagnostic;
+      recent.append(note);
+    }
+  }
 
   content.append(brand, start, recent);
   welcome.append(content);

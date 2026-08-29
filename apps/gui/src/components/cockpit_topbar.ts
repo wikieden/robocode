@@ -28,6 +28,14 @@ export interface CockpitTopbarOptions {
   onNavigate?: (route: string, arg?: string) => void;
   onToggleCommandPalette?: () => void;
   commandPaletteOpen?: boolean;
+  /**
+   * Opens the project picker from the `.projsel` selector. Absent while no
+   * host is bound and on the no-project Welcome, where there is no workspace
+   * to switch away from; the selector then stays the design's inert label
+   * rather than a chevron that cannot open anything.
+   */
+  onOpenProjectPicker?: () => void;
+  projectPickerOpen?: boolean;
 }
 
 /// The `.gitops` block: the workspace's source-control facts exactly as the
@@ -136,13 +144,23 @@ export function renderCockpitTopbar(
 
   const source = showWelcome ? null : projection.topbarSource;
 
-  // The design draws a `▾` project picker here. It stays out until the
-  // multi-project rail exists: an enabled control that cannot open anything is
-  // worse than no control. The chevron and its handler arrive together with
-  // that work.
-  const project = document.createElement("span");
+  // The design draws a `▾` project picker here. The chevron and the button
+  // semantics appear only when a handler is bound and a workspace is open —
+  // an enabled control that cannot open anything is worse than no control.
+  const pickerAvailable = !showWelcome && !!options.onOpenProjectPicker;
+  const project = document.createElement(pickerAvailable ? "button" : "span");
   project.className = "projsel d1-topbar-project";
-  project.dataset.tauriDragRegion = "true";
+  if (project instanceof HTMLButtonElement) {
+    project.type = "button";
+    project.dataset.projectSelector = "true";
+    project.setAttribute("aria-haspopup", "dialog");
+    project.setAttribute("aria-expanded", String(options.projectPickerOpen === true));
+    project.title = translate(locale, "d1.picker.open", {});
+    project.addEventListener("click", () => options.onOpenProjectPicker?.());
+  } else {
+    // A drag region swallows clicks, so only the inert label claims one.
+    project.dataset.tauriDragRegion = "true";
+  }
   if (showWelcome) {
     project.textContent = translate(locale, "d1.welcome.noProject", {});
   } else {
@@ -163,6 +181,13 @@ export function renderCockpitTopbar(
       marker.title = translate(locale, "d1.topbar.dirty", {});
       project.append(marker);
     }
+  }
+  if (pickerAvailable) {
+    const chevron = document.createElement("span");
+    chevron.className = "chev";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.textContent = "▾";
+    project.append(chevron);
   }
 
   const lane = projection.lanes.find((candidate) => candidate.id === projection.selectedLaneId);

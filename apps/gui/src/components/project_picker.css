@@ -1,0 +1,252 @@
+/*
+ * Project picker chrome.
+ *
+ * The visual vocabulary is the registered design component `ProjectPicker` in
+ * `docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html` (ppick / ppcol /
+ * ppch / ppadd / pprow), expressed with shared tokens only — no private
+ * palette. Anchoring, Escape, outside-click, and focus hand-back follow the
+ * settings-panel and agent-menu popover conventions.
+ */
+
+.ppick {
+  position: fixed;
+  z-index: 21;
+  inset-block-start: clamp(
+    var(--sp-3),
+    var(--ppick-anchor-block),
+    calc(100dvh - var(--sp-12))
+  );
+  inset-inline-start: clamp(
+    var(--sp-3),
+    var(--ppick-anchor-inline),
+    calc(100vw - min(21rem, calc(100vw - var(--sp-6))) - var(--sp-3))
+  );
+  width: min(21rem, calc(100vw - var(--sp-6)));
+  max-height: calc(100dvh - var(--sp-12));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 11px);
+  box-shadow: var(--shadow-lg);
+  color: var(--fg-primary);
+}
+
+.ppick-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-block-end: 1px solid var(--border-soft);
+}
+
+.ppick-heading {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.ppick-close {
+  margin-inline-start: auto;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ppick-close:hover {
+  color: var(--accent-bright);
+  border-color: var(--border-active);
+}
+
+.ppcol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+}
+
+.ppcol.mid {
+  background: var(--bg-panel);
+  border-block: 1px solid var(--border-soft);
+}
+
+.ppch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ppch .ct {
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--r-sm);
+  padding: 0 var(--sp-1);
+}
+
+.ppadd,
+.pprow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--sp-2);
+  color: inherit;
+  background: transparent;
+  border-radius: var(--r-sm);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ppadd {
+  border: 1px dashed var(--border-soft);
+}
+
+.pprow {
+  border: 1px solid transparent;
+}
+
+.ppadd:hover:not(:disabled),
+.pprow:hover:not(:disabled) {
+  background: var(--bg-base);
+  border-color: var(--accent-dim);
+}
+
+.ppadd:disabled,
+.pprow:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.pprow.on {
+  background: var(--bg-sel);
+  border-color: var(--accent-dim);
+}
+
+.ppadd .i,
+.pprow .dot {
+  flex: none;
+  color: var(--accent);
+}
+
+.pprow .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ppadd .tx,
+.pprow .tx {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.ppadd .n,
+.pprow .n {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppadd .s,
+.pprow .s {
+  overflow: hidden;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pprow .lc,
+.pprow .when {
+  flex: none;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.ppick-note {
+  margin: 0;
+  padding: var(--sp-2);
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.ppick-alert {
+  margin: 0;
+  padding: var(--sp-2);
+  color: var(--error, var(--fg-primary));
+  font-size: var(--fs-xs);
+}
+
+/* Inline switch confirmation. Core replaces the workspace on open, so this
+ * step names the running work that is about to be torn down. */
+.ppick-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+}
+
+.ppick-confirm h3 {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.ppick-confirm p {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: var(--fs-xs);
+}
+
+.ppick-confirm-target {
+  overflow-wrap: anywhere;
+  color: var(--fg-primary);
+  font-family: var(--mono);
+}
+
+.ppick-confirm-actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
+.ppick-confirm-actions button {
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--fg-secondary);
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ppick-confirm-actions button:hover:not(:disabled) {
+  color: var(--accent-bright);
+  border-color: var(--border-active);
+}
+
+.ppick-confirm-accept {
+  color: var(--fg-primary) !important;
+  border-color: var(--accent-dim) !important;
+}

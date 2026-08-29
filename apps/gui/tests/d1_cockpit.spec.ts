@@ -911,7 +911,11 @@ describe("D1 canonical streaming cockpit", () => {
     expect(welcome?.textContent).toContain("Your local-first agent workspace");
     expect(welcome?.textContent).toContain("Get started");
     expect(welcome?.textContent).toContain("Recent projects");
-    expect(welcome?.textContent).toContain("Recent project history is not connected yet");
+    // No `loadRecentWork` port is bound here, so the Recent section names the
+    // exact Core capability it is waiting on instead of showing an empty list
+    // that would read as "you have no history".
+    expect(welcome?.textContent).toContain("Recent project history is unavailable");
+    expect(welcome?.textContent).toContain("runtime.recent_work");
     expect(welcome?.textContent).not.toContain("GUI-CORE-");
     expect(root.querySelector('[aria-label="Transcript"]')).toBeNull();
     expect(root.querySelector("[data-composer]")).toBeNull();

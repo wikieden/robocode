@@ -51,16 +51,53 @@ describe("cockpit titlebar git block", () => {
     expect(element.querySelector(".projsel")?.textContent).toContain("/workspace/viden");
   });
 
-  test("the project selector carries no button semantics and no picker affordance", () => {
+  test("without a picker handler the selector stays an inert label", () => {
     const { element } = renderCockpitTopbar(projection(), "en", false);
     const projsel = element.querySelector<HTMLElement>(".projsel")!;
 
-    // The multi-project picker does not exist yet; an enabled-inert chevron
-    // would promise a control that cannot open.
+    // The chevron promises a popover. Without a bound handler there is nothing
+    // to open, so it stays out rather than being enabled and inert.
     expect(projsel.tagName).toBe("SPAN");
     expect(projsel.textContent).not.toContain("▾");
     expect(projsel.getAttribute("role")).toBeNull();
     expect(projsel.querySelector("button")).toBeNull();
+  });
+
+  test("a bound picker handler turns the selector into the design's ▾ button", () => {
+    const onOpenProjectPicker = vi.fn();
+    const { element } = renderCockpitTopbar(projection(), "en", false, undefined, {
+      onOpenProjectPicker,
+    });
+    const projsel = element.querySelector<HTMLButtonElement>(".projsel")!;
+
+    expect(projsel.tagName).toBe("BUTTON");
+    expect(projsel.dataset.projectSelector).toBe("true");
+    expect(projsel.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(projsel.getAttribute("aria-expanded")).toBe("false");
+    expect(projsel.querySelector(".chev")?.textContent).toBe("▾");
+    // A drag region swallows clicks, so the button must not claim one.
+    expect(projsel.dataset.tauriDragRegion).toBeUndefined();
+    projsel.click();
+    expect(onOpenProjectPicker).toHaveBeenCalledTimes(1);
+  });
+
+  test("the no-project welcome keeps the selector inert even with a handler", () => {
+    const { element } = renderCockpitTopbar(projection(), "en", true, undefined, {
+      onOpenProjectPicker: vi.fn(),
+    });
+    const projsel = element.querySelector<HTMLElement>(".projsel")!;
+
+    // There is no workspace to switch away from yet.
+    expect(projsel.tagName).toBe("SPAN");
+    expect(projsel.textContent).not.toContain("▾");
+  });
+
+  test("an open picker is announced on the selector", () => {
+    const { element } = renderCockpitTopbar(projection(), "en", false, undefined, {
+      onOpenProjectPicker: vi.fn(),
+      projectPickerOpen: true,
+    });
+    expect(element.querySelector(".projsel")?.getAttribute("aria-expanded")).toBe("true");
   });
 
   test("the sync chip states ahead and behind as status, not as an action", () => {

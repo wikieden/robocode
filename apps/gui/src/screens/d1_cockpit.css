@@ -50,6 +50,31 @@
   white-space: nowrap;
 }
 
+/* The selector is a button only when the project picker can actually open. */
+button.d1-topbar-project {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.d1-topbar-project:hover,
+button.d1-topbar-project[aria-expanded="true"] {
+  color: var(--accent-bright);
+  border-color: var(--border-active);
+}
+
+.d1-topbar-project .chev {
+  flex: none;
+  color: var(--fg-muted);
+}
+
 .d1-topbar-lane {
   min-width: 0;
   margin-inline-start: var(--sp-1);
@@ -192,10 +217,97 @@
   visibility: visible;
 }
 
+/*
+ * Workspace explorer vocabulary from the design's `WorkspacePanel`: a `.wsroot`
+ * project header with a collapse toggle and a per-project `＋`, the `.wslanes`
+ * rows nested under it, and a `.wsaddproj` footer. One group only — Core
+ * supervises one workspace (GUI-CORE-023).
+ */
+.d1-lane-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-height: 0;
+}
+
+.d1-lane-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.d1-lane-group-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  text-align: start;
+}
+
+.d1-lane-group-toggle .ic {
+  flex: none;
+  color: var(--gold);
+}
+
+.d1-lane-group-toggle .nm {
+  overflow: hidden;
+  color: var(--fg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d1-lane-group-head .lct {
+  flex: none;
+  padding: 0 var(--sp-1);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+
+.d1-lane-group-head .lct.z {
+  color: var(--fg-faint);
+}
+
 .d1-create-lane {
-  width: 100%;
-  margin-block-end: var(--sp-3);
+  flex: none;
+  min-width: var(--sp-6);
   border-color: var(--border-soft);
+}
+
+.d1-lane-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-inline-start: var(--sp-2);
+}
+
+.d1-lane-empty,
+.d1-add-project {
+  margin: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.d1-add-project {
+  width: 100%;
+  padding: var(--sp-2);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--r-sm);
+  text-align: start;
+}
+
+.d1-add-project:hover,
+.d1-add-project[aria-expanded="true"] {
+  color: var(--accent-bright);
+  border-color: var(--accent-dim);
 }
 
 .d1-lanes h2,

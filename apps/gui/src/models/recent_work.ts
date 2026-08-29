@@ -15,6 +15,13 @@
  * the order they arrive and never re-sorts or re-truncates them.
  */
 
+/**
+ * The frontend-contract-v1 capability Core publishes for this inventory. The
+ * client names the exact id in its unavailable copy so the gap is checkable
+ * against Core's handshake rather than described in prose.
+ */
+export const RECENT_WORK_CAPABILITY = "runtime.recent_work";
+
 export interface RecentProjectView {
   canonicalRoot: string;
   displayName: string;

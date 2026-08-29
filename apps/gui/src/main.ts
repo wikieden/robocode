@@ -295,6 +295,9 @@ export async function hydrateShellFromCore(
             sendD6Intent,
             sendComposerControl,
             preferences: preferencePort,
+            loadRecentWork,
+            onPickProjectFolder: pickProjectFolder,
+            onOpenWorkspace: openWorkspace,
             loadPaletteCrossLane,
             onNavigate: (route: string, arg?: string) => {
               // Every restored screen re-reads its own Core projection before
@@ -475,13 +478,32 @@ export async function hydrateShellFromCore(
         renderD13FleetWorkflow(root, projection, locale);
       };
 
+      const pickProjectFolder = async () =>
+        await core.pickProjectFolder(translate(locale, "d1.welcome.openFolderTitle", {}));
+
       const openProject = async () => {
-        const selected = await core.pickProjectFolder(
-          translate(locale, "d1.welcome.openFolderTitle", {}),
-        );
+        const selected = await pickProjectFolder();
         if (selected === null) return;
-        await core.openWorkspace(selected);
+        await openWorkspace(selected);
+      };
+
+      // Opening a workspace is a replacement: Core builds a new supervisor and
+      // the host swaps its single adapter slot, so the cockpit must be rebuilt
+      // against the new projection rather than kept over stale Lane state.
+      const openWorkspace = async (root: string) => {
+        await core.openWorkspace(root);
         await showD1();
+      };
+
+      // One bounded read of Core's cross-project inventory. The send call waits
+      // briefly; a slower Core is drained here rather than reported as an empty
+      // history. Nothing falls back to scanning the session home.
+      const loadRecentWork = async () => {
+        let result = await core.queryRecentWork(`gui-recent-${crypto.randomUUID()}`, 20);
+        for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+          result = await core.recentWorkPoll();
+        }
+        return result;
       };
 
       const initialProjection = await core.d1Cockpit(null);
@@ -525,6 +547,11 @@ export async function hydrateShellFromCore(
           undefined,
           {
             onOpenProject: openProject,
+            // Welcome has no workspace to replace, so a recent row opens
+            // directly; the guarded switch belongs to the picker, which always
+            // has one.
+            loadRecentWork,
+            onOpenWorkspace: openWorkspace,
             showWelcome: true,
             poll: false,
             // A host is bound even without a project, so the gear opens the
