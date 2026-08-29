@@ -3,13 +3,13 @@ use crate::{
     AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentSessionInput,
     AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord,
     ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CheckRunView, ConflictBounce, ContextBudgetRecord, ContextBundleRecord,
-    ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord, ContextQualityRecord,
-    ContextReductionRecord, ContextRetrievalRecord, ContextScope, ContextViewRecord,
-    ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord, CredentialHandle,
-    DependencyRecord, DependencyState, EvidenceCanonicalizationRecord, EvidenceId,
-    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
-    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    ApprovalTarget, AuditPage, AuditQuery, CheckRunView, ConflictBounce, ContextBudgetRecord,
+    ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord,
+    ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord, ContextScope,
+    ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord,
+    CredentialHandle, DependencyRecord, DependencyState, EvidenceCanonicalizationRecord,
+    EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord,
+    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
     RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
     RevertRecord, ReviewRequestRecord, ReviewedEvidenceBinding, RuntimeOwner,
     RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
@@ -64,6 +64,12 @@ pub enum RuntimeCommand {
     ResetUiPreferences,
     QueryRecentWork {
         query: RecentWorkQuery,
+    },
+    /// Read-only page of the append-only audit timeline. Like
+    /// `QueryRecentWork` this never mutates and never prompts for permission,
+    /// so it stays answerable in Plan mode.
+    QueryAudit {
+        query: AuditQuery,
     },
     PreviewStarterLane {
         request: StarterLaneRequest,
@@ -601,6 +607,12 @@ pub enum RuntimeEventKind {
         sessions: Vec<RecentSessionSummary>,
         diagnostics: Vec<String>,
     },
+    /// Answer to `QueryAudit`. The page is a query result, not runtime view
+    /// state: the timeline is unbounded and paginated, so it is deliberately
+    /// not folded into `RuntimeViewState`.
+    AuditPageLoaded {
+        page: AuditPage,
+    },
     WorkspaceSourceUpdated {
         source: WorkspaceSourceView,
     },
@@ -1110,6 +1122,10 @@ impl RuntimeViewState {
                 self.recent_sessions = sessions.clone();
                 self.recent_work_diagnostics = diagnostics.clone();
             }
+            // A loaded audit page answers one paginated query; folding it into
+            // the capped view collections would silently truncate the
+            // timeline, so the view state deliberately ignores it.
+            RuntimeEventKind::AuditPageLoaded { .. } => {}
             RuntimeEventKind::WorkspaceSourceUpdated { source } => {
                 self.workspace_source = Some(source.clone());
             }

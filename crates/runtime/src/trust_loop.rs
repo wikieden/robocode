@@ -1,12 +1,45 @@
+use std::collections::BTreeMap;
+
 use viden_types::{
-    AgentNextAction, AgentTaskStatus, ApprovalResponse, ConflictBounce, ConflictBounceStatus,
-    ContractDecision, ContractRecord, DependencyRecord, DependencyState, HandoffAcceptance,
-    HandoffRecord, MergeGateDecision, MergeGateDecisionOutcome, MergeGateValidator, RevertRecord,
-    ReviewRequestRecord, ReviewRequestStatus, RuntimeEvent, RuntimeEventKind, RuntimeOwner,
-    fresh_id, now_timestamp, truncate_for_preview,
+    AgentNextAction, AgentTaskStatus, ApprovalResponse, AuditActor, AuditObjectRef, AuditOutcome,
+    AuditRecord, ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord,
+    DependencyRecord, DependencyState, HandoffAcceptance, HandoffRecord, MergeGateDecision,
+    MergeGateDecisionOutcome, MergeGateValidator, RevertRecord, ReviewRequestRecord,
+    ReviewRequestStatus, RuntimeEvent, RuntimeEventKind, RuntimeOwner, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
 
 use crate::SessionEngine;
+
+/// Builds one bounded audit fact for an accepted trust mutation.
+///
+/// `action` is a stable dotted key and `args` are stable tokens: the trust
+/// summaries and reasons deliberately stay out, because they can carry user or
+/// model prose while the audit timeline must stay translatable and diffable.
+pub(crate) fn trust_audit_record(
+    audit_id: &str,
+    timestamp: u64,
+    owner: &RuntimeOwner,
+    action: &str,
+    objects: Vec<AuditObjectRef>,
+    args: &[(&str, &str)],
+) -> Result<AuditRecord, String> {
+    AuditRecord::sanitized(
+        audit_id.to_string(),
+        timestamp,
+        owner.clone(),
+        // Trust mutations reach the runtime through an operator-authorized
+        // command, and the approval gate has already run at this point.
+        AuditActor::Operator,
+        action.to_string(),
+        objects,
+        // These sites run only after validation and permission succeed.
+        AuditOutcome::Success,
+        args.iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect::<BTreeMap<_, _>>(),
+    )
+}
 
 impl SessionEngine {
     pub(crate) fn trust_mutation_permission_descriptor(
@@ -345,6 +378,25 @@ impl SessionEngine {
 
         let now = now_timestamp();
         let audit_id = fresh_id("audit");
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "handoff.created",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_HANDOFF, &handoff_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, &from_lane_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, &to_lane_id),
+            ],
+            &[(
+                "acceptance",
+                match acceptance {
+                    HandoffAcceptance::Accepted => "accepted",
+                    HandoffAcceptance::Rejected => "rejected",
+                },
+            )],
+        )?)?;
         let handoff = HandoffRecord {
             handoff_id,
             task_id: task_id.clone(),
@@ -440,6 +492,42 @@ impl SessionEngine {
 
         let now = now_timestamp();
         let audit_id = fresh_id("audit");
+        let decision_audit_id = fresh_id("audit");
+        let mut review_objects = vec![
+            AuditObjectRef::new(AuditObjectRef::KIND_REVIEW_REQUEST, &review_id),
+            AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, &gate_id),
+            AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+            AuditObjectRef::new(AuditObjectRef::KIND_LANE, &requester_lane_id),
+            AuditObjectRef::new(AuditObjectRef::KIND_LANE, &reviewer_lane_id),
+        ];
+        // Evidence links are bounded like every other audit field. When a
+        // review binds more evidence than the object bound allows, the record
+        // keeps the first references and `evidence_count` carries the total,
+        // so the count is never silently wrong.
+        let evidence_count = evidence_ids.len();
+        let evidence_link_budget = viden_types::MAX_AUDIT_OBJECTS - review_objects.len();
+        review_objects.extend(
+            evidence_ids
+                .iter()
+                .take(evidence_link_budget)
+                .map(|evidence_id| AuditObjectRef::new(AuditObjectRef::KIND_EVIDENCE, evidence_id)),
+        );
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "review.requested",
+            review_objects,
+            &[
+                ("status", "pending"),
+                ("evidence_count", &evidence_count.to_string()),
+            ],
+        )?)?;
+        // The AwaitingEvidence stamp this site writes onto the gate is
+        // bookkeeping during evidence collection, not an operator decision, so
+        // it is deliberately not audited: `gate.decided` means the
+        // permission-gated accept/reject only. `review.requested` above is the
+        // operator action here.
         let review = ReviewRequestRecord {
             review_id: review_id.clone(),
             gate_id,
@@ -468,7 +556,7 @@ impl SessionEngine {
             "independent_review_required".to_string(),
             gate.owner.clone(),
             gate.evidence_ids.clone(),
-            fresh_id("audit"),
+            decision_audit_id,
         ));
         gate.audit_ids.push(audit_id);
         gate.updated_at = Some(now);
@@ -508,13 +596,31 @@ impl SessionEngine {
             approver,
         )?;
         let now = now_timestamp();
+        let audit_id = fresh_id("audit");
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "contract.confirmed",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_CONTRACT, &contract_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+            ],
+            &[(
+                "decision",
+                match decision {
+                    ContractDecision::Confirmed => "confirmed",
+                    ContractDecision::Rejected => "rejected",
+                },
+            )],
+        )?)?;
         let contract = ContractRecord {
             contract_id,
             task_id,
             owner,
             summary,
             decision,
-            audit_id: fresh_id("audit"),
+            audit_id,
             updated_at: now,
         };
         self.runtime_contracts.push(contract.clone());
@@ -551,6 +657,25 @@ impl SessionEngine {
         )?;
 
         let now = now_timestamp();
+        let audit_id = fresh_id("audit");
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "dependency.set",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_DEPENDENCY, &dependency_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &depends_on_task_id),
+            ],
+            &[(
+                "state",
+                match state {
+                    DependencyState::Blocked => "blocked",
+                    DependencyState::Unblocked => "unblocked",
+                },
+            )],
+        )?)?;
         let dependency = DependencyRecord {
             dependency_id,
             task_id: task_id.clone(),
@@ -558,7 +683,7 @@ impl SessionEngine {
             owner,
             state,
             reason: reason.clone(),
-            audit_id: fresh_id("audit"),
+            audit_id,
             updated_at: now,
         };
         upsert_dependency(&mut self.runtime_dependencies, dependency.clone());
@@ -721,8 +846,21 @@ impl SessionEngine {
         let baseline_evidence =
             self.validate_conflict_bounce(gate_index, &original_lane_id, &owner)?;
         let audit_id = fresh_id("audit");
+        let bounce_id = fresh_id("conflict");
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "conflict.bounced",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, &gate_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, &original_lane_id),
+            ],
+            &[("status", "pending"), ("bounce_id", &bounce_id)],
+        )?)?;
         let conflict = ConflictBounce {
-            bounce_id: fresh_id("conflict"),
+            bounce_id,
             gate_id,
             task_id: task_id.clone(),
             original_lane_id,
@@ -799,6 +937,23 @@ impl SessionEngine {
         )?;
 
         let now = now_timestamp();
+        let audit_id = fresh_id("audit");
+        // Audit before mutation: revalidation is the origin lane's
+        // permission-gated claim that the conflict is resolved.
+        let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &actor,
+            "conflict.revalidated",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, &gate_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_CONFLICT, &bounce_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_EVIDENCE, &evidence.evidence_id),
+            ],
+            &[("status", "revalidated")],
+        )?)?;
         let conflict = &mut self.runtime_conflict_bounces[conflict];
         conflict.status = ConflictBounceStatus::Revalidated;
         conflict.revalidated_at = Some(now);
@@ -812,7 +967,7 @@ impl SessionEngine {
             "revalidated_conflict_requires_review".to_string(),
             actor,
             gate.evidence_ids.clone(),
-            fresh_id("audit"),
+            audit_id,
         ));
         gate.updated_at = Some(now);
         Ok(vec![
@@ -942,10 +1097,6 @@ impl SessionEngine {
             .iter()
             .map(|rollback| rollback.path.clone())
             .collect::<Vec<_>>();
-        self.stage_rollback_paths(&paths)?;
-        self.persist_merge_gate_precommit(gate_index, "audit-revert-precommit")?;
-        self.restore_file_rollbacks(&original)?;
-
         let now = now_timestamp();
         let audit_id = fresh_id("audit");
         let restored_paths = paths
@@ -953,8 +1104,35 @@ impl SessionEngine {
             .filter_map(|path| path.strip_prefix(&self.cwd).ok())
             .map(|path| path.to_string_lossy().replace('\\', "/"))
             .collect::<Vec<_>>();
+        let revert_id = fresh_id("revert");
+        // Audit strictly before any byte touches the disk.
+        //
+        // Deliberate tradeoff: if restoration fails after this append, the
+        // audit record is orphaned (an audit fact with no matching
+        // RevertRecord), which is detectable evidence that a revert was
+        // attempted. The reverse order — restore first, audit second — would
+        // instead leave files already reverted with no audit fact, no
+        // RevertRecord, and the gate still Merged: a silent, untraceable disk
+        // mutation. An orphaned record beats an invisible change.
+        self.append_trust_audit(&trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "change.reverted",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_REVERT, &revert_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_APPLIED_CHANGE, &applied_change_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, &gate_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+            ],
+            &[("restored_path_count", &restored_paths.len().to_string())],
+        )?)?;
+        self.stage_rollback_paths(&paths)?;
+        self.persist_merge_gate_precommit(gate_index, "audit-revert-precommit")?;
+        self.restore_file_rollbacks(&original)?;
+
         let revert = RevertRecord {
-            revert_id: fresh_id("revert"),
+            revert_id,
             gate_id,
             applied_change_id: applied_change_id.clone(),
             owner: owner.clone(),
@@ -1000,6 +1178,19 @@ impl SessionEngine {
             events.push(RuntimeEvent::new(3, RuntimeEventKind::TaskUpdated { task }));
         }
         Ok(events)
+    }
+
+    /// Persists one trust audit fact, fail-closed.
+    ///
+    /// A failed append fails the whole trust action. Audit persistence is part
+    /// of the mutation's contract, the same way permission is checked before
+    /// mutation: publishing a trust event whose audit record never landed
+    /// would leave an unauditable change in the timeline.
+    pub(crate) fn append_trust_audit(&self, record: &AuditRecord) -> Result<(), String> {
+        if self.should_fail_workflow_append_for_test() {
+            return Err("injected workflow append failure".to_string());
+        }
+        self.workflows.append_audit_record(record)
     }
 
     pub(crate) fn require_trust_permission<F>(

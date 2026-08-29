@@ -41,17 +41,17 @@ use viden_types::{
     AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentNextAction, AgentRole, AgentRoute,
     AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget,
-    CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord, ContextItemRecord,
-    ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome, CostUsageRecord,
-    EvidenceCanonicalReasonCode, EvidenceCanonicalStatus, EvidenceCanonicalStatusReport,
-    EvidenceQualityStatus, EvidenceVerificationState, EvidenceView, MergeGateDecisionOutcome,
-    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionBehavior,
-    PermissionDecision, PermissionDecisionReason, PermissionLevel, PermissionMode,
-    PermissionPrompt, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    ProviderHealthView, QueuedInputView, ReviewRequestStatus, RuntimeCommand, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, TokenCostView,
-    TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest, WorkMode, canonical_evidence_status,
-    fresh_id, now_timestamp, truncate_for_preview,
+    AuditObjectRef, CanonicalEvidenceReference, ContextContentKind, ContextHandleRecord,
+    ContextItemRecord, ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome,
+    CostUsageRecord, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
+    EvidenceCanonicalStatusReport, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
+    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, PermissionBehavior, PermissionDecision, PermissionDecisionReason,
+    PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule, PermissionRuleSource,
+    PermissionRuleValue, ProviderHealthView, QueuedInputView, ReviewRequestStatus, RuntimeCommand,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
+    RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest,
+    WorkMode, canonical_evidence_status, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::{
     recovery::{LoadedRecoverySnapshot, RecoverySnapshotEntry},
@@ -507,6 +507,12 @@ impl SessionEngine {
             },
             RuntimeCommand::QueryRecentWork { query } => match self.query_recent_work(query) {
                 Ok(recent_events) => append_resequenced(&mut events, recent_events),
+                Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+            },
+            // Read-only, exactly like QueryRecentWork: no permission prompt,
+            // no plan-mode block, no transaction snapshot.
+            RuntimeCommand::QueryAudit { query } => match self.query_audit(query) {
+                Ok(audit_events) => append_resequenced(&mut events, audit_events),
                 Err(err) => return Ok(vec![command_rejected(command_id, err)]),
             },
             RuntimeCommand::SubmitUserInput { content } => {
@@ -2899,10 +2905,44 @@ impl SessionEngine {
         )?;
 
         let now = now_timestamp();
+        let audit_id = fresh_id("audit");
+        let owner = actor.unwrap_or_else(|| self.runtime_merge_gates[gate_index].owner.clone());
+        // Audit before mutation, the same rule as every other trust site: the
+        // operator's accept/reject is the most consequential decision in the
+        // loop, so a failed audit append must fail the decision rather than
+        // leave an unauditable gate transition.
+        let mut decision_objects = vec![
+            AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, gate_id),
+            AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+        ];
+        if let Some(review_request_id) = accepted_review_request_id.as_deref().or_else(|| {
+            self.runtime_merge_gates[gate_index]
+                .validator
+                .as_ref()
+                .map(|validator| validator.review_request_id.as_str())
+        }) {
+            decision_objects.push(AuditObjectRef::new(
+                AuditObjectRef::KIND_REVIEW_REQUEST,
+                review_request_id,
+            ));
+        }
+        self.append_trust_audit(&crate::trust_loop::trust_audit_record(
+            &audit_id,
+            now,
+            &owner,
+            "gate.decided",
+            decision_objects,
+            &[(
+                "outcome",
+                if status == MergeGateStatus::Accepted {
+                    "accepted"
+                } else {
+                    "needs_changes"
+                },
+            )],
+        )?)?;
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = status;
-        let audit_id = fresh_id("audit");
-        let owner = actor.unwrap_or_else(|| gate.owner.clone());
         let reviewed_evidence_ids = reviewed_evidence
             .iter()
             .map(|binding| binding.evidence_id.clone())
@@ -3258,6 +3298,21 @@ impl SessionEngine {
             approver,
         )?;
         let now = now_timestamp();
+        let audit_id = fresh_id("audit");
+        // Audit before mutation: rejecting an artifact is a permission-gated
+        // operator decision that drops evidence from the gate.
+        self.append_trust_audit(&crate::trust_loop::trust_audit_record(
+            &audit_id,
+            now,
+            &actor,
+            "evidence.rejected",
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, gate_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_TASK, &task_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_EVIDENCE, evidence_id),
+            ],
+            &[("outcome", "rejected")],
+        )?)?;
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.evidence_ids.retain(|id| id != evidence_id);
         gate.status = MergeGateStatus::NeedsChanges;
@@ -3266,7 +3321,7 @@ impl SessionEngine {
             reason.clone(),
             actor,
             gate.evidence_ids.clone(),
-            fresh_id("audit"),
+            audit_id,
         ));
         gate.updated_at = Some(now);
         let gate = gate.clone();
@@ -5714,6 +5769,11 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::QueryRecentWork { query } => {
             RuntimeCommand::QueryRecentWork { query: *query }
         }
+        // The audit query carries only stable identifiers and a cursor; there
+        // is no free text to redact, so it passes through like QueryRecentWork.
+        RuntimeCommand::QueryAudit { query } => RuntimeCommand::QueryAudit {
+            query: query.clone(),
+        },
         RuntimeCommand::PreviewStarterLane { request } => RuntimeCommand::PreviewStarterLane {
             request: redacted_starter_lane_request(request),
         },

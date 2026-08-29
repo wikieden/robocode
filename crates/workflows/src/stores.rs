@@ -9,7 +9,9 @@ use std::process::Command;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use viden_session::project_key_for_path;
+use viden_types::{AuditPage, AuditQuery, AuditRecord};
 
+use crate::audit::{audit_page, revalidate_audit_record};
 use crate::lanes::{
     LEGACY_LANES_MIGRATION_ID, LaneEvent, LaneState, LegacyLaneImportOutcome,
     parse_legacy_lanes_tsv, reduce_lane_events,
@@ -27,6 +29,9 @@ pub struct WorkflowPaths {
     pub agent_log: PathBuf,
     pub lanes_log: PathBuf,
     pub lanes_lock: PathBuf,
+    /// Canonical append-only audit timeline. SQLite is not involved: see
+    /// `crate::audit`.
+    pub audit_log: PathBuf,
     pub index_db_path: PathBuf,
 }
 
@@ -88,6 +93,7 @@ impl WorkflowStore {
             agent_log: project_dir.join("agents.jsonl"),
             lanes_log: project_dir.join("lanes.jsonl"),
             lanes_lock: project_dir.join("lanes.lock"),
+            audit_log: project_dir.join("audit.jsonl"),
             index_db_path: project_dir.join("workflow.sqlite3"),
             home_dir,
             projects_dir,
@@ -111,6 +117,52 @@ impl WorkflowStore {
 
     pub fn append_agent_event(&self, event: &WorkflowAgentEvent) -> Result<(), String> {
         append_json_line(&self.paths.agent_log, event)
+    }
+
+    /// Appends one audit fact to the canonical append-only timeline.
+    ///
+    /// The record is re-validated against the sanitization bounds first: a
+    /// record that did not come from `AuditRecord::sanitized` must never reach
+    /// the durable log. The append itself is unconditional and lock-free, the
+    /// same as the task log, because the timeline is never reduced or
+    /// rewritten — only appended and scanned.
+    pub fn append_audit_record(&self, record: &AuditRecord) -> Result<(), String> {
+        revalidate_audit_record(record)?;
+        append_json_line(&self.paths.audit_log, record)
+    }
+
+    /// Returns one newest-first page of the audit timeline.
+    ///
+    /// Read-only JSONL scan. A malformed line is a hard error rather than a
+    /// skipped line: an audit answer that silently omits records would be read
+    /// as evidence that nothing happened.
+    pub fn query_audit(&self, query: &AuditQuery) -> Result<AuditPage, String> {
+        let records = self.load_audit_records()?;
+        Ok(audit_page(records, query))
+    }
+
+    /// Loads every audit record in file order.
+    pub fn load_audit_records(&self) -> Result<Vec<AuditRecord>, String> {
+        let path = &self.paths.audit_log;
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let contents = fs::read_to_string(path).map_err(|err| err.to_string())?;
+        let mut records = Vec::new();
+        for (index, line) in contents.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let record: AuditRecord = serde_json::from_str(line).map_err(|err| {
+                format!(
+                    "malformed audit record on line {} of {}: {err}",
+                    index + 1,
+                    path.display()
+                )
+            })?;
+            records.push(record);
+        }
+        Ok(records)
     }
 
     pub fn load_task_events(&self) -> Result<Vec<WorkflowTaskEvent>, String> {

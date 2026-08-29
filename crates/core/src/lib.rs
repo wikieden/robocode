@@ -27,26 +27,28 @@ pub use viden_types::{
     AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
     AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CapabilityId, CheckRunStatus, CheckRunView, CommandAction, ConflictBounce,
-    ConflictBounceStatus, ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord,
-    ContractDecision, ContractRecord, CoreHandshake, CostLedgerTotals, CostUsageRecord,
-    CredentialHandle, CredentialRequestId, CredentialStatus, DataEgressPolicy, DependencyRecord,
-    DependencyState, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery,
-    GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget, LaneConflictView,
-    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGatePolicySnapshot, MergeGateRecord,
-    MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, PermissionLevel,
-    PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView,
-    QueuedInputView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch,
-    ReplayRequest, ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewRequestStatus,
-    ReviewedEvidenceBinding, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView,
-    RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
-    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView,
-    WorkspaceEligibility, WorkspaceSourceStatus, WorkspaceSourceView,
+    ApprovalTarget, AuditActor, AuditCursor, AuditId, AuditObjectRef, AuditOutcome, AuditPage,
+    AuditQuery, AuditRecord, CapabilityId, CheckRunStatus, CheckRunView, CommandAction,
+    ConflictBounce, ConflictBounceStatus, ContextBundleRecord, ContextOmittedSourceRecord,
+    ContextSourceRecord, ContractDecision, ContractRecord, CoreHandshake, CostLedgerTotals,
+    CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus, DataEgressPolicy,
+    DependencyRecord, DependencyState, EventCursor, EvidenceView, ExecutionTarget,
+    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
+    LaneConflictView, LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGatePolicySnapshot,
+    MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy,
+    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
+    ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
+    ReviewRequestRecord, ReviewRequestStatus, ReviewedEvidenceBinding, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
+    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
+    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -91,6 +93,10 @@ mod tests {
         assert!(std::any::type_name::<ProjectConfigPreview>().contains("ProjectConfigPreview"));
         assert!(std::any::type_name::<CredentialHandle>().contains("CredentialHandle"));
         assert!(std::any::type_name::<RecentWorkQuery>().contains("RecentWorkQuery"));
+        assert!(std::any::type_name::<AuditQuery>().contains("AuditQuery"));
+        assert!(std::any::type_name::<AuditPage>().contains("AuditPage"));
+        assert!(std::any::type_name::<AuditRecord>().contains("AuditRecord"));
+        assert!(std::any::type_name::<AuditObjectRef>().contains("AuditObjectRef"));
         assert!(std::any::type_name::<RecentProjectSummary>().contains("RecentProjectSummary"));
         assert!(std::any::type_name::<RecentSessionSummary>().contains("RecentSessionSummary"));
         assert!(std::any::type_name::<AgentAdapterView>().contains("AgentAdapterView"));

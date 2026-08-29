@@ -5,7 +5,7 @@ use viden_config::{
     reset_user_ui_preferences_at, resolve_user_ui_preferences_at, save_user_ui_preferences_at,
 };
 use viden_types::{
-    ApprovalResponse, RecentWorkQuery, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
+    ApprovalResponse, AuditQuery, RecentWorkQuery, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
     UiPreferencePatch, UiPreferences, resolve_ui_preferences,
 };
 
@@ -29,6 +29,19 @@ impl SessionEngine {
                 sessions: inventory.sessions,
                 diagnostics: inventory.diagnostics,
             },
+        )])
+    }
+
+    /// Reads one newest-first page of the append-only audit timeline.
+    ///
+    /// Pure read: no permission prompt, no plan-mode gate, no mutation. The
+    /// page is answered from the canonical JSONL, so it stays correct after
+    /// the derived SQLite index is deleted.
+    pub(crate) fn query_audit(&self, query: AuditQuery) -> Result<Vec<RuntimeEvent>, String> {
+        let page = self.workflows.query_audit(&query)?;
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::AuditPageLoaded { page },
         )])
     }
 

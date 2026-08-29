@@ -1786,9 +1786,11 @@ fn trust_loop_revert_audit_failure_restores_applied_bytes_and_facts() {
         )
         .unwrap();
     let before = engine.runtime_view_state();
-    // The revert intent precommit succeeds, then the final durable fact fails
-    // after bytes have changed so compensation must restore both domains.
-    engine.fail_after_workflow_appends_for_test(1);
+    // The audit fact and the revert intent precommit both succeed, then the
+    // final durable fact fails after bytes have changed so compensation must
+    // restore both domains. (Append 0 is the `change.reverted` audit record,
+    // which is written before any byte moves; append 1 is the precommit.)
+    engine.fail_after_workflow_appends_for_test(2);
 
     let rejected = engine
         .handle_runtime_command(

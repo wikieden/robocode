@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod lanes;
 pub mod memory;
 pub mod recovery;
