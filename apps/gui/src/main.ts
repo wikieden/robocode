@@ -295,12 +295,16 @@ export async function hydrateShellFromCore(
             sendD6Intent,
             sendComposerControl,
             preferences: preferencePort,
-            onNavigate: (route: string) => {
+            loadPaletteCrossLane,
+            onNavigate: (route: string, arg?: string) => {
               // Every restored screen re-reads its own Core projection before
-              // it renders; the rail only names the route.
-              if (route === "d2") void showD2();
+              // it renders; the caller only names the route and, when the
+              // palette jumped to one exact record, the Core id to preselect.
+              if (route === "d2") void showD2(arg);
+              else if (route === "d4") void showD4();
               else if (route === "d10") void showD10();
-              else if (route === "d12") void showD12();
+              else if (route === "d11") void showD11();
+              else if (route === "d12") void showD12(arg);
               else if (route === "d13") void showD13();
               else if (route === "d14") void showD14();
             },
@@ -359,12 +363,48 @@ export async function hydrateShellFromCore(
         });
       };
 
+      /**
+       * The command palette's cross-Lane index.
+       *
+       * The D1 cockpit projection is Lane-scoped, so gates and asks belonging
+       * to other Lanes are read from the projections that already own them —
+       * `d2_decisions` and `d12_integration_gate`. No new Core capability is
+       * involved, and nothing here derives a decision the projections did not
+       * publish. A rejection propagates: the palette states it in place of the
+       * section rather than showing an empty one.
+       */
+      const loadPaletteCrossLane = async () => {
+        const [decisions, gate] = await Promise.all([
+          core.d2Decisions(null),
+          core.d12IntegrationGate(null),
+        ]);
+        return {
+          gates: (gate?.gates ?? []).map((entry) => ({
+            gateId: entry.gateId,
+            taskId: entry.taskId,
+            status: entry.status,
+          })),
+          asks: (decisions?.groups ?? []).flatMap((group) =>
+            group.items.map((item) => ({
+              id: item.id,
+              title: item.title,
+              kind: item.kind,
+              laneId: item.laneId,
+            })),
+          ),
+        };
+      };
+
       // D2 is the cross-Lane decision queue. It reads the same Core facts as
       // the D1 permission dock, so it never keeps a second decision model.
-      const showD2 = async () => {
+      //
+      // `selectedId` is Core's own selection input: the projection comes back
+      // carrying that decision's detail, so a palette jump lands on the record
+      // it named rather than on the queue's default head.
+      const showD2 = async (selectedId?: string) => {
         activeD1?.dispose();
         activeD1 = null;
-        const projection = await core.d2Decisions(null);
+        const projection = await core.d2Decisions(selectedId ?? null);
         if (!projection) {
           throw new Error("Core did not provide the D2 decision projection");
         }

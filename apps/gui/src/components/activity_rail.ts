@@ -22,6 +22,8 @@ export type CanonicalGuiIcon =
   | "diagnostics"
   | "inbox"
   | "settings"
+  | "decide"
+  | "palette"
   | "panel";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -85,6 +87,19 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
     svg.append(svgNode("path", { d: "M3 12h4l3 8 4-16 3 8h4" }));
   } else if (name === "inbox") {
     svg.append(svgNode("path", { d: "M22 12h-6l-2 3h-4l-2-3H2M5 5h14l3 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z" }));
+  } else if (name === "decide") {
+    svg.append(
+      svgNode("path", {
+        d: "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
+      }),
+    );
+  } else if (name === "palette") {
+    // The design kit's titlebar-tools glyph for the command palette.
+    svg.append(
+      svgNode("path", {
+        d: "M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z",
+      }),
+    );
   } else if (name === "settings") {
     svg.append(
       svgNode("circle", { cx: "12", cy: "12", r: "3" }),

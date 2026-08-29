@@ -1,4 +1,5 @@
 import { translate, type Locale } from "../i18n/catalog";
+import { formatShortcut } from "../i18n/format";
 import type { D1CockpitProjection, TopbarSourceProjection } from "../models/workspace";
 import { createCanonicalGuiIcon } from "./activity_rail";
 
@@ -14,6 +15,19 @@ const BRANCH_GLYPH = "⎇";
 export interface CockpitTopbar {
   element: HTMLElement;
   contextDrawerToggle: HTMLButtonElement;
+  /**
+   * The design's `.tbtbtn` command-palette button. Disabled while no cockpit
+   * handler is bound (the pre-Core shell), which keeps it visible and honest
+   * rather than opening an overlay with nothing to act on.
+   */
+  commandPaletteToggle: HTMLButtonElement;
+}
+
+export interface CockpitTopbarOptions {
+  /// Opens a restored screen, optionally preselecting one Core id.
+  onNavigate?: (route: string, arg?: string) => void;
+  onToggleCommandPalette?: () => void;
+  commandPaletteOpen?: boolean;
 }
 
 /// The `.gitops` block: the workspace's source-control facts exactly as the
@@ -87,7 +101,8 @@ export function renderCockpitTopbar(
   projection: D1CockpitProjection,
   locale: Locale,
   showWelcome: boolean,
-  onNavigate?: (route: string) => void,
+  onNavigate?: (route: string, arg?: string) => void,
+  options: CockpitTopbarOptions = {},
 ): CockpitTopbar {
   const titlebar = document.createElement("header");
   titlebar.className = "titlebar vbar d1-titlebar";
@@ -171,12 +186,30 @@ export function renderCockpitTopbar(
   contextDrawerToggle.hidden = showWelcome;
   contextDrawerToggle.append(createCanonicalGuiIcon("panel"));
 
+  // The design puts the palette button first in `.tbtools`, before the
+  // context-panel toggle.
+  const commandPaletteToggle = document.createElement("button");
+  commandPaletteToggle.type = "button";
+  commandPaletteToggle.className = "tbtbtn d1-command-palette-toggle";
+  commandPaletteToggle.dataset.commandPaletteToggle = "true";
+  commandPaletteToggle.setAttribute("aria-haspopup", "dialog");
+  commandPaletteToggle.setAttribute("aria-expanded", String(options.commandPaletteOpen === true));
+  const paletteLabel = `${translate(locale, "d1.palette.title", {})} ${formatShortcut("⌘K")}`;
+  commandPaletteToggle.title = paletteLabel;
+  commandPaletteToggle.setAttribute("aria-label", paletteLabel);
+  commandPaletteToggle.disabled = !options.onToggleCommandPalette;
+  if (options.commandPaletteOpen) commandPaletteToggle.classList.add("on");
+  if (options.onToggleCommandPalette) {
+    commandPaletteToggle.addEventListener("click", () => options.onToggleCommandPalette?.());
+  }
+  commandPaletteToggle.append(createCanonicalGuiIcon("palette"));
+
   const tools = document.createElement("span");
   tools.className = "tbtools";
-  tools.append(contextDrawerToggle);
+  tools.append(commandPaletteToggle, contextDrawerToggle);
   if (!nativeShell) titlebar.append(lights);
   titlebar.append(brand, project);
   if (source) titlebar.append(renderGitOps(source, locale, onNavigate));
   titlebar.append(laneSummary, tools);
-  return { element: titlebar, contextDrawerToggle };
+  return { element: titlebar, contextDrawerToggle, commandPaletteToggle };
 }

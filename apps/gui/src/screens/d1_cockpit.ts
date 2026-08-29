@@ -7,6 +7,11 @@ import {
   type AgentMenuSelection,
 } from "../components/agent_menu";
 import { renderCockpitTopbar } from "../components/cockpit_topbar";
+import {
+  renderCommandPalette,
+  type CommandPaletteController,
+  type PaletteCrossLane,
+} from "../components/command_palette";
 import { shouldRouteComposerMutation, shouldSubmitComposer } from "../components/composer";
 import {
   modelGroups,
@@ -90,8 +95,25 @@ export interface D1RenderOptions {
   onOpenProject?: () => void | Promise<void>;
   onCreateLane?: () => void;
   onFullSetup?: () => void;
-  /// Opens a restored screen from the activity rail.
-  onNavigate?: (route: string) => void;
+  /**
+   * Opens a restored screen from the activity rail, the status bar, or the
+   * command palette. `arg` preselects one exact Core id (a D12 gate, a D2
+   * decision); the target screen still re-reads its own Core projection.
+   */
+  onNavigate?: (route: string, arg?: string) => void;
+  /**
+   * Reads the cross-Lane gates and asks the command palette offers under `#`.
+   *
+   * The cockpit's own D1 projection is Lane-scoped, so this is a read of the
+   * existing D2/D12 Core projections performed by the shell when the palette
+   * opens. Absent while no host is bound, which states the section as
+   * unavailable rather than showing an empty one. A rejection is fail-soft:
+   * the palette still opens and still resolves lanes, sessions, and actions.
+   */
+  loadPaletteCrossLane?: () => Promise<{
+    gates: PaletteCrossLane["gates"];
+    asks: PaletteCrossLane["asks"];
+  }>;
   showWelcome?: boolean;
   poll?: boolean;
   /**
@@ -422,6 +444,16 @@ export function renderD1Cockpit(
   let preferencesAvailable = false;
   let preferenceSaving = false;
   let preferenceOutcome: PreferenceIntentOutcome | null = null;
+  // Command palette state. The overlay DOM is disposable — a Core refresh can
+  // rebuild the frame under it — so the open flag, the operator's query, and
+  // the cross-Lane read live here rather than in the DOM.
+  let paletteOpen = false;
+  let paletteController: CommandPaletteController | null = null;
+  let remountingPalette = false;
+  let paletteQuery = "";
+  let paletteCrossLane: PaletteCrossLane | null = null;
+  /// Discards the answer to a read whose palette has already been closed.
+  let paletteReadToken = 0;
   let agentMenuOpen = false;
   let remountingAgentMenu = false;
   let agentMenuComposing = false;
@@ -486,8 +518,42 @@ export function renderD1Cockpit(
     event.preventDefault();
     cancelActiveTurn();
   };
+  /**
+   * The palette shortcuts.
+   *
+   * ⌘K (⌃K off macOS) toggles; ⌃P opens pre-scoped to `>`, matching the
+   * composer caption the design draws (`⌘K palette · ⌃P commands`). This is a
+   * deliberate divergence from the TUI, which maps the same two chords the
+   * other way round; see `apps/gui/README.md`.
+   *
+   * Both require a modifier, so typing in the composer can never swallow them.
+   * They stand down only while another modal popover owns focus, where the
+   * chord belongs to that popover's own text field.
+   */
+  const handlePaletteShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    const key = event.key.toLowerCase();
+    const commandPalette = (event.metaKey || event.ctrlKey) && key === "k";
+    const commandScope = event.ctrlKey && !event.metaKey && !event.altKey && key === "p";
+    if (!commandPalette && !commandScope) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active.closest("[data-settings-panel], [data-new-lane-popover], [data-control-popover]")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    if (commandPalette) {
+      togglePalette("");
+      return;
+    }
+    if (paletteOpen) paletteController?.setQuery(">");
+    else openPalette(">");
+  };
   window.addEventListener("keydown", handleCancelShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
+  window.addEventListener("keydown", handlePaletteShortcut);
   const handleWindowResize = (): void => {
     const grid = root.querySelector<HTMLElement>("[data-cockpit-grid]");
     if (grid) grid.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
@@ -603,8 +669,12 @@ export function renderD1Cockpit(
       unsubscribeCoreWake?.();
       unsubscribeCoreWake = null;
       commandSlotWaiters.splice(0).forEach((resolve) => resolve());
+      paletteOpen = false;
+      paletteController?.dispose();
+      paletteController = null;
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("keydown", handleCancelShortcut);
+      window.removeEventListener("keydown", handlePaletteShortcut);
       workStatusStrip?.dispose();
       workStatusStrip = null;
       window.removeEventListener("resize", handleWindowResize);
@@ -1018,6 +1088,127 @@ export function renderD1Cockpit(
     mountSettingsPanel();
   }
 
+  /// The single in-cockpit Lane selection path.
+  ///
+  /// Shared by the Lane rail and the command palette so both leave the cockpit
+  /// in exactly the same state: the transcript is dropped rather than carried
+  /// across Lanes, and the focused conversation is re-derived from the Lane
+  /// owner Core published.
+  function selectLane(laneId: string): void {
+    selectedLaneId = laneId;
+    transcriptLaneId = null;
+    transcript.reset([]);
+    focusedConversation = conversationForLane(projection, laneId);
+    render(false);
+  }
+
+  /// Where the palette portals to. Outside the frame, so a Core refresh that
+  /// replaces the frame's regions cannot clip or drop the overlay.
+  function paletteHost(): HTMLElement {
+    return root.querySelector<HTMLElement>(".d1-frame")?.parentElement ?? root;
+  }
+
+  function mountCommandPalette(): void {
+    if (!paletteOpen || disposed || paletteController) return;
+    paletteController = renderCommandPalette(
+      paletteHost(),
+      {
+        locale,
+        projection,
+        query: paletteQuery,
+        crossLane: paletteCrossLane,
+        canNavigate: Boolean(options.onNavigate),
+        canOpenSettings: Boolean(options.preferences),
+        canFocusComposer: Boolean(root.querySelector("[data-composer]")),
+        canCancelTurn: Boolean(root.querySelector("[data-work-cancel]")),
+        returnFocus: root.querySelector<HTMLElement>("[data-command-palette-toggle]"),
+      },
+      {
+        onNavigate: (route, arg) => options.onNavigate?.(route, arg),
+        onSelectLane: (laneId) => {
+          selectLane(laneId);
+          // The palette is a keyboard surface: after a jump the caret belongs
+          // in the composer of the Lane the operator just chose.
+          root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
+        },
+        onOpenSettings: () => void openSettingsPanel(),
+        onFocusComposer: () => {
+          root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
+        },
+        onCancelTurn: () => cancelActiveTurn(),
+        onQueryChange: (next) => {
+          paletteQuery = next;
+        },
+        onClose: () => {
+          paletteController = null;
+          // A remount closes the old overlay on purpose; only an operator
+          // dismissal actually closes the palette.
+          if (remountingPalette) return;
+          paletteOpen = false;
+          paletteQuery = "";
+          render(false);
+        },
+      },
+    );
+  }
+
+  /// Opens the palette and starts the cross-Lane read.
+  ///
+  /// The read is eager rather than lazy so the `#` scope is answerable the
+  /// moment the operator types it, and fail-soft so a Core read that refuses
+  /// degrades one section instead of withholding the whole surface.
+  function openPalette(seed: string): void {
+    if (paletteOpen || disposed) return;
+    paletteOpen = true;
+    paletteQuery = seed;
+    paletteCrossLane = null;
+    const token = (paletteReadToken += 1);
+    if (!options.loadPaletteCrossLane) {
+      paletteCrossLane = {
+        gates: [],
+        asks: [],
+        unavailable: translate(locale, "d1.palette.crossLane.unavailable", {}),
+      };
+    }
+    render(false);
+    mountCommandPalette();
+    if (!options.loadPaletteCrossLane) return;
+    void options
+      .loadPaletteCrossLane()
+      .then((answer) => {
+        if (disposed || token !== paletteReadToken) return;
+        paletteCrossLane = { ...answer, unavailable: null };
+        paletteController?.setCrossLane(paletteCrossLane);
+      })
+      .catch((error: unknown) => {
+        if (disposed || token !== paletteReadToken) return;
+        // Core's own words, not a client paraphrase.
+        paletteCrossLane = {
+          gates: [],
+          asks: [],
+          unavailable: error instanceof Error ? error.message : String(error),
+        };
+        paletteController?.setCrossLane(paletteCrossLane);
+      });
+  }
+
+  function closePalette(): void {
+    if (!paletteOpen) return;
+    paletteReadToken += 1;
+    paletteController?.close();
+    if (paletteOpen) {
+      // No controller was mounted, so no `onClose` will arrive.
+      paletteOpen = false;
+      paletteQuery = "";
+      render(false);
+    }
+  }
+
+  function togglePalette(seed: string): void {
+    if (paletteOpen) closePalette();
+    else openPalette(seed);
+  }
+
   function mountAgentMenu(): void {
     if (!agentMenuOpen || disposed) return;
     const anchor = root.querySelector<HTMLButtonElement>("[data-create-lane]");
@@ -1274,7 +1465,10 @@ export function renderD1Cockpit(
     const composerFocusable = !showWelcome && !showRecovery && projection.composer.editable;
 
     frame.dataset.nativeWindowShell = "true";
-    const topbar = renderCockpitTopbar(projection, locale, showWelcome, options.onNavigate);
+    const topbar = renderCockpitTopbar(projection, locale, showWelcome, options.onNavigate, {
+      onToggleCommandPalette: () => togglePalette(""),
+      commandPaletteOpen: paletteOpen,
+    });
     const titlebar = topbar.element;
 
     const body = document.createElement("div");
@@ -1324,13 +1518,7 @@ export function renderD1Cockpit(
         laneRailFocusTarget = "toggle";
         render(false);
       },
-      onSelectLane: (laneId) => {
-        selectedLaneId = laneId;
-        transcriptLaneId = null;
-        transcript.reset([]);
-        focusedConversation = conversationForLane(projection, laneId);
-        render(false);
-      },
+      onSelectLane: selectLane,
       onRetryAgent: (sessionId, laneId) => {
         selectedLaneId = laneId;
         focusedConversation = conversationForLane(projection, laneId);
@@ -1674,6 +1862,17 @@ export function renderD1Cockpit(
     // The rail is rebuilt every render, so a still-open overlay must be
     // re-anchored to the gear that actually exists in this frame.
     if (settingsOpen && !settingsController) mountSettingsPanel();
+    // A full-frame rebuild detaches the palette portal. Remount it against the
+    // frame that exists now, carrying the operator's query so the search does
+    // not restart under their cursor. The index itself is re-read from the
+    // projection this render just rendered.
+    if (paletteOpen && !paletteController?.root.isConnected) {
+      remountingPalette = true;
+      paletteController?.dispose();
+      paletteController = null;
+      remountingPalette = false;
+      mountCommandPalette();
+    }
 
     // Control popovers and pills are rebuilt each render, so keyboard focus
     // is model state: an open popover regains its focused (else selected,

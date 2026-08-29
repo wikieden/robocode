@@ -1,0 +1,156 @@
+/*
+ * Command palette chrome.
+ *
+ * The visual vocabulary is the registered cockpit design component
+ * (`docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html`: scrim top /
+ * palette / palin / palsec / palrow / pic / pl / pk), expressed with shared
+ * tokens only — no private palette. The prototype draws a blinking `.cur`
+ * because it has no real input; the shipped palette uses a real text field, so
+ * the caret is the platform's own.
+ */
+
+.gpal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-block-start: clamp(var(--sp-4), 12vh, 5.625rem);
+  background: color-mix(in srgb, var(--bg-base) 72%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.gpal-panel {
+  width: min(38.75rem, 92vw);
+  max-height: min(60vh, calc(100dvh - var(--sp-8)));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-lg, 0.8125rem);
+  box-shadow: var(--shadow-overlay, 0 2.5rem 6.25rem -1.875rem rgb(0 0 0 / 90%));
+}
+
+.gpal-panel .palin {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-block-end: 1px solid var(--border-soft);
+}
+
+.gpal-panel .palin .pr {
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.gpal-panel .palin .q {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  color: var(--fg-primary);
+  font-family: var(--mono);
+  font-size: var(--fs-2, 0.9375rem);
+}
+
+.gpal-panel .palin .q:focus-visible {
+  outline: none;
+}
+
+.gpal-panel .palin .esc {
+  font-family: var(--mono);
+  font-size: var(--fs-0, 0.65625rem);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.gpal-list {
+  overflow-y: auto;
+  padding-block-end: var(--sp-2);
+}
+
+.gpal-list .palsec {
+  font-family: var(--mono);
+  font-size: var(--fs-0, 0.625rem);
+  letter-spacing: 0.0625rem;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+}
+
+.gpal-list .palrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  font-family: var(--mono);
+}
+
+.gpal-list .palrow.on {
+  background: var(--bg-sel);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gpal-list .palrow.off {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.gpal-list .palrow .pic {
+  display: flex;
+  width: 1.125rem;
+  flex: none;
+  color: var(--accent);
+}
+
+.gpal-list .palrow .pic svg {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+.gpal-list .palrow .pl {
+  font-size: var(--fs-1, 0.8125rem);
+  color: var(--fg-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gpal-list .palrow.on .pl {
+  color: var(--accent-bright);
+}
+
+.gpal-list .palrow .pc,
+.gpal-list .palrow .pn {
+  font-size: var(--fs-0, 0.65625rem);
+  color: var(--fg-muted);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gpal-list .palrow .pn {
+  color: var(--fg-faint, var(--fg-muted));
+}
+
+.gpal-list .palrow .pk {
+  display: flex;
+  gap: var(--sp-1);
+  font-size: var(--fs-0, 0.65625rem);
+  color: var(--fg-muted);
+}
+
+.gpal-list [data-palette-empty] {
+  padding: var(--sp-4);
+  margin: 0;
+  font-size: var(--fs-1, 0.8125rem);
+  color: var(--fg-muted);
+}
