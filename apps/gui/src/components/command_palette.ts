@@ -544,6 +544,9 @@ export function renderCommandPalette(
         const note = document.createElement("span");
         note.className = item.disabledReason ? "pn" : "pc";
         note.textContent = trailing;
+        // The row is one line, so a long contract reason ellipsizes; the full
+        // sentence stays reachable rather than being cut off for good.
+        note.title = trailing;
         row.append(note);
       }
       if (item.hint) {

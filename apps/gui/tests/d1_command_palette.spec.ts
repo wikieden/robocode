@@ -157,6 +157,23 @@ describe("cockpit command palette", () => {
     shortcut("k", { metaKey: true });
     await tick();
     expect(palette()).not.toBeNull();
+    // The overlay is modal: opening it over a focused composer must take the
+    // caret, or the operator's next keystroke lands in the transcript input.
+    expect(document.activeElement).toBe(input());
+  });
+
+  test("a Core refresh while the palette is open does not steal the caret back", async () => {
+    const projection = structuredClone(D1_PROJECTION);
+    const root = mount({ projection });
+    root.querySelector<HTMLTextAreaElement>("[data-composer]")!.focus();
+    shortcut("k", { metaKey: true });
+    await tick();
+    type(":lane");
+    const refreshed = structuredClone(D1_PROJECTION);
+    refreshed.statusbar.eventStreamPosition = 99;
+    controller!.applyProjection(refreshed);
+    expect(document.activeElement).toBe(input());
+    expect(input().value).toBe(":lane");
   });
 
   test("a Lane row selects the Lane in place and returns focus to the composer", async () => {

@@ -23,7 +23,7 @@
 
 .gpal-panel {
   width: min(38.75rem, 92vw);
-  max-height: min(60vh, calc(100dvh - var(--sp-8)));
+  max-height: min(72vh, calc(100dvh - var(--sp-8)));
   display: flex;
   flex-direction: column;
   overflow: hidden;

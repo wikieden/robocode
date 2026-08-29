@@ -1893,7 +1893,17 @@ export function renderD1Cockpit(
       : controlReturnFocus
         ? root.querySelector<HTMLElement>(`[data-control-toggle="${controlReturnFocus}"]`)
         : null;
-    if (laneRailFocusTarget) {
+    // The command palette is modal: while it is open it owns the caret, so a
+    // Core refresh must not hand focus back to the composer underneath it —
+    // and opening it over a focused composer must take focus in the first
+    // place. Re-focusing an already-focused input is a no-op, so a streaming
+    // refresh cannot reset the operator's caret inside the query either.
+    const paletteInput = paletteOpen
+      ? root.querySelector<HTMLInputElement>("[data-palette-input]")
+      : null;
+    if (paletteInput) {
+      if (document.activeElement !== paletteInput) paletteInput.focus();
+    } else if (laneRailFocusTarget) {
       const focusTarget =
         laneRailFocusTarget === "rail"
           ? root.querySelector<HTMLElement>("#d1-lane-rail [data-create-lane]")
