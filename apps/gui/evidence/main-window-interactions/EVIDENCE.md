@@ -136,11 +136,14 @@ selector with its branch, the dirty dot, and both `.gitops` chips
 (`↑1 ↓0`, `⎇ 1 worktree`); the standalone `d11`/`d12*` screens carry no
 cockpit titlebar, so their earlier captures remain valid.
 
-**Recapture pending.** The command palette added a `.tbtbtn` toggle to
-`.tbtools`, so every topbar-bearing capture above now predates the shipped
-titlebar, and the new `palette` state has no image at all. The harness state is
-committed and reproducible; the eight `d1*`/`settings*`/`d6-*` images plus
-`palette` are to be recaptured by an operator at 1440x900.
+The command palette added a `.tbtbtn` toggle to `.tbtools`; the eight
+topbar-bearing images plus the new `palette` state were recaptured on
+2026-08-21 at 1440x900 and visually reviewed (the palette capture shows the
+prefix legend, all four sections, kbd hints, and the disabled Files row).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
 
 ## Known limitation
 
