@@ -93,6 +93,21 @@ availability/auth facts，不包含 raw command、环境引用或 agent-native c
 内嵌的新命令变体导致解码失败。扩展投影为空时不会参与序列化，
 因此重放冻结的 0.3.0 corpus 仍保持已记录的 canonical bytes 与 digest。
 
+Terminal 与 tmux Lane 被显式标记为成本盲区：`AgentRoute::cost_meterability` 对它们
+返回 `blind`，对 built-in 与 ACP route 返回 `metered`；Core 绝不为 blind route 发布
+推断出的 token 或金额。它们的全部成本面就是直接观测到的有界 `LaneRunStats`——累计
+wall time、run count、已应用 diff 字节数，以及最近一次完成运行的 exit code。exit code
+是尽力而为的：平台没有提供时即缺失，tmux 恒为此情形，因为 `kill-session` 会在读取任何
+状态之前销毁 pane。这些事实由新增的 append-only `RunObserved` Lane event 归约，包含
+`started`、`stopped`、`applied` 三个 phase。所有拆除活跃 Lane 运行时的路径——stop、
+cancel、archive 与 cleanup——都会关闭当前开启的 run，因此操作者终止失控 terminal Lane
+时仍会保留其 wall time 与 exit code；从未运行过的 Lane 被拆除时不记录任何观测。
+与生命周期事件不同，运行观测采用宽松归约：
+没有对应 start 的 stop 只记录 exit code、不累加 wall time，因此运行中途崩溃不会导致
+Lane 日志无法重放；但针对未知 Lane 的观测仍会被拒绝。`AgentLaneRecord.run_stats` 是
+可选的附加字段：Lane 从未被观测到运行时不参与序列化，因此已记录的 schema-1 fixture
+bytes 与 digest 保持不变，且"缺失"与"测量为零"仍然可区分。
+
 `runtime.trust_loop` 新增 typed handoff、review request、contract、dependency、
 merge-gate policy/validator/decision、conflict bounce 与 revert facts。八个新增跨 Lane
 command（含显式 `RevalidateMergeConflict` 与 `DecideReview`）及其 events 均经过权限门禁并由共享

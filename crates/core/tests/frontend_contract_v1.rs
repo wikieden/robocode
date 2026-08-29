@@ -1371,6 +1371,7 @@ fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
         active_session_ids: vec!["session-host-fixture".to_string()],
         summary: "reviewed starter Lane".to_string(),
         evidence: Vec::new(),
+        run_stats: None,
     };
     let preview = StarterLanePreview {
         preview_id: "preview-host-fixture".to_string(),
@@ -1530,6 +1531,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         ],
         summary: "lane.loop.running".to_string(),
         evidence: Vec::new(),
+        run_stats: None,
     };
     let preview = StarterLanePreview {
         preview_id: "preview-loop-coder".to_string(),
@@ -2101,6 +2103,7 @@ fn to_runtime_event_kind(kind: RuntimeEventKindExt) -> viden_types::RuntimeEvent
                     active_session_ids: vec![format!("session_{id}")],
                     summary: format!("{id} active"),
                     evidence: vec![format!("evidence_{id}")],
+                    run_stats: None,
                 },
             }
         }

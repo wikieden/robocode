@@ -142,7 +142,7 @@ impl LaneEffectExecutor for StarterLaneEffectGuard {
         self.inner.apply_transactionally(request, persist)
     }
 
-    fn shutdown_lane(&self, lane_id: &str) -> Result<(), String> {
+    fn shutdown_lane(&self, lane_id: &str) -> Result<Option<i32>, String> {
         self.inner.shutdown_lane(lane_id)
     }
 
@@ -1340,6 +1340,7 @@ fn starter_lane_record(
         active_session_ids: Vec::new(),
         summary: format!("{} starter lane", role.as_str()),
         evidence: Vec::new(),
+        run_stats: None,
     }
 }
 

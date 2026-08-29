@@ -677,6 +677,7 @@ fn typed_lane_records_use_the_frozen_v1_wire_names() {
         active_session_ids: vec!["session_research".to_string()],
         summary: "research is waiting for approval".to_string(),
         evidence: vec!["evidence_research".to_string()],
+        run_stats: None,
     };
 
     let encoded = serde_json::to_value(&lane).unwrap();
@@ -1630,6 +1631,7 @@ fn starter_lane_for_contract(lane_id: &str) -> AgentLaneRecord {
         active_session_ids: Vec::new(),
         summary: "coder starter lane".to_string(),
         evidence: Vec::new(),
+        run_stats: None,
     }
 }
 
@@ -4533,4 +4535,122 @@ fn an_orphan_message_part_is_dropped() {
         },
     ));
     assert!(view.agent_conversation.is_empty());
+}
+
+#[test]
+fn terminal_and_tmux_routes_are_cost_blind_while_managed_routes_are_metered() {
+    assert_eq!(
+        AgentRoute::BuiltIn.cost_meterability(),
+        CostMeterability::Metered
+    );
+    assert_eq!(
+        AgentRoute::Acp.cost_meterability(),
+        CostMeterability::Metered
+    );
+    assert_eq!(
+        AgentRoute::Terminal.cost_meterability(),
+        CostMeterability::Blind
+    );
+    assert_eq!(
+        AgentRoute::Tmux.cost_meterability(),
+        CostMeterability::Blind
+    );
+    assert_eq!(
+        serde_json::to_value(CostMeterability::Metered).unwrap(),
+        "metered"
+    );
+    assert_eq!(
+        serde_json::to_value(CostMeterability::Blind).unwrap(),
+        "blind"
+    );
+}
+
+#[test]
+fn lane_run_stats_roundtrip_and_stay_absent_for_unobserved_lanes() {
+    let mut lane = starter_lane_for_contract("lane_blind");
+    lane.route = AgentRoute::Tmux;
+
+    // A lane with no observations must serialize exactly the frozen v1 field
+    // set so recorded fixture bytes and digests stay identical.
+    let encoded = serde_json::to_value(&lane).unwrap();
+    assert!(encoded.get("run_stats").is_none());
+    assert_eq!(
+        serde_json::from_value::<AgentLaneRecord>(encoded).unwrap(),
+        lane
+    );
+
+    lane.run_stats = Some(LaneRunStats {
+        wall_time_ms: 4_200,
+        run_count: 3,
+        diff_bytes: 512,
+        last_exit_code: Some(0),
+    });
+    let encoded = serde_json::to_value(&lane).unwrap();
+    assert_eq!(
+        encoded["run_stats"],
+        serde_json::json!({
+            "wall_time_ms": 4_200,
+            "run_count": 3,
+            "diff_bytes": 512,
+            "last_exit_code": 0
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<AgentLaneRecord>(encoded).unwrap(),
+        lane
+    );
+}
+
+#[test]
+fn legacy_lane_json_without_run_stats_deserializes_as_unobserved() {
+    let typed: AgentLaneRecord = serde_json::from_value(serde_json::json!({
+        "id": "lane_legacy",
+        "task_id": null,
+        "role": "coder",
+        "route": "terminal",
+        "gate_strength": "full",
+        "mutation_policy": "propose_only",
+        "worktree": null,
+        "branch": null,
+        "target": "local",
+        "data_egress": "deny",
+        "status": "draft",
+        "budget": {},
+        "active_session_ids": [],
+        "summary": "legacy lane",
+        "evidence": []
+    }))
+    .unwrap();
+    assert_eq!(typed.run_stats, None);
+
+    let migrated: AgentLaneRecord = serde_json::from_value(serde_json::json!({
+        "id": "L-legacy",
+        "task_id": "task_legacy",
+        "agent": "codex",
+        "screen": "legacy",
+        "transport": "tmux",
+        "status": "running",
+        "summary": "legacy lane",
+        "evidence": []
+    }))
+    .unwrap();
+    assert_eq!(migrated.run_stats, None);
+    assert_eq!(migrated.route, AgentRoute::Tmux);
+}
+
+#[test]
+fn lane_run_stats_default_is_a_measured_zero_distinct_from_absence() {
+    let measured = LaneRunStats::default();
+    assert_eq!(measured.wall_time_ms, 0);
+    assert_eq!(measured.run_count, 0);
+    assert_eq!(measured.diff_bytes, 0);
+    assert_eq!(measured.last_exit_code, None);
+
+    let lane = starter_lane_for_contract("lane_zero");
+    assert_eq!(lane.run_stats, None);
+    let observed = AgentLaneRecord {
+        run_stats: Some(measured),
+        ..lane.clone()
+    };
+    assert_ne!(observed, lane);
 }

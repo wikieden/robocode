@@ -8,8 +8,8 @@ use crate::lane::{
 };
 use crate::patch::{LocalPatchBackend, PatchBackend, PatchRequest};
 use crate::process::{
-    FakeTerminalBackend, LocalProcessBackend, ProcessBackend, SpawnProcess, SpawnTerminal,
-    TerminalBackend, TerminalKind,
+    FakeTerminalBackend, LocalProcessBackend, LocalTerminalBackend, ProcessBackend, SpawnProcess,
+    SpawnTerminal, TerminalBackend, TerminalKind,
 };
 
 use super::temp_dir;
@@ -413,4 +413,105 @@ fn lane_worktree_remove_rejects_path_traversal_before_effects() {
         .unwrap_err();
 
     assert!(matches!(err, LaneEffectError::UnsafePath { .. }));
+}
+
+#[test]
+fn lane_local_process_stop_reports_the_exit_code_of_an_already_exited_child() {
+    let cwd = temp_dir("lane_local_process_exit_code");
+    let backend = LocalProcessBackend::default();
+    let handle = backend
+        .spawn(&SpawnProcess {
+            command: "sh".into(),
+            args: vec!["-c".into(), "printf done > completed.txt; exit 17".into()],
+            cwd: cwd.clone(),
+            env: Vec::new(),
+            output_log: None,
+        })
+        .unwrap();
+
+    for _ in 0..500 {
+        if matches!(
+            fs::read_to_string(cwd.join("completed.txt")),
+            Ok(contents) if contents == "done"
+        ) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    // The child has written its marker but may not have been reaped yet; give
+    // the exiting process a moment so `stop` observes a real status rather than
+    // the racy "still running" case that legitimately yields `None`.
+    thread::sleep(Duration::from_millis(50));
+
+    let outcome = backend.stop(&handle).unwrap();
+    assert_eq!(outcome.exit_code, Some(17));
+}
+
+#[test]
+fn lane_local_process_stop_of_a_force_killed_child_reports_no_exit_code() {
+    let backend = LocalProcessBackend::default();
+    let handle = backend
+        .spawn(&SpawnProcess {
+            command: "sh".into(),
+            args: vec!["-c".into(), "sleep 30".into()],
+            cwd: temp_dir("lane_local_process_signal_exit"),
+            env: Vec::new(),
+            output_log: None,
+        })
+        .unwrap();
+
+    // A signalled process has no exit code on Unix, so Core must publish the
+    // absence rather than inventing a numeric status.
+    let outcome = backend.stop(&handle).unwrap();
+    assert_eq!(outcome.exit_code, None);
+}
+
+#[test]
+fn lane_local_pty_terminal_stop_delegates_to_the_process_exit_code() {
+    let cwd = temp_dir("lane_local_pty_exit_code");
+    let terminal = LocalTerminalBackend::default();
+    let handle = terminal
+        .spawn(&SpawnTerminal {
+            kind: TerminalKind::Pty,
+            session_name: None,
+            command: "sh".into(),
+            args: vec!["-c".into(), "printf done > completed.txt; exit 9".into()],
+            cwd: cwd.clone(),
+            env: Vec::new(),
+            output_log: cwd.join("lane.log"),
+        })
+        .unwrap();
+
+    for _ in 0..500 {
+        if matches!(
+            fs::read_to_string(cwd.join("completed.txt")),
+            Ok(contents) if contents == "done"
+        ) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    thread::sleep(Duration::from_millis(50));
+
+    let outcome = terminal.stop(&handle).unwrap();
+    assert_eq!(outcome.exit_code, Some(9));
+}
+
+#[test]
+fn lane_fake_terminal_stop_reports_no_exit_code() {
+    let terminal = FakeTerminalBackend::default();
+    let handle = terminal
+        .spawn(&SpawnTerminal {
+            kind: TerminalKind::Tmux,
+            session_name: Some("viden-lane-exit".into()),
+            command: "worker".into(),
+            args: Vec::new(),
+            cwd: temp_dir("lane_fake_terminal_exit"),
+            env: Vec::new(),
+            output_log: temp_dir("lane_fake_terminal_exit_log").join("lane.log"),
+        })
+        .unwrap();
+
+    let outcome = terminal.stop(&handle).unwrap();
+    assert_eq!(outcome.exit_code, None);
 }

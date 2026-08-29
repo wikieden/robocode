@@ -49,6 +49,10 @@ pub enum LaneEffectRequest {
 pub struct LaneEffectResult {
     pub output: String,
     pub conflict_paths: Vec<String>,
+    /// Exit code observed by a `Stop` effect, when the platform offered one.
+    /// Always `None` for every other request kind, and `None` for a stop whose
+    /// status was unobservable (signal kill, tmux `kill-session`).
+    pub exit_code: Option<i32>,
 }
 
 impl LaneEffectResult {
@@ -56,6 +60,16 @@ impl LaneEffectResult {
         Self {
             output: output.into(),
             conflict_paths: Vec::new(),
+            exit_code: None,
+        }
+    }
+
+    /// A successful stop that also carries whatever exit status was observable.
+    pub fn stopped(output: impl Into<String>, exit_code: Option<i32>) -> Self {
+        Self {
+            output: output.into(),
+            conflict_paths: Vec::new(),
+            exit_code,
         }
     }
 }
@@ -75,11 +89,12 @@ pub trait LaneEffectExecutor: Send + Sync {
         Ok(result)
     }
 
-    fn shutdown_lane(&self, lane_id: &str) -> Result<(), String> {
+    /// Stop the lane runtime and report the exit code the stop observed, if any.
+    fn shutdown_lane(&self, lane_id: &str) -> Result<Option<i32>, String> {
         self.execute(LaneEffectRequest::Stop {
             lane_id: lane_id.to_string(),
         })
-        .map(|_| ())
+        .map(|result| result.exit_code)
     }
 
     fn compensate_create(&self, _repo: &Path, _lane: &AgentLaneRecord) -> Result<(), String> {
@@ -199,12 +214,15 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                     .map_err(|_| "lane effect handle registry poisoned".to_string())?
                     .remove(&lane_id)
                     .ok_or_else(|| format!("lane `{lane_id}` has no active runtime"))?;
-                match handle {
+                let outcome = match handle {
                     ActiveLaneHandle::Process(handle) => self.processes.stop(&handle),
                     ActiveLaneHandle::Terminal(handle) => self.terminals.stop(&handle),
                 }
                 .map_err(|error| error.to_string())?;
-                Ok(LaneEffectResult::success("lane runtime stopped"))
+                Ok(LaneEffectResult::stopped(
+                    "lane runtime stopped",
+                    outcome.exit_code,
+                ))
             }
             LaneEffectRequest::SendInput { lane_id, input } => {
                 let handles = self
@@ -249,6 +267,7 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                             .iter()
                             .map(|conflict| conflict.path.to_string_lossy().to_string())
                             .collect(),
+                        exit_code: None,
                     })
                 }
             }
@@ -275,19 +294,21 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
         }
     }
 
-    fn shutdown_lane(&self, lane_id: &str) -> Result<(), String> {
+    fn shutdown_lane(&self, lane_id: &str) -> Result<Option<i32>, String> {
         let handle = self
             .handles
             .lock()
             .map_err(|_| "lane effect handle registry poisoned".to_string())?
             .remove(lane_id);
         let Some(handle) = handle else {
-            return Ok(());
+            // Nothing was running, so nothing was observed.
+            return Ok(None);
         };
         match handle {
             ActiveLaneHandle::Process(handle) => self.processes.stop(&handle),
             ActiveLaneHandle::Terminal(handle) => self.terminals.stop(&handle),
         }
+        .map(|outcome| outcome.exit_code)
         .map_err(|error| error.to_string())
     }
 
@@ -322,6 +343,7 @@ impl LaneEffectExecutor for LocalLaneEffectExecutor {
                     .iter()
                     .map(|conflict| conflict.path.to_string_lossy().to_string())
                     .collect(),
+                exit_code: None,
             })
         }
     }

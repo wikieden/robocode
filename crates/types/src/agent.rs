@@ -59,6 +59,52 @@ pub enum AgentRoute {
     Tmux,
 }
 
+/// Whether Core can account for a route's model cost at all.
+///
+/// This is a contract fact, not a display hint: a `Blind` route must never be
+/// shown with an inferred token or dollar figure, because Core observes no
+/// provider call for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CostMeterability {
+    /// Core sees the provider exchange and can attribute tokens and money.
+    Metered,
+    /// Core sees only process facts; model cost is unobservable here.
+    Blind,
+}
+
+impl AgentRoute {
+    /// Whether Core can meter this route's model cost. Terminal and tmux lanes
+    /// run arbitrary external processes whose token/dollar cost is invisible to
+    /// Core, so their cost surface is exactly the bounded run facts in
+    /// [`LaneRunStats`] — never a fabricated token estimate.
+    pub fn cost_meterability(&self) -> CostMeterability {
+        match self {
+            Self::BuiltIn | Self::Acp => CostMeterability::Metered,
+            Self::Terminal | Self::Tmux => CostMeterability::Blind,
+        }
+    }
+}
+
+/// Bounded, directly observed run facts for one lane.
+///
+/// These are the only quantities Core publishes for a cost-blind route. Every
+/// field is measured from a local process or patch effect; none of them is
+/// derived from a provider, a token count, or a price table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct LaneRunStats {
+    /// Accumulated wall time across completed runs, milliseconds.
+    pub wall_time_ms: u64,
+    /// Number of observed runtime starts.
+    pub run_count: u64,
+    /// Accumulated bytes of successfully applied unified diffs.
+    pub diff_bytes: u64,
+    /// Exit code of the most recent completed run. Best-effort: `None` when the
+    /// process was force-killed, still running at observation, or ran under
+    /// tmux (`kill-session` leaves no exit-code channel).
+    pub last_exit_code: Option<i32>,
+}
+
 /// Where an adapter definition comes from. This public view deliberately does
 /// not expose plugin-host command lines or environment references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -663,6 +709,11 @@ pub struct AgentLaneRecord {
     pub active_session_ids: Vec<SessionId>,
     pub summary: String,
     pub evidence: Vec<EvidenceId>,
+    /// Bounded run facts accumulated by the lane reducer. `None` means the lane
+    /// has never been observed running, which is deliberately distinct from
+    /// `Some(LaneRunStats::default())` ("ran and measured zero"). Absence is
+    /// also what keeps the frozen frontend-contract-v1 lane bytes unchanged.
+    pub run_stats: Option<LaneRunStats>,
 }
 
 impl AgentLaneRecord {
@@ -713,6 +764,10 @@ struct AgentLaneRecordWireRef<'a> {
     active_session_ids: &'a Vec<SessionId>,
     summary: &'a str,
     evidence: &'a Vec<EvidenceId>,
+    // Additive post-freeze field. Omitting it when absent keeps every recorded
+    // frontend-contract-v1 fixture byte and digest identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_stats: &'a Option<LaneRunStats>,
 }
 
 impl<'a> From<&'a AgentLaneRecord> for AgentLaneRecordWireRef<'a> {
@@ -733,6 +788,7 @@ impl<'a> From<&'a AgentLaneRecord> for AgentLaneRecordWireRef<'a> {
             active_session_ids: &lane.active_session_ids,
             summary: &lane.summary,
             evidence: &lane.evidence,
+            run_stats: &lane.run_stats,
         }
     }
 }
@@ -754,6 +810,9 @@ struct AgentLaneRecordWire {
     active_session_ids: Vec<SessionId>,
     summary: String,
     evidence: Vec<EvidenceId>,
+    // Older writers never emitted this field; they decode as unobserved.
+    #[serde(default)]
+    run_stats: Option<LaneRunStats>,
 }
 
 impl From<AgentLaneRecordWire> for AgentLaneRecord {
@@ -774,6 +833,7 @@ impl From<AgentLaneRecordWire> for AgentLaneRecord {
             active_session_ids: lane.active_session_ids,
             summary: lane.summary,
             evidence: lane.evidence,
+            run_stats: lane.run_stats,
         }
     }
 }
@@ -812,6 +872,8 @@ impl TryFrom<LegacyAgentLaneRecord> for AgentLaneRecord {
             active_session_ids: Vec::new(),
             summary: lane.summary,
             evidence: lane.evidence,
+            // A v0 record carries no observations; it is unobserved, not zero.
+            run_stats: None,
         })
     }
 }

@@ -365,6 +365,7 @@ fn structured_preview_lanes() -> Vec<AgentLaneRecord> {
         } else {
             Vec::new()
         },
+        run_stats: None,
     })
     .collect()
 }

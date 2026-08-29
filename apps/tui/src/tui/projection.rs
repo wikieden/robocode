@@ -587,6 +587,7 @@ mod tests {
             active_session_ids: vec!["session-1".to_string()],
             summary: "structured lane".to_string(),
             evidence: vec!["evidence-1".to_string()],
+            run_stats: None,
         });
         runtime.latest_evidence.push(EvidenceView {
             id: "evidence-1".to_string(),

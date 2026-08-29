@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use viden_types::{AgentLaneRecord, LaneStatus};
+use viden_types::{AgentLaneRecord, LaneRunStats, LaneStatus};
 
 pub const LEGACY_LANES_MIGRATION_ID: &str = "legacy_lanes_tsv_v0";
 pub const LEGACY_LANES_SCHEMA: &str = "viden.lanes.tsv.v0";
@@ -38,6 +38,29 @@ pub enum LaneEventKind {
         schema: String,
         lanes: Vec<AgentLaneRecord>,
     },
+    /// One bounded run measurement. These are accounting facts, not lifecycle
+    /// transitions: they never change lane status and are reduced leniently.
+    RunObserved {
+        observation: LaneRunObservation,
+    },
+}
+
+/// A single directly observed run fact for a lane.
+///
+/// The three phases are exactly what Core can see for a cost-blind terminal or
+/// tmux route: a process started, a process finished (with whatever exit code
+/// the platform still had to offer), and bytes of a unified diff that actually
+/// applied. Nothing here is derived from a provider or a price table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "phase")]
+pub enum LaneRunObservation {
+    /// A lane runtime was started; opens a run for wall-time accounting.
+    Started,
+    /// A lane runtime stopped. `exit_code` is `None` whenever the platform gave
+    /// no status (signal kill, tmux `kill-session`, still-unknown result).
+    Stopped { exit_code: Option<i32> },
+    /// A unified diff of `diff_bytes` bytes applied successfully.
+    Applied { diff_bytes: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +79,13 @@ pub struct LaneState {
     lanes: BTreeMap<String, AgentLaneRecord>,
     migrations: BTreeMap<String, LaneMigrationAudit>,
     seen_event_ids: BTreeSet<String>,
+    // Run accounting is reducer-owned. A `Created`, `Replaced`, or
+    // `LegacyImported` payload never authors `run_stats`: the reducer projects
+    // the accumulator onto the record it publishes, so no writer can assert a
+    // measurement it did not actually observe.
+    run_stats: BTreeMap<String, LaneRunStats>,
+    // Start timestamp of the currently open run per lane, when one is open.
+    open_runs: BTreeMap<String, u64>,
 }
 
 impl LaneState {
@@ -118,6 +148,22 @@ impl LaneEvent {
         }
     }
 
+    pub fn run_observed(
+        event_id: impl Into<String>,
+        lane_id: impl Into<String>,
+        observation: LaneRunObservation,
+        timestamp: u64,
+        origin_session_id: Option<String>,
+    ) -> Self {
+        Self {
+            event_id: event_id.into(),
+            lane_id: lane_id.into(),
+            timestamp,
+            origin_session_id,
+            kind: LaneEventKind::RunObserved { observation },
+        }
+    }
+
     pub fn legacy_imported(
         event_id: impl Into<String>,
         source: impl Into<String>,
@@ -157,6 +203,7 @@ fn apply_event(state: &mut LaneState, event: &LaneEvent) -> Result<(), String> {
             if state.lanes.insert(lane.id.clone(), lane.clone()).is_some() {
                 return Err(format!("lane `{}` already exists", lane.id));
             }
+            project_run_stats(state, &lane.id);
         }
         LaneEventKind::Replaced { lane } => {
             require_matching_lane_id(event, lane)?;
@@ -164,6 +211,9 @@ fn apply_event(state: &mut LaneState, event: &LaneEvent) -> Result<(), String> {
                 return Err(format!("lane `{}` does not exist", lane.id));
             }
             state.lanes.insert(lane.id.clone(), lane.clone());
+            // A replacement payload describes lane configuration, never past
+            // measurements, so accumulated run facts survive it.
+            project_run_stats(state, &lane.id);
         }
         LaneEventKind::StatusChanged { status, summary } => {
             let lane = state
@@ -209,6 +259,7 @@ fn apply_event(state: &mut LaneState, event: &LaneEvent) -> Result<(), String> {
             // migration event cannot leave a partially reduced state.
             for lane in lanes {
                 state.lanes.insert(lane.id.clone(), lane.clone());
+                project_run_stats(state, &lane.id);
             }
             state.migrations.insert(
                 LEGACY_LANES_MIGRATION_ID.to_string(),
@@ -223,8 +274,64 @@ fn apply_event(state: &mut LaneState, event: &LaneEvent) -> Result<(), String> {
                 },
             );
         }
+        LaneEventKind::RunObserved { observation } => {
+            // An observation still requires a known lane, exactly like
+            // `StatusChanged`: a measurement for a lane that was never created
+            // is a corrupt log, not a tolerable gap.
+            if !state.lanes.contains_key(&event.lane_id) {
+                return Err(format!("lane `{}` does not exist", event.lane_id));
+            }
+            let stats = state.run_stats.entry(event.lane_id.clone()).or_default();
+            match observation {
+                LaneRunObservation::Started => {
+                    stats.run_count = stats.run_count.saturating_add(1);
+                    // A second `Started` without an intervening `Stopped` means
+                    // the previous run's end was never observed; the newer start
+                    // wins rather than fabricating a close for the older one.
+                    state
+                        .open_runs
+                        .insert(event.lane_id.clone(), event.timestamp);
+                }
+                LaneRunObservation::Stopped { exit_code } => {
+                    // Deliberately lenient where the lifecycle events are strict:
+                    // these are stats events, not state-machine events. A crash
+                    // between `Started` and `Stopped` leaves an orphan stop, and
+                    // that must not brick the whole lanes log. So an orphan stop
+                    // is not an error and accumulates no wall time; only the exit
+                    // code, which was genuinely observed, is recorded.
+                    if let Some(started_at) = state.open_runs.remove(&event.lane_id) {
+                        // `LaneEvent::timestamp` is a Unix time in SECONDS (see
+                        // `viden_types::now_timestamp`), so the elapsed value is
+                        // scaled to the millisecond unit the field promises.
+                        // Resolution is therefore one second, never finer; a
+                        // sub-second run legitimately accumulates 0 ms.
+                        stats.wall_time_ms = stats.wall_time_ms.saturating_add(
+                            event
+                                .timestamp
+                                .saturating_sub(started_at)
+                                .saturating_mul(1_000),
+                        );
+                    }
+                    stats.last_exit_code = *exit_code;
+                }
+                LaneRunObservation::Applied { diff_bytes } => {
+                    stats.diff_bytes = stats.diff_bytes.saturating_add(*diff_bytes);
+                }
+            }
+            project_run_stats(state, &event.lane_id);
+        }
     }
     Ok(())
+}
+
+/// Publish the reducer-owned accumulator onto the lane record clients read.
+fn project_run_stats(state: &mut LaneState, lane_id: &str) {
+    let stats = state.run_stats.get(lane_id).copied();
+    if let Some(lane) = state.lanes.get_mut(lane_id) {
+        // `None` means "never observed", which stays distinguishable from
+        // `Some(LaneRunStats::default())` ("ran and measured zero").
+        lane.run_stats = stats;
+    }
 }
 
 fn require_matching_lane_id(event: &LaneEvent, lane: &AgentLaneRecord) -> Result<(), String> {
@@ -295,7 +402,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use viden_types::{LaneStatus, fresh_id};
+    use viden_types::{AgentLaneRecord, LaneStatus, fresh_id};
 
     use super::*;
     use crate::stores::WorkflowStore;
@@ -761,6 +868,7 @@ mod tests {
                 LaneEventKind::StatusChanged { .. } => "status_changed",
                 LaneEventKind::Archived { .. } => "archived",
                 LaneEventKind::LegacyImported { .. } => "legacy_imported",
+                LaneEventKind::RunObserved { .. } => "run_observed",
             }
         }
 
@@ -835,5 +943,221 @@ mod tests {
                 .get("lane-race")
                 .is_some()
         );
+    }
+
+    fn observed_lane(lane_id: &str) -> AgentLaneRecord {
+        serde_json::from_value(serde_json::json!({
+            "id": lane_id,
+            "task_id": null,
+            "role": "coder",
+            "route": "tmux",
+            "gate_strength": "containment",
+            "mutation_policy": "propose_only",
+            "worktree": null,
+            "branch": null,
+            "target": "local",
+            "data_egress": "deny",
+            "status": "draft",
+            "budget": {},
+            "active_session_ids": [],
+            "summary": "blind lane",
+            "evidence": []
+        }))
+        .unwrap()
+    }
+
+    fn created(lane_id: &str) -> LaneEvent {
+        LaneEvent::created("evt_created", observed_lane(lane_id), 1, None)
+    }
+
+    fn observation(
+        event_id: &str,
+        lane_id: &str,
+        timestamp: u64,
+        observation: LaneRunObservation,
+    ) -> LaneEvent {
+        LaneEvent::run_observed(event_id, lane_id, observation, timestamp, None)
+    }
+
+    #[test]
+    fn run_observations_accumulate_bounded_lane_stats() {
+        let events = vec![
+            created("lane_blind"),
+            observation("evt_a", "lane_blind", 1_000, LaneRunObservation::Started),
+            observation(
+                "evt_b",
+                "lane_blind",
+                1_007,
+                LaneRunObservation::Stopped {
+                    exit_code: Some(17),
+                },
+            ),
+            observation("evt_c", "lane_blind", 1_010, LaneRunObservation::Started),
+            observation(
+                "evt_d",
+                "lane_blind",
+                1_013,
+                LaneRunObservation::Stopped { exit_code: None },
+            ),
+            observation(
+                "evt_e",
+                "lane_blind",
+                4_300,
+                LaneRunObservation::Applied { diff_bytes: 640 },
+            ),
+            observation(
+                "evt_f",
+                "lane_blind",
+                4_400,
+                LaneRunObservation::Applied { diff_bytes: 60 },
+            ),
+        ];
+
+        let state = reduce_lane_events(&events).unwrap();
+        let stats = state.lane("lane_blind").unwrap().run_stats.unwrap();
+        assert_eq!(stats.run_count, 2);
+        // Seven plus three seconds of observed run time, expressed in ms.
+        assert_eq!(stats.wall_time_ms, 10_000);
+        assert_eq!(stats.diff_bytes, 700);
+        assert_eq!(stats.last_exit_code, None);
+    }
+
+    #[test]
+    fn a_lane_without_observations_has_absent_rather_than_zero_run_stats() {
+        let state = reduce_lane_events(&[created("lane_quiet")]).unwrap();
+        assert_eq!(state.lane("lane_quiet").unwrap().run_stats, None);
+    }
+
+    #[test]
+    fn orphan_stop_records_the_exit_code_without_inventing_wall_time() {
+        let events = vec![
+            created("lane_blind"),
+            observation(
+                "evt_orphan",
+                "lane_blind",
+                9_000,
+                LaneRunObservation::Stopped { exit_code: Some(2) },
+            ),
+        ];
+
+        let state = reduce_lane_events(&events).unwrap();
+        let stats = state.lane("lane_blind").unwrap().run_stats.unwrap();
+        assert_eq!(stats.wall_time_ms, 0);
+        assert_eq!(stats.run_count, 0);
+        assert_eq!(stats.last_exit_code, Some(2));
+    }
+
+    #[test]
+    fn a_stop_observed_before_its_start_timestamp_never_underflows_wall_time() {
+        let events = vec![
+            created("lane_blind"),
+            observation("evt_a", "lane_blind", 5_000, LaneRunObservation::Started),
+            observation(
+                "evt_b",
+                "lane_blind",
+                1_000,
+                LaneRunObservation::Stopped { exit_code: Some(0) },
+            ),
+        ];
+
+        let state = reduce_lane_events(&events).unwrap();
+        let stats = state.lane("lane_blind").unwrap().run_stats.unwrap();
+        assert_eq!(stats.wall_time_ms, 0);
+        assert_eq!(stats.run_count, 1);
+        assert_eq!(stats.last_exit_code, Some(0));
+    }
+
+    #[test]
+    fn run_observation_accumulation_saturates_instead_of_overflowing() {
+        let events = vec![
+            created("lane_blind"),
+            observation(
+                "evt_a",
+                "lane_blind",
+                1,
+                LaneRunObservation::Applied {
+                    diff_bytes: u64::MAX,
+                },
+            ),
+            observation(
+                "evt_b",
+                "lane_blind",
+                2,
+                LaneRunObservation::Applied { diff_bytes: 8 },
+            ),
+            observation("evt_c", "lane_blind", 0, LaneRunObservation::Started),
+            observation(
+                "evt_d",
+                "lane_blind",
+                u64::MAX,
+                LaneRunObservation::Stopped { exit_code: Some(0) },
+            ),
+            observation("evt_e", "lane_blind", 0, LaneRunObservation::Started),
+            observation(
+                "evt_f",
+                "lane_blind",
+                u64::MAX,
+                LaneRunObservation::Stopped { exit_code: Some(0) },
+            ),
+        ];
+
+        let state = reduce_lane_events(&events).unwrap();
+        let stats = state.lane("lane_blind").unwrap().run_stats.unwrap();
+        assert_eq!(stats.diff_bytes, u64::MAX);
+        assert_eq!(stats.wall_time_ms, u64::MAX);
+    }
+
+    #[test]
+    fn run_observation_on_an_unknown_lane_is_rejected_like_a_status_change() {
+        let error = reduce_lane_events(&[observation(
+            "evt_unknown",
+            "lane_missing",
+            10,
+            LaneRunObservation::Started,
+        )])
+        .unwrap_err();
+        assert!(
+            error.contains("lane `lane_missing` does not exist"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn duplicate_run_observation_event_ids_are_rejected() {
+        let events = vec![
+            created("lane_blind"),
+            observation("evt_same", "lane_blind", 1, LaneRunObservation::Started),
+            observation("evt_same", "lane_blind", 2, LaneRunObservation::Started),
+        ];
+        let error = reduce_lane_events(&events).unwrap_err();
+        assert!(
+            error.contains("duplicate lane event id `evt_same`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn run_observations_use_stable_snake_case_wire_names() {
+        let event = observation(
+            "evt_wire",
+            "lane_blind",
+            7,
+            LaneRunObservation::Stopped { exit_code: Some(3) },
+        );
+        let encoded = serde_json::to_value(&event).unwrap();
+        assert_eq!(encoded["kind"]["type"], "run_observed");
+        assert_eq!(
+            encoded["kind"]["observation"],
+            serde_json::json!({"phase": "stopped", "exit_code": 3})
+        );
+        assert_eq!(
+            serde_json::to_value(LaneRunObservation::Started).unwrap(),
+            serde_json::json!({"phase": "started"})
+        );
+        assert_eq!(
+            serde_json::to_value(LaneRunObservation::Applied { diff_bytes: 5 }).unwrap(),
+            serde_json::json!({"phase": "applied", "diff_bytes": 5})
+        );
+        assert_eq!(serde_json::from_value::<LaneEvent>(encoded).unwrap(), event);
     }
 }

@@ -3557,6 +3557,7 @@ mod contract_freeze_tests {
             active_session_ids: vec!["session-host-fixture".to_string()],
             summary: "reviewed starter Lane".to_string(),
             evidence: Vec::new(),
+            run_stats: None,
         };
         let preview = StarterLanePreview {
             preview_id: "preview-host-fixture".to_string(),

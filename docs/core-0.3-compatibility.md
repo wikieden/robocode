@@ -105,6 +105,27 @@ than failing on a nested command variant. Empty extension
 projection vectors are omitted during serialization, so replaying the frozen
 0.3.0 corpus retains its recorded canonical bytes and digests.
 
+Terminal and tmux lanes are explicitly cost-blind: `AgentRoute::cost_meterability`
+reports `blind` for them and `metered` for the built-in and ACP routes, and Core
+never publishes an inferred token or dollar figure for a blind route. Their whole
+cost surface is the bounded, directly observed `LaneRunStats` — accumulated wall
+time, run count, applied diff bytes, and the exit code of the most recent
+completed run. The exit code is best effort and stays absent whenever the
+platform offered none, which is always the case for tmux, because `kill-session`
+destroys the pane before any status can be read. These facts are reduced from a
+new append-only `RunObserved` lane event with `started`, `stopped`, and `applied`
+phases. Every path that tears down an active lane runtime — stop, cancel,
+archive, and cleanup — closes the open run, so an operator ending a runaway
+terminal lane still keeps its wall time and exit code. A teardown of a lane that
+was never running records nothing. Unlike the lifecycle events, run observations
+are reduced leniently: a
+stop with no matching start records only the exit code and accumulates no wall
+time, so a crash mid-run cannot make the lanes log unreplayable. An observation
+for an unknown lane is still rejected. `AgentLaneRecord.run_stats` is additive
+and optional: it is omitted from the wire when a lane has never been observed
+running, so the recorded schema-1 fixture bytes and digests are unchanged, and
+absence stays distinguishable from a measured zero.
+
 `runtime.trust_loop` adds typed handoff, review request, contract, dependency,
 merge-gate policy/validator/decision, conflict-bounce, and revert facts. The
 eight new cross-lane commands, including explicit `RevalidateMergeConflict`

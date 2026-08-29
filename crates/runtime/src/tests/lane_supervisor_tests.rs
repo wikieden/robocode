@@ -3950,6 +3950,7 @@ fn lane(id: &str) -> AgentLaneRecord {
         active_session_ids: Vec::new(),
         summary: "ready".to_string(),
         evidence: Vec::new(),
+        run_stats: None,
     }
 }
 
@@ -4150,5 +4151,445 @@ fn assert_lane_approval_scope_isolated(repo_scope: bool) {
             .filter(|call| call.starts_with("input:"))
             .count(),
         1
+    );
+}
+
+/// Reports a fixed stop outcome so the exit-code thread can be observed end to
+/// end without depending on a real child process.
+#[derive(Default)]
+struct ExitCodeLaneEffects {
+    exit_code: Option<i32>,
+}
+
+impl LaneEffectExecutor for ExitCodeLaneEffects {
+    fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String> {
+        Ok(match request {
+            LaneEffectRequest::Stop { .. } => {
+                LaneEffectResult::stopped("lane runtime stopped", self.exit_code)
+            }
+            _ => LaneEffectResult::success("effect completed"),
+        })
+    }
+}
+
+fn persist_autonomous_lane_with_status(
+    home: &std::path::Path,
+    cwd: &std::path::Path,
+    lane_id: &str,
+    status: LaneStatus,
+) {
+    let mut record = autonomous_lane(lane_id);
+    record.status = status;
+    persist_lane(home, cwd, record);
+}
+
+#[test]
+fn lane_start_and_stop_append_bounded_run_observations_with_the_exit_code() {
+    let cwd = temp_dir("lane_run_stats_start_stop_cwd");
+    let home = temp_dir("lane_run_stats_start_stop_home");
+    persist_autonomous_lane_with_status(&home, &cwd, "lane-run-stats", LaneStatus::Draft);
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(ExitCodeLaneEffects {
+            exit_code: Some(23),
+        }) as Arc<dyn LaneEffectExecutor>,
+    );
+    let lane_owner = owner("lane-run-stats");
+
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "start_run_stats_lane",
+            RuntimeCommand::StartLane {
+                lane_id: "lane-run-stats".to_string(),
+                command: "worker".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+    // The observation append republishes the lane, so the run-stats update
+    // arrives after the Running status change rather than with it.
+    let started = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-run-stats"
+                    && lane.status == LaneStatus::Running
+                    && lane.run_stats.is_some_and(|stats| stats.run_count == 1)
+            )
+        })
+    });
+    assert!(started.iter().any(|envelope| {
+        matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneUpdated { lane },
+                ..
+            }) if lane.id == "lane-run-stats" && lane.run_stats.is_none()
+        )
+    }));
+
+    supervisor
+        .send_command_from_owner(
+            lane_owner,
+            "stop_run_stats_lane",
+            RuntimeCommand::StopLane {
+                lane_id: "lane-run-stats".to_string(),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-run-stats"
+                    && lane.run_stats.is_some_and(|stats| stats.last_exit_code == Some(23))
+            )
+        })
+    });
+
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let observations = store
+        .load_lane_events()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            viden_workflows::lanes::LaneEventKind::RunObserved { observation } => Some(observation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        observations,
+        vec![
+            viden_workflows::lanes::LaneRunObservation::Started,
+            viden_workflows::lanes::LaneRunObservation::Stopped {
+                exit_code: Some(23)
+            },
+        ]
+    );
+    let stats = store
+        .load_lane_state()
+        .unwrap()
+        .lane("lane-run-stats")
+        .unwrap()
+        .run_stats
+        .unwrap();
+    assert_eq!(stats.run_count, 1);
+    assert_eq!(stats.last_exit_code, Some(23));
+    assert_eq!(stats.diff_bytes, 0);
+}
+
+#[test]
+fn lane_apply_appends_the_applied_diff_byte_count() {
+    const DIFF: &str = "diff --git a/a b/a\n--- a/a\n+++ b/a\n";
+    let cwd = temp_dir("lane_run_stats_apply_cwd");
+    let home = temp_dir("lane_run_stats_apply_home");
+    persist_autonomous_lane_with_status(&home, &cwd, "lane-run-stats-apply", LaneStatus::Done);
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(ExitCodeLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner("lane-run-stats-apply"),
+            "apply_run_stats_lane",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-run-stats-apply".to_string(),
+                unified_diff: DIFF.to_string(),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-run-stats-apply"
+                    && lane.run_stats.is_some_and(|stats| stats.diff_bytes == DIFF.len() as u64)
+            )
+        })
+    });
+
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    let stats = store
+        .load_lane_state()
+        .unwrap()
+        .lane("lane-run-stats-apply")
+        .unwrap()
+        .run_stats
+        .unwrap();
+    assert_eq!(stats.diff_bytes, DIFF.len() as u64);
+    assert_eq!(stats.run_count, 0);
+    assert_eq!(stats.wall_time_ms, 0);
+}
+
+/// Drives a lane to Running, then tears it down with `teardown`, and returns the
+/// run observations the durable lanes log recorded.
+///
+/// The one-second sleep is deliberate: `LaneEvent::timestamp` has second
+/// resolution, so a teardown in the same wall-clock second as the start would
+/// legitimately accumulate zero wall time and prove nothing about closure.
+fn observations_after_teardown_while_running(
+    label: &str,
+    lane_id: &str,
+    exit_code: Option<i32>,
+    teardown: impl FnOnce(&RuntimeSupervisor, RuntimeOwner),
+) -> (
+    Vec<viden_workflows::lanes::LaneRunObservation>,
+    viden_types::LaneRunStats,
+) {
+    let cwd = temp_dir(&format!("{label}_cwd"));
+    let home = temp_dir(&format!("{label}_home"));
+    persist_autonomous_lane_with_status(&home, &cwd, lane_id, LaneStatus::Draft);
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(ExitCodeLaneEffects { exit_code }) as Arc<dyn LaneEffectExecutor>,
+    );
+    let lane_owner = owner(lane_id);
+
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "start_before_teardown",
+            RuntimeCommand::StartLane {
+                lane_id: lane_id.to_string(),
+                command: "worker".to_string(),
+                args: Vec::new(),
+                env: Vec::new(),
+                output_log: None,
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == lane_id
+                    && lane.run_stats.is_some_and(|stats| stats.run_count == 1)
+            )
+        })
+    });
+
+    std::thread::sleep(Duration::from_millis(1_100));
+    teardown(&supervisor, lane_owner);
+
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    wait_until(
+        Duration::from_secs(5),
+        "the teardown to close the open run",
+        || {
+            store.load_lane_events().is_ok_and(|events| {
+                events.iter().any(|event| {
+                    matches!(
+                        event.kind,
+                        viden_workflows::lanes::LaneEventKind::RunObserved {
+                            observation: viden_workflows::lanes::LaneRunObservation::Stopped { .. }
+                        }
+                    )
+                })
+            })
+        },
+    );
+    let observations = store
+        .load_lane_events()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            viden_workflows::lanes::LaneEventKind::RunObserved { observation } => Some(observation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let stats = store
+        .load_lane_state()
+        .unwrap()
+        .lane(lane_id)
+        .unwrap()
+        .run_stats
+        .unwrap();
+    (observations, stats)
+}
+
+#[test]
+fn archiving_a_running_lane_closes_the_run_with_wall_time_and_exit_code() {
+    let (observations, stats) = observations_after_teardown_while_running(
+        "lane_run_stats_archive",
+        "lane-run-stats-archive",
+        Some(11),
+        |supervisor, lane_owner| {
+            supervisor
+                .send_command_from_owner(
+                    lane_owner,
+                    "archive_running_lane",
+                    RuntimeCommand::ArchiveLane {
+                        lane_id: "lane-run-stats-archive".to_string(),
+                        summary: "archived while running".to_string(),
+                    },
+                )
+                .unwrap();
+        },
+    );
+
+    assert_eq!(
+        observations,
+        vec![
+            viden_workflows::lanes::LaneRunObservation::Started,
+            viden_workflows::lanes::LaneRunObservation::Stopped {
+                exit_code: Some(11)
+            },
+        ]
+    );
+    assert_eq!(stats.run_count, 1);
+    assert_eq!(stats.last_exit_code, Some(11));
+    assert!(
+        stats.wall_time_ms >= 1_000,
+        "an archived run must keep its wall time, got {}",
+        stats.wall_time_ms
+    );
+}
+
+#[test]
+fn cleaning_up_a_running_lane_closes_the_run_with_wall_time_and_exit_code() {
+    let (observations, stats) = observations_after_teardown_while_running(
+        "lane_run_stats_cleanup",
+        "lane-run-stats-cleanup",
+        Some(4),
+        |supervisor, lane_owner| {
+            supervisor
+                .send_command_from_owner(
+                    lane_owner,
+                    "cleanup_running_lane",
+                    RuntimeCommand::CleanupLane {
+                        lane_id: "lane-run-stats-cleanup".to_string(),
+                        force: false,
+                    },
+                )
+                .unwrap();
+        },
+    );
+
+    assert_eq!(
+        observations,
+        vec![
+            viden_workflows::lanes::LaneRunObservation::Started,
+            viden_workflows::lanes::LaneRunObservation::Stopped { exit_code: Some(4) },
+        ]
+    );
+    assert_eq!(stats.last_exit_code, Some(4));
+    assert!(stats.wall_time_ms >= 1_000, "{}", stats.wall_time_ms);
+}
+
+#[test]
+fn cancelling_a_running_lane_closes_the_run_with_wall_time_and_exit_code() {
+    let (observations, stats) = observations_after_teardown_while_running(
+        "lane_run_stats_cancel",
+        "lane-run-stats-cancel",
+        None,
+        |supervisor, lane_owner| {
+            supervisor
+                .send_command_from_owner(
+                    lane_owner,
+                    "cancel_running_lane",
+                    RuntimeCommand::CancelActiveTurn,
+                )
+                .unwrap();
+        },
+    );
+
+    // A cancelled runtime is force-killed, so the exit code is legitimately
+    // absent; the wall time still was observed and must survive.
+    assert_eq!(
+        observations,
+        vec![
+            viden_workflows::lanes::LaneRunObservation::Started,
+            viden_workflows::lanes::LaneRunObservation::Stopped { exit_code: None },
+        ]
+    );
+    assert_eq!(stats.last_exit_code, None);
+    assert!(stats.wall_time_ms >= 1_000, "{}", stats.wall_time_ms);
+}
+
+#[test]
+fn archiving_a_lane_that_never_ran_records_no_observation() {
+    let cwd = temp_dir("lane_run_stats_archive_idle_cwd");
+    let home = temp_dir("lane_run_stats_archive_idle_home");
+    persist_autonomous_lane_with_status(&home, &cwd, "lane-run-stats-idle", LaneStatus::Draft);
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::DontAsk)
+        .unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(ExitCodeLaneEffects { exit_code: Some(7) }) as Arc<dyn LaneEffectExecutor>,
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner("lane-run-stats-idle"),
+            "archive_idle_lane",
+            RuntimeCommand::ArchiveLane {
+                lane_id: "lane-run-stats-idle".to_string(),
+                summary: "archived without ever running".to_string(),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneUpdated { lane },
+                    ..
+                }) if lane.id == "lane-run-stats-idle" && lane.status == LaneStatus::Archived
+            )
+        })
+    });
+
+    // No runtime was ever active, so there is no run to close. The reducer would
+    // tolerate an orphan stop, but Core must not manufacture one.
+    let store = WorkflowStore::new(home, &cwd).unwrap();
+    assert!(store.load_lane_events().unwrap().iter().all(|event| {
+        !matches!(
+            event.kind,
+            viden_workflows::lanes::LaneEventKind::RunObserved { .. }
+        )
+    }));
+    assert_eq!(
+        store
+            .load_lane_state()
+            .unwrap()
+            .lane("lane-run-stats-idle")
+            .unwrap()
+            .run_stats,
+        None
     );
 }

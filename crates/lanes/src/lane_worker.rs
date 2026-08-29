@@ -12,7 +12,7 @@ use viden_types::{
     LaneStatus, PermissionDecision, PermissionMode, PermissionRuleSource, RuntimeCommand,
     RuntimeErrorView, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec, fresh_id, now_timestamp,
 };
-use viden_workflows::lanes::LaneEvent;
+use viden_workflows::lanes::{LaneEvent, LaneRunObservation};
 
 use crate::lane_runtime::{
     LaneEffectExecutor, LaneEffectRequest, canonical_repo_root, resolve_lane_target,
@@ -131,6 +131,7 @@ impl LaneWorkerHandle {
                 registered: worker_registered,
                 approval_ttl_secs,
                 runtime_active: false,
+                open_run_started_at: None,
             };
             loop {
                 match receiver.recv_timeout(Duration::from_millis(25)) {
@@ -148,6 +149,12 @@ impl LaneWorkerHandle {
                 }
             }
             if runtime.runtime_active {
+                // Process teardown deliberately drops the open run instead of
+                // observing it. This runs while `LaneWorkerHandle::drop` blocks
+                // on `join`, and a durable append here would take the exclusive
+                // lanes lock and reduce the whole log on the shutdown path,
+                // against an event sink that may already be gone. The reducer's
+                // newer-`Started`-wins rule absorbs the dangling open run.
                 let _ = runtime.effects.shutdown_lane(&runtime.lane.id);
             }
         });
@@ -276,6 +283,10 @@ struct LaneWorker {
     registered: Arc<AtomicBool>,
     approval_ttl_secs: u64,
     runtime_active: bool,
+    // Mirror of the durable reducer's open-run marker for this lane. It exists
+    // only so a live `LaneUpdated` carries the same wall time replay will
+    // compute; the lanes log stays authoritative.
+    open_run_started_at: Option<u64>,
 }
 
 impl LaneWorker {
@@ -850,11 +861,12 @@ impl LaneWorker {
             });
             let _ = self.change_status(LaneStatus::Cancelled, "lane mutation cancelled");
         } else {
-            if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-                self.fail(error);
-            } else {
-                self.runtime_active = false;
-                let _ = self.change_status(LaneStatus::Cancelled, "lane cancelled");
+            match self.effects.shutdown_lane(&self.lane.id) {
+                Err(error) => self.fail(error),
+                Ok(exit_code) => {
+                    self.close_active_run(exit_code);
+                    let _ = self.change_status(LaneStatus::Cancelled, "lane cancelled");
+                }
             }
         }
         self.emit(RuntimeEventKind::CommandAccepted {
@@ -878,12 +890,20 @@ impl LaneWorker {
                     .change_status(LaneStatus::Running, "lane running")
                     .is_err()
                 {
+                    // Deliberately NOT `close_active_run`: the Running append
+                    // just failed, so no `Started` was ever recorded and the
+                    // same persistence is still broken. A `Stopped` here would
+                    // be an orphan observation for a run that never became
+                    // durably visible.
                     let _ = self.effects.shutdown_lane(&self.lane.id);
                     self.runtime_active = false;
                     let _ = self.change_status(
                         LaneStatus::Detached,
                         "lane start requires retry after persistence failure",
                     );
+                } else {
+                    // Only a lane that actually reached Running counts as a run.
+                    self.observe_run(LaneRunObservation::Started);
                 }
             }
             Err(error) => self.fail(error),
@@ -926,11 +946,12 @@ impl LaneWorker {
     }
 
     fn stop(&mut self) {
-        if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-            self.fail(error);
-        } else {
-            self.runtime_active = false;
-            let _ = self.change_status(LaneStatus::Detached, "lane stopped");
+        match self.effects.shutdown_lane(&self.lane.id) {
+            Err(error) => self.fail(error),
+            Ok(exit_code) => {
+                self.close_active_run(exit_code);
+                let _ = self.change_status(LaneStatus::Detached, "lane stopped");
+            }
         }
     }
 
@@ -959,6 +980,13 @@ impl LaneWorker {
     }
 
     fn apply(&mut self, request: LaneEffectRequest) {
+        // Measure the payload before the request is consumed by the executor.
+        // The redaction summary in `permission_input` computes the same length,
+        // but only as formatted approval text, so it cannot be reused here.
+        let diff_bytes = match &request {
+            LaneEffectRequest::Apply { unified_diff, .. } => unified_diff.len() as u64,
+            _ => 0,
+        };
         let event = LaneEvent::status_changed(
             fresh_id("lane-event"),
             self.lane.id.clone(),
@@ -977,6 +1005,7 @@ impl LaneWorker {
                 self.emit(RuntimeEventKind::LaneUpdated {
                     lane: self.lane.clone(),
                 });
+                self.observe_run(LaneRunObservation::Applied { diff_bytes });
             }
             Ok(result) => {
                 self.emit(RuntimeEventKind::LaneConflictDetected {
@@ -991,11 +1020,14 @@ impl LaneWorker {
     }
 
     fn archive(&mut self, summary: String) {
-        if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-            self.fail(error);
-            return;
-        }
-        self.runtime_active = false;
+        let exit_code = match self.effects.shutdown_lane(&self.lane.id) {
+            Ok(exit_code) => exit_code,
+            Err(error) => {
+                self.fail(error);
+                return;
+            }
+        };
+        self.close_active_run(exit_code);
         if self.change_status(LaneStatus::Archived, summary).is_ok() {
             self.mark_terminal(LaneTerminalKind::Archived);
         }
@@ -1010,11 +1042,14 @@ impl LaneWorker {
         {
             return;
         }
-        if let Err(error) = self.effects.shutdown_lane(&self.lane.id) {
-            self.fail(error);
-            return;
-        }
-        self.runtime_active = false;
+        let exit_code = match self.effects.shutdown_lane(&self.lane.id) {
+            Ok(exit_code) => exit_code,
+            Err(error) => {
+                self.fail(error);
+                return;
+            }
+        };
+        self.close_active_run(exit_code);
         match self.effects.execute(request) {
             Ok(result) => {
                 self.output("receipt", result.output);
@@ -1045,6 +1080,75 @@ impl LaneWorker {
             *completion = Some(completed.clone());
         }
         let _ = self.terminal_sender.send(completed);
+    }
+
+    /// Close the run this worker has open, if any, recording whatever exit code
+    /// the teardown observed.
+    ///
+    /// Every path that tears down an ACTIVE runtime routes through here, so an
+    /// operator who cancels, archives, or cleans up a runaway terminal lane
+    /// still keeps that run's wall time and exit code — precisely the
+    /// blind-cost case these stats exist for. When no runtime was active there
+    /// is nothing to close: the reducer tolerates an orphan stop, but Core must
+    /// not manufacture one. A failed shutdown never reaches here, because no
+    /// exit fact was observed in that case.
+    fn close_active_run(&mut self, exit_code: Option<i32>) {
+        if !self.runtime_active {
+            return;
+        }
+        self.runtime_active = false;
+        self.observe_run(LaneRunObservation::Stopped { exit_code });
+    }
+
+    /// Append one bounded run measurement and republish the lane so live clients
+    /// see the numbers replay will produce.
+    ///
+    /// Append failure follows exactly the same policy as a failed
+    /// `StatusChanged` append: publish `LaneRecoveryRequired` plus a recoverable
+    /// error and leave the in-memory record untouched, because the durable log,
+    /// not this mirror, is authoritative.
+    fn observe_run(&mut self, observation: LaneRunObservation) {
+        let timestamp = now_timestamp();
+        let event = LaneEvent::run_observed(
+            fresh_id("lane-event"),
+            self.lane.id.clone(),
+            observation,
+            timestamp,
+            self.owner.session_id.clone(),
+        );
+        if let Err(error) = self.persistence.append(&event) {
+            self.emit(RuntimeEventKind::LaneRecoveryRequired {
+                lane_id: self.lane.id.clone(),
+                reason: error.clone(),
+                next_action: "reload lane state and retry".to_string(),
+            });
+            self.error(error);
+            return;
+        }
+        // Mirror `viden_workflows::lanes` exactly, including its second-to-
+        // millisecond scaling and its saturating arithmetic.
+        let mut stats = self.lane.run_stats.unwrap_or_default();
+        match observation {
+            LaneRunObservation::Started => {
+                stats.run_count = stats.run_count.saturating_add(1);
+                self.open_run_started_at = Some(timestamp);
+            }
+            LaneRunObservation::Stopped { exit_code } => {
+                if let Some(started_at) = self.open_run_started_at.take() {
+                    stats.wall_time_ms = stats
+                        .wall_time_ms
+                        .saturating_add(timestamp.saturating_sub(started_at).saturating_mul(1_000));
+                }
+                stats.last_exit_code = exit_code;
+            }
+            LaneRunObservation::Applied { diff_bytes } => {
+                stats.diff_bytes = stats.diff_bytes.saturating_add(diff_bytes);
+            }
+        }
+        self.lane.run_stats = Some(stats);
+        self.emit(RuntimeEventKind::LaneUpdated {
+            lane: self.lane.clone(),
+        });
     }
 
     fn change_status(&mut self, status: LaneStatus, summary: impl Into<String>) -> Result<(), ()> {

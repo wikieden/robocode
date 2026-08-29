@@ -99,6 +99,7 @@ fn lane_for(request: &D4LaneRequest) -> AgentLaneRecord {
         active_session_ids: Vec::new(),
         summary: format!("{} starter lane", role.as_str()),
         evidence: Vec::new(),
+        run_stats: None,
     }
 }
 

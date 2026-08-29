@@ -28,10 +28,27 @@ pub struct LaneProcessHandle {
     pub id: String,
 }
 
+/// What a stop actually observed about the process it ended.
+///
+/// The exit code is best effort by construction: a process killed by signal has
+/// no exit code, and a tmux `kill-session` destroys the pane before any status
+/// can be read. Callers must publish the absence rather than substitute zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StopOutcome {
+    pub exit_code: Option<i32>,
+}
+
+impl StopOutcome {
+    /// The honest "no status was observable" outcome.
+    pub fn unobserved() -> Self {
+        Self { exit_code: None }
+    }
+}
+
 pub trait ProcessBackend: Send + Sync {
     fn spawn(&self, request: &SpawnProcess) -> Result<LaneProcessHandle, LaneEffectError>;
     fn send(&self, handle: &LaneProcessHandle, input: &[u8]) -> Result<(), LaneEffectError>;
-    fn stop(&self, handle: &LaneProcessHandle) -> Result<(), LaneEffectError>;
+    fn stop(&self, handle: &LaneProcessHandle) -> Result<StopOutcome, LaneEffectError>;
 }
 
 #[derive(Debug, Default)]
@@ -80,7 +97,7 @@ impl ProcessBackend for LocalProcessBackend {
             .map_err(|err| LaneEffectError::Io(err.to_string()))
     }
 
-    fn stop(&self, handle: &LaneProcessHandle) -> Result<(), LaneEffectError> {
+    fn stop(&self, handle: &LaneProcessHandle) -> Result<StopOutcome, LaneEffectError> {
         let mut child = self
             .children
             .lock()
@@ -89,17 +106,23 @@ impl ProcessBackend for LocalProcessBackend {
             .ok_or_else(|| {
                 LaneEffectError::Io(format!("unknown process handle `{}`", handle.id))
             })?;
-        let leader_exited = child
+        let already_exited = child
             .try_wait()
-            .map_err(|err| LaneEffectError::Io(err.to_string()))?
-            .is_some();
-        stop_process_group(&mut child, leader_exited)?;
-        if !leader_exited {
-            child
+            .map_err(|err| LaneEffectError::Io(err.to_string()))?;
+        stop_process_group(&mut child, already_exited.is_some())?;
+        // Keep the status this stop actually observed instead of discarding it:
+        // it is the only exit-code channel a lane run has. `ExitStatus::code()`
+        // is `None` for a signalled process, which is exactly the "no code"
+        // case Core must publish rather than smoothing over.
+        let status = match already_exited {
+            Some(status) => status,
+            None => child
                 .wait()
-                .map_err(|err| LaneEffectError::Io(err.to_string()))?;
-        }
-        Ok(())
+                .map_err(|err| LaneEffectError::Io(err.to_string()))?,
+        };
+        Ok(StopOutcome {
+            exit_code: status.code(),
+        })
     }
 }
 
@@ -217,7 +240,7 @@ pub struct LaneTerminalHandle {
 pub trait TerminalBackend: Send + Sync {
     fn spawn(&self, request: &SpawnTerminal) -> Result<LaneTerminalHandle, LaneEffectError>;
     fn send(&self, handle: &LaneTerminalHandle, input: &[u8]) -> Result<(), LaneEffectError>;
-    fn stop(&self, handle: &LaneTerminalHandle) -> Result<(), LaneEffectError>;
+    fn stop(&self, handle: &LaneTerminalHandle) -> Result<StopOutcome, LaneEffectError>;
 }
 
 #[derive(Debug)]
@@ -271,7 +294,7 @@ impl TerminalBackend for LocalTerminalBackend {
         }
     }
 
-    fn stop(&self, handle: &LaneTerminalHandle) -> Result<(), LaneEffectError> {
+    fn stop(&self, handle: &LaneTerminalHandle) -> Result<StopOutcome, LaneEffectError> {
         let session = self
             .sessions
             .lock()
@@ -281,11 +304,17 @@ impl TerminalBackend for LocalTerminalBackend {
                 LaneEffectError::Io(format!("unknown terminal handle `{}`", handle.id))
             })?;
         match session.handle.kind {
+            // tmux has no exit-code channel on this path: `kill-session`
+            // destroys the pane before any exit status can be read, and
+            // `pane_dead_status` is only populated for panes that exited on
+            // their own, which a killed session never does. The absence is the
+            // truthful answer, so tmux lanes stay cost- and status-blind.
             TerminalKind::Tmux => run_tmux([
                 "kill-session".to_string(),
                 "-t".to_string(),
                 session.tmux_session.expect("tmux session invariant"),
-            ]),
+            ])
+            .map(|_| StopOutcome::unobserved()),
             TerminalKind::Pty => self
                 .processes
                 .stop(&session.process.expect("pty process invariant")),
@@ -703,7 +732,7 @@ impl TerminalBackend for FakeTerminalBackend {
         Ok(())
     }
 
-    fn stop(&self, handle: &LaneTerminalHandle) -> Result<(), LaneEffectError> {
+    fn stop(&self, handle: &LaneTerminalHandle) -> Result<StopOutcome, LaneEffectError> {
         let mut sessions = self
             .sessions
             .lock()
@@ -718,6 +747,7 @@ impl TerminalBackend for FakeTerminalBackend {
             )));
         };
         session.stopped = true;
-        Ok(())
+        // The fake runs no process, so it can only honestly report "no status".
+        Ok(StopOutcome::unobserved())
     }
 }

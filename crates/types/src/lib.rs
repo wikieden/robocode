@@ -913,9 +913,9 @@ pub fn decode_tool_input(input: &str) -> ToolInput {
 #[cfg(test)]
 mod tests;
 pub use agent::{
-    AgentLaneRecord, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord, DataEgressPolicy,
-    ExecutionTarget, GateStrength, LaneBudget, LaneStatus, MutationPolicy, default_gate_strength,
-    legacy_lane_role, legacy_lane_route,
+    AgentLaneRecord, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord, CostMeterability,
+    DataEgressPolicy, ExecutionTarget, GateStrength, LaneBudget, LaneRunStats, LaneStatus,
+    MutationPolicy, default_gate_strength, legacy_lane_role, legacy_lane_route,
 };
 pub use approval::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,

@@ -2223,6 +2223,7 @@ mod tests {
             active_session_ids: vec!["session-acp".to_string()],
             summary: "Return an exact response".to_string(),
             evidence: Vec::new(),
+            run_stats: None,
         });
         view.agent_sessions.push(AgentSessionView {
             session_id: "session-acp".to_string(),
