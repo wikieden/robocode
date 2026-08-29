@@ -16,13 +16,11 @@ use viden_types::{
 use viden_workflows::{lanes::LaneEvent, stores::WorkflowStore};
 
 use crate::{
-    RuntimeSupervisor, SessionEngine,
-    lane_runtime::{
-        LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, LocalLaneEffectExecutor,
-        resolve_lane_output_log,
-    },
-    lane_supervisor::{LanePersistence, WorkflowLanePersistence},
-    runtime_supervisor::set_before_supervisor_command_hook,
+    RuntimeSupervisor, SessionEngine, runtime_supervisor::set_before_supervisor_command_hook,
+};
+use viden_lanes::{
+    LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, LanePersistence,
+    LocalLaneEffectExecutor, WorkflowLanePersistence, resolve_lane_output_log,
 };
 
 use super::{SequenceProvider, temp_dir};

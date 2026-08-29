@@ -22,10 +22,10 @@ use viden_types::{
     WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
-use crate::lane_runtime::{
-    LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, LocalLaneEffectExecutor,
+use viden_lanes::{
+    LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, LanePersistence,
+    LocalLaneEffectExecutor,
 };
-use crate::lane_supervisor::LanePersistence;
 use viden_workflows::lanes::LaneEvent;
 
 #[test]

@@ -1,0 +1,20 @@
+[package]
+name = "viden-lanes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+# Exposes the `*_for_test` inspection helpers to other crates' test builds.
+# `cfg(test)` is only set for the crate under test, so a runtime test that
+# needs to observe lane-internal state cannot rely on it across this boundary.
+testing = []
+
+[dependencies]
+viden-permissions = { path = "../permissions" }
+viden-tools = { path = "../tools" }
+viden-types = { path = "../types" }
+viden-workflows = { path = "../workflows" }
+serde_json = "1"
+sha2 = "0.10"

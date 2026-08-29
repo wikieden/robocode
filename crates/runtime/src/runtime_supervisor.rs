@@ -10,6 +10,10 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use viden_lanes::{
+    LaneApprovalResolver, LaneCommandRedactor, LaneEffectExecutor, LanePersistence, LaneSupervisor,
+    LocalLaneEffectExecutor, WorkflowLanePersistence,
+};
 use viden_provider::ModelRequestControl;
 use viden_types::{
     AgentSessionRequest, AgentSessionStatus, AgentSessionView, ApprovalDecision,
@@ -32,11 +36,6 @@ use crate::{
         validate_typed_agent_session_request,
     },
     event_journal::RuntimeEventJournal,
-    lane_runtime::{LaneEffectExecutor, LocalLaneEffectExecutor},
-    lane_supervisor::{
-        LaneCommandRedactor, LanePersistence, LaneSupervisor, WorkflowLanePersistence,
-    },
-    lane_worker::LaneApprovalResolver,
     project_runtime::SupervisorProjectMutationPreparation,
     runtime_contract::{
         ContextRetrievalJob, SupervisorContextRetrievalPreparation, execute_context_retrieval_job,

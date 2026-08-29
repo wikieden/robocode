@@ -14,7 +14,7 @@ use viden_tools::process::{
 use viden_types::{AgentLaneRecord, AgentRoute};
 
 #[derive(Debug, Clone)]
-pub(crate) enum LaneEffectRequest {
+pub enum LaneEffectRequest {
     Create {
         repo: PathBuf,
         lane: AgentLaneRecord,
@@ -46,13 +46,13 @@ pub(crate) enum LaneEffectRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LaneEffectResult {
-    pub(crate) output: String,
-    pub(crate) conflict_paths: Vec<String>,
+pub struct LaneEffectResult {
+    pub output: String,
+    pub conflict_paths: Vec<String>,
 }
 
 impl LaneEffectResult {
-    pub(crate) fn success(output: impl Into<String>) -> Self {
+    pub fn success(output: impl Into<String>) -> Self {
         Self {
             output: output.into(),
             conflict_paths: Vec::new(),
@@ -60,7 +60,7 @@ impl LaneEffectResult {
     }
 }
 
-pub(crate) trait LaneEffectExecutor: Send + Sync {
+pub trait LaneEffectExecutor: Send + Sync {
     fn execute(&self, request: LaneEffectRequest) -> Result<LaneEffectResult, String>;
 
     fn apply_transactionally(
@@ -97,7 +97,7 @@ enum ActiveLaneHandle {
 /// lane commands. Frontends only submit typed commands and never receive raw
 /// backend handles.
 #[derive(Debug, Default)]
-pub(crate) struct LocalLaneEffectExecutor {
+pub struct LocalLaneEffectExecutor {
     worktrees: LocalLaneEffects,
     processes: LocalProcessBackend,
     terminals: LocalTerminalBackend,
@@ -459,7 +459,7 @@ pub(crate) fn resolve_lane_target(
 /// Resolve one output path for every local lane route. The nearest existing
 /// ancestor is canonicalized so a symlink cannot redirect a not-yet-created
 /// log outside the lane root.
-pub(crate) fn resolve_lane_output_log(
+pub fn resolve_lane_output_log(
     lane_root: &Path,
     requested: Option<&str>,
     lane_id: &str,

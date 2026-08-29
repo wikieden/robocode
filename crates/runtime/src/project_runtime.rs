@@ -13,7 +13,8 @@ use viden_types::{
     RuntimeEventKind, ToolInput, ToolSpec, fresh_id,
 };
 
-use crate::{FileRollback, SessionEngine, lane_supervisor::workspace_eligibility};
+use crate::{FileRollback, SessionEngine};
+use viden_lanes::workspace_eligibility;
 
 pub trait CredentialBackend: Send + Sync {
     /// Resolves a one-use opaque request already staged by the trusted backend.

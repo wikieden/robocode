@@ -19,7 +19,7 @@ use crate::lane_runtime::{
 };
 use crate::lane_supervisor::LanePersistence;
 
-pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
+pub type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Send + Sync>;
 
 /// Re-validates a queued lane-mutation approval against a lane-scoped
 /// permission engine.
@@ -31,7 +31,7 @@ pub(crate) type LaneEventSink = Arc<dyn Fn(RuntimeOwner, RuntimeEventKind) + Sen
 /// injected rather than called upward so the lane crate keeps no dependency on
 /// the gate module. The queued `ApprovalResponse` stands in for the interactive
 /// ask flow, and the returned decision is never `Ask`.
-pub(crate) type LaneApprovalResolver = Arc<
+pub type LaneApprovalResolver = Arc<
     dyn Fn(&mut PermissionEngine, &ToolSpec, &ToolInput, ApprovalResponse) -> PermissionDecision
         + Send
         + Sync,
@@ -221,7 +221,7 @@ impl LaneWorkerHandle {
             .map_err(|_| "lane permission state poisoned".to_string())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub(crate) fn is_finished(&self) -> bool {
         self.worker.as_ref().is_none_or(JoinHandle::is_finished)
     }

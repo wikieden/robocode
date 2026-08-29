@@ -36,14 +36,14 @@ use crate::lane_worker::{
 /// lane orchestration, so it is injected instead of imported: the lane crate
 /// decides which commands are announced, the runtime decides what an announced
 /// command is allowed to reveal.
-pub(crate) type LaneCommandRedactor = Arc<dyn Fn(&RuntimeCommand) -> RuntimeCommand + Send + Sync>;
+pub type LaneCommandRedactor = Arc<dyn Fn(&RuntimeCommand) -> RuntimeCommand + Send + Sync>;
 
-pub(crate) trait LanePersistence: Send + Sync {
+pub trait LanePersistence: Send + Sync {
     fn append(&self, event: &LaneEvent) -> Result<(), String>;
     fn load_lanes(&self) -> Result<BTreeMap<String, AgentLaneRecord>, String>;
 }
 
-pub(crate) struct WorkflowLanePersistence(pub(crate) WorkflowStore);
+pub struct WorkflowLanePersistence(pub WorkflowStore);
 
 impl LanePersistence for WorkflowLanePersistence {
     fn append(&self, event: &LaneEvent) -> Result<(), String> {
@@ -77,7 +77,7 @@ impl LanePersistence for WorkflowLanePersistence {
     }
 }
 
-pub(crate) struct LaneSupervisor {
+pub struct LaneSupervisor {
     repo: PathBuf,
     persistence: Arc<dyn LanePersistence>,
     permissions: Arc<Mutex<PermissionEngine>>,
@@ -152,15 +152,15 @@ impl LaneEffectExecutor for StarterLaneEffectGuard {
 }
 
 impl LaneSupervisor {
-    #[cfg(test)]
-    pub(crate) fn permission_template_snapshot_for_test(
+    #[cfg(any(test, feature = "testing"))]
+    pub fn permission_template_snapshot_for_test(
         &self,
     ) -> Result<(viden_types::PermissionMode, u64), String> {
         Ok((self.permission_template()?.mode(), self.permission_epoch()))
     }
 
-    #[cfg(test)]
-    pub(crate) fn lane_permission_snapshot_for_test(
+    #[cfg(any(test, feature = "testing"))]
+    pub fn lane_permission_snapshot_for_test(
         &self,
         lane_id: &str,
     ) -> Result<(viden_types::PermissionMode, u64), String> {
@@ -176,7 +176,7 @@ impl LaneSupervisor {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub fn new(
         repo: PathBuf,
         persistence: Arc<dyn LanePersistence>,
         permissions: Arc<Mutex<PermissionEngine>>,
@@ -294,7 +294,7 @@ impl LaneSupervisor {
         }
     }
 
-    pub(crate) fn handles(command: &RuntimeCommand) -> bool {
+    pub fn handles(command: &RuntimeCommand) -> bool {
         matches!(
             command,
             RuntimeCommand::PreviewDefaultStarterLane { .. }
@@ -316,11 +316,11 @@ impl LaneSupervisor {
         )
     }
 
-    pub(crate) fn hydration_recoveries(&self) -> &[AgentLaneRecord] {
+    pub fn hydration_recoveries(&self) -> &[AgentLaneRecord] {
         &self.hydration_recoveries
     }
 
-    pub(crate) fn sync_permissions(
+    pub fn sync_permissions(
         &self,
         permissions: PermissionEngine,
         permission_epoch: u64,
@@ -354,8 +354,8 @@ impl LaneSupervisor {
         self.permission_epoch.load(Ordering::Acquire)
     }
 
-    #[cfg(test)]
-    pub(crate) fn worker_finished_for_test(&self, lane_id: &str) -> bool {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn worker_finished_for_test(&self, lane_id: &str) -> bool {
         self.lanes
             .lock()
             .ok()
@@ -369,8 +369,8 @@ impl LaneSupervisor {
     /// both conditions proves the worker thread already exited. Unlike an
     /// empty-registry check, this predicate is monotone: it cannot be
     /// satisfied before the lane's worker was ever spawned.
-    #[cfg(test)]
-    pub(crate) fn worker_retired_for_test(&self, lane_id: &str) -> bool {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn worker_retired_for_test(&self, lane_id: &str) -> bool {
         let recorded_terminal = self
             .terminal_lanes
             .lock()
@@ -384,15 +384,15 @@ impl LaneSupervisor {
                 .unwrap_or(false)
     }
 
-    #[cfg(test)]
-    pub(crate) fn active_worker_count_for_test(&self) -> usize {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn active_worker_count_for_test(&self) -> usize {
         self.lanes
             .lock()
             .map(|lanes| lanes.len())
             .unwrap_or_default()
     }
 
-    pub(crate) fn send(
+    pub fn send(
         &self,
         owner: RuntimeOwner,
         command_id: String,
@@ -605,7 +605,7 @@ impl LaneSupervisor {
         Ok(())
     }
 
-    pub(crate) fn respond_to_approval(
+    pub fn respond_to_approval(
         &self,
         owner: &RuntimeOwner,
         command_id: &str,
@@ -648,10 +648,7 @@ impl LaneSupervisor {
         Ok(Some(true))
     }
 
-    pub(crate) fn pending_approval_owner(
-        &self,
-        request_id: &str,
-    ) -> Result<Option<RuntimeOwner>, String> {
+    pub fn pending_approval_owner(&self, request_id: &str) -> Result<Option<RuntimeOwner>, String> {
         Ok(self
             .lanes
             .lock()
@@ -661,7 +658,7 @@ impl LaneSupervisor {
             .map(|worker| worker.owner.clone()))
     }
 
-    pub(crate) fn cancel(&self, owner: &RuntimeOwner, command_id: String) -> Result<bool, String> {
+    pub fn cancel(&self, owner: &RuntimeOwner, command_id: String) -> Result<bool, String> {
         let Some(lane_id) = owner.lane_id.as_deref() else {
             return Ok(false);
         };
@@ -1186,7 +1183,7 @@ impl LaneSupervisor {
     }
 }
 
-pub(crate) fn workspace_eligibility(repo: &Path) -> WorkspaceEligibility {
+pub fn workspace_eligibility(repo: &Path) -> WorkspaceEligibility {
     let workspace_available = repo
         .canonicalize()
         .is_ok_and(|canonical| canonical.is_dir());

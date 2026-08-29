@@ -6,6 +6,7 @@ members = [
     "crates/config",
     "crates/context",
     "crates/core",
+    "crates/lanes",
     "crates/lsp",
     "crates/permissions",
     "crates/plugin-api",
