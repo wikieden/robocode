@@ -9,6 +9,7 @@ use viden_core::{
 };
 use viden_types::{AgentNextAction, CapabilityId};
 
+pub(super) use super::pending::SupervisionMachine;
 pub(super) use super::ui_state::{
     AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
     PendingNativeLane, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
@@ -21,6 +22,10 @@ pub(super) struct TuiState {
     /// Read-only compatibility facts negotiated by the Core client. They gate
     /// presentation actions but never reduce business state locally.
     pub(super) capabilities: BTreeSet<CapabilityId>,
+    /// Confirm-on-fact correlation for one in-flight supervision command. This
+    /// holds no authoritative record: it only remembers which command id the
+    /// Core client issued and which published Core fact would settle it.
+    pub(super) supervision: SupervisionMachine,
 }
 
 impl TuiState {
@@ -29,6 +34,7 @@ impl TuiState {
             runtime,
             ui: TuiUiState::default(),
             capabilities: BTreeSet::new(),
+            supervision: SupervisionMachine::default(),
         }
     }
 

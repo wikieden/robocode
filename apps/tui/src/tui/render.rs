@@ -1149,7 +1149,8 @@ mod structured_runtime_tests {
             assert!(rendered.contains("P:viden"), "project identity {width}");
             assert!(rendered.contains("L:lane_d1_core"), "lane identity {width}");
             assert!(rendered.contains("PERM:Ask"), "permission action {width}");
-            assert!(rendered.contains("G:1"), "gate action {width}");
+            // Registered gold gate badge from the TUI status glyph vocabulary.
+            assert!(rendered.contains("⏸ 1"), "gate action {width}");
             assert!(rendered.contains("E:1"), "error action {width}");
             assert!(
                 !rendered.contains("RUNTIME"),

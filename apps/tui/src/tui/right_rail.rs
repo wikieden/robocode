@@ -1,5 +1,6 @@
 use super::preferences::UI_PREFERENCE_PERSISTENCE_CAPABILITY;
 use super::{
+    glyphs::Glyph,
     panel::panel,
     projection::{CockpitProjection, ContextPressure, CostVisibility},
     state::{TuiState, agent_tasks},
@@ -59,12 +60,36 @@ pub(super) fn right_rail(state: &TuiState, width: usize, height: usize) -> Vec<S
             .count(),
         projection.lanes.len()
     ));
+    let counts = projection.supervision_counts();
+    // Registered gold `⏸` gate badge; the terminal layer downgrades it to the
+    // registered ASCII fallback when the terminal cannot render Unicode.
     rows.push(format!(
-        "INBOX A:{} G:{} R:{}",
+        "INBOX A:{} {} {} R:{}",
         projection.approvals.len(),
-        projection.merge_gates.len(),
+        Glyph::Gate.unicode(),
+        counts.merge_gates,
         projection.recovery_actions.len()
     ));
+    if counts.has_non_gate_records() {
+        rows.push(super::i18n::translate(
+            state,
+            "rail.supervision.trust",
+            &[
+                ("review", &counts.review_requests.to_string()),
+                ("handoff", &counts.handoffs.to_string()),
+                ("contract", &counts.contracts.to_string()),
+            ],
+        ));
+        rows.push(super::i18n::translate(
+            state,
+            "rail.supervision.integration",
+            &[
+                ("dependency", &counts.dependencies.to_string()),
+                ("bounce", &counts.conflict_bounces.to_string()),
+                ("revert", &counts.reverts.to_string()),
+            ],
+        ));
+    }
 
     if !projection.approvals.is_empty()
         || !projection.errors.is_empty()
@@ -321,6 +346,58 @@ mod tests {
                 "missing {expected}:\n{rendered}"
             );
         }
+    }
+
+    #[test]
+    fn rail_inbox_uses_the_registered_gate_glyph_and_hides_empty_supervision_rows() {
+        let mut state = TuiState::default();
+        let empty = right_rail(&state, 48, 28).join("\n");
+        assert!(empty.contains("INBOX A:0 ⏸ 0 R:0"));
+        assert!(!empty.contains("G:0"));
+        assert!(!empty.contains("TRUST"));
+
+        state
+            .runtime
+            .review_requests
+            .push(viden_types::ReviewRequestRecord {
+                review_id: "review-1".to_string(),
+                gate_id: "gate-1".to_string(),
+                task_id: "task-1".to_string(),
+                requester_lane_id: "lane-a".to_string(),
+                reviewer_lane_id: "lane-b".to_string(),
+                owner: Default::default(),
+                evidence_ids: Vec::new(),
+                evidence_bindings: Vec::new(),
+                status: viden_types::ReviewRequestStatus::Pending,
+                feedback: None,
+                audit_id: "audit-review".to_string(),
+                updated_at: 1,
+            });
+        state
+            .runtime
+            .dependencies
+            .push(viden_types::DependencyRecord {
+                dependency_id: "dep-1".to_string(),
+                task_id: "task-1".to_string(),
+                depends_on_task_id: "task-0".to_string(),
+                owner: Default::default(),
+                state: viden_types::DependencyState::Blocked,
+                reason: "upstream pending".to_string(),
+                audit_id: "audit-dep".to_string(),
+                updated_at: 2,
+            });
+
+        let rendered = right_rail(&state, 48, 28).join("\n");
+        assert!(rendered.contains("TRUST review 1"), "missing:\n{rendered}");
+        assert!(
+            rendered.contains("INTEGRATION dependency 1"),
+            "missing:\n{rendered}"
+        );
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese = right_rail(&state, 48, 28).join("\n");
+        assert!(chinese.contains("信任 复审 1"), "missing:\n{chinese}");
+        assert!(chinese.contains("集成 依赖 1"), "missing:\n{chinese}");
     }
 
     #[test]

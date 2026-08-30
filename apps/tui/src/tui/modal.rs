@@ -123,6 +123,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             "ROUTE main→side-1".to_string(),
             format!("STATE  {:?}", lane.status),
         ];
+        rows.extend(blind_cost_rows(state, lane));
         rows.extend(lane.evidence.iter().cloned());
         rows.push("CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string());
         let title = super::i18n::text(state, "overlay.title.lane_detail");
@@ -170,6 +171,38 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
     } else {
         render_command_suggestions(frame, state);
     }
+}
+
+/// Cost rows for one lane inspector.
+///
+/// A route whose `cost_meterability()` is `Blind` runs an external process Core
+/// cannot attribute tokens or money to, so this surface never shows an inferred
+/// token or dollar figure for it. It shows the blind marker plus exactly the
+/// four bounded run facts Core measured — and nothing at all when Core has not
+/// published `run_stats`, because an unobserved run is absence, not zero.
+/// Metered routes keep their existing cost surface and get no rows here.
+fn blind_cost_rows(state: &TuiState, lane: &viden_core::AgentLaneRecord) -> Vec<String> {
+    if lane.route.cost_meterability() != viden_types::CostMeterability::Blind {
+        return Vec::new();
+    }
+    let mut rows = vec![super::i18n::text(state, "lane.cost.blind")];
+    if let Some(stats) = lane.run_stats.as_ref() {
+        let exit = stats
+            .last_exit_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| super::i18n::text(state, "lane.run_stats.exit_unknown"));
+        rows.push(super::i18n::translate(
+            state,
+            "lane.run_stats",
+            &[
+                ("runs", &stats.run_count.to_string()),
+                ("wall", &stats.wall_time_ms.to_string()),
+                ("diff", &stats.diff_bytes.to_string()),
+                ("exit", &exit),
+            ],
+        ));
+    }
+    rows
 }
 
 fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec<String> {
@@ -1246,6 +1279,78 @@ mod tests {
         assert!(rows.contains("Accepted"));
         assert!(rows.contains("RECOVERY lane-recover · detached · reattach"));
         assert!(rows.contains("COMMAND cmd-review · pending Core fact"));
+    }
+
+    #[test]
+    fn blind_lane_inspector_shows_bounded_run_facts_and_never_fabricates_zeros() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        state.runtime.lanes.truncate(1);
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focused_lane = Some(lane_id);
+
+        // A metered route keeps its existing surface: no blind marker, no run facts.
+        state.runtime.lanes[0].route = viden_core::AgentRoute::BuiltIn;
+        state.runtime.lanes[0].run_stats = Some(viden_types::LaneRunStats {
+            wall_time_ms: 1_500,
+            run_count: 3,
+            diff_bytes: 900,
+            last_exit_code: Some(0),
+        });
+        let metered = blind_cost_rows(&state, &state.runtime.lanes[0]);
+        assert!(
+            metered.is_empty(),
+            "metered lane gained cost rows: {metered:?}"
+        );
+
+        // A blind route with no observed run publishes the marker and nothing else.
+        state.runtime.lanes[0].route = viden_core::AgentRoute::Tmux;
+        state.runtime.lanes[0].run_stats = None;
+        let unobserved = blind_cost_rows(&state, &state.runtime.lanes[0]).join("\n");
+        assert!(unobserved.contains("blind"));
+        assert!(
+            !unobserved.contains('0'),
+            "absent run stats must not render zeros: {unobserved}"
+        );
+
+        // A blind route with observed runs publishes exactly the four bounded facts.
+        state.runtime.lanes[0].run_stats = Some(viden_types::LaneRunStats {
+            wall_time_ms: 1_500,
+            run_count: 3,
+            diff_bytes: 900,
+            last_exit_code: Some(2),
+        });
+        let mut frame = Frame::new(112, 40);
+        render_overlays(&mut frame, &state, 0);
+        let rendered = frame.to_string();
+        for expected in ["blind", "3 runs", "1500 ms", "900 B diff", "exit 2"] {
+            assert!(
+                rendered.contains(expected),
+                "missing {expected}:\n{rendered}"
+            );
+        }
+
+        // A force-killed or tmux run has no exit-code channel; say so instead of
+        // inventing a success code.
+        state.runtime.lanes[0].run_stats = Some(viden_types::LaneRunStats {
+            wall_time_ms: 10,
+            run_count: 1,
+            diff_bytes: 0,
+            last_exit_code: None,
+        });
+        assert!(
+            blind_cost_rows(&state, &state.runtime.lanes[0])
+                .join("\n")
+                .contains("exit unknown")
+        );
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
+        let chinese = blind_cost_rows(&state, &state.runtime.lanes[0]).join("\n");
+        assert!(chinese.contains("盲区"), "missing:\n{chinese}");
+        assert!(chinese.contains("退出 未知"), "missing:\n{chinese}");
     }
 
     #[test]

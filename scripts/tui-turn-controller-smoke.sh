@@ -33,6 +33,14 @@ tests=(
   tui::render::structured_runtime_tests::render_frame_keeps_live_activity_visible_for_lanes_and_tool_calls
   tui::app::tests::streaming_delta_does_not_steal_scrollback_when_user_scrolled_up
   tui::render::structured_runtime_tests::agent_tasks_do_not_keep_failed_provider_turn_active
+  tui::pending::tests::command_acceptance_never_confirms_a_supervision_decision
+  tui::pending::tests::only_the_exact_merge_gate_fact_confirms_the_decision
+  tui::pending::tests::review_conflict_and_revert_expectations_each_confirm_on_their_own_fact
+  tui::pending::tests::a_fact_for_another_command_never_confirms_an_unaccepted_decision
+  tui::pending::tests::rejection_carries_the_core_reason_and_clears_the_pending_decision
+  tui::pending::tests::a_second_supervision_command_is_refused_while_one_is_pending
+  tui::pending::tests::events_are_ignored_entirely_when_no_supervision_command_is_pending
+  tui::app::tests::supervision_decision_confirms_only_on_the_core_business_fact
 )
 
 for test_name in "${tests[@]}"; do

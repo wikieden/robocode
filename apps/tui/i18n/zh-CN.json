@@ -204,5 +204,11 @@
   "native_lane.ineligible": "工作区不能创建 Lane",
   "native_lane.unknown": "Core 尚未返回工作区 eligibility",
   "native_lane.task.prompt": "输入首个原生任务后按 Enter",
-  "side.status.agent_session": "ACP {agent} · {status} · {task}"
+  "side.status.agent_session": "ACP {agent} · {status} · {task}",
+  "rail.supervision.trust": "信任 复审 {review} · 交接 {handoff} · 契约 {contract}",
+  "rail.supervision.integration": "集成 依赖 {dependency} · 回弹 {bounce} · 回滚 {revert}",
+  "lane.cost.blind": "成本    盲区 · Core 无法计量该通道",
+  "lane.run_stats": "运行    {runs} 次 · {wall} 毫秒 · {diff} 字节差异 · 退出 {exit}",
+  "lane.run_stats.exit_unknown": "未知",
+  "supervision.pending.busy": "监督命令 {command} 仍在等待 Core 事实"
 }

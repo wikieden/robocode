@@ -427,7 +427,7 @@ assert_contains "$OUT_DIR/main-cjk-input.txt" "你好，帮我检查当前变更
 assert_not_contains "$OUT_DIR/main.txt" "TELEMETRY"
 assert_contains "$OUT_DIR/main.txt" "P:viden L:"
 assert_contains "$OUT_DIR/main.txt" "PERM:Ask"
-assert_contains "$OUT_DIR/main.txt" "G:0 E:0"
+assert_contains "$OUT_DIR/main.txt" "⏸ 0 E:0"
 assert_contains "$OUT_DIR/main.txt" "EVENTS"
 if grep -Fq "APPROVAL REQUIRED" "$OUT_DIR/main.txt" "$OUT_DIR/main-idle.txt"; then
   printf 'preview check failed: %s should not contain approval modal\n' "$OUT_DIR/main-idle.txt" >&2

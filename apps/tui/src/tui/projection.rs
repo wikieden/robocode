@@ -6,8 +6,9 @@ use viden_core::{
 };
 use viden_types::{
     AgentDagRecord, AgentRoute, AgentTaskRecord, ApprovalDefaultAction, ApprovalScope,
-    CapabilityId, LaneConflictView, LaneOutputView, LaneRecoveryView, MergeGateDecisionOutcome,
-    MergeGateStatus, RuntimeCommand, RuntimeOwner, TokenCostView, ToolCallView,
+    CapabilityId, ConflictBounceStatus, ContractDecision, DependencyState, HandoffAcceptance,
+    LaneConflictView, LaneOutputView, LaneRecoveryView, MergeGateDecisionOutcome, MergeGateStatus,
+    ReviewRequestStatus, RuntimeCommand, RuntimeOwner, TokenCostView, ToolCallView,
 };
 
 use super::ui_state::TuiUiState;
@@ -26,6 +27,12 @@ pub(super) struct CockpitProjection {
     pub(super) evidence: Vec<EvidenceView>,
     pub(super) evidence_decisions: Vec<EvidenceDecisionProjection>,
     pub(super) merge_gates: Vec<MergeGateProjection>,
+    pub(super) review_requests: Vec<ReviewRequestProjection>,
+    pub(super) handoffs: Vec<HandoffProjection>,
+    pub(super) contracts: Vec<ContractProjection>,
+    pub(super) dependencies: Vec<DependencyProjection>,
+    pub(super) conflict_bounces: Vec<ConflictBounceProjection>,
+    pub(super) reverts: Vec<RevertProjection>,
     pub(super) context: Option<ContextBundleRecord>,
     pub(super) context_pressure: ContextPressure,
     pub(super) cost: CostLedgerTotals,
@@ -71,6 +78,32 @@ impl CockpitProjection {
             evidence: runtime.latest_evidence.clone(),
             evidence_decisions: evidence_decisions(&merge_gates),
             merge_gates,
+            review_requests: runtime
+                .review_requests
+                .iter()
+                .map(ReviewRequestProjection::from)
+                .collect(),
+            handoffs: runtime
+                .handoffs
+                .iter()
+                .map(HandoffProjection::from)
+                .collect(),
+            contracts: runtime
+                .contracts
+                .iter()
+                .map(ContractProjection::from)
+                .collect(),
+            dependencies: runtime
+                .dependencies
+                .iter()
+                .map(DependencyProjection::from)
+                .collect(),
+            conflict_bounces: runtime
+                .conflict_bounces
+                .iter()
+                .map(ConflictBounceProjection::from)
+                .collect(),
+            reverts: runtime.reverts.iter().map(RevertProjection::from).collect(),
             context: runtime.context.clone(),
             context_pressure: context_pressure(runtime),
             cost: runtime.cost_ledger.clone(),
@@ -105,6 +138,18 @@ impl CockpitProjection {
                 }
             }),
             audit_ids: audit_ids(runtime),
+        }
+    }
+
+    pub(super) fn supervision_counts(&self) -> SupervisionCounts {
+        SupervisionCounts {
+            merge_gates: self.merge_gates.len(),
+            review_requests: self.review_requests.len(),
+            handoffs: self.handoffs.len(),
+            contracts: self.contracts.len(),
+            dependencies: self.dependencies.len(),
+            conflict_bounces: self.conflict_bounces.len(),
+            reverts: self.reverts.len(),
         }
     }
 
@@ -262,6 +307,176 @@ impl From<&viden_types::MergeGateRecord> for MergeGateProjection {
                 .as_ref()
                 .map(|conflict| conflict.bounce_id.clone()),
         }
+    }
+}
+
+/// Compact row facts for one review request.
+///
+/// Deliberately not a clone of `ReviewRequestRecord`: a row renders identity,
+/// the two lane parties, the settled status, and freshness. Evidence bindings,
+/// owners, and reviewer prose stay in Core's record and are re-read from
+/// `RuntimeViewState` when a detail surface needs them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ReviewRequestProjection {
+    pub(super) review_id: String,
+    pub(super) gate_id: String,
+    pub(super) requester_lane_id: String,
+    pub(super) reviewer_lane_id: String,
+    pub(super) status: ReviewRequestStatus,
+    pub(super) updated_at: u64,
+}
+
+impl From<&viden_types::ReviewRequestRecord> for ReviewRequestProjection {
+    fn from(review: &viden_types::ReviewRequestRecord) -> Self {
+        Self {
+            review_id: review.review_id.clone(),
+            gate_id: review.gate_id.clone(),
+            requester_lane_id: review.requester_lane_id.clone(),
+            reviewer_lane_id: review.reviewer_lane_id.clone(),
+            status: review.status,
+            updated_at: review.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HandoffProjection {
+    pub(super) handoff_id: String,
+    pub(super) task_id: String,
+    pub(super) from_lane_id: String,
+    pub(super) to_lane_id: String,
+    pub(super) acceptance: HandoffAcceptance,
+    pub(super) updated_at: u64,
+}
+
+impl From<&viden_types::HandoffRecord> for HandoffProjection {
+    fn from(handoff: &viden_types::HandoffRecord) -> Self {
+        Self {
+            handoff_id: handoff.handoff_id.clone(),
+            task_id: handoff.task_id.clone(),
+            from_lane_id: handoff.from_lane_id.clone(),
+            to_lane_id: handoff.to_lane_id.clone(),
+            acceptance: handoff.acceptance,
+            updated_at: handoff.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ContractProjection {
+    pub(super) contract_id: String,
+    pub(super) task_id: String,
+    pub(super) decision: ContractDecision,
+    pub(super) updated_at: u64,
+}
+
+impl From<&viden_types::ContractRecord> for ContractProjection {
+    fn from(contract: &viden_types::ContractRecord) -> Self {
+        Self {
+            contract_id: contract.contract_id.clone(),
+            task_id: contract.task_id.clone(),
+            decision: contract.decision,
+            updated_at: contract.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DependencyProjection {
+    pub(super) dependency_id: String,
+    pub(super) task_id: String,
+    pub(super) depends_on_task_id: String,
+    pub(super) state: DependencyState,
+    pub(super) updated_at: u64,
+}
+
+impl From<&viden_types::DependencyRecord> for DependencyProjection {
+    fn from(dependency: &viden_types::DependencyRecord) -> Self {
+        Self {
+            dependency_id: dependency.dependency_id.clone(),
+            task_id: dependency.task_id.clone(),
+            depends_on_task_id: dependency.depends_on_task_id.clone(),
+            state: dependency.state,
+            updated_at: dependency.updated_at,
+        }
+    }
+}
+
+/// Compact row facts for one bounced merge conflict. `revalidated_at` stays
+/// optional because absence is a fact: a pending bounce has not been
+/// revalidated, and the row must not render a zero timestamp for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ConflictBounceProjection {
+    pub(super) bounce_id: String,
+    pub(super) gate_id: String,
+    pub(super) original_lane_id: String,
+    pub(super) status: ConflictBounceStatus,
+    pub(super) created_at: u64,
+    pub(super) revalidated_at: Option<u64>,
+}
+
+impl From<&viden_types::ConflictBounce> for ConflictBounceProjection {
+    fn from(conflict: &viden_types::ConflictBounce) -> Self {
+        Self {
+            bounce_id: conflict.bounce_id.clone(),
+            gate_id: conflict.gate_id.clone(),
+            original_lane_id: conflict.original_lane_id.clone(),
+            status: conflict.status,
+            created_at: conflict.created_at,
+            revalidated_at: conflict.revalidated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RevertProjection {
+    pub(super) revert_id: String,
+    pub(super) gate_id: String,
+    pub(super) applied_change_id: String,
+    pub(super) restored_path_count: usize,
+    pub(super) reverted_at: u64,
+}
+
+impl From<&viden_types::RevertRecord> for RevertProjection {
+    fn from(revert: &viden_types::RevertRecord) -> Self {
+        Self {
+            revert_id: revert.revert_id.clone(),
+            gate_id: revert.gate_id.clone(),
+            applied_change_id: revert.applied_change_id.clone(),
+            restored_path_count: revert.restored_paths.len(),
+            reverted_at: revert.reverted_at,
+        }
+    }
+}
+
+/// Compact supervision inbox counts.
+///
+/// The status bar and right rail historically counted merge gates only. These
+/// counts extend that inbox to the rest of the Core-owned supervision surface
+/// without any frontend aggregation rule beyond "how many records did Core
+/// publish".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) struct SupervisionCounts {
+    pub(super) merge_gates: usize,
+    pub(super) review_requests: usize,
+    pub(super) handoffs: usize,
+    pub(super) contracts: usize,
+    pub(super) dependencies: usize,
+    pub(super) conflict_bounces: usize,
+    pub(super) reverts: usize,
+}
+
+impl SupervisionCounts {
+    /// Whether Core published any supervision record beyond merge gates. Rows
+    /// that would otherwise render all-zero stay hidden.
+    pub(super) fn has_non_gate_records(self) -> bool {
+        self.review_requests
+            + self.handoffs
+            + self.contracts
+            + self.dependencies
+            + self.conflict_bounces
+            + self.reverts
+            > 0
     }
 }
 
@@ -706,6 +921,148 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.provider.unwrap().status, "healthy");
+    }
+
+    #[test]
+    fn supervision_records_project_compact_rows_and_inbox_counts() {
+        let mut runtime = RuntimeViewState::new(runtime_snapshot());
+        runtime
+            .review_requests
+            .push(viden_types::ReviewRequestRecord {
+                review_id: "review-1".to_string(),
+                gate_id: "gate-1".to_string(),
+                task_id: "task-1".to_string(),
+                requester_lane_id: "lane-a".to_string(),
+                reviewer_lane_id: "lane-b".to_string(),
+                owner: RuntimeOwner::default(),
+                evidence_ids: vec!["ev-1".to_string()],
+                evidence_bindings: Vec::new(),
+                status: viden_types::ReviewRequestStatus::Rejected,
+                feedback: Some("needs a regression test".to_string()),
+                audit_id: "audit-review".to_string(),
+                updated_at: 11,
+            });
+        runtime.handoffs.push(viden_types::HandoffRecord {
+            handoff_id: "handoff-1".to_string(),
+            task_id: "task-1".to_string(),
+            from_lane_id: "lane-a".to_string(),
+            to_lane_id: "lane-b".to_string(),
+            owner: RuntimeOwner::default(),
+            summary: "ready for review".to_string(),
+            acceptance: viden_types::HandoffAcceptance::Accepted,
+            audit_id: "audit-handoff".to_string(),
+            updated_at: 12,
+        });
+        runtime.contracts.push(viden_types::ContractRecord {
+            contract_id: "contract-1".to_string(),
+            task_id: "task-1".to_string(),
+            owner: RuntimeOwner::default(),
+            summary: "frontend contract v1".to_string(),
+            decision: viden_types::ContractDecision::Confirmed,
+            audit_id: "audit-contract".to_string(),
+            updated_at: 13,
+        });
+        runtime.dependencies.push(viden_types::DependencyRecord {
+            dependency_id: "dep-1".to_string(),
+            task_id: "task-1".to_string(),
+            depends_on_task_id: "task-0".to_string(),
+            owner: RuntimeOwner::default(),
+            state: viden_types::DependencyState::Blocked,
+            reason: "upstream pending".to_string(),
+            audit_id: "audit-dep".to_string(),
+            updated_at: 14,
+        });
+        runtime.conflict_bounces.push(viden_types::ConflictBounce {
+            bounce_id: "bounce-1".to_string(),
+            gate_id: "gate-1".to_string(),
+            task_id: "task-1".to_string(),
+            original_lane_id: "lane-a".to_string(),
+            owner: RuntimeOwner::default(),
+            reason: "base moved".to_string(),
+            status: viden_types::ConflictBounceStatus::Pending,
+            evidence_ids: Vec::new(),
+            baseline_evidence: Vec::new(),
+            revalidation_evidence: Vec::new(),
+            audit_id: "audit-bounce".to_string(),
+            created_at: 15,
+            revalidated_at: None,
+        });
+        runtime.reverts.push(viden_types::RevertRecord {
+            revert_id: "revert-1".to_string(),
+            gate_id: "gate-1".to_string(),
+            applied_change_id: "change-1".to_string(),
+            owner: RuntimeOwner::default(),
+            reason: "regression in main".to_string(),
+            restored_paths: vec!["crates/core/src/lib.rs".to_string()],
+            audit_id: "audit-revert".to_string(),
+            reverted_at: 16,
+        });
+
+        let projection = CockpitProjection::from(&runtime, &TuiUiState::default());
+
+        assert_eq!(
+            projection.review_requests,
+            vec![ReviewRequestProjection {
+                review_id: "review-1".to_string(),
+                gate_id: "gate-1".to_string(),
+                requester_lane_id: "lane-a".to_string(),
+                reviewer_lane_id: "lane-b".to_string(),
+                status: viden_types::ReviewRequestStatus::Rejected,
+                updated_at: 11,
+            }]
+        );
+        assert_eq!(projection.handoffs[0].to_lane_id, "lane-b");
+        assert_eq!(
+            projection.handoffs[0].acceptance,
+            viden_types::HandoffAcceptance::Accepted
+        );
+        assert_eq!(
+            projection.contracts[0].decision,
+            viden_types::ContractDecision::Confirmed
+        );
+        assert_eq!(
+            projection.dependencies[0].depends_on_task_id,
+            "task-0".to_string()
+        );
+        assert_eq!(projection.conflict_bounces[0].revalidated_at, None);
+        assert_eq!(projection.reverts[0].restored_path_count, 1);
+
+        let counts = projection.supervision_counts();
+        assert_eq!(
+            counts,
+            SupervisionCounts {
+                merge_gates: 0,
+                review_requests: 1,
+                handoffs: 1,
+                contracts: 1,
+                dependencies: 1,
+                conflict_bounces: 1,
+                reverts: 1,
+            }
+        );
+        assert!(counts.has_non_gate_records());
+        assert!(
+            !CockpitProjection::from(
+                &RuntimeViewState::new(runtime_snapshot()),
+                &TuiUiState::default()
+            )
+            .supervision_counts()
+            .has_non_gate_records()
+        );
+        // audit_ids() already spanned these records and must keep doing so.
+        for audit_id in [
+            "audit-review",
+            "audit-handoff",
+            "audit-contract",
+            "audit-dep",
+            "audit-bounce",
+            "audit-revert",
+        ] {
+            assert!(
+                projection.audit_ids.contains(&audit_id.to_string()),
+                "audit id {audit_id} left the projection"
+            );
+        }
     }
 
     #[test]

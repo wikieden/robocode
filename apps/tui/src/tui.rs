@@ -23,6 +23,11 @@ mod modal;
 mod ops_screen;
 mod palette;
 mod panel;
+// The confirm-on-fact machine is wired into the event path and exercised by
+// tests. Its `begin`/`outcome`/`pending` accessors become production callers
+// when the supervision decision surfaces land.
+#[allow(dead_code)]
+mod pending;
 mod preferences;
 mod preview;
 mod projection;
@@ -36,6 +41,10 @@ mod side_screen;
 #[allow(dead_code)]
 mod state;
 mod statusbar;
+// Pure supervision intent builders, mirroring `lane`. No production caller
+// dispatches them yet; the decision surfaces are the next stage.
+#[allow(dead_code)]
+mod supervision;
 #[allow(dead_code)]
 mod terminal;
 mod text;

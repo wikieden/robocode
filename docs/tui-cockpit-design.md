@@ -53,6 +53,23 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   lane output/conflicts/recovery, merge gates, evidence decisions, context
   pressure, cost visibility, and audit IDs from typed Core facts. A command
   receipt is shown only as `pending Core fact`, never as inferred success.
+- The same projection also carries compact review-request, handoff, contract,
+  dependency, conflict-bounce, and revert rows, plus their inbox counts. The
+  status bar and right rail render the gate count with the registered gold `⏸`
+  glyph from the TUI status vocabulary and add a supervision count only when
+  Core has published such records; an empty supervision inbox renders no badge.
+- A supervision decision is settled by the confirm-on-fact primitive: sending a
+  command records only the pending command id, `CommandAccepted` keeps it
+  pending, `CommandRejected` surfaces Core's reason, and confirmation requires
+  the exact business fact (`MergeGateUpdated` with the requested gate id and
+  status, `ReviewRequestUpdated` with the requested review id and status,
+  `MergeConflictBounced` or `RevertRecorded` for the gate). Only one supervision
+  command may be in flight; a second is refused locally instead of sent.
+- A lane whose route is cost-blind (terminal, tmux) never shows an inferred
+  token or dollar figure. Its inspector shows an explicit blind marker plus the
+  four bounded run facts Core measured — run count, wall time, applied diff
+  bytes, last exit code — and shows no run facts at all when Core has published
+  none. A missing exit code renders as unknown, never as success.
 
 ## Main Screen
 

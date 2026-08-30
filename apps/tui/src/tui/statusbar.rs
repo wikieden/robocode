@@ -1,5 +1,6 @@
 use super::{
     canvas::Frame,
+    glyphs::Glyph,
     input::effective_input_mode,
     projection::{CockpitProjection, ContextPressure, CostVisibility},
     state::{TuiState, has_active_work},
@@ -44,15 +45,32 @@ pub(super) fn render_bottom_bar(frame: &mut Frame, state: &TuiState) {
         identity.push_str(&format!(" · {}", ambient_status(state)));
     }
     frame.write_line(row, &pad(&identity, frame.width));
-    let mut pinned = format!(
-        " PERM:{:?} A:{} G:{} E:{}",
-        state.runtime.snapshot.permission_level,
-        state.runtime.pending_approvals.len(),
-        state.runtime.merge_gates.len(),
-        state.runtime.errors.len()
-    );
     let projection =
         CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
+    let counts = projection.supervision_counts();
+    // The gate badge is the registered gold `⏸` glyph from the TUI status
+    // vocabulary (docs/viden-design/Viden/docs/DESIGN-REF.md). It is written as
+    // Unicode here and rewritten by the terminal layer's registered ASCII
+    // fallback when the terminal cannot render it.
+    let mut pinned = format!(
+        " PERM:{:?} A:{} {} {} E:{}",
+        state.runtime.snapshot.permission_level,
+        state.runtime.pending_approvals.len(),
+        Glyph::Gate.unicode(),
+        counts.merge_gates,
+        state.runtime.errors.len()
+    );
+    if counts.has_non_gate_records() {
+        pinned.push_str(&format!(
+            " · SUP:{}",
+            counts.review_requests
+                + counts.handoffs
+                + counts.contracts
+                + counts.dependencies
+                + counts.conflict_bounces
+                + counts.reverts
+        ));
+    }
     let context = match projection.context_pressure {
         ContextPressure::Unavailable => "unavailable",
         ContextPressure::Nominal => "nominal",
@@ -143,6 +161,62 @@ mod tests {
         let mut frame = Frame::new(100, 4);
         render_bottom_bar(&mut frame, &state);
         assert!(frame.to_string().contains("OVERLAY"));
+    }
+
+    #[test]
+    fn gate_badge_uses_the_registered_gate_glyph_and_counts_supervision_records() {
+        let mut state = TuiState::default();
+        let mut frame = Frame::new(160, 4);
+        render_bottom_bar(&mut frame, &state);
+        let empty = frame.to_string();
+        assert!(empty.contains("⏸ 0"), "registered gate badge missing");
+        assert!(!empty.contains("G:0"), "bare gate label remains");
+        assert!(
+            !empty.contains("SUP:"),
+            "an empty supervision inbox must not render a zero badge"
+        );
+        assert_eq!(
+            super::super::glyphs::ascii_fallback("⏸ 0"),
+            "= 0",
+            "gate badge must degrade through the registered ASCII fallback"
+        );
+
+        state
+            .runtime
+            .merge_gates
+            .push(viden_types::MergeGateRecord {
+                gate_id: "gate-1".to_string(),
+                task_id: "task-1".to_string(),
+                status: viden_types::MergeGateStatus::CollectingEvidence,
+                required_evidence: Vec::new(),
+                evidence_ids: Vec::new(),
+                gate_type: Default::default(),
+                owner: Default::default(),
+                validator: None,
+                policy_snapshot: Default::default(),
+                decision: None,
+                conflict: None,
+                applied_change_id: None,
+                recovery_snapshot: None,
+                audit_ids: Vec::new(),
+                updated_at: Some(1),
+            });
+        state.runtime.reverts.push(viden_types::RevertRecord {
+            revert_id: "revert-1".to_string(),
+            gate_id: "gate-1".to_string(),
+            applied_change_id: "change-1".to_string(),
+            owner: Default::default(),
+            reason: "regression".to_string(),
+            restored_paths: Vec::new(),
+            audit_id: "audit-revert".to_string(),
+            reverted_at: 2,
+        });
+        let mut frame = Frame::new(160, 4);
+        render_bottom_bar(&mut frame, &state);
+        let rendered = frame.to_string();
+
+        assert!(rendered.contains("⏸ 1"));
+        assert!(rendered.contains("SUP:1"));
     }
 
     #[test]

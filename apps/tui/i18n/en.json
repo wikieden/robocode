@@ -204,5 +204,11 @@
   "native_lane.ineligible": "Workspace cannot create a Lane",
   "native_lane.unknown": "Workspace eligibility has not been reported by Core",
   "native_lane.task.prompt": "Describe the first native task, then press Enter",
-  "side.status.agent_session": "ACP {agent} · {status} · {task}"
+  "side.status.agent_session": "ACP {agent} · {status} · {task}",
+  "rail.supervision.trust": "TRUST review {review} · handoff {handoff} · contract {contract}",
+  "rail.supervision.integration": "INTEGRATION dependency {dependency} · bounce {bounce} · revert {revert}",
+  "lane.cost.blind": "COST    blind · Core cannot meter this route",
+  "lane.run_stats": "RUN     {runs} runs · {wall} ms · {diff} B diff · exit {exit}",
+  "lane.run_stats.exit_unknown": "unknown",
+  "supervision.pending.busy": "Supervision command {command} is still pending"
 }

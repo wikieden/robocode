@@ -1320,6 +1320,9 @@ fn observe_driver_events<C: CoreClient>(
 ) -> Result<(), TuiClientError> {
     let events = driver.take_applied_events();
     for event in &events {
+        // Confirm-on-fact: a supervision decision settles only when Core
+        // publishes the business fact it asked for, never on the receipt.
+        state.supervision.observe_event(event);
         if let viden_core::RuntimeEventKind::UiPreferencesUpdated {
             resolved,
             diagnostics,
@@ -2955,6 +2958,99 @@ mod tests {
             super::super::i18n::text(&state, "interaction.setup.unavailable")
                 .contains("runtime.project_onboarding")
         );
+    }
+
+    #[test]
+    fn supervision_decision_confirms_only_on_the_core_business_fact() {
+        let gate = |status| viden_types::MergeGateRecord {
+            gate_id: "gate-1".to_string(),
+            task_id: "task-1".to_string(),
+            status,
+            required_evidence: Vec::new(),
+            evidence_ids: Vec::new(),
+            gate_type: Default::default(),
+            owner: Default::default(),
+            validator: None,
+            policy_snapshot: Default::default(),
+            decision: None,
+            conflict: None,
+            applied_change_id: None,
+            recovery_snapshot: None,
+            audit_ids: Vec::new(),
+            updated_at: Some(1),
+        };
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([
+                    event(
+                        1,
+                        RuntimeEventKind::CommandAccepted {
+                            command_id: "command-1".to_string(),
+                            command: RuntimeCommand::AcceptMergeGate {
+                                gate_id: "gate-1".to_string(),
+                                actor: Default::default(),
+                                reviewed_evidence: Vec::new(),
+                                decision: None,
+                            },
+                        },
+                    ),
+                    event(
+                        2,
+                        RuntimeEventKind::MergeGateUpdated {
+                            gate: gate(viden_types::MergeGateStatus::CollectingEvidence),
+                        },
+                    ),
+                    event(
+                        3,
+                        RuntimeEventKind::MergeGateUpdated {
+                            gate: gate(viden_types::MergeGateStatus::Accepted),
+                        },
+                    ),
+                ]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = state_from_driver(&driver, &TuiOptions::new("startup"));
+        state
+            .supervision
+            .begin(
+                "command-1",
+                crate::tui::pending::SupervisionExpectation::MergeGate {
+                    gate_id: "gate-1".to_string(),
+                    status: viden_types::MergeGateStatus::Accepted,
+                },
+            )
+            .expect("no other supervision command in flight");
+
+        driver.pump().expect("command receipt");
+        observe_driver_events(&mut state, &mut driver).expect("observe receipt");
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "command-1".to_string()
+            },
+            "a receipt and an unrelated gate transition must not confirm"
+        );
+
+        driver.pump().expect("intermediate gate transition");
+        observe_driver_events(&mut state, &mut driver).expect("observe intermediate transition");
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "command-1".to_string()
+            },
+            "a gate transition to another status must not confirm this decision"
+        );
+
+        driver.pump().expect("gate fact");
+        observe_driver_events(&mut state, &mut driver).expect("observe gate fact");
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Confirmed
+        );
+        assert!(state.supervision.pending().is_none());
     }
 
     #[test]
@@ -4710,10 +4806,10 @@ mod tests {
             "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
         ));
         assert!(manifest.contains(
-            "catalog_en = \"53122348a44a8d94869d3d191b707f4b7f94a7ce442755c1f07469cf1356661b\""
+            "catalog_en = \"58da490e27baa1e4dfed3fb9b6dcce5341ed4f4cd6032660acec00047a3d1248\""
         ));
         assert!(manifest.contains(
-            "catalog_zh_cn = \"dcd8e2e20da7dac3fd96ac09c02c800401ab608bb4b798e99c7d226ee79ed97e\""
+            "catalog_zh_cn = \"902816ae05e6df0f69a67697ac3adcc94f7b4f616286d46e83955f3bc95ca8f2\""
         ));
         assert!(manifest.contains("min_core_version = \"0.3.4\""));
         assert!(

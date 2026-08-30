@@ -40,6 +40,18 @@ TUI 决策。
 - 本地监督闭环只投影 typed Core facts：task/DAG、active tool、queued input、lane
   output/conflict/recovery、merge gate、evidence decision、context pressure、cost
   visibility 和 audit ID。command receipt 只能显示为 `pending Core fact`，绝不能推断成功。
+- 同一投影还携带 review request、handoff、contract、dependency、conflict bounce、revert
+  的精简行与 inbox 计数。状态栏与右栏用 TUI 状态字形表中登记的金色 `⏸` 字形渲染 gate
+  计数；只有当 Core 已发布这些记录时才追加 supervision 计数，空的监督 inbox 不显示徽标。
+- 监督决策由 confirm-on-fact 原语裁决：发出命令只记录 pending command id，
+  `CommandAccepted` 仅保持 pending，`CommandRejected` 展示 Core 给出的原因，确认必须依赖
+  精确的业务事实（`MergeGateUpdated` 命中目标 gate id 与 status、`ReviewRequestUpdated`
+  命中目标 review id 与 status、该 gate 的 `MergeConflictBounced` 或 `RevertRecorded`）。
+  同一时刻只允许一条监督命令在途，第二条在本地被拒绝而不会发出。
+- cost-blind 通道（terminal、tmux）的 lane 绝不显示推断出的 token 或金额。其 inspector
+  显示明确的 blind 标记，加上 Core 实测的四项有界运行事实——运行次数、墙钟时间、已应用
+  diff 字节数、最近退出码；Core 未发布运行事实时一条都不显示。缺失的退出码渲染为未知，
+  绝不渲染成功。
 
 ## 主屏幕
 
