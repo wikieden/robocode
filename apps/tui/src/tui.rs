@@ -1,4 +1,5 @@
 mod app;
+mod audit_panel;
 mod canvas;
 mod client;
 // Deterministic design previews still exercise the richer selector surface;

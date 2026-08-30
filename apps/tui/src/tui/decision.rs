@@ -27,8 +27,9 @@
 //! nothing valid to send.
 
 use viden_core::{
-    ConflictBounce, ConflictBounceStatus, MergeGateRecord, MergeGateStatus, ReviewRequestRecord,
-    ReviewRequestStatus, ReviewedEvidenceBinding, RuntimeCommand, RuntimeOwner, RuntimeViewState,
+    AuditObjectRef, ConflictBounce, ConflictBounceStatus, MergeGateRecord, MergeGateStatus,
+    ReviewRequestRecord, ReviewRequestStatus, ReviewedEvidenceBinding, RuntimeCommand,
+    RuntimeOwner, RuntimeViewState,
 };
 use viden_types::ReviewVerdict;
 
@@ -80,6 +81,10 @@ pub(super) enum SupervisionAction {
     Bounce,
     /// Local-only escape from a stranded pending correlation. Sends nothing.
     Dismiss,
+    /// Opens the read-only audit timeline scoped to this record. It is not a
+    /// decision: it mutates nothing, needs no permission, and stays available
+    /// in Plan mode and while another supervision command is in flight.
+    AuditTrail,
 }
 
 impl SupervisionAction {
@@ -93,6 +98,7 @@ impl SupervisionAction {
             Self::RejectReview => "supervision.action.reject_review",
             Self::Bounce => "supervision.action.bounce",
             Self::Dismiss => "supervision.action.dismiss",
+            Self::AuditTrail => "supervision.action.audit_trail",
         }
     }
 
@@ -104,7 +110,9 @@ impl SupervisionAction {
             // `DecideReview.feedback` is `Option<String>` for both verdicts.
             // The client must not invent a stricter rule than Core.
             Self::AcceptReview | Self::RejectReview => TextRequirement::Optional,
-            Self::AcceptGate | Self::Revalidate | Self::Dismiss => TextRequirement::None,
+            Self::AcceptGate | Self::Revalidate | Self::Dismiss | Self::AuditTrail => {
+                TextRequirement::None
+            }
         }
     }
 
@@ -125,6 +133,10 @@ pub(super) enum DecisionPick {
     /// inside the overlay because a lost receipt can strand the operator before
     /// they ever open one. It sends no Core command.
     DismissSupervision,
+    /// Opens the project-wide audit timeline. Unlike every other pick it names
+    /// no record: it is the "what happened here at all" entry point, which is
+    /// exactly what an operator needs when no decision is pending.
+    AuditTimeline,
 }
 
 /// The Decision Center pick list, in the fixed operator order: tool approvals
@@ -175,7 +187,44 @@ pub(super) fn decision_picks(
     if has_pending_command {
         picks.push(DecisionPick::DismissSupervision);
     }
+    // The audit entry is appended after every conditional pick so adding it can
+    // never shift the index of a real Core decision.
+    picks.push(DecisionPick::AuditTimeline);
     picks
+}
+
+/// The audit object one supervision target's timeline is scoped to.
+///
+/// The kind keys come from [`AuditObjectRef`]'s own constants rather than from
+/// string literals, so a renamed kind is a compile error here instead of a
+/// silently empty timeline.
+pub(super) fn audit_scope(target: &SupervisionTarget) -> AuditObjectRef {
+    match target {
+        SupervisionTarget::Gate { gate_id } | SupervisionTarget::Bounce { gate_id } => {
+            AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, gate_id.clone())
+        }
+        SupervisionTarget::Review { review_id } => {
+            AuditObjectRef::new(AuditObjectRef::KIND_REVIEW_REQUEST, review_id.clone())
+        }
+    }
+}
+
+/// The full row list of the supervision overlay: the Core decisions this
+/// record's status can accept, plus the read-only audit row.
+///
+/// The audit row is appended last and is always present, including for a record
+/// whose status accepts no decision at all: the timeline of a settled gate is
+/// exactly what an operator wants to read then. It is kept out of
+/// [`available_actions`] so "no decision applies" stays a true statement about
+/// decisions.
+pub(super) fn overlay_actions(
+    view: &RuntimeViewState,
+    target: &SupervisionTarget,
+    has_pending_command: bool,
+) -> Vec<SupervisionAction> {
+    let mut actions = available_actions(view, target, has_pending_command);
+    actions.push(SupervisionAction::AuditTrail);
+    actions
 }
 
 pub(super) fn find_gate<'a>(
@@ -280,7 +329,11 @@ pub(super) fn build_dispatch(
 ) -> Result<SupervisionDispatch, &'static str> {
     let text = validate_text(action, text)?;
     match action {
-        SupervisionAction::Dismiss => Err("supervision.error.not_dispatchable"),
+        // Neither one sends a Core command: dismiss is local attribution only,
+        // and the audit row opens a read-only overlay.
+        SupervisionAction::Dismiss | SupervisionAction::AuditTrail => {
+            Err("supervision.error.not_dispatchable")
+        }
         SupervisionAction::AcceptGate => {
             let gate = require_gate(view, target)?;
             let actor = accept_actor(gate).ok_or("supervision.error.no_actor")?;
@@ -1119,13 +1172,82 @@ mod tests {
                 DecisionPick::Supervision(SupervisionTarget::Bounce {
                     gate_id: "gate-1".to_string()
                 }),
+                DecisionPick::AuditTimeline,
             ],
             "settled reviews and resolved bounces are history, not decisions"
         );
         assert_eq!(
-            decision_picks(&view, true).last(),
-            Some(&DecisionPick::DismissSupervision),
-            "the stranded-pending escape is appended, never interleaved"
+            decision_picks(&view, true)
+                .into_iter()
+                .rev()
+                .take(2)
+                .collect::<Vec<_>>(),
+            vec![
+                DecisionPick::AuditTimeline,
+                DecisionPick::DismissSupervision
+            ],
+            "the non-decision entries are appended, never interleaved"
+        );
+    }
+
+    #[test]
+    fn the_audit_row_is_offered_for_every_target_including_ones_with_no_decision_left() {
+        let mut view = view();
+        view.merge_gates.push(gate(MergeGateStatus::Accepted));
+        let gate_target = SupervisionTarget::Gate {
+            gate_id: "gate-1".to_string(),
+        };
+
+        assert!(
+            available_actions(&view, &gate_target, false).is_empty(),
+            "an accepted gate accepts no further decision"
+        );
+        assert_eq!(
+            overlay_actions(&view, &gate_target, false),
+            vec![SupervisionAction::AuditTrail],
+            "its history is still readable"
+        );
+
+        view.merge_gates[0].status = MergeGateStatus::CollectingEvidence;
+        assert_eq!(
+            overlay_actions(&view, &gate_target, true),
+            vec![
+                SupervisionAction::AcceptGate,
+                SupervisionAction::RejectGate,
+                SupervisionAction::Dismiss,
+                SupervisionAction::AuditTrail,
+            ],
+            "the audit row is last, so it never shifts a decision's number"
+        );
+
+        // The audit row dispatches nothing: it is refused as a Core command and
+        // is routed to the read-only overlay instead.
+        assert_eq!(
+            build_dispatch(&view, &gate_target, SupervisionAction::AuditTrail, ""),
+            Err("supervision.error.not_dispatchable")
+        );
+    }
+
+    #[test]
+    fn audit_scope_uses_the_contracts_own_object_kind_constants() {
+        assert_eq!(
+            audit_scope(&SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string()
+            }),
+            AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, "gate-1")
+        );
+        assert_eq!(
+            audit_scope(&SupervisionTarget::Bounce {
+                gate_id: "gate-1".to_string()
+            }),
+            AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, "gate-1"),
+            "a conflict bounce is audited against the gate it belongs to"
+        );
+        assert_eq!(
+            audit_scope(&SupervisionTarget::Review {
+                review_id: "review-1".to_string()
+            }),
+            AuditObjectRef::new(AuditObjectRef::KIND_REVIEW_REQUEST, "review-1")
         );
     }
 }

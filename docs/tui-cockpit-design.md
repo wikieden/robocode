@@ -119,6 +119,65 @@ overlay:
   action. Dismissing stops local attribution only: it settles nothing and does
   not cancel the Core command.
 
+## Audit Timeline
+
+The audit timeline overlay is the read side of the supervision loop: it answers
+"what already happened here", where the Decision Center answers "what is Core
+waiting on". It consumes the Core audit contract
+(`RuntimeCommand::QueryAudit` -> `RuntimeEventKind::AuditPageLoaded`) and is
+read-only in this version — browsing carries no per-row action.
+
+Two entry points open it, and it has no global chord of its own:
+
+- the supervision decision overlay's `Audit trail` row, scoped to the record on
+  screen (a gate or conflict target audits `merge_gate:<gate id>`, a review
+  target audits `review_request:<review id>`, using the contract's own object
+  kind keys);
+- the Decision Center's `Audit timeline (project)` footer pick, which opens the
+  project timeline unscoped. Core's audit store is already scoped to the
+  project's own workflow directory, so the query sets no `project_id` or
+  `lane_id` filter rather than inventing one.
+
+Behavior:
+
+- Opening always dispatches a fresh first query (`limit` 100) and the panel is
+  dropped when the overlay closes, so a reopened timeline is never a page of
+  unknown age. `QueryAudit` mutates nothing and prompts for no permission, so
+  the timeline stays readable in Plan mode.
+- Records render newest first as `{time} {action} {outcome} {objects} {args}`.
+  `time` is `HH:MM:SS` UTC — an audit record is evidence compared across
+  machines, so a locale-shifted clock would make two readers disagree about one
+  fact. `action` is Core's raw dotted key (`gate.decided`, `handoff.created`)
+  and is deliberately never localized; the contract keeps it free of prose so a
+  reader can diff two timelines. Outcomes use the registered `✓` (success) and
+  `✗` (denied or failed) glyphs; an outcome this build does not know renders
+  literal ASCII `?` rather than borrowing a status it never had. Objects render
+  as comma-joined `kind:id` pairs and arguments as space-joined `k=v` pairs,
+  both truncated by display width.
+- Four states stay visibly distinct: loading (a query is in flight and nothing
+  has arrived), empty (Core answered with an empty page), error (`✗` with
+  Core's own reason verbatim), and the loaded list. The footer always states how
+  many records are loaded and whether older ones remain, so a short list is
+  never mistaken for the whole timeline.
+- Arrows move the selection through the rows and then onto the `Load older
+  records` row, which `Enter` confirms. A complete timeline hides that row. A
+  second page request while one is in flight is refused locally with a message
+  and nothing is sent. Confirming a record row is a deliberate no-op.
+- The read correlates independently of the supervision decision slot: a pending
+  gate, review, or revert command neither blocks the timeline nor is settled by
+  a page. The overlay has no text filter, so printable characters keep editing
+  the composer during a streaming turn.
+- `Esc` closes to the base state. The TUI keeps an overlay return path only for
+  Global Jump, so the timeline unwinds exactly as the Approval overlay opened
+  from the Decision Center does.
+
+Known limitation, recorded rather than papered over: `AuditPageLoaded` carries
+no command id, so a page produced by another client's concurrent query can be
+attributed to this panel's in-flight query. For the single-operator loop this is
+acceptable — the page is still a real Core page, it is discarded when the
+overlay closes, and the next query self-corrects. Removing the ambiguity is a
+Core contract change (a command id on the page), not a client-side guess.
+
 ## Main Screen
 
 - Top bar: product, provider, model, session, context window, Git branch, work

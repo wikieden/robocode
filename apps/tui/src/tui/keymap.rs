@@ -30,6 +30,10 @@ pub(super) enum OverlayKind {
     /// Merge-gate / review / conflict decision surface. Reached only by picking
     /// a row in the Decision Center, so it has no global chord of its own.
     SupervisionDecision,
+    /// Read-only audit timeline. Reached from the supervision overlay's audit
+    /// row or the Decision Center footer pick, so it has no global chord of its
+    /// own; it browses and never decides.
+    AuditTimeline,
     ContextHelp,
     ExitConfirm,
     Approval,

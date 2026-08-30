@@ -243,5 +243,18 @@
   "supervision.error.no_pending_conflict": "该合并门没有等待重新验证的冲突。",
   "supervision.error.no_revalidation_evidence": "源 Lane 还没有发布变化后的规范回执。",
   "supervision.error.record_missing": "Core 不再发布该记录。",
-  "supervision.error.not_dispatchable": "该动作不发送 Core 命令。"
+  "supervision.error.not_dispatchable": "该动作不发送 Core 命令。",
+  "supervision.action.audit_trail": "审计轨迹",
+  "overlay.title.audit": "AUDIT TIMELINE · 审计时间线",
+  "audit.hint": "Esc 关闭 · 方向键选择 · Enter 加载更早",
+  "audit.pick.project": "审计时间线（项目）",
+  "audit.scope.project": "SCOPE 项目时间线 · 由新到旧",
+  "audit.scope.object": "SCOPE {kind}:{id} · 由新到旧",
+  "audit.loading": "{glyph} 正在从 Core 加载审计页",
+  "audit.empty": "Core 没有发布该范围内的审计记录。",
+  "audit.error": "{glyph} Core 拒绝了审计查询：{reason}",
+  "audit.busy": "已有一个审计页在途，未发送任何命令。",
+  "audit.load_older": "加载更早的记录",
+  "audit.footer.more": "LOADED {count} · 仍有更早的记录",
+  "audit.footer.complete": "LOADED {count} · 没有更早的匹配记录"
 }

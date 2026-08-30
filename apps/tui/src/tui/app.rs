@@ -2,10 +2,11 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 #[cfg(test)]
 use viden_core::ApprovalResponse;
 use viden_core::{
-    AgentSessionRequest, AgentStartability, CoreClient, EventCursor, RuntimeCommand, RuntimeOwner,
-    RuntimeViewState, StarterLanePreset, TuiColorDepth,
+    AgentSessionRequest, AgentStartability, AuditObjectRef, CoreClient, EventCursor,
+    RuntimeCommand, RuntimeOwner, RuntimeViewState, StarterLanePreset, TuiColorDepth,
 };
 
+use super::audit_panel::AuditPanel;
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
     close_on_escape, complete_selected, move_selection, reset_for_input_change,
@@ -13,8 +14,8 @@ use super::command_palette::{
 };
 use super::composer::composer_content_width;
 use super::decision::{
-    DecisionPick, SupervisionAction, SupervisionTarget, TextRequirement, available_actions,
-    build_dispatch, decision_picks,
+    DecisionPick, SupervisionAction, SupervisionTarget, TextRequirement, audit_scope,
+    build_dispatch, decision_picks, overlay_actions,
 };
 use super::geometry::effective_layout_width;
 use super::input::{
@@ -431,6 +432,9 @@ fn apply_input_intent<C: CoreClient>(
     if let Some(outcome) = apply_supervision_decision_intent(driver, state, &intent)? {
         return Ok(outcome);
     }
+    if let Some(outcome) = apply_audit_timeline_intent(driver, state, &intent)? {
+        return Ok(outcome);
+    }
     match intent {
         InputIntent::None => {}
         InputIntent::EnterInsert => state.ui.input_mode = InputMode::Insert,
@@ -438,6 +442,7 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::OpenOverlay(kind) => {
             let previous_overlay = state.ui.overlay.take();
             state.ui.supervision = None;
+            state.ui.audit = None;
             state.ui.overlay = Some(if kind == OverlayKind::GlobalJump {
                 OverlayState::global_jump(previous_overlay)
             } else {
@@ -575,7 +580,7 @@ fn apply_input_intent<C: CoreClient>(
                 if overlay.kind == OverlayKind::GlobalJump {
                     complete_global_jump_selection(state, overlay);
                 } else {
-                    complete_overlay_selection(state, overlay);
+                    complete_overlay_selection(driver, state, overlay)?;
                 }
             } else if state.ui.interaction_panel.is_some() {
                 if apply_interaction_panel_selection(driver, state)? {
@@ -701,6 +706,131 @@ fn open_supervision_decision(state: &mut TuiState, target: SupervisionTarget) {
     state.ui.overlay = Some(OverlayState::new(OverlayKind::SupervisionDecision));
 }
 
+/// Opens the read-only audit timeline and dispatches its first page.
+///
+/// The command is sent *before* any state changes, so a transport failure
+/// leaves the previous surface intact instead of opening an overlay that would
+/// never be answered. `QueryAudit` mutates nothing and prompts for no
+/// permission, so it is dispatched directly rather than through the supervision
+/// correlation slot, and it stays available in Plan mode.
+fn open_audit_timeline<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    scope: Option<AuditObjectRef>,
+) -> Result<(), TuiClientError> {
+    let mut panel = AuditPanel::new(scope);
+    let command_id = driver.send(RuntimeCommand::QueryAudit {
+        query: panel.next_query(),
+    })?;
+    panel.begin(command_id);
+    state.ui.supervision = None;
+    state.ui.audit = Some(panel);
+    state.ui.overlay = Some(OverlayState::new(OverlayKind::AuditTimeline));
+    Ok(())
+}
+
+/// Closes the audit timeline and drops its page.
+///
+/// The TUI has no overlay stack outside the Global Jump return path, so this
+/// unwinds to the base state exactly as closing the Approval overlay opened
+/// from the Decision Center does. Dropping the panel also drops the correlation,
+/// so a page that arrives afterwards is ignored rather than applied to a surface
+/// nobody is looking at.
+fn close_audit_timeline(state: &mut TuiState) {
+    state.ui.audit = None;
+    state.ui.overlay = None;
+}
+
+/// Owns every key while the audit timeline overlay is focused.
+///
+/// The overlay is read-only: selection moves through rows, `Enter` on the
+/// load-older row asks Core for the next page, `Esc` closes, and no row carries
+/// a mutation. Printable characters keep editing the composer, exactly as in the
+/// supervision overlay, so a streaming turn stays answerable while history is
+/// open.
+fn apply_audit_timeline_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    intent: &InputIntent,
+) -> Result<Option<UiEventOutcome>, TuiError> {
+    if !state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::AuditTimeline)
+        || state.ui.audit.is_none()
+    {
+        return Ok(None);
+    }
+    match intent {
+        InputIntent::CloseOverlay => {
+            close_audit_timeline(state);
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::MoveSelection(delta) => {
+            state
+                .ui
+                .audit
+                .as_mut()
+                .expect("panel checked above")
+                .move_selection(*delta);
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::CompleteSelection | InputIntent::CompleteOrSubmit => {
+            load_older_audit_page(driver, state)?;
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::InsertChar(value) => {
+            // No text filter on this overlay: typing belongs to the composer.
+            push_composer_char(state, *value);
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::Backspace => {
+            state.ui.input.backspace();
+            reset_for_input_change(state);
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Asks Core for the page older than the cursor it last handed back.
+///
+/// A record row carries no action in this version, so confirming one is a
+/// deliberate no-op. A second query while one is in flight is refused locally
+/// and nothing is sent: two pages racing one uncorrelated `AuditPageLoaded`
+/// event could not be attributed honestly.
+fn load_older_audit_page<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    let Some(panel) = state.ui.audit.as_ref() else {
+        return Ok(());
+    };
+    if !panel.selected_is_load_older() {
+        return Ok(());
+    }
+    if !panel.can_load_older() {
+        state
+            .ui
+            .audit
+            .as_mut()
+            .expect("panel checked above")
+            .refuse_second_query();
+        return Ok(());
+    }
+    let command_id = driver.send(RuntimeCommand::QueryAudit {
+        query: panel.next_query(),
+    })?;
+    state
+        .ui
+        .audit
+        .as_mut()
+        .expect("panel checked above")
+        .begin(command_id);
+    Ok(())
+}
+
 fn close_supervision_decision(state: &mut TuiState) {
     // Rule (b): closing the overlay while the last decision is settled clears
     // the echo. Pending is never auto-reset — the command is still in flight.
@@ -790,7 +920,7 @@ fn supervision_actions(state: &TuiState) -> Vec<SupervisionAction> {
         .supervision
         .as_ref()
         .map_or_else(Vec::new, |panel| {
-            available_actions(
+            overlay_actions(
                 &state.runtime,
                 &panel.target,
                 state.supervision.pending().is_some(),
@@ -834,6 +964,12 @@ fn confirm_supervision_action<C: CoreClient>(
     let target = panel.target.clone();
     let awaiting_text = panel.input.is_none() && action.text_requirement() != TextRequirement::None;
 
+    if action == SupervisionAction::AuditTrail {
+        // A read, not a decision: it opens the timeline scoped to this record
+        // and leaves any in-flight supervision command exactly as it was.
+        open_audit_timeline(driver, state, Some(audit_scope(&target)))?;
+        return Ok(());
+    }
     if action == SupervisionAction::Dismiss {
         // Local escape only: the Core command keeps running and may still land,
         // so this settles nothing and the hint says exactly that.
@@ -1003,7 +1139,11 @@ fn escape_toml_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
+fn complete_overlay_selection<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    overlay: OverlayState,
+) -> Result<(), TuiClientError> {
     match overlay.kind {
         OverlayKind::GlobalJump => {}
         OverlayKind::Lane | OverlayKind::Board => {
@@ -1070,10 +1210,14 @@ fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
                     state.supervision.abandon();
                     state.ui.overlay = Some(OverlayState::new(OverlayKind::Decisions));
                 }
+                // Unscoped: Core's audit store is already scoped to this
+                // project's own workflow directory, so an invented project or
+                // lane filter could only narrow the timeline dishonestly.
+                Some(DecisionPick::AuditTimeline) => open_audit_timeline(driver, state, None)?,
                 None => {}
             }
         }
-        OverlayKind::Approval | OverlayKind::SupervisionDecision => {}
+        OverlayKind::Approval | OverlayKind::SupervisionDecision | OverlayKind::AuditTimeline => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
         | OverlayKind::ContextHelp
@@ -1081,6 +1225,7 @@ fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
         | OverlayKind::InteractionPanel
         | OverlayKind::ComposerCommands => {}
     }
+    Ok(())
 }
 
 fn complete_global_jump_selection(state: &mut TuiState, overlay: OverlayState) {
@@ -1553,6 +1698,13 @@ fn observe_driver_events<C: CoreClient>(
         // Confirm-on-fact: a supervision decision settles only when Core
         // publishes the business fact it asked for, never on the receipt.
         state.supervision.observe_event(event);
+        // The audit read correlates independently of the supervision slot, so a
+        // pending decision can never block a page and a page can never settle a
+        // decision. With no overlay open there is no panel and the page is
+        // ignored entirely.
+        if let Some(panel) = state.ui.audit.as_mut() {
+            panel.observe_event(event);
+        }
         if let viden_core::RuntimeEventKind::UiPreferencesUpdated {
             resolved,
             diagnostics,
@@ -4236,6 +4388,541 @@ mod tests {
         );
     }
 
+    // ---- audit timeline -----------------------------------------------------
+
+    fn audit_record(
+        audit_id: &str,
+        timestamp: u64,
+        action: &str,
+        outcome: viden_types::AuditOutcome,
+    ) -> viden_types::AuditRecord {
+        viden_types::AuditRecord {
+            audit_id: audit_id.to_string(),
+            timestamp,
+            owner: supervision_owner("lane-a"),
+            actor: viden_types::AuditActor::Operator,
+            action: action.to_string(),
+            objects: vec![viden_types::AuditObjectRef::new(
+                viden_types::AuditObjectRef::KIND_MERGE_GATE,
+                "gate-1",
+            )],
+            outcome,
+            args: std::collections::BTreeMap::from([(
+                "decision".to_string(),
+                "accepted".to_string(),
+            )]),
+        }
+    }
+
+    fn audit_page_event(
+        sequence: u64,
+        records: Vec<viden_types::AuditRecord>,
+        next_before: Option<viden_types::AuditCursor>,
+    ) -> RuntimeEventEnvelope {
+        event(
+            sequence,
+            RuntimeEventKind::AuditPageLoaded {
+                page: viden_types::AuditPage {
+                    complete: next_before.is_none(),
+                    records,
+                    next_before,
+                },
+            },
+        )
+    }
+
+    fn audit_query_of(envelope: &RuntimeCommandEnvelope) -> &viden_types::AuditQuery {
+        match &envelope.command {
+            RuntimeCommand::QueryAudit { query } => query,
+            other => panic!("expected QueryAudit, got {other:?}"),
+        }
+    }
+
+    fn audit_rows(state: &TuiState) -> String {
+        crate::tui::modal::overlay_rows_for_test(state, OverlayKind::AuditTimeline).join("\n")
+    }
+
+    #[test]
+    fn opening_the_timeline_scopes_the_query_to_the_record_or_to_the_whole_project() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.review_requests.push(supervision_review(
+            viden_types::ReviewRequestStatus::Pending,
+        ));
+        view.merge_gates[0].validator = Some(viden_types::MergeGateValidator {
+            owner: supervision_owner("lane-b"),
+            review_request_id: "review-1".to_string(),
+            independent: true,
+            validated_at: None,
+        });
+        let (mut driver, mut state, sent) = supervision_driver(view, Vec::new());
+
+        // A gate target audits the gate object, by the contract's own kind key.
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        let rows =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(
+            rows.contains("Audit trail"),
+            "the audit row is offered on the decision overlay: {rows}"
+        );
+        // Accept / Reject / Audit trail: the read is appended last, so it never
+        // renumbers a decision.
+        press(&mut driver, &mut state, KeyCode::Char('3'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::AuditTimeline)
+        );
+        assert!(
+            state.ui.supervision.is_none(),
+            "the decision panel is released when the read takes the overlay"
+        );
+        let envelopes = sent.lock().expect("sent").clone();
+        assert_eq!(envelopes.len(), 1);
+        assert_eq!(
+            audit_query_of(&envelopes[0]),
+            &viden_types::AuditQuery {
+                project_id: None,
+                lane_id: None,
+                object: Some(viden_types::AuditObjectRef::new(
+                    viden_types::AuditObjectRef::KIND_MERGE_GATE,
+                    "gate-1"
+                )),
+                before: None,
+                limit: 100,
+            }
+        );
+        assert!(audit_rows(&state).contains("SCOPE merge_gate:gate-1"));
+
+        // A review target audits the review request instead.
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Review {
+                review_id: "review-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Char('3'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            audit_query_of(&sent.lock().expect("sent")[1]).object,
+            Some(viden_types::AuditObjectRef::new(
+                viden_types::AuditObjectRef::KIND_REVIEW_REQUEST,
+                "review-1"
+            ))
+        );
+
+        // The Decision Center footer pick opens the project timeline unscoped.
+        let mut overlay = OverlayState::new(OverlayKind::Decisions);
+        overlay.selected = decision_picks(&state.runtime, false).len() - 1;
+        state.ui.overlay = Some(overlay);
+        press(&mut driver, &mut state, KeyCode::Enter);
+        let envelopes = sent.lock().expect("sent").clone();
+        assert_eq!(envelopes.len(), 3);
+        let query = audit_query_of(&envelopes[2]);
+        assert_eq!(query.object, None);
+        assert_eq!(query.project_id, None);
+        assert_eq!(query.lane_id, None);
+        assert!(audit_rows(&state).contains("SCOPE project timeline"));
+    }
+
+    #[test]
+    fn the_first_page_replaces_older_pages_append_and_the_footer_states_what_remains() {
+        let view = RuntimeViewState::new(supervision_snapshot());
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![
+                audit_page_event(
+                    1,
+                    vec![
+                        audit_record(
+                            "a-3",
+                            3_723,
+                            "gate.decided",
+                            viden_types::AuditOutcome::Success,
+                        ),
+                        audit_record(
+                            "a-2",
+                            3_722,
+                            "handoff.created",
+                            viden_types::AuditOutcome::Denied,
+                        ),
+                    ],
+                    Some(viden_types::AuditCursor {
+                        timestamp: 3_722,
+                        audit_id: "a-2".to_string(),
+                    }),
+                ),
+                audit_page_event(
+                    2,
+                    vec![audit_record(
+                        "a-1",
+                        3_721,
+                        "change.reverted",
+                        viden_types::AuditOutcome::Failed,
+                    )],
+                    None,
+                ),
+            ],
+        );
+        open_audit_timeline(&mut driver, &mut state, None).expect("open");
+
+        // Loading is its own state: nothing has arrived, so nothing may claim
+        // the timeline is empty.
+        let loading = audit_rows(&state);
+        assert!(loading.contains("Loading the audit page"), "{loading}");
+        assert!(!loading.contains("no audit record"), "{loading}");
+
+        driver.pump().expect("first page");
+        observe_driver_events(&mut state, &mut driver).expect("observe first page");
+        let first = audit_rows(&state);
+        assert!(first.contains("01:02:03 gate.decided ✓"), "{first}");
+        assert!(first.contains("01:02:02 handoff.created ✗"), "{first}");
+        assert!(first.contains("merge_gate:gate-1"), "{first}");
+        assert!(first.contains("decision=accepted"), "{first}");
+        assert!(first.contains("Load older records"), "{first}");
+        assert!(first.contains("LOADED 2 · older records remain"), "{first}");
+        assert!(
+            !first.contains("Loading the audit page"),
+            "the page arrived: {first}"
+        );
+
+        // Select the load-older row and confirm it.
+        press(&mut driver, &mut state, KeyCode::Down);
+        press(&mut driver, &mut state, KeyCode::Down);
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            audit_query_of(&sent.lock().expect("sent")[1]).before,
+            Some(viden_types::AuditCursor {
+                timestamp: 3_722,
+                audit_id: "a-2".to_string(),
+            }),
+            "paging asks for records older than the cursor Core handed back"
+        );
+
+        driver.pump().expect("older page");
+        observe_driver_events(&mut state, &mut driver).expect("observe older page");
+        let complete = audit_rows(&state);
+        let order = ["gate.decided", "handoff.created", "change.reverted"].map(|action| {
+            complete
+                .find(action)
+                .unwrap_or_else(|| panic!("{action} missing"))
+        });
+        assert!(
+            order[0] < order[1] && order[1] < order[2],
+            "records stay newest-first, so an older page appends: {complete}"
+        );
+        assert!(
+            !complete.contains("Load older records"),
+            "a complete timeline hides the load-older row: {complete}"
+        );
+        assert!(
+            complete.contains("LOADED 3 · nothing older matches"),
+            "{complete}"
+        );
+    }
+
+    #[test]
+    fn a_rejected_query_shows_cores_reason_and_a_page_nobody_asked_for_is_ignored() {
+        let view = RuntimeViewState::new(supervision_snapshot());
+        let (mut driver, mut state, _sent) = supervision_driver(
+            view,
+            vec![
+                event(
+                    1,
+                    RuntimeEventKind::CommandRejected {
+                        command_id: "tui-other".to_string(),
+                        reason: "another client's query".to_string(),
+                    },
+                ),
+                event(
+                    2,
+                    RuntimeEventKind::CommandRejected {
+                        command_id: "tui-1".to_string(),
+                        reason: "audit store is unreadable".to_string(),
+                    },
+                ),
+                audit_page_event(
+                    3,
+                    vec![audit_record(
+                        "a-9",
+                        3_723,
+                        "gate.decided",
+                        viden_types::AuditOutcome::Success,
+                    )],
+                    None,
+                ),
+            ],
+        );
+        open_audit_timeline(&mut driver, &mut state, None).expect("open");
+
+        driver.pump().expect("foreign rejection");
+        observe_driver_events(&mut state, &mut driver).expect("observe foreign rejection");
+        assert!(
+            audit_rows(&state).contains("Loading the audit page"),
+            "a rejection for another command id leaves this query in flight"
+        );
+
+        driver.pump().expect("rejection");
+        observe_driver_events(&mut state, &mut driver).expect("observe rejection");
+        let rejected = audit_rows(&state);
+        assert!(
+            rejected.contains("audit store is unreadable"),
+            "Core's reason is rendered verbatim: {rejected}"
+        );
+        assert!(rejected.contains("✗"), "{rejected}");
+        assert!(!rejected.contains("Loading the audit page"), "{rejected}");
+
+        // Nothing is in flight now, so the page that follows belongs to some
+        // other reader and must not appear on this surface.
+        driver.pump().expect("foreign page");
+        observe_driver_events(&mut state, &mut driver).expect("observe foreign page");
+        let after = audit_rows(&state);
+        assert!(!after.contains("gate.decided"), "{after}");
+        assert!(
+            after.contains("audit store is unreadable"),
+            "the error still stands: {after}"
+        );
+    }
+
+    #[test]
+    fn a_second_page_request_while_one_is_in_flight_sends_nothing() {
+        let view = RuntimeViewState::new(supervision_snapshot());
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![audit_page_event(
+                1,
+                vec![audit_record(
+                    "a-2",
+                    3_722,
+                    "gate.decided",
+                    viden_types::AuditOutcome::Success,
+                )],
+                Some(viden_types::AuditCursor {
+                    timestamp: 3_722,
+                    audit_id: "a-2".to_string(),
+                }),
+            )],
+        );
+        open_audit_timeline(&mut driver, &mut state, None).expect("open");
+        driver.pump().expect("first page");
+        observe_driver_events(&mut state, &mut driver).expect("observe first page");
+
+        press(&mut driver, &mut state, KeyCode::Down);
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(sent.lock().expect("sent").len(), 2);
+
+        // The second page has not arrived, so a third request is refused here
+        // rather than racing two uncorrelated pages onto one panel.
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            sent.lock().expect("sent").len(),
+            2,
+            "a busy panel must not send a second query"
+        );
+        let busy = audit_rows(&state);
+        assert!(busy.contains("Nothing was sent"), "{busy}");
+    }
+
+    #[test]
+    fn confirming_a_record_row_does_nothing_and_escape_closes_to_the_base_state() {
+        let view = RuntimeViewState::new(supervision_snapshot());
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![audit_page_event(
+                1,
+                vec![audit_record(
+                    "a-1",
+                    3_723,
+                    "gate.decided",
+                    viden_types::AuditOutcome::Success,
+                )],
+                None,
+            )],
+        );
+        open_audit_timeline(&mut driver, &mut state, None).expect("open");
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+
+        // Read-only in this version: a record row carries no action.
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(sent.lock().expect("sent").len(), 1);
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::AuditTimeline)
+        );
+
+        // The TUI keeps an overlay return path only for Global Jump, so Esc
+        // unwinds to the base state exactly as the Approval overlay opened from
+        // the Decision Center does. The page is dropped with the panel.
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert!(state.ui.overlay.is_none());
+        assert!(state.ui.audit.is_none());
+    }
+
+    #[test]
+    fn the_audit_timeline_is_readable_in_plan_mode() {
+        let mut snapshot = supervision_snapshot();
+        snapshot.work_mode = WorkMode::Plan;
+        let (mut driver, mut state, sent) = supervision_driver(
+            RuntimeViewState::new(snapshot),
+            vec![audit_page_event(
+                1,
+                vec![audit_record(
+                    "a-1",
+                    3_723,
+                    "gate.decided",
+                    viden_types::AuditOutcome::Success,
+                )],
+                None,
+            )],
+        );
+
+        // `QueryAudit` mutates nothing, so Plan mode neither blocks the dispatch
+        // nor changes the page (`runtime_contract.rs`: the read path takes no
+        // transaction snapshot and never reaches the approval prompt).
+        open_audit_timeline(&mut driver, &mut state, None).expect("open in plan mode");
+        assert_eq!(state.runtime.snapshot.work_mode, WorkMode::Plan);
+        assert_eq!(sent.lock().expect("sent").len(), 1);
+
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+        let rows = audit_rows(&state);
+        assert!(rows.contains("01:02:03 gate.decided ✓"), "{rows}");
+        assert!(rows.contains("LOADED 1"), "{rows}");
+    }
+
+    #[test]
+    fn composer_stays_editable_while_the_audit_timeline_is_open_during_a_stream() {
+        let view = RuntimeViewState::new(supervision_snapshot());
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![
+                event(
+                    1,
+                    RuntimeEventKind::AssistantDelta {
+                        message_id: "assistant-1".to_string(),
+                        task_id: None,
+                        session_id: None,
+                        content: "working".to_string(),
+                    },
+                ),
+                audit_page_event(
+                    2,
+                    vec![audit_record(
+                        "a-1",
+                        3_723,
+                        "gate.decided",
+                        viden_types::AuditOutcome::Success,
+                    )],
+                    None,
+                ),
+            ],
+        );
+        driver.pump().expect("stream event");
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
+        open_audit_timeline(&mut driver, &mut state, None).expect("open");
+
+        // The overlay has no text filter: every printable character keeps
+        // editing the composer, so a streaming turn stays answerable while the
+        // operator reads history.
+        type_text(&mut driver, &mut state, "你好");
+        assert_eq!(state.ui.input, "你好");
+        press(&mut driver, &mut state, KeyCode::Backspace);
+        assert_eq!(state.ui.input, "你");
+        assert_eq!(driver.view().assistant_stream, "working");
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::AuditTimeline)
+        );
+        assert!(
+            state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.filter.is_empty()),
+            "typing must never become an overlay filter here"
+        );
+        assert_eq!(sent.lock().expect("sent").len(), 1);
+
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+        assert!(audit_rows(&state).contains("gate.decided"));
+        assert_eq!(state.ui.input, "你");
+    }
+
+    #[test]
+    fn a_pending_supervision_decision_neither_blocks_nor_is_settled_by_an_audit_read() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.latest_evidence.push(supervision_evidence("hash-1"));
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![audit_page_event(
+                1,
+                vec![audit_record(
+                    "a-1",
+                    3_723,
+                    "gate.decided",
+                    viden_types::AuditOutcome::Success,
+                )],
+                None,
+            )],
+        );
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert!(state.supervision.pending().is_some());
+
+        // Accept / Reject / Dismiss / Audit trail while a decision is pending.
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Char('4'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::AuditTimeline),
+            "a read is never refused because a mutation is in flight"
+        );
+        assert_eq!(sent.lock().expect("sent").len(), 2);
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "tui-1".to_string()
+            },
+            "opening a read leaves the decision correlation untouched"
+        );
+
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+        assert!(audit_rows(&state).contains("gate.decided"));
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "tui-1".to_string()
+            },
+            "an audit page is not the business fact the decision is waiting for"
+        );
+    }
+
     #[test]
     fn blind_lane_wall_time_is_rendered_at_the_scale_an_operator_reads() {
         for (milliseconds, expected) in [
@@ -6005,10 +6692,10 @@ mod tests {
             "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
         ));
         assert!(manifest.contains(
-            "catalog_en = \"dd6c31b174e3ca2049c2f9927b75b6adec1da60c15e18d96dacd9f778d457882\""
+            "catalog_en = \"867a334a9e8504cd7a320919a00e22e781546a778eefac0a47a9053e5801751c\""
         ));
         assert!(manifest.contains(
-            "catalog_zh_cn = \"32bcf8c3d3400bd27f9f93f3e9805437ab234429481710d40fc1d0a4b5ab2430\""
+            "catalog_zh_cn = \"543c4675419474e9ec18301a332c3020d54a57a5366dc3ef7e8bce312975bc42\""
         ));
         assert!(manifest.contains("min_core_version = \"0.3.4\""));
         assert!(

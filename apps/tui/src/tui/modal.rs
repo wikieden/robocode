@@ -1,9 +1,10 @@
 use super::{
+    audit_panel::{AUDIT_ROW_WIDTH, audit_row},
     canvas::Frame,
     command_palette::render_command_suggestions,
     decision::{
         DecisionPick, MAX_TRUST_TEXT_CHARS, SupervisionTarget, TextRequirement, available_actions,
-        decision_picks, find_gate, find_review, pending_conflict,
+        decision_picks, find_gate, find_review, overlay_actions, pending_conflict,
     },
     glyphs::Glyph,
     jump::JumpIndex,
@@ -64,6 +65,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::Board => "overlay.title.board",
             OverlayKind::Decisions => "overlay.title.decisions",
             OverlayKind::SupervisionDecision => "overlay.title.supervision",
+            OverlayKind::AuditTimeline => "overlay.title.audit",
             OverlayKind::ContextHelp => "overlay.title.context_help",
             OverlayKind::ExitConfirm => "overlay.title.exit",
             OverlayKind::Approval => "overlay.title.approval",
@@ -72,12 +74,16 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         };
         let title = super::i18n::text(state, title_key);
         let overlay_height = match overlay.kind {
-            OverlayKind::Approval | OverlayKind::Decisions | OverlayKind::SupervisionDecision => 14,
+            OverlayKind::Approval
+            | OverlayKind::Decisions
+            | OverlayKind::SupervisionDecision
+            | OverlayKind::AuditTimeline => 14,
             _ => 10,
         };
         let hint = match overlay.kind {
             OverlayKind::GlobalJump => super::i18n::text(state, "overlay.global_hint"),
             OverlayKind::SupervisionDecision => super::i18n::text(state, "supervision.hint"),
+            OverlayKind::AuditTimeline => super::i18n::text(state, "audit.hint"),
             _ => super::i18n::text(state, "overlay.close_hint"),
         };
         let block = panel(
@@ -253,6 +259,9 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
         // other printable characters keep editing the composer, so it has no
         // text filter to apply here.
         OverlayKind::SupervisionDecision => return supervision_decision_rows(state),
+        // The audit overlay is a browsing surface with no text filter: rows are
+        // Core records, and printable characters keep editing the composer.
+        OverlayKind::AuditTimeline => return audit_timeline_rows(state),
         OverlayKind::Lane => state
             .runtime
             .lanes
@@ -445,6 +454,10 @@ fn decision_pick_row(
             "{marker} {}",
             super::i18n::text(state, "supervision.action.dismiss")
         ),
+        DecisionPick::AuditTimeline => format!(
+            "{marker} {}",
+            super::i18n::text(state, "audit.pick.project")
+        ),
         DecisionPick::Supervision(SupervisionTarget::Bounce { gate_id }) => {
             let bounce = projection
                 .conflict_bounces
@@ -482,14 +495,13 @@ fn supervision_decision_rows(state: &TuiState) -> Vec<String> {
         return Vec::new();
     };
     let mut rows = supervision_target_rows(state, &panel.target);
-    let actions = available_actions(
-        &state.runtime,
-        &panel.target,
-        state.supervision.pending().is_some(),
-    );
-    if actions.is_empty() {
+    let has_pending_command = state.supervision.pending().is_some();
+    // "No decision applies" is a statement about decisions, so it is computed
+    // from the decision list; the always-present audit row must not silence it.
+    if available_actions(&state.runtime, &panel.target, has_pending_command).is_empty() {
         rows.push(super::i18n::text(state, "supervision.no_actions"));
     }
+    let actions = overlay_actions(&state.runtime, &panel.target, has_pending_command);
     for (index, action) in actions.iter().enumerate() {
         let marker = if index == panel.focus { ">" } else { " " };
         rows.push(format!(
@@ -624,6 +636,73 @@ pub(super) fn supervision_outcome_row(state: &TuiState) -> Option<String> {
             &[("glyph", Glyph::Fail.unicode()), ("reason", reason)],
         )),
     }
+}
+
+/// The audit timeline overlay body.
+///
+/// Four states are kept visibly distinct, because collapsing them would let the
+/// operator read absence as a fact: *loading* (a query is in flight and nothing
+/// has arrived), *empty* (Core answered with an empty page), *error* (Core
+/// rejected the query, rendered with its own reason verbatim), and the loaded
+/// list. The footer always states how many records are loaded and whether older
+/// ones remain, so a short list is never mistaken for the whole timeline.
+fn audit_timeline_rows(state: &TuiState) -> Vec<String> {
+    let Some(panel) = state.ui.audit.as_ref() else {
+        return Vec::new();
+    };
+    let mut rows = vec![match panel.scope() {
+        Some(scope) => super::i18n::translate(
+            state,
+            "audit.scope.object",
+            &[("kind", &scope.kind), ("id", &scope.id)],
+        ),
+        None => super::i18n::text(state, "audit.scope.project"),
+    }];
+    if let Some(reason) = panel.error() {
+        rows.push(super::i18n::translate(
+            state,
+            "audit.error",
+            &[("glyph", Glyph::Fail.unicode()), ("reason", reason)],
+        ));
+    }
+    if panel.is_loading() && panel.records().is_empty() {
+        rows.push(super::i18n::translate(
+            state,
+            "audit.loading",
+            &[("glyph", Glyph::Wait.unicode())],
+        ));
+    } else if panel.is_empty_result() {
+        rows.push(super::i18n::text(state, "audit.empty"));
+    }
+    let selected = panel.selected();
+    rows.extend(panel.records().iter().enumerate().map(|(index, record)| {
+        let marker = if index == selected { ">" } else { " " };
+        format!("{marker} {}", audit_row(record, AUDIT_ROW_WIDTH))
+    }));
+    if panel.shows_load_older_row() {
+        let marker = if panel.selected_is_load_older() {
+            ">"
+        } else {
+            " "
+        };
+        rows.push(format!(
+            "{marker} {}",
+            super::i18n::text(state, "audit.load_older")
+        ));
+    }
+    if let Some(notice) = panel.notice() {
+        rows.push(super::i18n::text(state, notice));
+    }
+    rows.push(super::i18n::translate(
+        state,
+        if panel.is_complete() {
+            "audit.footer.complete"
+        } else {
+            "audit.footer.more"
+        },
+        &[("count", &panel.records().len().to_string())],
+    ));
+    rows
 }
 
 fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {

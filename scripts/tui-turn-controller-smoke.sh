@@ -59,6 +59,26 @@ tests=(
   tui::app::tests::dismiss_releases_a_stranded_pending_decision_without_sending_anything
   tui::app::tests::a_settled_outcome_resets_on_the_next_action_and_on_overlay_close
   tui::app::tests::composer_stays_editable_while_the_supervision_overlay_is_open_during_a_stream
+  tui::audit_panel::tests::the_first_query_is_unscoped_or_object_scoped_and_pages_from_the_returned_cursor
+  tui::audit_panel::tests::the_first_page_replaces_and_older_pages_append_in_delivery_order
+  tui::audit_panel::tests::an_empty_page_is_emptiness_only_after_it_arrives
+  tui::audit_panel::tests::only_a_rejection_for_this_query_becomes_an_error_and_it_is_cores_own_reason
+  tui::audit_panel::tests::a_page_with_nothing_in_flight_belongs_to_another_reader_and_is_ignored
+  tui::audit_panel::tests::a_second_query_while_one_is_in_flight_is_refused_locally
+  tui::audit_panel::tests::selection_walks_records_then_the_load_older_row_and_never_leaves_the_list
+  tui::audit_panel::tests::a_row_renders_the_raw_action_key_registered_outcome_glyphs_objects_and_args
+  tui::audit_panel::tests::a_row_is_truncated_to_the_overlay_width_by_display_width
+  tui::audit_panel::tests::timestamps_render_as_utc_clock_time
+  tui::decision::tests::the_audit_row_is_offered_for_every_target_including_ones_with_no_decision_left
+  tui::decision::tests::audit_scope_uses_the_contracts_own_object_kind_constants
+  tui::app::tests::opening_the_timeline_scopes_the_query_to_the_record_or_to_the_whole_project
+  tui::app::tests::the_first_page_replaces_older_pages_append_and_the_footer_states_what_remains
+  tui::app::tests::a_rejected_query_shows_cores_reason_and_a_page_nobody_asked_for_is_ignored
+  tui::app::tests::a_second_page_request_while_one_is_in_flight_sends_nothing
+  tui::app::tests::confirming_a_record_row_does_nothing_and_escape_closes_to_the_base_state
+  tui::app::tests::the_audit_timeline_is_readable_in_plan_mode
+  tui::app::tests::composer_stays_editable_while_the_audit_timeline_is_open_during_a_stream
+  tui::app::tests::a_pending_supervision_decision_neither_blocks_nor_is_settled_by_an_audit_read
   tui::app::tests::blind_lane_wall_time_is_rendered_at_the_scale_an_operator_reads
   tui::modal::tests::decisions_overlay_projects_typed_gates_recovery_and_pending_core_command
   tui::modal::tests::blind_lane_inspector_shows_bounded_run_facts_and_never_fabricates_zeros

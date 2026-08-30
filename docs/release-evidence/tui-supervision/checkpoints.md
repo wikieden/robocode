@@ -4,10 +4,12 @@ Chinese version: [checkpoints.zh-CN.md](checkpoints.zh-CN.md)
 
 Date: 2026-08-30
 
-This evidence describes a local candidate only. Nothing here is published,
+This evidence describes local candidates only. Nothing here is published,
 signed, notarized, pushed, merged, tagged, or certified against a live
-provider. The work exists as two commits on a feature branch in an isolated
-worktree.
+provider. The work exists as commits on feature branches in isolated worktrees.
+
+Stages 1 and 2 (supervision decisions) and stage 3 (the audit timeline, T1b-1)
+are separate branches with separate bases; each stage's section names its own.
 
 ## Candidate Line
 
@@ -116,13 +118,118 @@ that only the matching business fact confirms it.
 The i18n catalog digests in `apps/tui/release-manifest.toml` were recomputed for
 the added supervision keys and both locales keep exact key and parameter parity.
 
-## Not Delivered Here (T1b)
+## T1b-1 — Audit Timeline Panel
 
-- The audit/history panel over `AuditRecord` timelines.
-- Creation flows for handoffs, contracts, and dependencies. Their intent
+Stage 3 of the same TUI supervision line. It closes the loop the earlier stages
+opened: the decision surfaces answer "what is Core waiting on", and this one
+answers "what already happened". The TUI is the **first** client of the Core
+audit contract (`RuntimeCommand::QueryAudit` -> `RuntimeEventKind::
+AuditPageLoaded`, landed in Core as `faad3fc5`); no other client consumes it
+yet, so there was no precedent to copy.
+
+| Item | SHA / path |
+| --- | --- |
+| Base | `7ff5139a` on `main` |
+| Stage 3 — audit timeline | tip of `claude/tui-audit-panel` |
+| Worktree | `.worktrees/tui-audit-panel` |
+| Component | TUI `0.3.3`, `min_core_version` `0.3.4` |
+
+Not merged, not pushed, not released.
+
+### Surfaces Delivered
+
+| Surface | Behavior |
+| --- | --- |
+| Audit timeline overlay (`OverlayKind::AuditTimeline`) | Read-only browsing surface. No global chord: it is reached from the supervision overlay or the Decision Center. Selection moves through rows; `Enter` on the trailing `Load older records` row asks Core for the next page; `Esc` closes to the base state. |
+| Scoped entry | A new non-mutation `Audit trail` row on the supervision decision overlay, appended after every decision so it never renumbers one. A gate or conflict target scopes the query to `merge_gate:<gate id>`, a review target to `review_request:<review id>`, using `AuditObjectRef::KIND_*` constants rather than string literals. |
+| Unscoped entry | An `Audit timeline (project)` pick appended last in the Decision Center. It leaves `project_id` and `lane_id` unset because Core's audit store is already scoped to the project's own workflow directory. |
+| Pagination | First query is `limit` 100 with no cursor; the first page replaces, later pages append (records are newest-first, so older pages append at the end). `complete` hides the load-older row. A second query while one is in flight is refused locally with a message and nothing is sent. |
+| Row rendering | `{time} {action} {outcome} {objects} {args}`. `time` is `HH:MM:SS` UTC (no existing TUI absolute-time precedent, and audit records are compared across machines). `action` is Core's raw dotted key, deliberately not localized. Outcome uses registered `✓` / `✗`; an unknown outcome renders literal ASCII `?`. Objects are comma-joined `kind:id`, args space-joined `k=v`, both truncated by display width. |
+| Distinct states | Loading, empty (only once a page has arrived), error (Core's reason verbatim), and loaded, plus a footer stating the loaded count and whether older records remain. All chrome is localized in `en` and `zh-CN`; the `action` key is not. |
+| Independence | Correlation is panel-local and deliberately does **not** reuse `SupervisionMachine`: an audit read never blocks, and is never blocked by, a pending supervision mutation, and an audit page never settles a decision. |
+| Plan mode | `QueryAudit` mutates nothing and prompts for no permission, so the timeline is dispatched and rendered unchanged in Plan mode. |
+
+### Honest Limitation
+
+`AuditPageLoaded` carries no command id. A page produced by another client's
+concurrent query can therefore be attributed to this panel's in-flight query.
+This is documented in `apps/tui/src/tui/audit_panel.rs` and accepted for the
+single-operator loop: the page is a real Core page, it is dropped when the
+overlay closes, and the next query self-corrects. No speculative correlation
+machinery was built. Removing the ambiguity is a **Core contract request** — a
+command id on `AuditPageLoaded` — not a client-side guess.
+
+Also recorded: the TUI has no general overlay stack. `OverlayState::
+previous_overlay` exists but is used only by Global Jump, and the existing
+Decision Center -> Approval and Decision Center -> supervision routes replace
+the overlay rather than stacking it. The audit overlay matches that behavior:
+`Esc` closes to the base state and does not return to the supervision overlay.
+No stack was invented for this feature.
+
+### Pinned Tests Added
+
+```text
+tui::audit_panel::tests::the_first_query_is_unscoped_or_object_scoped_and_pages_from_the_returned_cursor
+tui::audit_panel::tests::the_first_page_replaces_and_older_pages_append_in_delivery_order
+tui::audit_panel::tests::an_empty_page_is_emptiness_only_after_it_arrives
+tui::audit_panel::tests::only_a_rejection_for_this_query_becomes_an_error_and_it_is_cores_own_reason
+tui::audit_panel::tests::a_page_with_nothing_in_flight_belongs_to_another_reader_and_is_ignored
+tui::audit_panel::tests::a_second_query_while_one_is_in_flight_is_refused_locally
+tui::audit_panel::tests::selection_walks_records_then_the_load_older_row_and_never_leaves_the_list
+tui::audit_panel::tests::a_row_renders_the_raw_action_key_registered_outcome_glyphs_objects_and_args
+tui::audit_panel::tests::a_row_is_truncated_to_the_overlay_width_by_display_width
+tui::audit_panel::tests::timestamps_render_as_utc_clock_time
+tui::decision::tests::the_audit_row_is_offered_for_every_target_including_ones_with_no_decision_left
+tui::decision::tests::audit_scope_uses_the_contracts_own_object_kind_constants
+tui::app::tests::opening_the_timeline_scopes_the_query_to_the_record_or_to_the_whole_project
+tui::app::tests::the_first_page_replaces_older_pages_append_and_the_footer_states_what_remains
+tui::app::tests::a_rejected_query_shows_cores_reason_and_a_page_nobody_asked_for_is_ignored
+tui::app::tests::a_second_page_request_while_one_is_in_flight_sends_nothing
+tui::app::tests::confirming_a_record_row_does_nothing_and_escape_closes_to_the_base_state
+tui::app::tests::the_audit_timeline_is_readable_in_plan_mode
+tui::app::tests::composer_stays_editable_while_the_audit_timeline_is_open_during_a_stream
+tui::app::tests::a_pending_supervision_decision_neither_blocks_nor_is_settled_by_an_audit_read
+```
+
+The unknown-outcome `?` fallback is compile-checked only: `AuditOutcome` is
+`#[non_exhaustive]` and carries no serde `other` arm, so no unknown variant can
+be constructed or deserialized from outside `viden-types`. The test asserts the
+glyph for every known variant and that the fallback stays literal ASCII.
+
+`tui::decision::tests::decision_picks_list_approvals_gates_pending_reviews_then_pending_bounces`
+was updated, not weakened: it now asserts the audit pick is appended after the
+dismiss escape, so neither non-decision entry can shift a real decision's index.
+
+### Deterministic Evidence (T1b-1)
+
+| Command | Result |
+| --- | --- |
+| `cargo test -p viden-tui` | PASS, 326 lib + 1 API test |
+| `bash scripts/tui-turn-controller-smoke.sh` | PASS, 77 pinned tests |
+| `bash scripts/rc-tui-stability-smoke.sh` | PASS |
+| `bash scripts/tui-regression.sh` | PASS |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets` | PASS, no `viden-tui` warning |
+| `cargo test --workspace --quiet` | PASS |
+| `git diff --check` | PASS |
+| `scripts/check-doc-pairs.sh` / `scripts/check-doc-links.sh` on changed Markdown | PASS |
+
+The i18n catalog digests in `apps/tui/release-manifest.toml` were recomputed for
+the added audit keys and both locales keep exact key and parameter parity.
+
+## Not Delivered Here
+
+- Per-row actions inside the audit timeline (jump to the record, copy the audit
+  id, filter by actor or action). The overlay browses; it decides nothing.
+- Client-side audit filtering by lane, actor, or time range. Core's
+  `AuditQuery` exposes `lane_id`, but no TUI surface sets it yet, and no filter
+  is applied locally to a page.
+- Creation flows for handoffs, contracts, and dependencies — explicitly
+  deferred to 0.3.3 / T2; they are not in the plan's TUI P1 rows. Their intent
   builders exist in `apps/tui/src/tui/supervision.rs` and remain undispatched
   behind a local `#[allow(dead_code)]`.
 - A dedicated evidence inspector. The decision overlay shows evidence counts and
   identifiers, not evidence contents.
 - Multi-select or batch supervision decisions. Exactly one supervision command
   may be in flight, by design.
+- GUI consumption of the audit contract. The TUI is the only client so far.

@@ -243,5 +243,18 @@
   "supervision.error.no_pending_conflict": "This gate has no conflict awaiting revalidation.",
   "supervision.error.no_revalidation_evidence": "The origin Lane has published no changed canonical receipt yet.",
   "supervision.error.record_missing": "Core no longer publishes this record.",
-  "supervision.error.not_dispatchable": "This action sends no Core command."
+  "supervision.error.not_dispatchable": "This action sends no Core command.",
+  "supervision.action.audit_trail": "Audit trail",
+  "overlay.title.audit": "AUDIT TIMELINE",
+  "audit.hint": "Esc close · arrows select · Enter load older",
+  "audit.pick.project": "Audit timeline (project)",
+  "audit.scope.project": "SCOPE project timeline · newest first",
+  "audit.scope.object": "SCOPE {kind}:{id} · newest first",
+  "audit.loading": "{glyph} Loading the audit page from Core",
+  "audit.empty": "Core published no audit record for this scope.",
+  "audit.error": "{glyph} Core rejected the audit query: {reason}",
+  "audit.busy": "An audit page is already in flight. Nothing was sent.",
+  "audit.load_older": "Load older records",
+  "audit.footer.more": "LOADED {count} · older records remain",
+  "audit.footer.complete": "LOADED {count} · nothing older matches"
 }

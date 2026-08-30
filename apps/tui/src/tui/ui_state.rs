@@ -1,4 +1,5 @@
 use super::{
+    audit_panel::AuditPanel,
     composer_buffer::ComposerBuffer,
     decision::{SupervisionAction, SupervisionTarget},
     keymap::{InputMode, OverlayKind},
@@ -315,6 +316,10 @@ pub(super) struct TuiUiState {
     pub(super) overlay: Option<OverlayState>,
     /// Present exactly while `overlay` is `OverlayKind::SupervisionDecision`.
     pub(super) supervision: Option<SupervisionPanel>,
+    /// Present exactly while `overlay` is `OverlayKind::AuditTimeline`. It is
+    /// dropped on close, so a reopened timeline always re-queries Core instead
+    /// of showing a page of unknown age.
+    pub(super) audit: Option<AuditPanel>,
     pub(super) idle_ctrl_c_armed: bool,
     pub(super) color_depth: ColorDepth,
     pub(super) preference_diagnostics: Vec<String>,
@@ -347,6 +352,7 @@ impl Default for TuiUiState {
             input_mode: InputMode::Normal,
             overlay: None,
             supervision: None,
+            audit: None,
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,
             preference_diagnostics: Vec::new(),
