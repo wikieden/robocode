@@ -69,7 +69,55 @@ Interaction flow companion: [TUI Interaction Flow Design](tui-interaction-flow-d
   token or dollar figure. Its inspector shows an explicit blind marker plus the
   four bounded run facts Core measured — run count, wall time, applied diff
   bytes, last exit code — and shows no run facts at all when Core has published
-  none. A missing exit code renders as unknown, never as success.
+  none. A missing exit code renders as unknown, never as success. Wall time is
+  rendered at the scale an operator reads — milliseconds below a second, seconds
+  with one decimal below a minute, minutes plus seconds above it.
+
+## Supervision Decision Center
+
+The Decision Center (`Ctrl-G`, `/decisions`) lists the decisions Core is waiting
+on, in one fixed order: pending tool approvals, merge gates, review requests
+still awaiting a verdict, and conflict bounces still awaiting revalidation.
+Settled reviews and resolved bounces are history and are not listed as
+decisions. Rows use the registered TUI glyphs `⏸` (gate), `◌` (awaiting), and
+`⚠` (conflict); the record-kind token (`GATE`, `REVIEW`, `CONFLICT`) is stable
+across locales so a Core identifier is always findable by the same label.
+
+Selecting an approval row opens the pinned Approval overlay, unchanged.
+Selecting a gate, review, or conflict row opens the supervision decision
+overlay:
+
+- Actions are derived from the full Core record re-read on each frame, never
+  from the compact row. An open gate offers accept and reject; a gate with a
+  pending conflict offers revalidation in place of accept until the origin Lane
+  clears it; a merged gate offers only revert, with an explicit irreversibility
+  hint; a pending review offers both verdicts. An action that can never apply to
+  the record's current status is not listed at all.
+- An action whose Core precondition merely looks unsatisfiable locally is still
+  sent. Core is the only authority for whether a decision is allowed.
+- Reject, revert, and bounce require a reason; review feedback is optional for
+  both verdicts, matching the Core command contract. An empty required reason or
+  text longer than Core's 500-character trust-text limit is refused locally with
+  a message, and nothing is sent — the client never truncates and sends half a
+  reason.
+- Actors and reviewed-evidence bindings are replayed from Core's own records
+  using the same derivation the GUI integration-gate adapter uses. When no owner
+  or canonical evidence can be replayed, the action is refused locally because
+  there is no valid payload to send.
+- Arrows or number keys select an action and `Enter` confirms it. `Esc` unwinds
+  in order: first the reason line, then the overlay. Closing the overlay never
+  cancels an in-flight Core command; the pending badge keeps showing it. The
+  overlay has no text filter, so printable characters that are not an action
+  number keep editing the composer during a streaming turn.
+- The outcome echo renders inside the overlay and in the status bar: `◌`
+  pending with the command id, `✓` confirmed, `✗` rejected with Core's own
+  reason verbatim. A settled outcome resets to idle when the next supervision
+  action is initiated or when the overlay is closed; a pending outcome is never
+  auto-reset.
+- A lost or never published receipt would otherwise strand the single in-flight
+  slot, so both the overlay and the Decision Center footer offer a dismiss
+  action. Dismissing stops local attribution only: it settles nothing and does
+  not cancel the Core command.
 
 ## Main Screen
 

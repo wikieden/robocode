@@ -12,6 +12,10 @@ use super::command_palette::{
     should_complete_on_enter,
 };
 use super::composer::composer_content_width;
+use super::decision::{
+    DecisionPick, SupervisionAction, SupervisionTarget, TextRequirement, available_actions,
+    build_dispatch, decision_picks,
+};
 use super::geometry::effective_layout_width;
 use super::input::{
     ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
@@ -29,7 +33,7 @@ use super::preferences::{
 use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{
     AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
-    PendingNativeLane, TuiEntry, TuiState,
+    PendingNativeLane, SupervisionInput, SupervisionPanel, TuiEntry, TuiState,
 };
 use super::terminal::TerminalGuard;
 
@@ -292,7 +296,27 @@ fn handle_ui_event<C: CoreClient>(
         Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => Ok(UiEventOutcome::Redraw),
         Event::Paste(text) => {
             let approval_pending = !driver.view().pending_approvals.is_empty();
-            if let Some(overlay) = state.ui.overlay.as_mut() {
+            if state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.kind == OverlayKind::SupervisionDecision)
+            {
+                // The supervision overlay has no filter. A paste is either the
+                // reason the operator is typing, or composer text.
+                match state
+                    .ui
+                    .supervision
+                    .as_mut()
+                    .and_then(|panel| panel.input.as_mut())
+                {
+                    Some(input) => input.text.push_str(&text),
+                    None => {
+                        state.ui.input.paste(&text);
+                        reset_for_input_change(state);
+                    }
+                }
+            } else if let Some(overlay) = state.ui.overlay.as_mut() {
                 if overlay.kind != OverlayKind::Approval {
                     overlay.filter.push_str(&text);
                     overlay.selected = 0;
@@ -402,12 +426,18 @@ fn apply_input_intent<C: CoreClient>(
     if let Some(outcome) = apply_pending_approval_intent(driver, state, key, &intent)? {
         return Ok(outcome);
     }
+    // Approval stays pinned and wins; the supervision overlay is regular and
+    // Esc-dismissable, so it only claims keys once no approval owns them.
+    if let Some(outcome) = apply_supervision_decision_intent(driver, state, &intent)? {
+        return Ok(outcome);
+    }
     match intent {
         InputIntent::None => {}
         InputIntent::EnterInsert => state.ui.input_mode = InputMode::Insert,
         InputIntent::LeaveInsert => state.ui.input_mode = InputMode::Normal,
         InputIntent::OpenOverlay(kind) => {
             let previous_overlay = state.ui.overlay.take();
+            state.ui.supervision = None;
             state.ui.overlay = Some(if kind == OverlayKind::GlobalJump {
                 OverlayState::global_jump(previous_overlay)
             } else {
@@ -660,6 +690,204 @@ fn apply_pending_approval_intent<C: CoreClient>(
     }
 }
 
+/// Opens the supervision decision overlay on one Core record.
+///
+/// Opening is "initiating the next supervision action", so a settled outcome
+/// from the previous decision resets here. A *pending* outcome is deliberately
+/// preserved: the correlation is still live and its badge must keep showing.
+fn open_supervision_decision(state: &mut TuiState, target: SupervisionTarget) {
+    state.supervision.reset_if_settled();
+    state.ui.supervision = Some(SupervisionPanel::new(target));
+    state.ui.overlay = Some(OverlayState::new(OverlayKind::SupervisionDecision));
+}
+
+fn close_supervision_decision(state: &mut TuiState) {
+    // Rule (b): closing the overlay while the last decision is settled clears
+    // the echo. Pending is never auto-reset — the command is still in flight.
+    state.supervision.reset_if_settled();
+    state.ui.supervision = None;
+    state.ui.overlay = None;
+}
+
+/// Owns every key while the supervision decision overlay is focused.
+///
+/// Ordering matters: this runs *after* `apply_pending_approval_intent`, so a
+/// pinned approval always wins. Within the overlay, `Esc` unwinds in order —
+/// first the reason line, then the overlay itself — and printable characters
+/// that are not an action number keep editing the composer, so a streaming turn
+/// stays answerable while a decision is open.
+fn apply_supervision_decision_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    intent: &InputIntent,
+) -> Result<Option<UiEventOutcome>, TuiError> {
+    if !state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::SupervisionDecision)
+        || state.ui.supervision.is_none()
+    {
+        return Ok(None);
+    }
+    let actions = supervision_actions(state);
+    match intent {
+        InputIntent::CloseOverlay => {
+            let panel = state.ui.supervision.as_mut().expect("panel checked above");
+            if panel.input.take().is_some() {
+                panel.notice = None;
+            } else {
+                close_supervision_decision(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::MoveSelection(delta) => {
+            let panel = state.ui.supervision.as_mut().expect("panel checked above");
+            if panel.input.is_none() {
+                panel.focus = move_focus(panel.focus, *delta, actions.len());
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::InsertChar(value) => {
+            let panel = state.ui.supervision.as_mut().expect("panel checked above");
+            if let Some(input) = panel.input.as_mut() {
+                input.text.push(*value);
+                panel.notice = None;
+            } else if let Some(index) = value.to_digit(10).and_then(|digit| {
+                (digit >= 1 && (digit as usize) <= actions.len()).then_some(digit as usize - 1)
+            }) {
+                panel.focus = index;
+                panel.notice = None;
+            } else {
+                // This overlay has no text filter, so anything that is not an
+                // action number belongs to the composer.
+                push_composer_char(state, *value);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::Backspace => {
+            let panel = state.ui.supervision.as_mut().expect("panel checked above");
+            if let Some(input) = panel.input.as_mut() {
+                input.text.pop();
+                panel.notice = None;
+            } else {
+                state.ui.input.backspace();
+                reset_for_input_change(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::CompleteSelection | InputIntent::CompleteOrSubmit => {
+            confirm_supervision_action(driver, state, &actions)?;
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn supervision_actions(state: &TuiState) -> Vec<SupervisionAction> {
+    state
+        .ui
+        .supervision
+        .as_ref()
+        .map_or_else(Vec::new, |panel| {
+            available_actions(
+                &state.runtime,
+                &panel.target,
+                state.supervision.pending().is_some(),
+            )
+        })
+}
+
+fn move_focus(focus: usize, delta: i8, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    if delta < 0 {
+        focus.saturating_sub(1)
+    } else {
+        focus.saturating_add(1).min(len - 1)
+    }
+}
+
+/// Confirms the focused action: open its text line, or build and send it.
+fn confirm_supervision_action<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    actions: &[SupervisionAction],
+) -> Result<(), TuiError> {
+    let Some(panel) = state.ui.supervision.as_ref() else {
+        return Ok(());
+    };
+    let Some(action) = panel
+        .input
+        .as_ref()
+        .map(|input| input.action)
+        .or_else(|| actions.get(panel.focus).copied())
+    else {
+        return Ok(());
+    };
+    let text = panel
+        .input
+        .as_ref()
+        .map(|input| input.text.clone())
+        .unwrap_or_default();
+    let target = panel.target.clone();
+    let awaiting_text = panel.input.is_none() && action.text_requirement() != TextRequirement::None;
+
+    if action == SupervisionAction::Dismiss {
+        // Local escape only: the Core command keeps running and may still land,
+        // so this settles nothing and the hint says exactly that.
+        state.supervision.abandon();
+        set_supervision_panel(state, None, Some("supervision.dismiss.hint"));
+        return Ok(());
+    }
+    if awaiting_text {
+        set_supervision_panel(
+            state,
+            Some(SupervisionInput {
+                action,
+                text: String::new(),
+            }),
+            None,
+        );
+        return Ok(());
+    }
+    // One correlation at a time. Refusing here rather than after `send` is what
+    // makes "nothing was sent" true: a second command would otherwise race the
+    // first one's fact through the same ordered stream.
+    if state.supervision.pending().is_some() {
+        set_supervision_panel(state, None, Some("supervision.pending.busy"));
+        return Ok(());
+    }
+    match build_dispatch(&state.runtime, &target, action, &text) {
+        // A local refusal sends nothing and never claims Core decided.
+        Err(key) => set_supervision_panel(state, None, Some(key)),
+        Ok(dispatch) => {
+            // Rule (a): initiating the next decision clears the settled echo of
+            // the previous one before this command's own outcome replaces it.
+            state.supervision.reset_if_settled();
+            let command_id = driver.send_for_owner(dispatch.owner, dispatch.command)?;
+            state
+                .supervision
+                .begin(command_id, dispatch.expect)
+                .expect("no supervision command is pending; checked above");
+            set_supervision_panel(state, None, None);
+        }
+    }
+    Ok(())
+}
+
+fn set_supervision_panel(
+    state: &mut TuiState,
+    input: Option<SupervisionInput>,
+    notice: Option<&str>,
+) {
+    if let Some(panel) = state.ui.supervision.as_mut() {
+        panel.input = input;
+        panel.notice = notice.map(str::to_string);
+    }
+}
+
 fn submit_composer<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
     state: &mut TuiState,
@@ -824,26 +1052,28 @@ fn complete_overlay_selection(state: &mut TuiState, overlay: OverlayState) {
         }
         OverlayKind::Decisions => {
             state.ui.lens = Lens::Decisions;
-            let needle = overlay.filter.to_ascii_lowercase();
-            if let Some(approval) = state
-                .runtime
-                .pending_approvals
-                .iter()
-                .filter(|approval| {
-                    needle.is_empty()
-                        || format!("{} {}", approval.id, approval.title)
-                            .to_ascii_lowercase()
-                            .contains(&needle)
-                })
+            // Picks are indexed against the same ordered list the rows render,
+            // so the selection always names the record the operator saw.
+            match decision_picks(&state.runtime, state.supervision.pending().is_some())
+                .into_iter()
                 .nth(overlay.selected)
             {
-                let mut approval_overlay = OverlayState::new(OverlayKind::Approval);
-                approval_overlay.selected_id = Some(approval.id.clone());
-                state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
-                state.ui.overlay = Some(approval_overlay);
+                Some(DecisionPick::Approval { request_id }) => {
+                    let mut approval_overlay = OverlayState::new(OverlayKind::Approval);
+                    approval_overlay.selected_id = Some(request_id);
+                    state.ui.approval_focus = DEFAULT_APPROVAL_FOCUS;
+                    state.ui.overlay = Some(approval_overlay);
+                }
+                Some(DecisionPick::Supervision(target)) => open_supervision_decision(state, target),
+                Some(DecisionPick::DismissSupervision) => {
+                    // Local escape only: Core still owns the command.
+                    state.supervision.abandon();
+                    state.ui.overlay = Some(OverlayState::new(OverlayKind::Decisions));
+                }
+                None => {}
             }
         }
-        OverlayKind::Approval => {}
+        OverlayKind::Approval | OverlayKind::SupervisionDecision => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
         | OverlayKind::ContextHelp
@@ -3053,6 +3283,975 @@ mod tests {
         assert!(state.supervision.pending().is_none());
     }
 
+    // ---- supervision decision workflows -------------------------------------
+
+    fn supervision_owner(lane: &str) -> RuntimeOwner {
+        RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "project".to_string(),
+            lane_id: Some(lane.to_string()),
+            session_id: Some("session-a".to_string()),
+            task_id: Some("task-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+        }
+    }
+
+    fn supervision_gate(status: viden_types::MergeGateStatus) -> viden_types::MergeGateRecord {
+        viden_types::MergeGateRecord {
+            gate_id: "gate-1".to_string(),
+            task_id: "task-1".to_string(),
+            status,
+            required_evidence: Vec::new(),
+            evidence_ids: vec!["ev-1".to_string()],
+            gate_type: Default::default(),
+            owner: supervision_owner("lane-a"),
+            validator: None,
+            policy_snapshot: Default::default(),
+            decision: None,
+            conflict: None,
+            applied_change_id: Some("change-1".to_string()),
+            recovery_snapshot: None,
+            audit_ids: Vec::new(),
+            updated_at: Some(1),
+        }
+    }
+
+    fn supervision_evidence(hash: &str) -> viden_core::EvidenceView {
+        viden_core::EvidenceView {
+            id: "ev-1".to_string(),
+            kind: "test".to_string(),
+            summary: "cargo test".to_string(),
+            path: None,
+            source: None,
+            canonical: Some(viden_types::CanonicalEvidenceReference {
+                item_id: "item-ev-1".to_string(),
+                bundle_id: "bundle-1".to_string(),
+                source_hash: hash.to_string(),
+                producer: viden_types::EvidenceProducer {
+                    identity: "lane-a".to_string(),
+                    role: "coder".to_string(),
+                    task_id: "task-1".to_string(),
+                },
+                permission_snapshot_id: None,
+                permission_scope: viden_types::ContextScope::Task("task-1".to_string()),
+                evidence_scope: viden_types::ContextScope::Task("task-1".to_string()),
+                verification: viden_types::EvidenceVerificationState::Verified,
+                quality: viden_types::EvidenceQualityFacts {
+                    status: viden_types::EvidenceQualityStatus::Pass,
+                    reason_codes: Vec::new(),
+                },
+            }),
+            metadata: None,
+            timestamp: Some(1),
+        }
+    }
+
+    fn supervision_review(
+        status: viden_types::ReviewRequestStatus,
+    ) -> viden_types::ReviewRequestRecord {
+        viden_types::ReviewRequestRecord {
+            review_id: "review-1".to_string(),
+            gate_id: "gate-1".to_string(),
+            task_id: "task-1".to_string(),
+            requester_lane_id: "lane-a".to_string(),
+            reviewer_lane_id: "lane-b".to_string(),
+            owner: supervision_owner("lane-a"),
+            evidence_ids: vec!["ev-1".to_string()],
+            evidence_bindings: vec![viden_types::ReviewedEvidenceBinding {
+                evidence_id: "ev-1".to_string(),
+                source_hash: "hash-1".to_string(),
+            }],
+            status,
+            feedback: None,
+            audit_id: "audit-review".to_string(),
+            updated_at: 2,
+        }
+    }
+
+    fn supervision_bounce(
+        status: viden_types::ConflictBounceStatus,
+    ) -> viden_types::ConflictBounce {
+        viden_types::ConflictBounce {
+            bounce_id: "bounce-1".to_string(),
+            gate_id: "gate-1".to_string(),
+            task_id: "task-1".to_string(),
+            original_lane_id: "lane-a".to_string(),
+            owner: supervision_owner("lane-a"),
+            reason: "base moved".to_string(),
+            status,
+            evidence_ids: vec!["ev-1".to_string()],
+            baseline_evidence: vec![viden_types::ReviewedEvidenceBinding {
+                evidence_id: "ev-1".to_string(),
+                source_hash: "hash-baseline".to_string(),
+            }],
+            revalidation_evidence: Vec::new(),
+            audit_id: "audit-bounce".to_string(),
+            created_at: 3,
+            revalidated_at: None,
+        }
+    }
+
+    fn supervision_snapshot() -> RuntimeSnapshot {
+        RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        }
+    }
+
+    /// A driver over a Core view that already published the supervision records,
+    /// plus whatever ordered events the case wants Core to publish back.
+    fn supervision_driver(
+        view: RuntimeViewState,
+        events: Vec<RuntimeEventEnvelope>,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    ) {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                events: VecDeque::from(events),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let state = TuiState::new(driver.view().clone());
+        (driver, state, sent)
+    }
+
+    fn key_event(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn press(
+        driver: &mut TuiClientDriver<FakeCoreClient>,
+        state: &mut TuiState,
+        code: KeyCode,
+    ) -> UiEventOutcome {
+        handle_ui_event(driver, state, key_event(code), (120, 40)).expect("key")
+    }
+
+    fn type_text(driver: &mut TuiClientDriver<FakeCoreClient>, state: &mut TuiState, text: &str) {
+        for value in text.chars() {
+            press(driver, state, KeyCode::Char(value));
+        }
+    }
+
+    #[test]
+    fn decision_center_lists_supervision_rows_and_routes_every_pick() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.review_requests.push(supervision_review(
+            viden_types::ReviewRequestStatus::Pending,
+        ));
+        view.conflict_bounces.push(supervision_bounce(
+            viden_types::ConflictBounceStatus::Pending,
+        ));
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-allow-deny.json"
+        ))
+        .expect("approval fixture");
+        let envelope: RuntimeEventEnvelope =
+            serde_json::from_value(fixture["events"][0].clone()).expect("approval event");
+        if let RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+        let approval_id = view.pending_approvals[0].id.clone();
+        let (mut driver, mut state, sent) = supervision_driver(view, Vec::new());
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::Decisions));
+
+        let rows = crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::Decisions);
+        let joined = rows.join("\n");
+        for expected in [
+            "APPROVAL",
+            "GATE gate-1",
+            "REVIEW review-1",
+            "CONFLICT bounce-1",
+        ] {
+            assert!(joined.contains(expected), "missing {expected}:\n{joined}");
+        }
+        for glyph in ["\u{23f8}", "\u{25cc}", "\u{26a0}"] {
+            assert!(
+                joined.contains(glyph),
+                "supervision rows must use registered glyphs: {joined}"
+            );
+        }
+
+        // Index 0 is the pending approval and still routes to the pinned
+        // Approval overlay rather than the supervision surface.
+        press(&mut driver, &mut state, KeyCode::Enter);
+        let overlay = state.ui.overlay.as_ref().expect("approval overlay");
+        assert_eq!(overlay.kind, OverlayKind::Approval);
+        assert_eq!(overlay.selected_id.as_deref(), Some(approval_id.as_str()));
+        assert!(state.ui.supervision.is_none());
+
+        for (index, expected) in [
+            (
+                1,
+                SupervisionTarget::Gate {
+                    gate_id: "gate-1".to_string(),
+                },
+            ),
+            (
+                2,
+                SupervisionTarget::Review {
+                    review_id: "review-1".to_string(),
+                },
+            ),
+            (
+                3,
+                SupervisionTarget::Bounce {
+                    gate_id: "gate-1".to_string(),
+                },
+            ),
+        ] {
+            let mut overlay = OverlayState::new(OverlayKind::Decisions);
+            overlay.selected = index;
+            state.ui.overlay = Some(overlay);
+            press(&mut driver, &mut state, KeyCode::Enter);
+            assert_eq!(
+                state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+                Some(OverlayKind::SupervisionDecision)
+            );
+            assert_eq!(
+                state
+                    .ui
+                    .supervision
+                    .as_ref()
+                    .map(|panel| panel.target.clone()),
+                Some(expected)
+            );
+        }
+        assert!(
+            sent.lock().expect("sent").is_empty(),
+            "picking a row selects; it never decides"
+        );
+    }
+
+    #[test]
+    fn supervision_overlay_unwinds_escape_in_order_and_yields_to_a_pinned_approval() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        let (mut driver, mut state, sent) = supervision_driver(view, Vec::new());
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+
+        // Focus the reject action and open its reason line.
+        press(&mut driver, &mut state, KeyCode::Char('2'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert!(
+            state
+                .ui
+                .supervision
+                .as_ref()
+                .expect("panel")
+                .input
+                .is_some()
+        );
+
+        // First Esc unwinds the reason line, second closes the overlay.
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::SupervisionDecision)
+        );
+        assert!(
+            state
+                .ui
+                .supervision
+                .as_ref()
+                .expect("panel")
+                .input
+                .is_none()
+        );
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert!(state.ui.overlay.is_none());
+        assert!(state.ui.supervision.is_none());
+        assert!(sent.lock().expect("sent").is_empty());
+    }
+
+    #[test]
+    fn supervision_overlay_only_lists_actions_the_gate_status_can_accept() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates
+            .push(supervision_gate(viden_types::MergeGateStatus::Merged));
+        let (_driver, mut state, _sent) = supervision_driver(view, Vec::new());
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+
+        let merged =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(merged.contains("Revert applied change"));
+        assert!(
+            !merged.contains("Accept merge gate"),
+            "a merged gate can no longer be accepted: {merged}"
+        );
+        assert!(
+            merged.contains("Core cannot put it back"),
+            "revert must carry its irreversibility hint: {merged}"
+        );
+
+        state.runtime.merge_gates[0].status = viden_types::MergeGateStatus::CollectingEvidence;
+        let open =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(open.contains("Accept merge gate"));
+        assert!(
+            !open.contains("Revert applied change"),
+            "a gate that was never merged has nothing to revert: {open}"
+        );
+
+        state.runtime.merge_gates[0].conflict = Some(supervision_bounce(
+            viden_types::ConflictBounceStatus::Pending,
+        ));
+        let conflicted =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(conflicted.contains("Revalidate conflict"));
+        assert!(
+            !conflicted.contains("Accept merge gate"),
+            "acceptance waits for the origin Lane to revalidate: {conflicted}"
+        );
+    }
+
+    #[test]
+    fn a_required_reason_is_enforced_locally_and_nothing_is_sent() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        let (mut driver, mut state, sent) = supervision_driver(view, Vec::new());
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Char('2'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        // Empty reason.
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            state
+                .ui
+                .supervision
+                .as_ref()
+                .expect("panel")
+                .notice
+                .as_deref(),
+            Some("supervision.error.reason_required")
+        );
+        assert!(sent.lock().expect("sent").is_empty());
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Idle
+        );
+
+        // Over-limit reason.
+        press(&mut driver, &mut state, KeyCode::Enter);
+        type_text(&mut driver, &mut state, &"x".repeat(501));
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            state
+                .ui
+                .supervision
+                .as_ref()
+                .expect("panel")
+                .notice
+                .as_deref(),
+            Some("supervision.error.reason_too_long")
+        );
+        assert!(
+            sent.lock().expect("sent").is_empty(),
+            "over-limit text is refused, never truncated and sent"
+        );
+    }
+
+    /// One full decision: send the exact envelope, stay pending through the
+    /// receipt, and settle only on Core's own fact.
+    fn assert_supervision_round_trip(
+        view: RuntimeViewState,
+        target: SupervisionTarget,
+        action_index: usize,
+        reason: Option<&str>,
+        expected: RuntimeCommand,
+        expected_owner: RuntimeOwner,
+        fact: RuntimeEventKind,
+    ) {
+        let events = vec![
+            event(
+                1,
+                RuntimeEventKind::CommandAccepted {
+                    command_id: "tui-1".to_string(),
+                    command: expected.clone(),
+                },
+            ),
+            event(2, fact),
+        ];
+        let (mut driver, mut state, sent) = supervision_driver(view, events);
+        open_supervision_decision(&mut state, target);
+        for _ in 0..action_index {
+            press(&mut driver, &mut state, KeyCode::Down);
+        }
+        // The first Enter confirms the action; an action that carries text opens
+        // its line instead, and the second Enter submits it — empty when Core
+        // treats the text as optional.
+        press(&mut driver, &mut state, KeyCode::Enter);
+        if state
+            .ui
+            .supervision
+            .as_ref()
+            .is_some_and(|panel| panel.input.is_some())
+        {
+            if let Some(reason) = reason {
+                type_text(&mut driver, &mut state, reason);
+            }
+            press(&mut driver, &mut state, KeyCode::Enter);
+        } else {
+            assert!(reason.is_none(), "this action carries no operator text");
+        }
+
+        let envelopes = sent.lock().expect("sent").clone();
+        assert_eq!(envelopes.len(), 1, "exactly one command per decision");
+        assert_eq!(envelopes[0].command, expected);
+        assert_eq!(envelopes[0].owner, expected_owner);
+        assert_eq!(envelopes[0].command_id, "tui-1");
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "tui-1".to_string()
+            }
+        );
+
+        driver.pump().expect("receipt");
+        observe_driver_events(&mut state, &mut driver).expect("observe receipt");
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "tui-1".to_string()
+            },
+            "a receipt is never a decision"
+        );
+
+        driver.pump().expect("fact");
+        observe_driver_events(&mut state, &mut driver).expect("observe fact");
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Confirmed
+        );
+    }
+
+    #[test]
+    fn every_supervision_decision_round_trips_through_its_exact_core_fact() {
+        let base = || {
+            let mut view = RuntimeViewState::new(supervision_snapshot());
+            view.merge_gates.push(supervision_gate(
+                viden_types::MergeGateStatus::CollectingEvidence,
+            ));
+            view.latest_evidence.push(supervision_evidence("hash-1"));
+            view
+        };
+        let binding = viden_types::ReviewedEvidenceBinding {
+            evidence_id: "ev-1".to_string(),
+            source_hash: "hash-1".to_string(),
+        };
+        let gate_target = || SupervisionTarget::Gate {
+            gate_id: "gate-1".to_string(),
+        };
+
+        // Accept the gate.
+        let mut accepted = supervision_gate(viden_types::MergeGateStatus::Accepted);
+        accepted.applied_change_id = Some("change-1".to_string());
+        assert_supervision_round_trip(
+            base(),
+            gate_target(),
+            0,
+            None,
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: "gate-1".to_string(),
+                actor: supervision_owner("lane-a"),
+                reviewed_evidence: vec![binding.clone()],
+                decision: None,
+            },
+            supervision_owner("lane-a"),
+            RuntimeEventKind::MergeGateUpdated { gate: accepted },
+        );
+
+        // Reject the gate with the operator's reason.
+        assert_supervision_round_trip(
+            base(),
+            gate_target(),
+            1,
+            Some("evidence missing"),
+            RuntimeCommand::RejectMergeGate {
+                gate_id: "gate-1".to_string(),
+                actor: supervision_owner("lane-a"),
+                reason: "evidence missing".to_string(),
+            },
+            supervision_owner("lane-a"),
+            RuntimeEventKind::MergeGateUpdated {
+                gate: supervision_gate(viden_types::MergeGateStatus::NeedsChanges),
+            },
+        );
+
+        // Revert a merged gate.
+        let mut merged_view = base();
+        merged_view.merge_gates[0].status = viden_types::MergeGateStatus::Merged;
+        assert_supervision_round_trip(
+            merged_view,
+            gate_target(),
+            0,
+            Some("regression in main"),
+            RuntimeCommand::RevertAppliedChange {
+                gate_id: "gate-1".to_string(),
+                owner: supervision_owner("lane-a"),
+                reason: "regression in main".to_string(),
+            },
+            supervision_owner("lane-a"),
+            RuntimeEventKind::RevertRecorded {
+                revert: viden_types::RevertRecord {
+                    revert_id: "revert-1".to_string(),
+                    gate_id: "gate-1".to_string(),
+                    applied_change_id: "change-1".to_string(),
+                    owner: supervision_owner("lane-a"),
+                    reason: "regression in main".to_string(),
+                    restored_paths: Vec::new(),
+                    audit_id: "audit-revert".to_string(),
+                    reverted_at: 4,
+                },
+            },
+        );
+
+        // Bounce the gate back to its origin Lane.
+        assert_supervision_round_trip(
+            base(),
+            SupervisionTarget::Bounce {
+                gate_id: "gate-1".to_string(),
+            },
+            0,
+            Some("base moved"),
+            RuntimeCommand::BounceMergeConflict {
+                gate_id: "gate-1".to_string(),
+                original_lane_id: "lane-a".to_string(),
+                owner: supervision_owner("lane-a"),
+                reason: "base moved".to_string(),
+            },
+            supervision_owner("lane-a"),
+            RuntimeEventKind::MergeConflictBounced {
+                conflict: supervision_bounce(viden_types::ConflictBounceStatus::Pending),
+            },
+        );
+
+        // Revalidate a pending conflict with a changed canonical receipt.
+        let mut conflicted = base();
+        conflicted.merge_gates[0].conflict = Some(supervision_bounce(
+            viden_types::ConflictBounceStatus::Pending,
+        ));
+        conflicted.conflict_bounces.push(supervision_bounce(
+            viden_types::ConflictBounceStatus::Pending,
+        ));
+        assert_supervision_round_trip(
+            conflicted,
+            gate_target(),
+            0,
+            None,
+            RuntimeCommand::RevalidateMergeConflict {
+                gate_id: "gate-1".to_string(),
+                bounce_id: "bounce-1".to_string(),
+                actor: supervision_owner("lane-a"),
+                evidence: binding.clone(),
+            },
+            supervision_owner("lane-a"),
+            RuntimeEventKind::MergeGateUpdated {
+                gate: supervision_gate(viden_types::MergeGateStatus::CollectingEvidence),
+            },
+        );
+
+        // Review verdicts, with and without feedback.
+        let review_view = || {
+            let mut view = base();
+            view.merge_gates[0].validator = Some(viden_types::MergeGateValidator {
+                owner: supervision_owner("lane-b"),
+                review_request_id: "review-1".to_string(),
+                independent: true,
+                validated_at: None,
+            });
+            view.review_requests.push(supervision_review(
+                viden_types::ReviewRequestStatus::Pending,
+            ));
+            view
+        };
+        let review_target = || SupervisionTarget::Review {
+            review_id: "review-1".to_string(),
+        };
+        assert_supervision_round_trip(
+            review_view(),
+            review_target(),
+            0,
+            None,
+            RuntimeCommand::DecideReview {
+                review_id: "review-1".to_string(),
+                verdict: viden_types::ReviewVerdict::Accepted,
+                feedback: None,
+                actor: supervision_owner("lane-b"),
+            },
+            supervision_owner("lane-b"),
+            RuntimeEventKind::ReviewRequestUpdated {
+                review: supervision_review(viden_types::ReviewRequestStatus::Accepted),
+            },
+        );
+        assert_supervision_round_trip(
+            review_view(),
+            review_target(),
+            1,
+            Some("needs a regression test"),
+            RuntimeCommand::DecideReview {
+                review_id: "review-1".to_string(),
+                verdict: viden_types::ReviewVerdict::Rejected,
+                feedback: Some("needs a regression test".to_string()),
+                actor: supervision_owner("lane-b"),
+            },
+            supervision_owner("lane-b"),
+            RuntimeEventKind::ReviewRequestUpdated {
+                review: supervision_review(viden_types::ReviewRequestStatus::Rejected),
+            },
+        );
+    }
+
+    #[test]
+    fn core_rejection_renders_its_own_reason_and_frees_the_decision_slot() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.latest_evidence.push(supervision_evidence("hash-1"));
+        let (mut driver, mut state, _sent) = supervision_driver(
+            view,
+            vec![event(
+                1,
+                RuntimeEventKind::CommandRejected {
+                    command_id: "tui-1".to_string(),
+                    reason: "merge gate `gate-1` is no longer open".to_string(),
+                },
+            )],
+        );
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        driver.pump().expect("rejection");
+        observe_driver_events(&mut state, &mut driver).expect("observe rejection");
+
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Rejected {
+                reason: "merge gate `gate-1` is no longer open".to_string()
+            }
+        );
+        let rows =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(
+            rows.contains("merge gate `gate-1` is no longer open"),
+            "Core's reason must be rendered verbatim: {rows}"
+        );
+        assert!(state.supervision.pending().is_none());
+    }
+
+    #[test]
+    fn a_second_supervision_action_while_one_is_pending_sends_nothing() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.latest_evidence.push(supervision_evidence("hash-1"));
+        let (mut driver, mut state, sent) = supervision_driver(view, Vec::new());
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(sent.lock().expect("sent").len(), 1);
+
+        // The accept is still pending, so the reject is refused locally.
+        press(&mut driver, &mut state, KeyCode::Down);
+        press(&mut driver, &mut state, KeyCode::Enter);
+        type_text(&mut driver, &mut state, "second thoughts");
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        assert_eq!(
+            sent.lock().expect("sent").len(),
+            1,
+            "a busy correlation must not race a second command"
+        );
+        assert_eq!(
+            state
+                .ui
+                .supervision
+                .as_ref()
+                .expect("panel")
+                .notice
+                .as_deref(),
+            Some("supervision.pending.busy")
+        );
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "tui-1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn dismiss_releases_a_stranded_pending_decision_without_sending_anything() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.latest_evidence.push(supervision_evidence("hash-1"));
+        let (mut driver, mut state, sent) = supervision_driver(view, Vec::new());
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert!(state.supervision.pending().is_some());
+
+        // Accept / Reject / Dismiss: the escape is appended last.
+        let rows =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(rows.contains("Dismiss pending attribution"));
+        assert!(rows.contains("does not cancel the Core command"));
+        press(&mut driver, &mut state, KeyCode::Char('3'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Idle,
+            "dismissing settles nothing; it only stops attributing"
+        );
+        assert!(state.supervision.pending().is_none());
+        assert_eq!(
+            sent.lock().expect("sent").len(),
+            1,
+            "dismiss sends no command of its own"
+        );
+    }
+
+    #[test]
+    fn a_settled_outcome_resets_on_the_next_action_and_on_overlay_close() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        view.latest_evidence.push(supervision_evidence("hash-1"));
+        let (mut driver, mut state, _sent) = supervision_driver(view, Vec::new());
+        let target = || SupervisionTarget::Gate {
+            gate_id: "gate-1".to_string(),
+        };
+
+        // Rule (b): closing the overlay while settled clears the echo.
+        open_supervision_decision(&mut state, target());
+        state
+            .supervision
+            .begin(
+                "tui-0",
+                crate::tui::pending::SupervisionExpectation::Revert {
+                    gate_id: "gate-1".to_string(),
+                },
+            )
+            .expect("first command");
+        state.supervision.observe_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::CommandRejected {
+                command_id: "tui-0".to_string(),
+                reason: "no applied change".to_string(),
+            },
+        ));
+        assert!(matches!(
+            state.supervision.outcome(),
+            crate::tui::pending::SupervisionOutcome::Rejected { .. }
+        ));
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Idle
+        );
+
+        // Rule (a): opening the next decision clears a settled echo too.
+        state
+            .supervision
+            .begin(
+                "tui-0",
+                crate::tui::pending::SupervisionExpectation::Revert {
+                    gate_id: "gate-1".to_string(),
+                },
+            )
+            .expect("second command");
+        state.supervision.observe_event(&RuntimeEvent::new(
+            2,
+            RuntimeEventKind::CommandRejected {
+                command_id: "tui-0".to_string(),
+                reason: "no applied change".to_string(),
+            },
+        ));
+        open_supervision_decision(&mut state, target());
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Idle
+        );
+
+        // A pending decision is never auto-reset by either route.
+        state
+            .supervision
+            .begin(
+                "tui-9",
+                crate::tui::pending::SupervisionExpectation::Revert {
+                    gate_id: "gate-1".to_string(),
+                },
+            )
+            .expect("third command");
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert_eq!(
+            state.supervision.outcome(),
+            &crate::tui::pending::SupervisionOutcome::Pending {
+                command_id: "tui-9".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn composer_stays_editable_while_the_supervision_overlay_is_open_during_a_stream() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![event(
+                1,
+                RuntimeEventKind::AssistantDelta {
+                    message_id: "assistant-1".to_string(),
+                    task_id: None,
+                    session_id: None,
+                    content: "working".to_string(),
+                },
+            )],
+        );
+        driver.pump().expect("stream event");
+        project_runtime_view(&mut state, driver.view(), driver.cursor());
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+
+        // The overlay has no text filter: non-action characters keep editing the
+        // composer, so a streaming turn stays answerable with a decision open.
+        type_text(&mut driver, &mut state, "你好");
+        assert_eq!(state.ui.input, "你好");
+        press(&mut driver, &mut state, KeyCode::Backspace);
+        assert_eq!(state.ui.input, "你");
+        assert_eq!(driver.view().assistant_stream, "working");
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::SupervisionDecision)
+        );
+        assert!(sent.lock().expect("sent").is_empty());
+
+        // Action numbers still belong to the overlay.
+        press(&mut driver, &mut state, KeyCode::Char('2'));
+        assert_eq!(state.ui.supervision.as_ref().expect("panel").focus, 1);
+        assert_eq!(state.ui.input, "你");
+
+        // A paste follows the same rule: the reason line when one is open,
+        // otherwise the composer. It never becomes an overlay filter.
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Paste("好".to_string()),
+            (120, 40),
+        )
+        .expect("paste");
+        assert_eq!(state.ui.input, "你好");
+        press(&mut driver, &mut state, KeyCode::Enter);
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Paste("evidence missing".to_string()),
+            (120, 40),
+        )
+        .expect("paste into reason");
+        assert_eq!(
+            state
+                .ui
+                .supervision
+                .as_ref()
+                .and_then(|panel| panel.input.as_ref())
+                .map(|input| input.text.as_str()),
+            Some("evidence missing")
+        );
+        assert_eq!(state.ui.input, "你好");
+        assert!(
+            state
+                .ui
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.filter.is_empty())
+        );
+    }
+
+    #[test]
+    fn blind_lane_wall_time_is_rendered_at_the_scale_an_operator_reads() {
+        for (milliseconds, expected) in [
+            (0_u64, "0 ms"),
+            (999, "999 ms"),
+            (1_500, "1.5 s"),
+            (59_900, "59.9 s"),
+            (95_000, "1m 35s"),
+        ] {
+            assert_eq!(
+                crate::tui::modal::humanized_wall_time_for_test(milliseconds),
+                expected
+            );
+        }
+    }
+
     #[test]
     fn command_accepted_does_not_synthesize_success() {
         let client = FakeCoreClient {
@@ -4806,10 +6005,10 @@ mod tests {
             "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
         ));
         assert!(manifest.contains(
-            "catalog_en = \"58da490e27baa1e4dfed3fb9b6dcce5341ed4f4cd6032660acec00047a3d1248\""
+            "catalog_en = \"dd6c31b174e3ca2049c2f9927b75b6adec1da60c15e18d96dacd9f778d457882\""
         ));
         assert!(manifest.contains(
-            "catalog_zh_cn = \"902816ae05e6df0f69a67697ac3adcc94f7b4f616286d46e83955f3bc95ca8f2\""
+            "catalog_zh_cn = \"32bcf8c3d3400bd27f9f93f3e9805437ab234429481710d40fc1d0a4b5ab2430\""
         ));
         assert!(manifest.contains("min_core_version = \"0.3.4\""));
         assert!(

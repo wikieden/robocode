@@ -7,6 +7,7 @@ mod client;
 mod command_palette;
 mod composer;
 mod composer_buffer;
+mod decision;
 mod geometry;
 mod glyphs;
 mod i18n;
@@ -23,10 +24,6 @@ mod modal;
 mod ops_screen;
 mod palette;
 mod panel;
-// The confirm-on-fact machine is wired into the event path and exercised by
-// tests. Its `begin`/`outcome`/`pending` accessors become production callers
-// when the supervision decision surfaces land.
-#[allow(dead_code)]
 mod pending;
 mod preferences;
 mod preview;
@@ -41,9 +38,10 @@ mod side_screen;
 #[allow(dead_code)]
 mod state;
 mod statusbar;
-// Pure supervision intent builders, mirroring `lane`. No production caller
-// dispatches them yet; the decision surfaces are the next stage.
-#[allow(dead_code)]
+// Pure supervision intent builders, mirroring `lane`. The merge-gate, review,
+// conflict, and revert builders are dispatched from the supervision decision
+// overlay; the handoff/contract/dependency builders stay unused until the
+// creation flows land and carry their own local allowance.
 mod supervision;
 #[allow(dead_code)]
 mod terminal;

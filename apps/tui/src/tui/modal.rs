@@ -1,9 +1,15 @@
 use super::{
     canvas::Frame,
     command_palette::render_command_suggestions,
+    decision::{
+        DecisionPick, MAX_TRUST_TEXT_CHARS, SupervisionTarget, TextRequirement, available_actions,
+        decision_picks, find_gate, find_review, pending_conflict,
+    },
+    glyphs::Glyph,
     jump::JumpIndex,
     keymap::OverlayKind,
     panel::panel,
+    pending::SupervisionOutcome,
     preferences::{
         PreferenceValue, SettingsPanel, UI_PREFERENCE_PERSISTENCE_CAPABILITY,
         color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
@@ -57,6 +63,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::CommandPalette => "overlay.title.commands",
             OverlayKind::Board => "overlay.title.board",
             OverlayKind::Decisions => "overlay.title.decisions",
+            OverlayKind::SupervisionDecision => "overlay.title.supervision",
             OverlayKind::ContextHelp => "overlay.title.context_help",
             OverlayKind::ExitConfirm => "overlay.title.exit",
             OverlayKind::Approval => "overlay.title.approval",
@@ -65,13 +72,13 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         };
         let title = super::i18n::text(state, title_key);
         let overlay_height = match overlay.kind {
-            OverlayKind::Approval | OverlayKind::Decisions => 14,
+            OverlayKind::Approval | OverlayKind::Decisions | OverlayKind::SupervisionDecision => 14,
             _ => 10,
         };
-        let hint = if overlay.kind == OverlayKind::GlobalJump {
-            super::i18n::text(state, "overlay.global_hint")
-        } else {
-            super::i18n::text(state, "overlay.close_hint")
+        let hint = match overlay.kind {
+            OverlayKind::GlobalJump => super::i18n::text(state, "overlay.global_hint"),
+            OverlayKind::SupervisionDecision => super::i18n::text(state, "supervision.hint"),
+            _ => super::i18n::text(state, "overlay.close_hint"),
         };
         let block = panel(
             &title,
@@ -196,7 +203,7 @@ fn blind_cost_rows(state: &TuiState, lane: &viden_core::AgentLaneRecord) -> Vec<
             "lane.run_stats",
             &[
                 ("runs", &stats.run_count.to_string()),
-                ("wall", &stats.wall_time_ms.to_string()),
+                ("wall", &humanized_wall_time(stats.wall_time_ms)),
                 ("diff", &stats.diff_bytes.to_string()),
                 ("exit", &exit),
             ],
@@ -205,9 +212,47 @@ fn blind_cost_rows(state: &TuiState, lane: &viden_core::AgentLaneRecord) -> Vec<
     rows
 }
 
+/// Renders a Core-measured wall time at the scale an operator reads.
+///
+/// The measurement itself is never rounded away: sub-second runs keep their
+/// millisecond precision, longer runs are shown in seconds with one decimal, and
+/// runs past a minute get minutes plus whole seconds. The unit is carried in the
+/// value rather than the catalog template because `ms`/`s`/`m` are SI symbols
+/// and must not change with the interface locale.
+fn humanized_wall_time(milliseconds: u64) -> String {
+    if milliseconds < 1_000 {
+        return format!("{milliseconds} ms");
+    }
+    let seconds = milliseconds as f64 / 1_000.0;
+    if milliseconds < 60_000 {
+        return format!("{seconds:.1} s");
+    }
+    format!(
+        "{}m {}s",
+        milliseconds / 60_000,
+        (milliseconds % 60_000) / 1_000
+    )
+}
+
+/// Test-only access to the overlay body so sibling modules can assert on the
+/// rendered rows without re-implementing the row builders.
+#[cfg(test)]
+pub(super) fn overlay_rows_for_test(state: &TuiState, kind: OverlayKind) -> Vec<String> {
+    global_overlay_rows(state, kind, "")
+}
+
+#[cfg(test)]
+pub(super) fn humanized_wall_time_for_test(milliseconds: u64) -> String {
+    humanized_wall_time(milliseconds)
+}
+
 fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec<String> {
     let mut rows = match kind {
         OverlayKind::GlobalJump => return global_jump_rows(state, filter),
+        // The supervision overlay owns its keys: number keys pick an action and
+        // other printable characters keep editing the composer, so it has no
+        // text filter to apply here.
+        OverlayKind::SupervisionDecision => return supervision_decision_rows(state),
         OverlayKind::Lane => state
             .runtime
             .lanes
@@ -272,30 +317,29 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
     rows
 }
 
+/// The Decision Center row list.
+///
+/// The first rows are the pickable decisions, in the same order as
+/// [`decision_picks`], so `overlay.selected` indexes one honestly. Everything
+/// after them is context — recovery hints, the in-flight command, and Core
+/// errors — and carries no action.
 fn decision_center_rows(state: &TuiState) -> Vec<String> {
     let projection =
         CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
-    let mut rows = projection
-        .approval_actions
-        .iter()
-        .map(|approval| {
-            let title = projection
-                .approvals
-                .iter()
-                .find(|request| request.id == approval.request_id)
-                .map_or("approval", |request| request.title.as_str());
-            format!(
-                "APPROVAL {} · {} · {:?} · AUDIT {}",
-                approval.request_id, title, approval.expiry, approval.audit_id
-            )
+    let selected = state
+        .ui
+        .overlay
+        .as_ref()
+        .filter(|overlay| overlay.kind == OverlayKind::Decisions)
+        .map_or(0, |overlay| overlay.selected);
+    let mut rows = decision_picks(&state.runtime, state.supervision.pending().is_some())
+        .into_iter()
+        .enumerate()
+        .map(|(index, pick)| {
+            let marker = if index == selected { ">" } else { " " };
+            decision_pick_row(state, &projection, marker, &pick)
         })
         .collect::<Vec<_>>();
-    rows.extend(projection.merge_gates.iter().map(|gate| {
-        format!(
-            "GATE {} · {:?} · {:?}",
-            gate.gate_id, gate.status, gate.decision
-        )
-    }));
     rows.extend(projection.recovery_actions.iter().map(|recovery| {
         format!(
             "RECOVERY {} · {} · {}",
@@ -316,7 +360,270 @@ fn decision_center_rows(state: &TuiState) -> Vec<String> {
             .iter()
             .map(|error| format!("ERROR {}", error.message)),
     );
+    // Footer: the in-flight supervision decision and what dismissing it does
+    // and does not do. Rendered after the picks so it never shifts an index.
+    rows.extend(supervision_outcome_row(state));
+    if state.supervision.pending().is_some() {
+        rows.push(super::i18n::text(state, "supervision.dismiss.hint"));
+    }
     rows
+}
+
+/// Renders one pickable Decision Center row.
+///
+/// Status glyphs come from the registered TUI vocabulary only (`⏸` gate, `◌`
+/// awaiting, `⚠` conflict); the terminal layer rewrites them for ASCII-only
+/// terminals. Nothing here is emoji and nothing is a private symbol.
+fn decision_pick_row(
+    state: &TuiState,
+    projection: &CockpitProjection,
+    marker: &str,
+    pick: &DecisionPick,
+) -> String {
+    match pick {
+        DecisionPick::Approval { request_id } => {
+            let action = projection
+                .approval_actions
+                .iter()
+                .find(|action| &action.request_id == request_id);
+            let title = projection
+                .approvals
+                .iter()
+                .find(|request| &request.id == request_id)
+                .map_or("approval", |request| request.title.as_str());
+            format!(
+                "{marker} APPROVAL {request_id} · {title} · {:?} · AUDIT {}",
+                action.map(|action| action.expiry),
+                action.map_or("-", |action| action.audit_id.as_str())
+            )
+        }
+        DecisionPick::Supervision(SupervisionTarget::Gate { gate_id }) => {
+            let gate = projection
+                .merge_gates
+                .iter()
+                .find(|gate| &gate.gate_id == gate_id);
+            super::i18n::translate(
+                state,
+                "decisions.row.gate",
+                &[
+                    ("marker", marker),
+                    ("glyph", Glyph::Gate.unicode()),
+                    ("gate", gate_id),
+                    ("status", &format!("{:?}", gate.map(|gate| gate.status))),
+                    (
+                        "decision",
+                        &format!("{:?}", gate.and_then(|gate| gate.decision)),
+                    ),
+                ],
+            )
+        }
+        DecisionPick::Supervision(SupervisionTarget::Review { review_id }) => {
+            let review = projection
+                .review_requests
+                .iter()
+                .find(|review| &review.review_id == review_id);
+            super::i18n::translate(
+                state,
+                "decisions.row.review",
+                &[
+                    ("marker", marker),
+                    ("glyph", Glyph::Wait.unicode()),
+                    ("review", review_id),
+                    ("gate", review.map_or("-", |review| review.gate_id.as_str())),
+                    (
+                        "requester",
+                        review.map_or("-", |review| review.requester_lane_id.as_str()),
+                    ),
+                    (
+                        "reviewer",
+                        review.map_or("-", |review| review.reviewer_lane_id.as_str()),
+                    ),
+                ],
+            )
+        }
+        DecisionPick::DismissSupervision => format!(
+            "{marker} {}",
+            super::i18n::text(state, "supervision.action.dismiss")
+        ),
+        DecisionPick::Supervision(SupervisionTarget::Bounce { gate_id }) => {
+            let bounce = projection
+                .conflict_bounces
+                .iter()
+                .find(|bounce| &bounce.gate_id == gate_id);
+            super::i18n::translate(
+                state,
+                "decisions.row.conflict",
+                &[
+                    ("marker", marker),
+                    ("glyph", Glyph::Warning.unicode()),
+                    (
+                        "bounce",
+                        bounce.map_or("-", |bounce| bounce.bounce_id.as_str()),
+                    ),
+                    ("gate", gate_id),
+                    (
+                        "lane",
+                        bounce.map_or("-", |bounce| bounce.original_lane_id.as_str()),
+                    ),
+                ],
+            )
+        }
+    }
+}
+
+/// The supervision decision overlay body.
+///
+/// Every row is derived from the full Core record re-read on this frame, not
+/// from the compact Decision Center row that opened the overlay. An action list
+/// that comes back empty is rendered as an explicit sentence rather than a blank
+/// panel, so "no decision applies" never looks like a failed render.
+fn supervision_decision_rows(state: &TuiState) -> Vec<String> {
+    let Some(panel) = state.ui.supervision.as_ref() else {
+        return Vec::new();
+    };
+    let mut rows = supervision_target_rows(state, &panel.target);
+    let actions = available_actions(
+        &state.runtime,
+        &panel.target,
+        state.supervision.pending().is_some(),
+    );
+    if actions.is_empty() {
+        rows.push(super::i18n::text(state, "supervision.no_actions"));
+    }
+    for (index, action) in actions.iter().enumerate() {
+        let marker = if index == panel.focus { ">" } else { " " };
+        rows.push(format!(
+            "{marker} {} {}",
+            index + 1,
+            super::i18n::text(state, action.label_key())
+        ));
+        if action.is_irreversible() {
+            rows.push(super::i18n::translate(
+                state,
+                "supervision.irreversible",
+                &[("glyph", Glyph::Warning.unicode())],
+            ));
+        }
+    }
+    if let Some(input) = panel.input.as_ref() {
+        let key = match input.action.text_requirement() {
+            TextRequirement::Required => "supervision.input.required",
+            TextRequirement::Optional | TextRequirement::None => "supervision.input.optional",
+        };
+        rows.push(super::i18n::translate(
+            state,
+            key,
+            &[
+                ("count", &input.text.chars().count().to_string()),
+                ("limit", &MAX_TRUST_TEXT_CHARS.to_string()),
+            ],
+        ));
+        rows.push(format!("> {}", input.text));
+    }
+    if let Some(notice) = panel.notice.as_ref() {
+        rows.push(super::i18n::translate(
+            state,
+            notice,
+            &[("limit", &MAX_TRUST_TEXT_CHARS.to_string())],
+        ));
+    }
+    rows.extend(supervision_outcome_row(state));
+    if state.supervision.pending().is_some() {
+        rows.push(super::i18n::text(state, "supervision.dismiss.hint"));
+    }
+    rows
+}
+
+fn supervision_target_rows(state: &TuiState, target: &SupervisionTarget) -> Vec<String> {
+    match target {
+        SupervisionTarget::Gate { gate_id } | SupervisionTarget::Bounce { gate_id } => {
+            let Some(gate) = find_gate(&state.runtime, gate_id) else {
+                return vec![super::i18n::text(state, "supervision.error.record_missing")];
+            };
+            let conflict = pending_conflict(&state.runtime, gate);
+            vec![
+                super::i18n::translate(
+                    state,
+                    "supervision.header.gate",
+                    &[
+                        ("glyph", Glyph::Gate.unicode()),
+                        ("gate", &gate.gate_id),
+                        ("status", &format!("{:?}", gate.status)),
+                        ("task", &gate.task_id),
+                    ],
+                ),
+                super::i18n::translate(
+                    state,
+                    "supervision.context.gate",
+                    &[
+                        ("evidence", &gate.evidence_ids.len().to_string()),
+                        (
+                            "validator",
+                            gate.validator
+                                .as_ref()
+                                .map_or("-", |validator| validator.review_request_id.as_str()),
+                        ),
+                        (
+                            "conflict",
+                            conflict.map_or("-", |conflict| conflict.bounce_id.as_str()),
+                        ),
+                    ],
+                ),
+            ]
+        }
+        SupervisionTarget::Review { review_id } => {
+            let Some(review) = find_review(&state.runtime, review_id) else {
+                return vec![super::i18n::text(state, "supervision.error.record_missing")];
+            };
+            vec![
+                super::i18n::translate(
+                    state,
+                    "supervision.header.review",
+                    &[
+                        ("glyph", Glyph::Wait.unicode()),
+                        ("review", &review.review_id),
+                        ("gate", &review.gate_id),
+                        ("requester", &review.requester_lane_id),
+                        ("reviewer", &review.reviewer_lane_id),
+                        ("status", &format!("{:?}", review.status)),
+                    ],
+                ),
+                super::i18n::translate(
+                    state,
+                    "supervision.context.review",
+                    &[
+                        ("evidence", &review.evidence_ids.len().to_string()),
+                        ("audit", &review.audit_id),
+                    ],
+                ),
+            ]
+        }
+    }
+}
+
+/// The outcome echo: pending, confirmed, or Core's own rejection reason.
+///
+/// The reason is rendered verbatim inside a localized frame. It is Core's
+/// sentence, so it is never rewritten, re-worded, or replaced with a local guess.
+pub(super) fn supervision_outcome_row(state: &TuiState) -> Option<String> {
+    match state.supervision.outcome() {
+        SupervisionOutcome::Idle => None,
+        SupervisionOutcome::Pending { command_id } => Some(super::i18n::translate(
+            state,
+            "supervision.outcome.pending",
+            &[("glyph", Glyph::Wait.unicode()), ("command", command_id)],
+        )),
+        SupervisionOutcome::Confirmed => Some(super::i18n::translate(
+            state,
+            "supervision.outcome.confirmed",
+            &[("glyph", Glyph::Done.unicode())],
+        )),
+        SupervisionOutcome::Rejected { reason } => Some(super::i18n::translate(
+            state,
+            "supervision.outcome.rejected",
+            &[("glyph", Glyph::Fail.unicode()), ("reason", reason)],
+        )),
+    }
 }
 
 fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
@@ -1275,10 +1582,25 @@ mod tests {
 
         let rows = global_overlay_rows(&state, OverlayKind::Decisions, "").join("\n");
 
-        assert!(rows.contains("GATE gate_merge"));
+        // The fixture snapshot resolves to zh-CN. The record-kind token stays
+        // stable across locales the way the overlay titles do, so a Core gate id
+        // is always findable by the same label.
+        assert!(rows.contains("GATE 合并门 gate_merge"));
         assert!(rows.contains("Accepted"));
+        assert!(
+            rows.contains(Glyph::Gate.unicode()),
+            "gate rows must carry the registered pause glyph: {rows}"
+        );
+        assert!(
+            rows.starts_with('>'),
+            "the picked row must be marked: {rows}"
+        );
         assert!(rows.contains("RECOVERY lane-recover · detached · reattach"));
         assert!(rows.contains("COMMAND cmd-review · pending Core fact"));
+
+        state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::En;
+        let english = global_overlay_rows(&state, OverlayKind::Decisions, "").join("\n");
+        assert!(english.contains("GATE gate_merge"));
     }
 
     #[test]
@@ -1326,7 +1648,7 @@ mod tests {
         let mut frame = Frame::new(112, 40);
         render_overlays(&mut frame, &state, 0);
         let rendered = frame.to_string();
-        for expected in ["blind", "3 runs", "1500 ms", "900 B diff", "exit 2"] {
+        for expected in ["blind", "3 runs", "1.5 s", "900 B diff", "exit 2"] {
             assert!(
                 rendered.contains(expected),
                 "missing {expected}:\n{rendered}"

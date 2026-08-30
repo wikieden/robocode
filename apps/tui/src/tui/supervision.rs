@@ -55,6 +55,7 @@ pub(super) fn decide_review_intent(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn request_review_intent(
     review_id: impl Into<String>,
     gate_id: impl Into<String>,
@@ -73,6 +74,7 @@ pub(super) fn request_review_intent(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn create_handoff_intent(
     handoff_id: impl Into<String>,
     task_id: impl Into<String>,
@@ -93,6 +95,7 @@ pub(super) fn create_handoff_intent(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn confirm_contract_intent(
     contract_id: impl Into<String>,
     task_id: impl Into<String>,
@@ -109,6 +112,7 @@ pub(super) fn confirm_contract_intent(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn set_dependency_intent(
     dependency_id: impl Into<String>,
     task_id: impl Into<String>,

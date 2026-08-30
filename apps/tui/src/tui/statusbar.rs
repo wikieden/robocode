@@ -2,6 +2,7 @@ use super::{
     canvas::Frame,
     glyphs::Glyph,
     input::effective_input_mode,
+    modal::supervision_outcome_row,
     projection::{CockpitProjection, ContextPressure, CostVisibility},
     state::{TuiState, has_active_work},
     text::{pad, truncate},
@@ -91,6 +92,12 @@ pub(super) fn render_bottom_bar(frame: &mut Frame, state: &TuiState) {
     }
     if projection.pending_command.is_some() {
         pinned.push_str(" · CMD:pending Core fact");
+    }
+    // Supervision echo: the badge follows the decision even after its overlay is
+    // closed, so an in-flight decision is never invisible. Core's rejection
+    // reason travels verbatim inside the localized frame.
+    if let Some(outcome) = supervision_outcome_row(state) {
+        pinned.push_str(&format!(" · {outcome}"));
     }
     if frame.width >= 80 {
         pinned.push_str(" · Ctrl-K commands · Ctrl-C cancel · Esc back");

@@ -27,6 +27,9 @@ pub(super) enum OverlayKind {
     CommandPalette,
     Board,
     Decisions,
+    /// Merge-gate / review / conflict decision surface. Reached only by picking
+    /// a row in the Decision Center, so it has no global chord of its own.
+    SupervisionDecision,
     ContextHelp,
     ExitConfirm,
     Approval,

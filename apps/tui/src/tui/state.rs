@@ -12,7 +12,8 @@ use viden_types::{AgentNextAction, CapabilityId};
 pub(super) use super::pending::SupervisionMachine;
 pub(super) use super::ui_state::{
     AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
-    PendingNativeLane, ProviderAuthMode, ProviderOption, TuiEntry, TuiUiState,
+    PendingNativeLane, ProviderAuthMode, ProviderOption, SupervisionInput, SupervisionPanel,
+    TuiEntry, TuiUiState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

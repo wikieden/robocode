@@ -185,6 +185,41 @@ impl SupervisionMachine {
         }
     }
 
+    /// Stops attributing the in-flight command locally and frees the single
+    /// in-flight slot. Returns whether anything was pending.
+    ///
+    /// This is the escape for a stranded pending decision: a lost or never
+    /// published receipt would otherwise keep the slot occupied forever. It is
+    /// deliberately *not* a cancellation — Core owns the command and may still
+    /// apply it — so it settles nothing: no `Confirmed`, no `Rejected`, and no
+    /// locally composed reason. Because the correlation is dropped, a later
+    /// matching fact is no longer attributed to this client's decision, which is
+    /// the honest outcome: the operator asked to stop watching, not to undo.
+    pub(super) fn abandon(&mut self) -> bool {
+        if self.pending.take().is_none() {
+            return false;
+        }
+        self.outcome = SupervisionOutcome::Idle;
+        true
+    }
+
+    /// Clears a settled outcome back to `Idle`. Returns whether anything reset.
+    ///
+    /// Only `Confirmed` and `Rejected` reset. `Pending` is never auto-reset:
+    /// dropping a live correlation silently would let the next fact confirm the
+    /// wrong decision, so releasing a pending slot always goes through
+    /// [`Self::abandon`] as an explicit operator action.
+    pub(super) fn reset_if_settled(&mut self) -> bool {
+        if !matches!(
+            self.outcome,
+            SupervisionOutcome::Confirmed | SupervisionOutcome::Rejected { .. }
+        ) {
+            return false;
+        }
+        self.outcome = SupervisionOutcome::Idle;
+        true
+    }
+
     pub(super) fn outcome(&self) -> &SupervisionOutcome {
         &self.outcome
     }
@@ -535,6 +570,93 @@ mod tests {
                 .is_ok(),
             "a settled decision must release the single in-flight slot"
         );
+    }
+
+    #[test]
+    fn abandon_clears_a_stranded_pending_decision_without_settling_it() {
+        let mut machine = SupervisionMachine::default();
+        machine
+            .begin(
+                "cmd-1",
+                SupervisionExpectation::MergeGate {
+                    gate_id: "gate-1".to_string(),
+                    status: MergeGateStatus::Accepted,
+                },
+            )
+            .expect("first command");
+        machine.observe_event(&accepted("cmd-1"));
+
+        assert!(machine.abandon());
+
+        // Abandoning is local attribution only: no confirmation, no rejection,
+        // and no invented Core reason.
+        assert_eq!(machine.outcome(), &SupervisionOutcome::Idle);
+        assert!(machine.pending().is_none());
+        assert!(!machine.abandon(), "abandoning twice is a no-op");
+
+        // The Core command was never cancelled, so its later fact must not be
+        // attributed to a decision this client stopped watching.
+        assert!(!machine.observe_event(&event(
+            9,
+            RuntimeEventKind::MergeGateUpdated {
+                gate: gate("gate-1", MergeGateStatus::Accepted)
+            }
+        )));
+        assert_eq!(machine.outcome(), &SupervisionOutcome::Idle);
+    }
+
+    #[test]
+    fn only_a_settled_outcome_resets_to_idle() {
+        let mut machine = SupervisionMachine::default();
+        assert!(!machine.reset_if_settled(), "idle is already idle");
+
+        machine
+            .begin(
+                "cmd-1",
+                SupervisionExpectation::Revert {
+                    gate_id: "gate-1".to_string(),
+                },
+            )
+            .expect("first command");
+        assert!(
+            !machine.reset_if_settled(),
+            "a pending decision is never auto-reset"
+        );
+        assert_eq!(
+            machine.outcome(),
+            &SupervisionOutcome::Pending {
+                command_id: "cmd-1".to_string()
+            }
+        );
+
+        machine.observe_event(&accepted("cmd-1"));
+        machine.observe_event(&event(
+            2,
+            RuntimeEventKind::RevertRecorded {
+                revert: revert("gate-1"),
+            },
+        ));
+        assert_eq!(machine.outcome(), &SupervisionOutcome::Confirmed);
+        assert!(machine.reset_if_settled());
+        assert_eq!(machine.outcome(), &SupervisionOutcome::Idle);
+
+        machine
+            .begin(
+                "cmd-2",
+                SupervisionExpectation::Revert {
+                    gate_id: "gate-1".to_string(),
+                },
+            )
+            .expect("second command");
+        machine.observe_event(&event(
+            3,
+            RuntimeEventKind::CommandRejected {
+                command_id: "cmd-2".to_string(),
+                reason: "gate already reverted".to_string(),
+            },
+        ));
+        assert!(machine.reset_if_settled());
+        assert_eq!(machine.outcome(), &SupervisionOutcome::Idle);
     }
 
     #[test]

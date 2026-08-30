@@ -1,5 +1,6 @@
 use super::{
     composer_buffer::ComposerBuffer,
+    decision::{SupervisionAction, SupervisionTarget},
     keymap::{InputMode, OverlayKind},
     preferences::{ColorDepth, SettingsPanel},
 };
@@ -226,6 +227,43 @@ pub(super) enum Lens {
     Gallery,
 }
 
+/// TUI-local state of the supervision decision overlay.
+///
+/// Presentation only: it remembers which Core record the operator picked, which
+/// action row has focus, the reason/feedback line being typed, and the last
+/// local refusal. It never caches the record itself — actions and payloads are
+/// re-derived from `RuntimeViewState` on every frame and on every keypress, so a
+/// gate that changed status between render and Enter is decided on its current
+/// facts, not on the row that was drawn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SupervisionPanel {
+    pub(super) target: SupervisionTarget,
+    pub(super) focus: usize,
+    /// Set while the operator is typing the reason/feedback for `action`. `None`
+    /// means the action bar has focus.
+    pub(super) input: Option<SupervisionInput>,
+    /// Catalog key of the last local refusal (empty required reason, over-limit
+    /// text, no replayable actor). Cleared as soon as the operator acts again.
+    pub(super) notice: Option<String>,
+}
+
+impl SupervisionPanel {
+    pub(super) fn new(target: SupervisionTarget) -> Self {
+        Self {
+            target,
+            focus: 0,
+            input: None,
+            notice: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SupervisionInput {
+    pub(super) action: SupervisionAction,
+    pub(super) text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OverlayState {
     pub(super) kind: OverlayKind,
@@ -275,6 +313,8 @@ pub(super) struct TuiUiState {
     pub(super) interaction_panel: Option<InteractionPanel>,
     pub(super) input_mode: InputMode,
     pub(super) overlay: Option<OverlayState>,
+    /// Present exactly while `overlay` is `OverlayKind::SupervisionDecision`.
+    pub(super) supervision: Option<SupervisionPanel>,
     pub(super) idle_ctrl_c_armed: bool,
     pub(super) color_depth: ColorDepth,
     pub(super) preference_diagnostics: Vec<String>,
@@ -306,6 +346,7 @@ impl Default for TuiUiState {
             interaction_panel: None,
             input_mode: InputMode::Normal,
             overlay: None,
+            supervision: None,
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,
             preference_diagnostics: Vec::new(),
