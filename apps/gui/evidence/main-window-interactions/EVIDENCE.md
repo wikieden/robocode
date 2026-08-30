@@ -9,13 +9,17 @@ model selectors together with the cockpit statusbar, the Settings overlay
 behind the activity rail's gear, D11 project intake, and the D12 merge-gate
 accept / bounce action bar with its mandatory reason input.
 
+Extended on `claude/gui-supervision-debts` with the D2 review verdict
+(`RuntimeCommand::DecideReview`, closing GUI-CORE-011) and the D10 cost-blind
+lane marker with the bounded run facts Core publishes for it.
+
 ## What the harness is
 
 [`qa.html`](qa.html) plus [`qa.ts`](qa.ts) render exactly one screenshot state
 per `?state=` value. The page calls **only exported production render
 functions** — `renderD1Cockpit`, `renderD6Recovery` (through the cockpit's own
-work surface), `renderD11Intake`, `renderD12IntegrationGate`, and the
-components they mount. Nothing here reimplements a control, a label, or a
+work surface), `renderD11Intake`, `renderD12IntegrationGate`,
+`renderD2Decisions`, `renderD10LaneMonitor`, and the components they mount. Nothing here reimplements a control, a label, or a
 layout, so a regression in `src/**` shows up in the capture instead of being
 masked by a harness copy of the UI.
 
@@ -43,6 +47,9 @@ typechecks the harness against the production render signatures.
 | --- | --- | --- |
 | `d1*`, `settings*`, `d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | the shared D1 fixture the vitest suites mount |
 | `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | **generated** by `tests/capture_projections.rs` |
+| `d2-review-*` | [`../gui-screen-restore/projections/d2-review.json`](../gui-screen-restore/projections/d2-review.json) | **generated** by `tests/capture_projections.rs` — the decision queue with the pending review selected |
+| `d2-review-confirmed` | [`../gui-screen-restore/projections/d2-review-decided.json`](../gui-screen-restore/projections/d2-review-decided.json) | **generated** by the same test — the queue Core leaves behind after `decide_review` |
+| `d10-blind*` | [`../gui-screen-restore/projections/d10.json`](../gui-screen-restore/projections/d10.json) | **generated** by `tests/capture_projections.rs` |
 | `d11`, `d11-recent` | mirrors the fixtures in `tests/d11_intake.spec.ts`, plus the hand-written `RecentWorkResult` below for the history panel | hand-written; D11 has no generated capture projection yet |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | the shared D1 fixture plus a hand-written `RecentWorkResult` | hand-written; `frontend-contract-v1` has no canonical recent-work capture projection yet, so the shapes mirror `tests/recent_work.rs` and `tests/project_picker.spec.ts` |
 
@@ -59,6 +66,20 @@ W4 gave the D12 gate actions typed availability codes; the committed
 `d12.json` now carries `missing_evidence` on accept and `no_actor` on reject,
 which is what `d12-blocked` captures.
 
+The same test now also emits `d2-review.json` (the queue with the pending
+review selected, so the live accept/reject bar and the reviewer-note field come
+from a real Core review record), `d2-review-decided.json` (the same queue with
+that review settled — status `accepted`, Core's fresh decision audit id, the
+reviewer note stored on the record), and records bounded run facts on the
+`multi-lane.json` fixture's terminal lane, so `d10.json` carries a cost-blind
+lane with run stats beside a metered lane that has none.
+
+`d2-review-decided.json` exists because confirmation comes *from*
+`ReviewRequestUpdated`: by the time the outcome is confirmed the review is
+already settled, so a confirmed receipt sitting over a still-pending row would
+be a state production can never reach. The harness therefore hands the intent
+result the projection Core would actually have republished for that outcome.
+
 ### Deltas written on top of a source
 
 Every value the harness adds is a delta on one of the sources above, and each
@@ -72,6 +93,9 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d6-actions`, `d6-error` | a stopped session whose `restart` carries a session id and `close_lane` a lane id | the `STOPPED` fixture in `tests/d6_recovery.spec.ts` |
 | `d12-actions` | required evidence recorded, validator satisfied, both actions available with a `null` code | the `DECIDABLE` fixture in `tests/d12_integration_gate.spec.ts` |
 | `d11` | a probed `/workspace/demo` rust project with a credential-locked provider | the probed-project fixture in `tests/d11_intake.spec.ts` |
+| `d2-review-*` | the intent result the host returns (`pending`, `confirmed`, or `rejected` with Core's own refusal sentence); the reviewer note is typed through the production input listener. `confirmed` swaps in the generated decided projection; `pending` and `rejected` keep the pending one, because Core has not answered yet in the first case and refused the command outright in the second | the outcome states asserted in `tests/d2_decisions.rs` and `tests/d2_decisions.spec.ts` |
+| `d2-review-blocked` | both verdicts forced unavailable with `D2-NO-REVIEWER-ACTOR` | `d2_review_actions_fail_closed_with_a_local_code_when_no_actor_is_derivable` in `tests/d2_decisions.rs` |
+| `d10-blind-unobserved` | `runStats` cleared on the blind lane | `d10_leaves_run_stats_absent_for_a_blind_lane_core_never_observed_running` in `tests/d10_lane_monitor.rs` |
 | `d11`, `d11-recent` | the shared two-project `RecentWorkResult` handed to the screen's recent-work port | the loaded-rows fixture in `tests/d11_intake.spec.ts` |
 | `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | a two-project `RecentWorkResult` whose timestamps are offsets from the frozen clock, so the rendered ages are stable. The open root is included on purpose — the picker must drop it from Recent rather than offer a switch to the project already open | the `RecentWorkLoaded` payloads asserted in `tests/recent_work.rs` |
@@ -116,6 +140,12 @@ All URLs share the prefix
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | the same gate with Accept unavailable, naming `missing_evidence`, and the reason input disabled |
 | `d11` | `…/qa.html?state=d11` | the project intake screen with the probed project and the provider warning |
 | `d11-recent` | `…/qa.html?state=d11-recent` | the same intake screen scrolled to its Recent work panel, showing the Core `QueryRecentWork` rows — name, relative age, session count, canonical root — instead of the retired static unavailability sentence |
+| `d2-review-pending` | `…/qa.html?state=d2-review-pending` | the pending review selected with Accept review / Reject review enabled, the typed reviewer note, and the receipt saying the verdict was sent and Core has not recorded it yet |
+| `d2-review-confirmed` | `…/qa.html?state=d2-review-confirmed` | the same review after Core recorded the verdict, coherent end to end: the queue row reads `accepted`, the command-bar count drops to 1, the audit sink names the decision's own audit id, both verdicts are disabled under `D2-REVIEW-SETTLED`, the note is cleared and disabled, and the confirmed receipt sits below |
+| `d2-review-rejected` | `…/qa.html?state=d2-review-rejected` | the same review after Core refused the verdict, with Core's own sentence rendered verbatim as an alert and the note preserved |
+| `d2-review-blocked` | `…/qa.html?state=d2-review-blocked` | both verdicts disabled and named by `D2-NO-REVIEWER-ACTOR`, the reason spelled out once below the bar, and the reviewer note disabled — never enabled-and-inert and never silently hidden |
+| `d10-blind` | `…/qa.html?state=d10-blind` | the cost-blind terminal lane with its `cost-blind route` marker and the four bounded run facts (wall time, runs, applied diff, last exit), beside a metered ACP lane carrying none of them |
+| `d10-blind-unobserved` | `…/qa.html?state=d10-blind-unobserved` | the same blind lane before Core observed any run: the marker plus the sentence saying no run was observed, and no zeroed facts |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -179,9 +209,39 @@ the switch confirmation naming the replacement semantics and impact counts).
 | [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
 | [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
 
+## Supervision-debt captures
+
+Captured 2026-08-30 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4173, then
+visually reviewed (all eight sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d2-review-pending-1440x900-dark-en.png](d2-review-pending-1440x900-dark-en.png) | d2-review-pending | 1440x900 | dark | en |
+| [d2-review-confirmed-1440x900-dark-en.png](d2-review-confirmed-1440x900-dark-en.png) | d2-review-confirmed | 1440x900 | dark | en |
+| [d2-review-rejected-1440x900-dark-en.png](d2-review-rejected-1440x900-dark-en.png) | d2-review-rejected | 1440x900 | dark | en |
+| [d2-review-blocked-1440x900-dark-en.png](d2-review-blocked-1440x900-dark-en.png) | d2-review-blocked | 1440x900 | dark | en |
+| [d10-blind-1440x900-dark-en.png](d10-blind-1440x900-dark-en.png) | d10-blind | 1440x900 | dark | en |
+| [d10-blind-unobserved-1440x900-dark-en.png](d10-blind-unobserved-1440x900-dark-en.png) | d10-blind-unobserved | 1440x900 | dark | en |
+| [d2-review-confirmed-1440x900-light-zh-CN.png](d2-review-confirmed-1440x900-light-zh-CN.png) | d2-review-confirmed | 1440x900 | light | zh-CN |
+| [d10-blind-1440x900-light-zh-CN.png](d10-blind-1440x900-light-zh-CN.png) | d10-blind | 1440x900 | light | zh-CN |
+
+Both `d2-review-confirmed` captures were retaken on 2026-08-30 after the
+harness began serving the generated decided projection for that outcome; the
+earlier pair showed a confirmed receipt over a still-pending row, which is not a
+state production can reach.
+
+The two light/`zh-CN` captures are the locale and skin proof for both screens:
+every added label — the reviewer-note caption, the three outcome sentences, the
+cost-blind marker, and the four run-fact names — is translated, and neither
+screen ships a palette of its own.
+
 ## Known limitation
 
 The authorized Browser runtime renders and verifies these pages but cannot
 write PNG files, so this directory holds the reproducible harness rather than
 committed images until an operator captures them. `tools/capture-d1-visual.sh`
-deliberately stops at the same boundary.
+deliberately stops at the same boundary. The images listed above were captured
+by an operator running headless Chrome directly with the flags recorded beside
+each table.

@@ -25,6 +25,16 @@ export interface D10Evidence {
   summary: string;
 }
 
+export interface D10RunStats {
+  /** Humanized on the host, so every frontend reads the same duration. */
+  wallTime: string;
+  wallTimeMs: number;
+  runCount: number;
+  diffBytes: number;
+  /** `null` is Core's own best-effort absence, rendered as unknown. */
+  lastExitCode: number | null;
+}
+
 export interface D10Lane {
   id: string;
   projectId: string | null;
@@ -42,6 +52,11 @@ export interface D10Lane {
   evidence: D10Evidence[];
   tokenLimit: number | null;
   costLimitMicroUsd: number | null;
+  /** `metered` or `blind`, from Core's `AgentRoute::cost_meterability`. */
+  costMeterability: string;
+  /** Bounded process facts for a cost-blind lane; `null` when Core observed
+   * no run. Absence is absence: it is never rendered as a measured zero. */
+  runStats: D10RunStats | null;
 }
 
 export interface D10LaneMonitorProjection {
@@ -77,6 +92,15 @@ const COPY: Record<Locale, Copy> = {
     noProgress: "no Core task",
     noLanes: "Core published no Lane.",
     decide: "Open Decision Center",
+    blind: "cost-blind route",
+    blindHint:
+      "Core sees no provider exchange on this route, so it publishes bounded run facts instead of a token or dollar figure.",
+    runsUnobserved: "Core has observed no run on this lane yet.",
+    wallTime: "wall time",
+    runCount: "runs",
+    diffBytes: "applied diff",
+    exitCode: "last exit",
+    exitCodeUnknown: "unknown",
     gate_full: "full gate · per-call interception",
     gate_cooperative: "cooperative · advisory plus worktree fence",
     gate_containment: "containment · worktree fence and exit diff only",
@@ -93,6 +117,14 @@ const COPY: Record<Locale, Copy> = {
     noProgress: "无 Core 任务",
     noLanes: "Core 未发布任何 Lane。",
     decide: "打开决策中心",
+    blind: "成本不可计量路由",
+    blindHint: "Core 在该路由上看不到任何模型调用，因此只发布有界的运行事实，而不是 token 或金额。",
+    runsUnobserved: "Core 尚未在该 Lane 上观测到任何运行。",
+    wallTime: "累计耗时",
+    runCount: "运行次数",
+    diffBytes: "已应用 diff",
+    exitCode: "最近退出码",
+    exitCodeUnknown: "未知",
     gate_full: "强门控 · 逐调用拦截",
     gate_cooperative: "半合作 · 建议性 + worktree 兜底",
     gate_containment: "围栏兜底 · 仅 worktree + 退出 diff",
@@ -167,6 +199,52 @@ export function renderD10LaneMonitor(
     }
 
     card.append(head, meta, progress);
+
+    if (lane.costMeterability === "blind") {
+      // The marker is a Core fact, not a warning badge: it says this lane's
+      // cost is unobservable, which is why the row below carries process facts
+      // instead of a token or dollar figure.
+      const cost = document.createElement("div");
+      cost.className = "d10-cost";
+      cost.dataset.d10Meterability = "blind";
+      const marker = document.createElement("span");
+      marker.className = "d10-blind";
+      marker.title = copy.blindHint;
+      marker.textContent = copy.blind;
+      cost.append(marker);
+
+      if (lane.runStats) {
+        const stats = lane.runStats;
+        const facts: [string, string][] = [
+          [copy.wallTime, stats.wallTime],
+          [copy.runCount, String(stats.runCount)],
+          [copy.diffBytes, `${stats.diffBytes} B`],
+          [
+            copy.exitCode,
+            // A missing exit code is labelled, never defaulted to 0: Core
+            // publishes `null` for a force-kill, a still-running process, or a
+            // tmux session with no exit-code channel.
+            stats.lastExitCode === null ? copy.exitCodeUnknown : String(stats.lastExitCode),
+          ],
+        ];
+        for (const [name, value] of facts) {
+          const fact = document.createElement("span");
+          fact.className = "d10-runfact";
+          fact.dataset.d10RunFact = name;
+          fact.textContent = `${name} ${value}`;
+          cost.append(fact);
+        }
+      } else {
+        // Absence is absence. An unobserved lane must not be drawn as a
+        // measured zero, which is a different Core fact.
+        const none = document.createElement("span");
+        none.className = "d10-runfact d10-muted";
+        none.dataset.d10RunStats = "none";
+        none.textContent = copy.runsUnobserved;
+        cost.append(none);
+      }
+      card.append(cost);
+    }
 
     for (const entry of lane.evidence) {
       const row = document.createElement("p");

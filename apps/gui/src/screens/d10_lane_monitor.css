@@ -167,3 +167,25 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* Cost-blind lanes: Core's meterability marker plus the bounded run facts it
+   publishes in place of a cost figure it cannot produce. */
+.d10-cost {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.d10-blind {
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--warning);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-full);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-runfact {
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}

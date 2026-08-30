@@ -84,7 +84,14 @@ export interface D2DecisionsProjection {
 export type D2Intent =
   | { type: "select"; id: string }
   | { type: "respond_approval"; requestId: string; choice: string; feedback: string | null }
-  | { type: "decide_contract"; contractId: string; accept: boolean };
+  | { type: "decide_contract"; contractId: string; accept: boolean }
+  | { type: "decide_review"; reviewId: string; accept: boolean; feedback: string | null };
+
+/// Core's own cap on reviewer prose (`validate_trust_text`, 500 chars), which
+/// the host mirrors as `D2_REVIEW_FEEDBACK_MAX_CHARS`. Over-limit text is
+/// refused rather than truncated, so a half-sent note can never be attributed
+/// to the reviewer.
+export const D2_REVIEW_FEEDBACK_MAX_CHARS = 500;
 
 export interface D2IntentResult {
   projection: D2DecisionsProjection;
@@ -123,6 +130,16 @@ const COPY: Record<Locale, Copy> = {
     confirm_contract: "Confirm contract",
     reject_contract: "Reject contract",
     planBlocked: "Plan mode blocks mutating decisions.",
+    reviewFeedbackLabel: "Reviewer note (optional)",
+    reviewFeedbackPlaceholder: "What the reviewer wants the origin Lane to know",
+    reviewFeedbackTooLong:
+      "The reviewer note is limited to {max} characters. Shorten it; it is never truncated for you.",
+    outcome_pending: "Sent. Waiting for Core to record the verdict.",
+    outcome_confirmed: "Core recorded the verdict.",
+    outcome_rejected: "Core refused this decision.",
+    "D2-NO-REVIEWER-ACTOR":
+      "Core published no independent reviewer identity for this review, so this client cannot decide it.",
+    "D2-REVIEW-SETTLED": "Core already settled this review; a verdict is recorded once.",
     "d2.contract.noPendingFact":
       "Core records decided contracts only; there is no pending-confirmation fact.",
     "d2.context.noStructuredDiff":
@@ -151,6 +168,14 @@ const COPY: Record<Locale, Copy> = {
     confirm_contract: "确认契约",
     reject_contract: "驳回契约",
     planBlocked: "Plan 模式阻止一切变更类决策。",
+    reviewFeedbackLabel: "评审意见（可选）",
+    reviewFeedbackPlaceholder: "评审者希望源 Lane 知道的内容",
+    reviewFeedbackTooLong: "评审意见上限为 {max} 个字符。请自行精简；系统不会替你截断。",
+    outcome_pending: "已发送，等待 Core 记录裁决。",
+    outcome_confirmed: "Core 已记录该裁决。",
+    outcome_rejected: "Core 拒绝了该决策。",
+    "D2-NO-REVIEWER-ACTOR": "Core 未为该评审发布独立评审方身份，本客户端无法代为裁决。",
+    "D2-REVIEW-SETTLED": "Core 已裁决该评审；裁决只记录一次。",
     "d2.contract.noPendingFact": "Core 只记录已决契约，没有「待确认」这一事实。",
     "d2.context.noStructuredDiff": "Core 只提供不透明入参预览，结构化 diff 行不可用。",
     empty: "Core 当前没有等你处理的决策。",
@@ -171,15 +196,50 @@ export function renderD2Decisions(
   let filter = "all";
   let busy = false;
   const copy = COPY[locale];
+  /// The ordered Core receipt for the last decision, or a local refusal. Never
+  /// a locally invented success: only `outcome.state` says what Core recorded.
+  let outcome: { state: string; reason: string | null } | null = null;
+  /// Reviewer prose draft. It travels with the command and is never persisted
+  /// client-side; Core stores it on the review record.
+  let reviewFeedback = "";
 
   const dispatch = (intent: D2Intent): void => {
     if (busy) return;
+    if (intent.type === "decide_review") {
+      // Mirror Core's cap locally so an over-limit note is refused before it
+      // becomes a command Core would have to reject.
+      const note = (intent.feedback ?? "").trim();
+      if ([...note].length > D2_REVIEW_FEEDBACK_MAX_CHARS) {
+        outcome = {
+          state: "rejected",
+          reason: label(copy, "reviewFeedbackTooLong").replace(
+            "{max}",
+            String(D2_REVIEW_FEEDBACK_MAX_CHARS),
+          ),
+        };
+        render();
+        return;
+      }
+    }
     busy = true;
+    outcome = intent.type === "select" ? null : { state: "pending", reason: null };
     render();
     void send(intent)
       .then((result) => {
         // Success is rendered only from the projection Core confirmed.
         projection = result.projection;
+        outcome = intent.type === "select" ? null : result.outcome;
+        if (intent.type === "decide_review" && result.outcome.state === "confirmed") {
+          reviewFeedback = "";
+        }
+      })
+      .catch((error: unknown) => {
+        // The host refused before the wire (no actor, settled review, a verdict
+        // already in flight). Its sentence is the honest reason.
+        outcome = {
+          state: "rejected",
+          reason: error instanceof Error ? error.message : String(error),
+        };
       })
       .finally(() => {
         busy = false;
@@ -303,6 +363,29 @@ export function renderD2Decisions(
     split.append(context, evidence);
     main.append(split);
 
+    if (detail.kind === "review") {
+      // The reviewer's own words. Optional: absence is absence, and Core keeps
+      // a settled review without a note rather than storing an empty one.
+      const decidable = detail.actions.some((action) => action.available);
+      const field = document.createElement("label");
+      field.className = "d2-review-note";
+      const caption = document.createElement("span");
+      caption.className = "d2-ph";
+      caption.textContent = copy.reviewFeedbackLabel;
+      const input = document.createElement("textarea");
+      input.className = "d2-review-input";
+      input.dataset.d2ReviewFeedback = "true";
+      input.rows = 2;
+      input.value = reviewFeedback;
+      input.placeholder = copy.reviewFeedbackPlaceholder;
+      input.disabled = busy || !decidable;
+      input.addEventListener("input", () => {
+        reviewFeedback = input.value;
+      });
+      field.append(caption, input);
+      main.append(field);
+    }
+
     const gatebar = document.createElement("div");
     gatebar.className = "d2-gatebar";
     const sink = document.createElement("span");
@@ -322,6 +405,9 @@ export function renderD2Decisions(
       button.className = "d2-gbtn";
       button.dataset.d2Action = action.kind;
       button.disabled = !action.available || busy;
+      // A disabled control always says why: either the host's own reason code
+      // or the plan-mode banner beside it. It is never enabled-and-inert.
+      if (action.code) button.dataset.d2ActionCode = action.code;
       button.textContent = action.available
         ? label(copy, action.kind)
         : `${label(copy, action.kind)} · ${action.code ?? ""}`;
@@ -333,6 +419,16 @@ export function renderD2Decisions(
               requestId: detail.id,
               choice: action.kind === "deny" ? "deny" : action.kind,
               feedback: null,
+            });
+            return;
+          }
+          if (detail.kind === "review") {
+            const note = reviewFeedback.trim();
+            dispatch({
+              type: "decide_review",
+              reviewId: detail.id,
+              accept: action.kind === "accept_review",
+              feedback: note.length > 0 ? note : null,
             });
             return;
           }
@@ -348,6 +444,29 @@ export function renderD2Decisions(
       gatebar.append(button);
     }
     main.append(gatebar);
+
+    // The reason a disabled review action names, spelled out once rather than
+    // left as a bare code beside every button.
+    const blockingCode = detail.actions.find((action) => !action.available && action.code)?.code;
+    if (blockingCode) {
+      const note = document.createElement("p");
+      note.className = "d2-unavailable";
+      note.dataset.d2Unavailable = blockingCode;
+      note.textContent = `${label(copy, blockingCode)} · ${blockingCode}`;
+      main.append(note);
+    }
+
+    if (outcome) {
+      const receipt = document.createElement("p");
+      receipt.className = "d2-outcome";
+      receipt.dataset.d2Outcome = outcome.state;
+      if (outcome.state === "rejected") receipt.setAttribute("role", "alert");
+      // Core's own words for a refusal; the screen never paraphrases them.
+      receipt.textContent = outcome.reason
+        ? `${label(copy, `outcome_${outcome.state}`)} ${outcome.reason}`
+        : label(copy, `outcome_${outcome.state}`);
+      main.append(receipt);
+    }
     return main;
   };
 

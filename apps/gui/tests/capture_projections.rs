@@ -145,13 +145,61 @@ fn emit_capture_projections() {
         metadata: None,
         timestamp: Some(1_700_000_150),
     });
-    write("d2", &connected(d2).d2_decisions().unwrap());
+    // The queue after Core settled the review, captured before the pending
+    // view is consumed. This is the state `decide_review` actually leaves
+    // behind, so the confirmed capture can render a settled review instead of
+    // a confirmed receipt sitting over a still-pending row.
+    let mut d2_decided = d2.clone();
+    let decided = d2_decided
+        .review_requests
+        .iter_mut()
+        .find(|review| review.review_id == "review-jump-feel")
+        .expect("the capture fixture carries the pending review");
+    decided.status = ReviewRequestStatus::Accepted;
+    decided.feedback = Some("Replay evidence matches the recorded bindings.".to_string());
+    // Core stamps a fresh audit id on the decision; the capture must not keep
+    // showing the request's own id as the decision's audit sink.
+    decided.audit_id = "audit-review-decided".to_string();
+    decided.updated_at = 1_700_000_300;
+
+    let d2_adapter = connected(d2);
+    write("d2", &d2_adapter.d2_decisions().unwrap());
+    // The same queue with the pending review selected, so the review action bar
+    // and its reviewer-note field are captured from a real Core review record
+    // rather than a hand-written detail.
+    write(
+        "d2-review",
+        &d2_adapter.d2_decisions_for("review-jump-feel").unwrap(),
+    );
+    write(
+        "d2-review-decided",
+        &connected(d2_decided)
+            .d2_decisions_for("review-jump-feel")
+            .unwrap(),
+    );
 
     // D10: the multi-lane fixture with one lane bound to a project, so both
     // the bound and unbound rendering paths appear.
     let mut d10 = load("multi-lane.json");
     let bound = d10.lanes[0].id.clone();
     d10.lanes[0].status = viden_core::LaneStatus::WaitingApproval;
+    // Bounded run facts on the fixture's cost-blind terminal lane, so the
+    // capture shows the facts D10 renders in place of a cost figure Core
+    // cannot produce. Written through the lane record's own wire form:
+    // `viden-core` re-exports `AgentLaneRecord` but not `LaneRunStats`.
+    let blind = d10
+        .lanes
+        .iter()
+        .position(|lane| lane.route == viden_core::AgentRoute::Terminal)
+        .expect("the multi-lane fixture carries a terminal lane");
+    let mut lane_wire = serde_json::to_value(&d10.lanes[blind]).unwrap();
+    lane_wire["run_stats"] = serde_json::json!({
+        "wall_time_ms": 200_400,
+        "run_count": 3,
+        "diff_bytes": 8_192,
+        "last_exit_code": 0,
+    });
+    d10.lanes[blind] = serde_json::from_value(lane_wire).unwrap();
     d10.lane_runtime_owners
         .push(viden_core::LaneRuntimeOwnerBinding {
             lane_id: bound.clone(),

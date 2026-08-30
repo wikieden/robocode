@@ -8,11 +8,11 @@ use viden_core::{
     AgentSessionInput, AgentSessionRequest, AgentSessionStatus, ApprovalDecision,
     ApprovalRequestView, ApprovalResponse, ApprovalScope, BoundCoreClient, CoreClient,
     CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, LocaleId, MergeGateStatus,
-    PermissionLevel, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
-    RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
-    UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
-    WorkspaceOpenRequest,
+    PermissionLevel, ReplayBatch, ReplayRequest, ReviewRequestStatus, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshotEnvelope, RuntimeWireEvent, StarterLanePreset, StarterLaneRequest,
+    TranscriptPage, TranscriptPageRequest, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
+    UiPreferences, UiSkin, WorkMode, WorkspaceOpenRequest,
 };
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
@@ -79,6 +79,10 @@ pub struct GuiCoreAdapter {
     /// D2 queue selection. Presentation state only: it never gates a Core
     /// command and is dropped when Core stops publishing the decision.
     d2_selected: Option<String>,
+    /// One review verdict at a time. A review settles exactly once, so a second
+    /// verdict sent while the first is unanswered could only race Core's own
+    /// "already decided" rejection; the slot refuses it locally instead.
+    pending_d2_review: Option<PendingD2Review>,
 }
 
 struct HostedCoreClient {
@@ -561,6 +565,118 @@ impl PendingD12 {
     }
 }
 
+/// Trims and length-checks reviewer prose against Core's own rule.
+///
+/// Core trims before it validates, so trailing whitespace never makes an empty
+/// note valid here either, and an empty note is absence rather than an empty
+/// string on the wire. Over-limit input is refused instead of truncated:
+/// Core truncates for its stored preview, and silently sending half a note
+/// would misattribute the reviewer's words.
+fn normalize_review_feedback(feedback: Option<&str>) -> Result<Option<String>, String> {
+    let Some(trimmed) = feedback.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if trimmed.chars().any(char::is_control) {
+        return Err("review feedback cannot contain control characters".to_string());
+    }
+    if trimmed.chars().count() > crate::D2_REVIEW_FEEDBACK_MAX_CHARS {
+        return Err(format!(
+            "review feedback is limited to {} characters",
+            crate::D2_REVIEW_FEEDBACK_MAX_CHARS
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+/// Builds `RuntimeCommand::DecideReview` through Core's own wire encoding.
+///
+/// `viden-core` re-exports `RuntimeCommand` but not `ReviewVerdict`, and the
+/// GUI track must not reach around the facade into `viden-types`, so the
+/// verdict travels as the snake_case token Core's own `Deserialize` accepts.
+/// A rename on Core's side therefore fails loudly here instead of silently
+/// producing a command Core would reject.
+fn decide_review_command(
+    review_id: &str,
+    accept: bool,
+    feedback: Option<String>,
+    actor: RuntimeOwner,
+) -> Result<RuntimeCommand, String> {
+    let mut wire = serde_json::json!({
+        "type": "decide_review",
+        "review_id": review_id,
+        "verdict": if accept { "accepted" } else { "rejected" },
+        "actor": actor,
+    });
+    if let Some(feedback) = feedback {
+        wire["feedback"] = serde_json::Value::String(feedback);
+    }
+    serde_json::from_value(wire)
+        .map_err(|error| format!("Core rejected this client's review verdict encoding: {error}"))
+}
+
+/// One in-flight review verdict awaiting its ordered Core receipt.
+struct PendingD2Review {
+    command_id: String,
+    review_id: String,
+    /// The status this verdict asked for, so a `ReviewRequestUpdated` that only
+    /// reports some other transition cannot be read as this command's answer.
+    expected_status: ReviewRequestStatus,
+    accepted: bool,
+}
+
+impl PendingD2Review {
+    /// Reconciles one ordered event against this verdict.
+    ///
+    /// Acceptance is not the decision: only a `ReviewRequestUpdated` naming
+    /// this review and carrying the status this command asked for confirms it.
+    /// Core emits that event first from `decide_review` and follows it with the
+    /// validator-stamping `MergeGateUpdated`, which is tolerated and never
+    /// mistaken for the confirmation.
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> D12Observation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return D12Observation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                D12Observation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            }
+            | RuntimeEventKind::LaneCommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id && self.matches_command(command) => {
+                self.accepted = true;
+                D12Observation::Continue
+            }
+            RuntimeEventKind::ReviewRequestUpdated { review }
+                if self.accepted
+                    && review.review_id == self.review_id
+                    && review.status == self.expected_status =>
+            {
+                D12Observation::Confirmed
+            }
+            _ => D12Observation::Continue,
+        }
+    }
+
+    fn matches_command(&self, command: &RuntimeCommand) -> bool {
+        match command {
+            RuntimeCommand::DecideReview {
+                review_id, verdict, ..
+            } => {
+                review_id == &self.review_id
+                    && ReviewRequestStatus::from(*verdict) == self.expected_status
+            }
+            _ => false,
+        }
+    }
+}
+
 /// One in-flight preference command awaiting its ordered Core receipt.
 struct PendingPreference {
     command_id: String,
@@ -902,6 +1018,7 @@ impl GuiCoreAdapter {
             connection: D6ConnectionState::Disconnected,
             connection_detail: None,
             d2_selected: None,
+            pending_d2_review: None,
         }
     }
 
@@ -1285,12 +1402,31 @@ impl GuiCoreAdapter {
         self.projection.d2_decisions(Some(id))
     }
 
-    /// Sends one D2 decision. Selection is local; every real decision travels
-    /// as the Core command that owns that fact family.
+    /// Sends one D2 decision without waiting on the event stream.
+    ///
+    /// Kept for the fact families whose confirmation is a projection refresh
+    /// rather than an ordered receipt; a review verdict polls with a zero
+    /// budget here and only drains what Core already delivered.
     pub fn d2_send_intent(
         &mut self,
         command_id: &str,
         intent: crate::D2Intent,
+    ) -> Result<crate::D2IntentResult, String> {
+        self.d2_send_intent_and_wait(command_id, intent, Duration::ZERO)
+    }
+
+    /// Sends one D2 decision. Selection is local; every real decision travels
+    /// as the Core command that owns that fact family.
+    ///
+    /// `event_timeout` bounds the wait for the ordered Core receipt that
+    /// settles a review verdict. Approval and contract decisions are unaffected
+    /// by it: they report their own outcome through the permission dock and the
+    /// republished projection.
+    pub fn d2_send_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: crate::D2Intent,
+        event_timeout: Duration,
     ) -> Result<crate::D2IntentResult, String> {
         let outcome = match intent {
             crate::D2Intent::Select { id } => {
@@ -1323,6 +1459,37 @@ impl GuiCoreAdapter {
                 self.d2_selected = Some(contract_id);
                 PermissionOutcomeProjection::pending()
             }
+            crate::D2Intent::DecideReview {
+                review_id,
+                accept,
+                feedback,
+            } => {
+                if let Some(pending) = &self.pending_d2_review {
+                    return Err(format!(
+                        "review command `{}` is still pending",
+                        pending.command_id
+                    ));
+                }
+                let expected_status = if accept {
+                    ReviewRequestStatus::Accepted
+                } else {
+                    ReviewRequestStatus::Rejected
+                };
+                let envelope =
+                    self.d2_review_envelope(command_id, &review_id, accept, feedback.as_deref())?;
+                self.pending_d2_review = Some(PendingD2Review {
+                    command_id: command_id.to_string(),
+                    review_id: review_id.clone(),
+                    expected_status,
+                    accepted: false,
+                });
+                self.client.send(envelope).map_err(|error| {
+                    self.pending_d2_review = None;
+                    error.to_string()
+                })?;
+                self.d2_selected = Some(review_id);
+                self.poll_d2_review(event_timeout)?
+            }
         };
         let projection = self
             .d2_decisions()
@@ -1334,6 +1501,92 @@ impl GuiCoreAdapter {
                 _ => None,
             },
             outcome,
+        })
+    }
+
+    /// Drains ordered Core events for an in-flight review verdict without
+    /// sending a command or creating GUI-owned runtime state.
+    fn poll_d2_review(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<PermissionOutcomeProjection, String> {
+        let mut received = false;
+        let mut outcome = PermissionOutcomeProjection::pending();
+        for _ in 0..8 {
+            let event = match self
+                .receive_event_until(if received {
+                    Duration::ZERO
+                } else {
+                    event_timeout
+                })
+                .map_err(|error| error.to_string())?
+            {
+                Some(event) => event,
+                None => break,
+            };
+            received = true;
+            let Some(pending) = self.pending_d2_review.as_mut() else {
+                break;
+            };
+            match pending.observe(&event) {
+                D12Observation::Continue => {}
+                D12Observation::Confirmed => {
+                    self.pending_d2_review = None;
+                    outcome = PermissionOutcomeProjection::confirmed();
+                    break;
+                }
+                D12Observation::Rejected(reason) => {
+                    self.pending_d2_review = None;
+                    outcome = PermissionOutcomeProjection::rejected(reason);
+                    break;
+                }
+            }
+        }
+        if received {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(outcome)
+    }
+
+    /// Replays the review identity Core recorded and builds the verdict command.
+    ///
+    /// Everything here is re-resolved against the current Core view: a review
+    /// that vanished, was already settled, or carries no actor
+    /// `validate_review_decider` would accept is refused locally rather than
+    /// sent as a command Core would have to reject.
+    fn d2_review_envelope(
+        &self,
+        command_id: &str,
+        review_id: &str,
+        accept: bool,
+        feedback: Option<&str>,
+    ) -> Result<RuntimeCommandEnvelope, String> {
+        let view = self
+            .projection
+            .view()
+            .ok_or_else(|| "Core has not published a decision projection".to_string())?;
+        if view.snapshot.work_mode == WorkMode::Plan {
+            return Err("Plan mode blocks review decisions".to_string());
+        }
+        let review = view
+            .review_requests
+            .iter()
+            .find(|entry| entry.review_id == review_id)
+            .ok_or_else(|| format!("review `{review_id}` is not published by Core"))?;
+        if review.status != ReviewRequestStatus::Pending {
+            return Err(format!("review `{review_id}` is already decided"));
+        }
+        let actor = crate::projection::d2_review_actor(view, review).ok_or_else(|| {
+            format!("review `{review_id}` has no independent reviewer identity this client may decide as")
+        })?;
+        let feedback = normalize_review_feedback(feedback)?;
+        Ok(RuntimeCommandEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            client_id: "viden-gui".to_string(),
+            command_id: command_id.to_string(),
+            owner: actor.clone(),
+            command: decide_review_command(review_id, accept, feedback, actor)?,
         })
     }
 

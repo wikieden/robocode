@@ -7,12 +7,16 @@
 工作模式 / 权限级别 / 模型选择器与驾驶舱状态栏、活动栏齿轮后的设置面板、
 D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填理由输入框。
 
+在 `claude/gui-supervision-debts` 上扩展了 D2 评审裁决
+（`RuntimeCommand::DecideReview`，关闭 GUI-CORE-011）与 D10 成本不可计量 Lane
+标记及 Core 为其发布的有界运行事实。
+
 ## harness 是什么
 
 [`qa.html`](qa.html) 加 [`qa.ts`](qa.ts) 按 `?state=` 每次只渲染一个截图状态。
 页面**只调用生产环境导出的渲染函数** —— `renderD1Cockpit`、`renderD6Recovery`
-（经由驾驶舱自己的工作区挂载）、`renderD11Intake`、`renderD12IntegrationGate`
-以及它们挂载的组件。这里不重新实现任何控件、文案或布局，因此 `src/**` 的回归
+（经由驾驶舱自己的工作区挂载）、`renderD11Intake`、`renderD12IntegrationGate`、
+`renderD2Decisions`、`renderD10LaneMonitor` 以及它们挂载的组件。这里不重新实现任何控件、文案或布局，因此 `src/**` 的回归
 会直接反映在截图里，而不会被 harness 自带的 UI 副本掩盖。
 
 渲染逻辑放在 `qa.ts` 而不是内联 `<script>`，这样 `tsc --noEmit` 会按生产渲染
@@ -36,6 +40,9 @@ D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填�
 | --- | --- | --- |
 | `d1*`、`settings*`、`d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | vitest 各套件共用的 D1 fixture |
 | `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | 由 `tests/capture_projections.rs`**生成** |
+| `d2-review-*` | [`../gui-screen-restore/projections/d2-review.json`](../gui-screen-restore/projections/d2-review.json) | 由 `tests/capture_projections.rs`**生成** —— 已选中待处理评审的决策队列 |
+| `d2-review-confirmed` | [`../gui-screen-restore/projections/d2-review-decided.json`](../gui-screen-restore/projections/d2-review-decided.json) | 由同一测试**生成** —— `decide_review` 之后 Core 留下的队列 |
+| `d10-blind*` | [`../gui-screen-restore/projections/d10.json`](../gui-screen-restore/projections/d10.json) | 由 `tests/capture_projections.rs`**生成** |
 | `d11`、`d11-recent` | 镜像 `tests/d11_intake.spec.ts` 里的 fixture，历史面板另用下文手写的 `RecentWorkResult` | 手写；D11 目前还没有生成的捕获投影 |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 共享 D1 fixture 加一份手写的 `RecentWorkResult` | 手写；`frontend-contract-v1` 目前还没有规范的最近工作捕获投影，因此形状镜像 `tests/recent_work.rs` 与 `tests/project_picker.spec.ts` |
 
@@ -50,6 +57,18 @@ cargo test -p viden-gui --test capture_projections -- --ignored
 W4 给 D12 闸动作加上了类型化的可用性码；已提交的 `d12.json` 现在在 accept 上
 携带 `missing_evidence`、在 reject 上携带 `no_actor`，这正是 `d12-blocked`
 要截取的内容。
+
+同一个测试现在还会生成 `d2-review.json`（已选中待处理评审的队列，因此可用的
+接受/驳回动作栏与评审意见输入框都来自真实的 Core 评审记录）与
+`d2-review-decided.json`（同一队列在该评审被结算之后：状态 `accepted`、Core 新
+分配的裁决审计 id、记录在案的评审意见），并在 `multi-lane.json` fixture 的
+terminal Lane 上写入有界运行事实，因此 `d10.json` 同时携带一条带运行事实的成本
+不可计量 Lane 与一条完全没有这些事实的可计量 Lane。
+
+之所以需要 `d2-review-decided.json`：确认本来就**来自** `ReviewRequestUpdated`，
+outcome 变为 confirmed 时评审早已结算，因此「确认回执压在仍为 pending 的行之上」
+是生产环境永远到不了的状态。harness 因此把 Core 在该 outcome 下真正会重新发布的
+投影交给 intent 结果。
 
 ### 在来源之上写的 delta
 
@@ -101,6 +120,12 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | 同一闸的批准不可用并点名 `missing_evidence`，理由输入框禁用 |
 | `d11` | `…/qa.html?state=d11` | 项目接入屏，显示已探测项目与提供方告警 |
 | `d11-recent` | `…/qa.html?state=d11-recent` | 同一接入屏滚动到「最近工作」面板，显示 Core `QueryRecentWork` 行（名称、相对时间、会话数、规范根目录），替代已退役的静态不可用文案 |
+| `d2-review-pending` | `…/qa.html?state=d2-review-pending` | 选中待处理评审，「接受评审」「驳回评审」均可用，评审意见已键入，回执说明裁决已发出而 Core 尚未记录 |
+| `d2-review-confirmed` | `…/qa.html?state=d2-review-confirmed` | 同一评审在 Core 记录裁决之后，前后完全自洽：队列行显示 `accepted`，命令栏计数降为 1，审计落点显示裁决自身的审计 id，两个裁决动作以 `D2-REVIEW-SETTLED` 禁用，评审意见已清空且禁用，下方是确认回执 |
+| `d2-review-rejected` | `…/qa.html?state=d2-review-rejected` | 同一评审在 Core 拒绝之后：原样渲染 Core 自己的拒绝语句作为告警，评审意见保留 |
+| `d2-review-blocked` | `…/qa.html?state=d2-review-blocked` | 两个裁决动作均禁用并点名 `D2-NO-REVIEWER-ACTOR`，动作栏下方完整说明原因，评审意见输入框禁用——既不「可点却无效」，也不隐藏 |
+| `d10-blind` | `…/qa.html?state=d10-blind` | 成本不可计量的 terminal Lane 带「成本不可计量路由」标记与四项有界运行事实（累计耗时、运行次数、已应用 diff、最近退出码），旁边是完全不带这些事实的可计量 ACP Lane |
+| `d10-blind-unobserved` | `…/qa.html?state=d10-blind-unobserved` | 同一盲路由 Lane 在 Core 观测到任何运行之前：只有标记与「尚未观测到运行」的说明，没有任何补零的事实 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及点名 `GUI-CORE-022` 的永久禁用「文件」行 |
 | `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
@@ -161,8 +186,35 @@ DOM 级验证)。
 | [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
 | [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
 
+## 监管欠账截图
+
+2026-08-30 以 headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`)对 4173 端口的 vite 开发服务器采集，随后人工目检
+（八张全部人工检查）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [d2-review-pending-1440x900-dark-en.png](d2-review-pending-1440x900-dark-en.png) | d2-review-pending | 1440x900 | dark | en |
+| [d2-review-confirmed-1440x900-dark-en.png](d2-review-confirmed-1440x900-dark-en.png) | d2-review-confirmed | 1440x900 | dark | en |
+| [d2-review-rejected-1440x900-dark-en.png](d2-review-rejected-1440x900-dark-en.png) | d2-review-rejected | 1440x900 | dark | en |
+| [d2-review-blocked-1440x900-dark-en.png](d2-review-blocked-1440x900-dark-en.png) | d2-review-blocked | 1440x900 | dark | en |
+| [d10-blind-1440x900-dark-en.png](d10-blind-1440x900-dark-en.png) | d10-blind | 1440x900 | dark | en |
+| [d10-blind-unobserved-1440x900-dark-en.png](d10-blind-unobserved-1440x900-dark-en.png) | d10-blind-unobserved | 1440x900 | dark | en |
+| [d2-review-confirmed-1440x900-light-zh-CN.png](d2-review-confirmed-1440x900-light-zh-CN.png) | d2-review-confirmed | 1440x900 | light | zh-CN |
+| [d10-blind-1440x900-light-zh-CN.png](d10-blind-1440x900-light-zh-CN.png) | d10-blind | 1440x900 | light | zh-CN |
+
+两张 `d2-review-confirmed` 截图已于 2026-08-30 在 harness 改为按该 outcome 提供
+生成的已裁决投影后重采；此前那一对把确认回执压在仍为 pending 的行之上，那不是
+生产环境可以到达的状态。
+
+两张 light/`zh-CN` 截图是这两块屏的语言与皮肤验证：新增的每条文案——评审意见
+标题、三条 outcome 语句、成本不可计量标记与四项运行事实名称——都已翻译，两块屏
+也都没有自带第二套配色。
+
 ## 已知限制
 
 授权的 Browser 运行时能渲染并核对这些页面，但不能写 PNG 文件，因此在操作者实际
 截图之前，本目录保存的是可复现的 harness 而不是已提交的图片。
-`tools/capture-d1-visual.sh` 也刻意停在同一条边界上。
+`tools/capture-d1-visual.sh` 也刻意停在同一条边界上。上文列出的图片由操作者
+直接运行 headless Chrome 采集，所用参数记录在各自表格旁。

@@ -509,6 +509,20 @@ impl RuntimeProjection {
             .iter()
             .find(|entry| entry.review_id == id)
         {
+            // Fail-closed order matters: a settled review can never be
+            // re-decided whatever the actor situation is, so that check comes
+            // first and reports the honest reason.
+            let code = if review.status != ReviewRequestStatus::Pending {
+                Some(crate::D2_REVIEW_SETTLED_CODE)
+            } else if d2_review_actor(view, review).is_none() {
+                Some(crate::D2_REVIEW_NO_ACTOR_CODE)
+            } else {
+                None
+            };
+            // Plan mode is reported by `blocked_by_plan` and the shared plan
+            // banner, exactly as it is for gate and contract decisions, so it
+            // never masks a review-specific reason with a code of its own.
+            let available = code.is_none() && !blocked_by_plan;
             return Some(D2DetailProjection {
                 id: review.review_id.clone(),
                 kind: D2_KIND_REVIEW.to_string(),
@@ -525,22 +539,23 @@ impl RuntimeProjection {
                     unavailable: None,
                 },
                 evidence: evidence_by_ids(view, &review.evidence_ids),
-                // frontend-contract-v1 has RequestReview but no command that
-                // records a review decision, so the action fails closed.
+                // GUI-CORE-011 is closed: `RuntimeCommand::DecideReview` carries
+                // the verdict, so the actions are live whenever Core would
+                // accept one and carry their own local reason when it would not.
                 actions: vec![
                     D2ActionProjection {
                         kind: "accept_review".to_string(),
-                        available: false,
+                        available,
                         session_id: None,
                         paths: Vec::new(),
-                        code: Some("GUI-CORE-011"),
+                        code,
                     },
                     D2ActionProjection {
                         kind: "reject_review".to_string(),
-                        available: false,
+                        available,
                         session_id: None,
                         paths: Vec::new(),
-                        code: Some("GUI-CORE-011"),
+                        code,
                     },
                 ],
             });
@@ -841,6 +856,8 @@ impl RuntimeProjection {
                     evidence,
                     token_limit: lane.budget.token_limit,
                     cost_limit_micro_usd: lane.budget.cost_limit_micro_usd,
+                    cost_meterability: cost_meterability(lane.route).to_string(),
+                    run_stats: lane_run_stats(lane),
                 }
             })
             .collect();
@@ -1862,6 +1879,42 @@ pub(crate) fn d12_reject_actor(gate: &viden_core::MergeGateRecord) -> Option<Run
         .map(|validator| validator.owner.clone())
 }
 
+/// The exact `RuntimeOwner` Core will accept as the review decider.
+///
+/// `validate_review_decider` demands an actor that is not the default owner,
+/// whose `lane_id` is the review's independent reviewer Lane, whose `task_id`
+/// is the review's task (`validate_owner`), and whose workspace/project match
+/// the review owner's. Core stores exactly such an owner on the gate validator
+/// when the review is requested, so that record is replayed first. The fallback
+/// reproduces Core's own `reviewer_owner_from_requester`: the review owner
+/// re-pointed at the reviewer Lane with session and turn identity left
+/// unclaimed. A review that yields neither stays fail-closed rather than being
+/// decided under an identity Core would reject.
+pub(crate) fn d2_review_actor(
+    view: &RuntimeViewState,
+    review: &ReviewRequestRecord,
+) -> Option<RuntimeOwner> {
+    if let Some(validator) = view
+        .merge_gates
+        .iter()
+        .find(|gate| gate.gate_id == review.gate_id)
+        .and_then(|gate| gate.validator.clone())
+        && validator.review_request_id == review.review_id
+        && validator.owner.lane_id.as_deref() == Some(review.reviewer_lane_id.as_str())
+        && validator.owner != RuntimeOwner::default()
+    {
+        return Some(validator.owner);
+    }
+    if review.owner == RuntimeOwner::default() {
+        return None;
+    }
+    let mut reviewer = review.owner.clone();
+    reviewer.lane_id = Some(review.reviewer_lane_id.clone());
+    reviewer.session_id = None;
+    reviewer.turn_id = None;
+    Some(reviewer)
+}
+
 /// The reviewed-evidence bindings Core will compare the acceptance against.
 ///
 /// With a validator, `decide_merge_gate` requires the bindings to equal the
@@ -2034,6 +2087,53 @@ fn agent_route(route: AgentRoute) -> &'static str {
         AgentRoute::Terminal => "terminal",
         AgentRoute::Tmux => "tmux",
     }
+}
+
+/// Core's own cost-meterability verdict for a route.
+///
+/// Read through the serde token `AgentRoute::cost_meterability` produces rather
+/// than by re-matching the route here: `viden-core` re-exports `AgentRoute` but
+/// not `CostMeterability`, and duplicating the policy would let the monitor
+/// disagree with Core about which lanes can carry a cost figure at all.
+fn cost_meterability(route: AgentRoute) -> String {
+    serde_json::to_value(route.cost_meterability())
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| "blind".to_string())
+}
+
+/// The bounded run facts D10 shows in place of a cost figure Core cannot
+/// produce. Projected only for a cost-blind lane; see `D10LaneProjection`.
+fn lane_run_stats(lane: &AgentLaneRecord) -> Option<crate::D10RunStatsProjection> {
+    if cost_meterability(lane.route) != "blind" {
+        return None;
+    }
+    let stats = lane.run_stats.as_ref()?;
+    Some(crate::D10RunStatsProjection {
+        wall_time: humanize_wall_time(stats.wall_time_ms),
+        wall_time_ms: stats.wall_time_ms,
+        run_count: stats.run_count,
+        diff_bytes: stats.diff_bytes,
+        last_exit_code: stats.last_exit_code,
+    })
+}
+
+/// Humanizes a duration on the host so TUI and GUI read the same string.
+///
+/// Three bands, chosen so the rendered precision never exceeds what the number
+/// supports: whole milliseconds below a second, one decimal second below a
+/// minute, and whole minutes with whole seconds above it.
+fn humanize_wall_time(milliseconds: u64) -> String {
+    if milliseconds < 1_000 {
+        return format!("{milliseconds}ms");
+    }
+    if milliseconds < 60_000 {
+        // Truncate rather than round: a rounded 59_950ms would read "60.0s",
+        // which is a duration this band cannot express.
+        return format!("{}.{}s", milliseconds / 1_000, (milliseconds % 1_000) / 100);
+    }
+    let seconds = milliseconds / 1_000;
+    format!("{}m {}s", seconds / 60, seconds % 60)
 }
 
 fn gate_strength(strength: GateStrength) -> &'static str {

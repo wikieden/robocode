@@ -34,7 +34,8 @@ pub use d1::{
     D1StatusbarTokensProjection, D1TopbarSourceProjection, D1WorkspaceSourceProjection,
 };
 pub use d2::{
-    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
+    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2_REVIEW_FEEDBACK_MAX_CHARS,
+    D2_REVIEW_NO_ACTOR_CODE, D2_REVIEW_SETTLED_CODE, D2ActionProjection, D2ContextProjection,
     D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection, D2Intent,
     D2IntentResult, D2QueueItemProjection, D2UnavailableProjection,
 };
@@ -47,6 +48,7 @@ pub use d6::{
 };
 pub use d10::{
     D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
+    D10RunStatsProjection,
 };
 pub use d12::{
     D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
@@ -575,7 +577,9 @@ fn d2_send_intent(
         .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .d2_send_intent(&command_id, intent)
+        // A review verdict settles on an ordered `ReviewRequestUpdated`, so the
+        // command waits the same brief budget the merge-gate decision does.
+        .d2_send_intent_and_wait(&command_id, intent, Duration::from_millis(250))
 }
 
 #[tauri::command]

@@ -36,24 +36,31 @@ D1 fixture 必须证明两个 Lane 的行不会跨 Owner 泄漏。
 当每一项实时工作事实都携带完整 `RuntimeOwner`，且规范 D1 fixture 证明两个并发
 Owner 的选中 Lane 投影时，关闭此请求。
 
-## GUI-CORE-011：评审决定命令
+## GUI-CORE-011：评审决定命令 — 已关闭
 
-`frontend-contract-v1` 发布了带 `Pending` 状态的 `ReviewRequestRecord`，也提供
+历史：`frontend-contract-v1` 曾发布带 `Pending` 状态的 `ReviewRequestRecord` 与
 `RuntimeCommand::RequestReview`，但没有任何命令用于记录评审决定。因此 D2 会列出
-待处理评审及其 Core 证据，并把接受/驳回动作以该编码置为禁用；不得用
+待处理评审及其 Core 证据，并把接受/驳回动作以该编码置为禁用；从未用
 `AcceptLaneOutput` 或审批响应冒充评审结论。
 
-当 Core 发布携带评审 id、结论、可选反馈与审计 id 的评审决定命令，且规范 fixture
-证明 `ReviewRequestStatus` 的状态迁移时，关闭此请求。
-
-Core 状态：已在 `core-v0.3.2`（提交待定）交付
+Core 状态：已在 `core-v0.3.2`（`a04260af`）交付
 `RuntimeCommand::DecideReview { review_id, verdict, feedback, actor }`。只有独立
 评审 Lane 可以做出决定；该结论结算评审事实，接受时为 gate validator 打上
 `validated_at`；已结算的接受结论不会被后续 gate 决定覆盖；评审被驳回后
 `AcceptMergeGate` 失败关闭。`ReviewRequestRecord` 新增可选且向后兼容的
 `feedback` 字段。schema-1 扩展 fixture `review-decision.json` 证明
-`Pending -> Accepted` 迁移。GUI 接线仍未完成：在客户端发送 `DecideReview` 之前，
-D2 仍以该编码把接受/驳回动作置为禁用。
+`Pending -> Accepted` 迁移。
+
+GUI 状态：已在 `claude/gui-supervision-debts` 完成接线。D2 发送 `DecideReview`
+时携带 `validate_review_decider` 接受的 actor，推导规则与 TUI 一致：优先回放 Core
+在请求评审时写入 gate validator 的 owner（须指向该评审的评审方 Lane），否则复现
+Core 自身的 `reviewer_owner_from_requester` 形状——评审 owner 改指评审方 Lane，
+并清空 session 与 turn 身份。评审意见为可选，会先去除首尾空白，超过 Core 的 500
+字符上限时本地拒绝而非截断。裁决只由携带本评审 id 且状态与命令一致的有序
+`ReviewRequestUpdated` 确认；仅有 `CommandAccepted` 绝不构成确认，其后为 validator
+打戳的 `MergeGateUpdated` 会被容忍。Core 会拒绝的评审保持禁用，并给出本地原因编码
+而非本请求编码：已裁决为 `D2-REVIEW-SETTLED`，无法推导出可用评审方身份为
+`D2-NO-REVIEWER-ACTOR`。
 
 ## GUI-CORE-012：审批的结构化决策上下文
 

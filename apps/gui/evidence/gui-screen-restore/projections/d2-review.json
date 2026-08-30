@@ -1,0 +1,113 @@
+{
+  "workMode": "build",
+  "permissionLevel": "ask",
+  "pendingTotal": 2,
+  "selectedId": "review-jump-feel",
+  "groups": [
+    {
+      "kind": "gate",
+      "items": [
+        {
+          "id": "approval_allow",
+          "kind": "gate",
+          "title": "Edit docs",
+          "projectId": "project-boss-rush",
+          "laneId": "lane-gate",
+          "sessionId": "session-lane-gate",
+          "taskId": "task-lane-gate",
+          "risk": "high",
+          "status": "pending",
+          "auditId": "audit_approval_allow",
+          "updatedAt": null,
+          "expiresAt": 1700003600
+        }
+      ],
+      "unavailable": null
+    },
+    {
+      "kind": "review",
+      "items": [
+        {
+          "id": "review-jump-feel",
+          "kind": "review",
+          "title": "review-jump-feel",
+          "projectId": "project-boss-rush",
+          "laneId": "lane-review",
+          "sessionId": "session-lane-review",
+          "taskId": "task-lane-review",
+          "risk": null,
+          "status": "pending",
+          "auditId": "audit-review",
+          "updatedAt": 1700000200,
+          "expiresAt": null
+        }
+      ],
+      "unavailable": null
+    },
+    {
+      "kind": "contract",
+      "items": [
+        {
+          "id": "contract-feel-v1-1",
+          "kind": "contract",
+          "title": "feel param ranges v1.0 -> v1.1",
+          "projectId": "project-boss-rush",
+          "laneId": "lane-contract",
+          "sessionId": "session-lane-contract",
+          "taskId": "task-lane-contract",
+          "risk": null,
+          "status": "confirmed",
+          "auditId": "audit-contract",
+          "updatedAt": 1700000100,
+          "expiresAt": null
+        }
+      ],
+      "unavailable": {
+        "key": "d2.contract.noPendingFact",
+        "code": "GUI-CORE-013"
+      }
+    }
+  ],
+  "detail": {
+    "id": "review-jump-feel",
+    "kind": "review",
+    "title": "review-jump-feel",
+    "projectId": "project-boss-rush",
+    "laneId": "lane-review",
+    "taskId": "task-lane-review",
+    "auditId": "audit-review",
+    "policyReasonKey": null,
+    "blockedByPlan": false,
+    "context": {
+      "source": "review_request",
+      "text": "gate-integration",
+      "unavailable": null
+    },
+    "evidence": [
+      {
+        "id": "evidence-playtest",
+        "kind": "playtest",
+        "summary": "jump feel validated across 12 replays",
+        "path": "evidence/playtest.json",
+        "source": "lane-gate",
+        "timestamp": 1700000150
+      }
+    ],
+    "actions": [
+      {
+        "kind": "accept_review",
+        "available": true,
+        "sessionId": null,
+        "paths": [],
+        "code": null
+      },
+      {
+        "kind": "reject_review",
+        "available": true,
+        "sessionId": null,
+        "paths": [],
+        "code": null
+      }
+    ]
+  }
+}

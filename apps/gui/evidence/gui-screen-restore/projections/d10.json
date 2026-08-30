@@ -19,7 +19,15 @@
       "agents": [],
       "evidence": [],
       "tokenLimit": 16000,
-      "costLimitMicroUsd": 500000
+      "costLimitMicroUsd": 500000,
+      "costMeterability": "blind",
+      "runStats": {
+        "wallTime": "3m 20s",
+        "wallTimeMs": 200400,
+        "runCount": 3,
+        "diffBytes": 8192,
+        "lastExitCode": 0
+      }
     },
     {
       "id": "lane_review",
@@ -37,7 +45,9 @@
       "agents": [],
       "evidence": [],
       "tokenLimit": 16000,
-      "costLimitMicroUsd": 500000
+      "costLimitMicroUsd": 500000,
+      "costMeterability": "metered",
+      "runStats": null
     }
   ],
   "unavailable": [

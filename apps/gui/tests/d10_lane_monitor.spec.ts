@@ -28,6 +28,8 @@ function lane(overrides: Partial<D10Lane> = {}): D10Lane {
     evidence: [{ id: "evidence-1", kind: "check", summary: "replay regression 12/12" }],
     tokenLimit: null,
     costLimitMicroUsd: null,
+    costMeterability: "metered",
+    runStats: null,
     ...overrides,
   };
 }
@@ -134,5 +136,84 @@ describe("D10 lane monitor", () => {
     const note = root.querySelector<HTMLElement>("[data-d10-unavailable]");
     expect(note?.dataset.d10Unavailable).toBe("GUI-CORE-014");
     expect(root.querySelector(".d10-ticker")).toBeNull();
+  });
+});
+
+describe("D10 cost meterability", () => {
+  test("marks a cost-blind lane and renders the four bounded run facts", () => {
+    const { root } = setup({
+      ...PROJECTION,
+      lanes: [
+        lane({
+          id: "lane-terminal",
+          route: "terminal",
+          costMeterability: "blind",
+          runStats: {
+            wallTime: "3m 20s",
+            wallTimeMs: 200_400,
+            runCount: 3,
+            diffBytes: 8_192,
+            lastExitCode: 0,
+          },
+        }),
+      ],
+    });
+    const card = root.querySelector<HTMLElement>("[data-d10-lane='lane-terminal']")!;
+    expect(card.querySelector<HTMLElement>("[data-d10-meterability]")?.dataset.d10Meterability).toBe(
+      "blind",
+    );
+    const facts = [...card.querySelectorAll("[data-d10-run-fact]")].map(
+      (node) => node.textContent,
+    );
+    // The humanized duration comes from the host; the screen never formats one.
+    expect(facts).toEqual([
+      "wall time 3m 20s",
+      "runs 3",
+      "applied diff 8192 B",
+      "last exit 0",
+    ]);
+  });
+
+  test("labels a missing exit code unknown rather than defaulting it to zero", () => {
+    const { root } = setup({
+      ...PROJECTION,
+      lanes: [
+        lane({
+          id: "lane-tmux",
+          route: "tmux",
+          costMeterability: "blind",
+          runStats: {
+            wallTime: "1.5s",
+            wallTimeMs: 1_500,
+            runCount: 1,
+            diffBytes: 0,
+            lastExitCode: null,
+          },
+        }),
+      ],
+    });
+    const card = root.querySelector<HTMLElement>("[data-d10-lane='lane-tmux']")!;
+    expect(card.querySelector("[data-d10-run-fact='last exit']")?.textContent).toBe(
+      "last exit unknown",
+    );
+  });
+
+  test("states that an unobserved blind lane has no run facts instead of showing zeros", () => {
+    const { root } = setup({
+      ...PROJECTION,
+      lanes: [
+        lane({ id: "lane-fresh", route: "terminal", costMeterability: "blind", runStats: null }),
+      ],
+    });
+    const card = root.querySelector<HTMLElement>("[data-d10-lane='lane-fresh']")!;
+    expect(card.querySelector("[data-d10-run-stats='none']")).not.toBeNull();
+    expect(card.querySelectorAll("[data-d10-run-fact]")).toHaveLength(0);
+  });
+
+  test("leaves a metered lane's card unchanged", () => {
+    const { root } = setup();
+    const card = root.querySelector<HTMLElement>("[data-d10-lane='lane-1']")!;
+    expect(card.querySelector("[data-d10-meterability]")).toBeNull();
+    expect(card.querySelectorAll("[data-d10-run-fact]")).toHaveLength(0);
   });
 });

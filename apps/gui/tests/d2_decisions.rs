@@ -2,10 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use viden_core::{
     ApprovalRequestView, ApprovalScope, ContractDecision, ContractRecord, EvidenceView,
-    ReviewRequestRecord, ReviewRequestStatus, RuntimeCommand, RuntimeCommandEnvelope, RuntimeOwner,
-    RuntimeSnapshot, RuntimeViewState,
+    MergeGateRecord, MergeGateStatus, MergeGateValidator, ReviewRequestRecord, ReviewRequestStatus,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
+    RuntimeViewState,
 };
-use viden_gui::{D2Intent, GuiCoreAdapter, PermissionChoice};
+use viden_gui::{
+    D2_REVIEW_NO_ACTOR_CODE, D2_REVIEW_SETTLED_CODE, D2Intent, GuiCoreAdapter, PermissionChoice,
+};
 
 mod support;
 use support::TestCoreClient;
@@ -226,7 +229,7 @@ fn d2_contract_decision_sends_confirm_contract_with_the_core_owned_identity() {
 }
 
 #[test]
-fn d2_review_items_expose_evidence_but_declare_the_decision_action_unavailable() {
+fn d2_review_items_expose_evidence_and_enable_the_decision_core_now_accepts() {
     let (view, _) = decision_view();
     let (adapter, _) = connected(view);
     let projection = adapter
@@ -239,14 +242,435 @@ fn d2_review_items_expose_evidence_but_declare_the_decision_action_unavailable()
     assert_eq!(detail.evidence[0].id, "evidence-playtest");
     assert_eq!(detail.evidence[0].summary, "jump feel validated");
 
-    // frontend-contract-v1 has RequestReview but no review-decision command,
-    // so the action must fail closed with its contract-request code.
+    // GUI-CORE-011 is closed: Core publishes `DecideReview`, and the review is
+    // Pending with a reviewer actor this client can derive, so both verdicts
+    // are live rather than fail-closed.
+    let kinds: Vec<&str> = detail
+        .actions
+        .iter()
+        .filter(|action| action.available)
+        .map(|action| action.kind.as_str())
+        .collect();
+    assert_eq!(kinds, vec!["accept_review", "reject_review"]);
+    assert!(
+        detail.actions.iter().all(|action| action.code.is_none()),
+        "a live review decision names no blocking code"
+    );
+}
+
+/// The reviewer identity Core stamped on the gate validator, and the actor the
+/// GUI must reproduce when it is missing.
+fn reviewer_actor() -> RuntimeOwner {
+    let mut actor = owner("lane-review");
+    actor.lane_id = Some("lane-owner".to_string());
+    actor.session_id = None;
+    actor.turn_id = None;
+    actor
+}
+
+/// The gate the review was installed on, with Core's own validator record.
+fn validator_gate(review_id: &str, validator_owner: RuntimeOwner) -> MergeGateRecord {
+    MergeGateRecord {
+        gate_id: "gate-integration".to_string(),
+        task_id: "task-lane-review".to_string(),
+        status: MergeGateStatus::NeedsChanges,
+        required_evidence: Vec::new(),
+        evidence_ids: vec!["evidence-playtest".to_string()],
+        gate_type: Default::default(),
+        owner: owner("lane-review"),
+        validator: Some(MergeGateValidator {
+            owner: validator_owner,
+            review_request_id: review_id.to_string(),
+            independent: true,
+            validated_at: None,
+        }),
+        policy_snapshot: Default::default(),
+        decision: None,
+        conflict: None,
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: Vec::new(),
+        updated_at: Some(1_700_000_200),
+    }
+}
+
+/// The `DecideReview` command Core echoes back on `CommandAccepted`.
+///
+/// Built through the wire form on purpose: `viden-core` re-exports
+/// `RuntimeCommand` but not `ReviewVerdict`, and the GUI track must not reach
+/// around the facade into `viden-types`.
+fn decide_review(review_id: &str, accept: bool, actor: RuntimeOwner) -> RuntimeCommand {
+    serde_json::from_value(serde_json::json!({
+        "type": "decide_review",
+        "review_id": review_id,
+        "verdict": if accept { "accepted" } else { "rejected" },
+        "actor": actor,
+    }))
+    .expect("DecideReview wire form")
+}
+
+/// The `ReviewRequestUpdated` fact Core emits from `decide_review`.
+fn settled_review(review_id: &str, status: ReviewRequestStatus) -> ReviewRequestRecord {
+    ReviewRequestRecord {
+        review_id: review_id.to_string(),
+        gate_id: "gate-integration".to_string(),
+        task_id: "task-lane-review".to_string(),
+        requester_lane_id: "lane-review".to_string(),
+        reviewer_lane_id: "lane-owner".to_string(),
+        owner: owner("lane-review"),
+        evidence_ids: vec!["evidence-playtest".to_string()],
+        evidence_bindings: Vec::new(),
+        status,
+        feedback: None,
+        audit_id: "audit-review-decided".to_string(),
+        updated_at: 1_700_000_300,
+    }
+}
+
+#[test]
+fn d2_review_actor_replays_the_validator_core_recorded_for_this_review() {
+    let (mut view, _) = decision_view();
+    // Core stores the reviewer owner on the gate validator when the review is
+    // requested; that record, not a reconstruction, is the preferred actor.
+    let mut stamped = reviewer_actor();
+    stamped.task_id = Some("task-lane-review".to_string());
+    view.merge_gates
+        .push(validator_gate("review-jump-feel", stamped.clone()));
+    let (mut adapter, sent) = connected(view);
+
+    adapter
+        .d2_send_intent(
+            "gui-d2-review-validator",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: None,
+            },
+        )
+        .expect("send the review verdict");
+
+    let commands = sent.lock().unwrap();
+    let last = commands.last().expect("one command was sent");
+    match &last.command {
+        RuntimeCommand::DecideReview { actor, .. } => assert_eq!(actor, &stamped),
+        other => panic!("expected DecideReview, got {other:?}"),
+    }
+    assert_eq!(last.owner, stamped);
+}
+
+#[test]
+fn d2_review_accept_sends_decide_review_and_confirms_only_on_the_core_review_fact() {
+    let (view, _) = decision_view();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent))
+        .with_event(RuntimeEventKind::CommandAccepted {
+            command_id: "gui-d2-review-accept".to_string(),
+            command: decide_review("review-jump-feel", true, reviewer_actor()),
+        })
+        .with_event(RuntimeEventKind::ReviewRequestUpdated {
+            review: settled_review("review-jump-feel", ReviewRequestStatus::Accepted),
+        })
+        // Core emits the validator stamp right after the review fact. It must
+        // be tolerated, never mistaken for the confirmation itself.
+        .with_event(RuntimeEventKind::MergeGateUpdated {
+            gate: validator_gate("review-jump-feel", reviewer_actor()),
+        });
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+
+    let result = adapter
+        .d2_send_intent(
+            "gui-d2-review-accept",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: None,
+            },
+        )
+        .expect("send the review verdict");
+
+    assert_eq!(result.outcome.state, "confirmed");
+    assert_eq!(result.pending_command_id, None);
+
+    let commands = sent.lock().unwrap();
+    let last = commands.last().expect("one command was sent");
+    match &last.command {
+        RuntimeCommand::DecideReview {
+            review_id,
+            verdict,
+            feedback,
+            actor,
+        } => {
+            assert_eq!(review_id, "review-jump-feel");
+            // Core's own wire token for the verdict; the GUI never invents one.
+            assert_eq!(
+                serde_json::to_value(verdict).unwrap(),
+                serde_json::json!("accepted")
+            );
+            assert_eq!(feedback, &None);
+            // `validate_review_decider` demands the independent reviewer lane.
+            assert_eq!(actor.lane_id.as_deref(), Some("lane-owner"));
+            assert_eq!(actor.task_id.as_deref(), Some("task-lane-review"));
+            assert_eq!(actor.session_id, None);
+            assert_eq!(actor.turn_id, None);
+        }
+        other => panic!("expected DecideReview, got {other:?}"),
+    }
+}
+
+#[test]
+fn d2_review_reject_carries_the_reviewer_feedback_core_stores() {
+    let (view, _) = decision_view();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent))
+        .with_event(RuntimeEventKind::CommandAccepted {
+            command_id: "gui-d2-review-reject".to_string(),
+            command: decide_review("review-jump-feel", false, reviewer_actor()),
+        })
+        .with_event(RuntimeEventKind::ReviewRequestUpdated {
+            review: settled_review("review-jump-feel", ReviewRequestStatus::Rejected),
+        });
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+
+    let result = adapter
+        .d2_send_intent(
+            "gui-d2-review-reject",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: false,
+                // Surrounding whitespace is trimmed the way Core trims before
+                // it validates, so a padded note is never sent as-is.
+                feedback: Some("  jump arc still overshoots  ".to_string()),
+            },
+        )
+        .expect("send the review verdict");
+
+    assert_eq!(result.outcome.state, "confirmed");
+
+    let commands = sent.lock().unwrap();
+    match &commands.last().expect("one command was sent").command {
+        RuntimeCommand::DecideReview {
+            verdict, feedback, ..
+        } => {
+            assert_eq!(
+                serde_json::to_value(verdict).unwrap(),
+                serde_json::json!("rejected")
+            );
+            assert_eq!(feedback.as_deref(), Some("jump arc still overshoots"));
+        }
+        other => panic!("expected DecideReview, got {other:?}"),
+    }
+}
+
+#[test]
+fn d2_review_empty_feedback_is_absence_rather_than_an_empty_note() {
+    let (view, _) = decision_view();
+    let (mut adapter, sent) = connected(view);
+
+    adapter
+        .d2_send_intent(
+            "gui-d2-review-blank",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: Some("   ".to_string()),
+            },
+        )
+        .expect("send the review verdict");
+
+    let commands = sent.lock().unwrap();
+    match &commands.last().expect("one command was sent").command {
+        RuntimeCommand::DecideReview { feedback, .. } => assert_eq!(feedback, &None),
+        other => panic!("expected DecideReview, got {other:?}"),
+    }
+}
+
+#[test]
+fn d2_refuses_review_feedback_over_the_core_limit_instead_of_truncating_it() {
+    let (view, _) = decision_view();
+    let (mut adapter, sent) = connected(view);
+
+    let error = adapter
+        .d2_send_intent(
+            "gui-d2-review-long",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: false,
+                feedback: Some("x".repeat(501)),
+            },
+        )
+        .expect_err("over-limit feedback is refused locally");
+    assert!(
+        error.contains("500"),
+        "the refusal must name Core's own limit, got {error}"
+    );
+    assert!(
+        sent.lock().unwrap().is_empty(),
+        "nothing may reach Core when the local check refuses"
+    );
+}
+
+#[test]
+fn d2_review_is_not_confirmed_by_an_update_naming_another_review() {
+    let (mut view, _) = decision_view();
+    let mut other = settled_review("review-other", ReviewRequestStatus::Pending);
+    other.audit_id = "audit-review-other".to_string();
+    view.review_requests.push(other);
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent))
+        .with_event(RuntimeEventKind::CommandAccepted {
+            command_id: "gui-d2-review-mismatch".to_string(),
+            command: decide_review("review-jump-feel", true, reviewer_actor()),
+        })
+        .with_event(RuntimeEventKind::ReviewRequestUpdated {
+            review: settled_review("review-other", ReviewRequestStatus::Accepted),
+        });
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+
+    let result = adapter
+        .d2_send_intent(
+            "gui-d2-review-mismatch",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: None,
+            },
+        )
+        .expect("send the review verdict");
+
+    assert_eq!(result.outcome.state, "pending");
+    assert_eq!(
+        result.pending_command_id.as_deref(),
+        Some("gui-d2-review-mismatch")
+    );
+}
+
+#[test]
+fn d2_review_passes_a_core_rejection_reason_through_verbatim() {
+    let (view, _) = decision_view();
+    let reason = "review decision requires the independent reviewer lane";
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent)).with_event(
+        RuntimeEventKind::CommandRejected {
+            command_id: "gui-d2-review-refused".to_string(),
+            reason: reason.to_string(),
+        },
+    );
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+
+    let result = adapter
+        .d2_send_intent(
+            "gui-d2-review-refused",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: None,
+            },
+        )
+        .expect("send the review verdict");
+
+    assert_eq!(result.outcome.state, "rejected");
+    assert_eq!(result.outcome.reason.as_deref(), Some(reason));
+    assert_eq!(result.pending_command_id, None);
+}
+
+#[test]
+fn d2_refuses_a_second_review_decision_while_one_is_still_pending() {
+    let (view, _) = decision_view();
+    let (mut adapter, _) = connected(view);
+
+    adapter
+        .d2_send_intent(
+            "gui-d2-review-first",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: None,
+            },
+        )
+        .expect("first verdict is sent");
+
+    let error = adapter
+        .d2_send_intent(
+            "gui-d2-review-second",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: false,
+                feedback: None,
+            },
+        )
+        .expect_err("a second verdict must be refused while one is unanswered");
+    assert!(
+        error.contains("gui-d2-review-first"),
+        "the refusal must name the command still in flight, got {error}"
+    );
+}
+
+#[test]
+fn d2_review_actions_fail_closed_with_a_local_code_when_no_actor_is_derivable() {
+    let (mut view, _) = decision_view();
+    // Core published the review without an owner and without a gate validator,
+    // so there is no identity `validate_review_decider` would accept.
+    view.review_requests[0].owner = RuntimeOwner::default();
+    let (mut adapter, sent) = connected(view);
+
+    let projection = adapter
+        .d2_decisions_for("review-jump-feel")
+        .expect("review detail");
+    let detail = projection.detail.expect("detail");
     assert!(detail.actions.iter().all(|action| !action.available));
     assert!(
         detail
             .actions
             .iter()
-            .any(|action| action.code == Some("GUI-CORE-011")),
-        "the blocked review decision must name its contract request"
+            .all(|action| action.code == Some(D2_REVIEW_NO_ACTOR_CODE)),
+        "a review with no derivable actor names the local reason, not GUI-CORE-011"
     );
+
+    let error = adapter
+        .d2_send_intent(
+            "gui-d2-review-no-actor",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: true,
+                feedback: None,
+            },
+        )
+        .expect_err("an undecidable review must be refused before the wire");
+    assert!(error.contains("reviewer"), "got {error}");
+    assert!(sent.lock().unwrap().is_empty());
+}
+
+#[test]
+fn d2_review_actions_fail_closed_once_core_has_settled_the_review() {
+    let (mut view, _) = decision_view();
+    view.review_requests[0].status = ReviewRequestStatus::Accepted;
+    let (mut adapter, sent) = connected(view);
+
+    let projection = adapter
+        .d2_decisions_for("review-jump-feel")
+        .expect("review detail");
+    let detail = projection.detail.expect("detail");
+    assert!(
+        detail
+            .actions
+            .iter()
+            .all(|action| !action.available && action.code == Some(D2_REVIEW_SETTLED_CODE)),
+        "a decided review can never be re-decided"
+    );
+
+    adapter
+        .d2_send_intent(
+            "gui-d2-review-settled",
+            D2Intent::DecideReview {
+                review_id: "review-jump-feel".to_string(),
+                accept: false,
+                feedback: None,
+            },
+        )
+        .expect_err("a settled review must be refused before the wire");
+    assert!(sent.lock().unwrap().is_empty());
 }

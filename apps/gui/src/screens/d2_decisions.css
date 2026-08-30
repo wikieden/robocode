@@ -217,3 +217,46 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* Reviewer prose. Optional by contract: a settled review may carry no note. */
+.d2-review-note {
+  display: grid;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-4) var(--sp-3);
+}
+
+.d2-review-input {
+  resize: vertical;
+  padding: var(--sp-2);
+  color: var(--fg-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d2-review-input:disabled {
+  cursor: not-allowed;
+  color: var(--fg-muted);
+}
+
+.d2-review-input:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}
+
+/* The ordered Core receipt for the last decision. */
+.d2-outcome {
+  margin: 0;
+  padding: 0 var(--sp-4) var(--sp-3);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d2-outcome[data-d2-outcome="rejected"] {
+  color: var(--error);
+}
+
+.d2-outcome[data-d2-outcome="confirmed"] {
+  color: var(--success);
+}

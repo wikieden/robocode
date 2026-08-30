@@ -173,3 +173,167 @@ fn d10_declares_the_event_stream_unavailable_instead_of_inventing_one() {
         .expect("the event stream gap must be declared");
     assert_eq!(unavailable.key, "d10.events.noOrderedLog");
 }
+
+/// Writes bounded run facts onto a Core lane record through its own wire form.
+///
+/// `viden-core` re-exports `AgentLaneRecord` but not `LaneRunStats`, and the
+/// GUI track must not reach around the facade into `viden-types`, so the
+/// fixture is built the way Core serializes it.
+fn with_run_stats(
+    view: &mut RuntimeViewState,
+    lane_index: usize,
+    wall_time_ms: u64,
+    run_count: u64,
+    diff_bytes: u64,
+    last_exit_code: Option<i32>,
+) {
+    let mut wire = serde_json::to_value(&view.lanes[lane_index]).expect("serialize lane record");
+    wire["run_stats"] = serde_json::json!({
+        "wall_time_ms": wall_time_ms,
+        "run_count": run_count,
+        "diff_bytes": diff_bytes,
+        "last_exit_code": last_exit_code,
+    });
+    view.lanes[lane_index] = serde_json::from_value(wire).expect("lane record with run stats");
+}
+
+fn lane_index_by_route(view: &RuntimeViewState, route: viden_core::AgentRoute) -> usize {
+    view.lanes
+        .iter()
+        .position(|lane| lane.route == route)
+        .unwrap_or_else(|| panic!("the multi-lane fixture must carry a {route:?} lane"))
+}
+
+#[test]
+fn d10_marks_every_lane_with_the_cost_meterability_core_derives_from_its_route() {
+    let view = multi_lane_view();
+    let terminal = view.lanes[lane_index_by_route(&view, viden_core::AgentRoute::Terminal)]
+        .id
+        .clone();
+    let acp = view.lanes[lane_index_by_route(&view, viden_core::AgentRoute::Acp)]
+        .id
+        .clone();
+
+    let monitor = connected(view).d10_lane_monitor().expect("D10 projection");
+    let blind = monitor
+        .lanes
+        .iter()
+        .find(|lane| lane.id == terminal)
+        .unwrap();
+    let metered = monitor.lanes.iter().find(|lane| lane.id == acp).unwrap();
+
+    // `AgentRoute::cost_meterability` is the authority. The client never
+    // re-derives the policy from the route name.
+    assert_eq!(blind.cost_meterability, "blind");
+    assert_eq!(metered.cost_meterability, "metered");
+}
+
+#[test]
+fn d10_surfaces_the_bounded_run_facts_core_recorded_for_a_cost_blind_lane() {
+    let mut view = multi_lane_view();
+    let index = lane_index_by_route(&view, viden_core::AgentRoute::Terminal);
+    let lane_id = view.lanes[index].id.clone();
+    with_run_stats(&mut view, index, 200_400, 3, 8_192, Some(0));
+
+    let monitor = connected(view).d10_lane_monitor().expect("D10 projection");
+    let lane = monitor
+        .lanes
+        .iter()
+        .find(|lane| lane.id == lane_id)
+        .unwrap();
+    let stats = lane.run_stats.as_ref().expect("recorded run stats");
+
+    assert_eq!(stats.wall_time_ms, 200_400);
+    // Humanized on the host, so both frontends read the same duration.
+    assert_eq!(stats.wall_time, "3m 20s");
+    assert_eq!(stats.run_count, 3);
+    assert_eq!(stats.diff_bytes, 8_192);
+    assert_eq!(stats.last_exit_code, Some(0));
+}
+
+#[test]
+fn d10_humanizes_wall_time_across_the_three_host_side_bands() {
+    for (ms, expected) in [
+        (0_u64, "0ms"),
+        (850, "850ms"),
+        (999, "999ms"),
+        (1_000, "1.0s"),
+        (12_400, "12.4s"),
+        (59_900, "59.9s"),
+        (60_000, "1m 0s"),
+        (200_400, "3m 20s"),
+    ] {
+        let mut view = multi_lane_view();
+        let index = lane_index_by_route(&view, viden_core::AgentRoute::Terminal);
+        let lane_id = view.lanes[index].id.clone();
+        with_run_stats(&mut view, index, ms, 1, 0, None);
+        let monitor = connected(view).d10_lane_monitor().expect("D10 projection");
+        let lane = monitor
+            .lanes
+            .iter()
+            .find(|lane| lane.id == lane_id)
+            .unwrap();
+        assert_eq!(
+            lane.run_stats.as_ref().unwrap().wall_time,
+            expected,
+            "{ms}ms"
+        );
+    }
+}
+
+#[test]
+fn d10_leaves_run_stats_absent_for_a_blind_lane_core_never_observed_running() {
+    let view = multi_lane_view();
+    let index = lane_index_by_route(&view, viden_core::AgentRoute::Terminal);
+    let lane_id = view.lanes[index].id.clone();
+    assert!(
+        view.lanes[index].run_stats.is_none(),
+        "the fixture lane must start unobserved"
+    );
+
+    let monitor = connected(view).d10_lane_monitor().expect("D10 projection");
+    let lane = monitor
+        .lanes
+        .iter()
+        .find(|lane| lane.id == lane_id)
+        .unwrap();
+    // Absence is absence: an unobserved lane must not be projected as a
+    // measured zero, which is a different Core fact.
+    assert_eq!(lane.run_stats, None);
+}
+
+#[test]
+fn d10_keeps_a_force_killed_exit_code_unknown_rather_than_defaulting_it() {
+    let mut view = multi_lane_view();
+    let index = lane_index_by_route(&view, viden_core::AgentRoute::Terminal);
+    let lane_id = view.lanes[index].id.clone();
+    with_run_stats(&mut view, index, 1_500, 1, 0, None);
+
+    let monitor = connected(view).d10_lane_monitor().expect("D10 projection");
+    let lane = monitor
+        .lanes
+        .iter()
+        .find(|lane| lane.id == lane_id)
+        .unwrap();
+    assert_eq!(lane.run_stats.as_ref().unwrap().last_exit_code, None);
+}
+
+#[test]
+fn d10_never_projects_process_run_facts_as_a_metered_lane_cost_surface() {
+    let mut view = multi_lane_view();
+    let index = lane_index_by_route(&view, viden_core::AgentRoute::Acp);
+    let lane_id = view.lanes[index].id.clone();
+    // Even when Core recorded process facts for a metered lane, D10 keeps its
+    // cost story the token/cost ledger; these bounded facts exist to replace a
+    // cost figure that does not exist, not to add a second one.
+    with_run_stats(&mut view, index, 5_000, 2, 64, Some(1));
+
+    let monitor = connected(view).d10_lane_monitor().expect("D10 projection");
+    let lane = monitor
+        .lanes
+        .iter()
+        .find(|lane| lane.id == lane_id)
+        .unwrap();
+    assert_eq!(lane.cost_meterability, "metered");
+    assert_eq!(lane.run_stats, None);
+}

@@ -6,8 +6,8 @@
 //! evidence, action bar) and never merges them into a private decision model.
 //!
 //! Facts that `frontend-contract-v1` does not carry — a structured diff for an
-//! approval, and a review-decision command — are declared unavailable with
-//! their contract-request code instead of being synthesized from display text.
+//! approval — are declared unavailable with their contract-request code instead
+//! of being synthesized from display text.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,24 @@ use crate::PermissionChoice;
 pub const D2_KIND_GATE: &str = "gate";
 pub const D2_KIND_CONTRACT: &str = "contract";
 pub const D2_KIND_REVIEW: &str = "review";
+
+/// Core's own cap on reviewer prose (`validate_trust_text`, 500 chars).
+///
+/// Mirrored rather than imported because `viden-core` does not re-export the
+/// constant. The client refuses over-limit text instead of truncating it:
+/// Core truncates for its own preview, and silently sending half a note would
+/// misattribute the reviewer's words.
+pub const D2_REVIEW_FEEDBACK_MAX_CHARS: usize = 500;
+
+/// A pending review whose independent-reviewer identity this client cannot
+/// reproduce from published Core facts. Local, not a contract gap: Core carries
+/// the command, this particular record carries no actor
+/// `validate_review_decider` would accept.
+pub const D2_REVIEW_NO_ACTOR_CODE: &str = "D2-NO-REVIEWER-ACTOR";
+
+/// A review Core already settled. `DecideReview` only ever settles a `Pending`
+/// review, so a recorded verdict is never re-offered.
+pub const D2_REVIEW_SETTLED_CODE: &str = "D2-REVIEW-SETTLED";
 
 /// A capability the design shows but `frontend-contract-v1` does not carry.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -144,6 +162,17 @@ pub enum D2Intent {
     DecideContract {
         contract_id: String,
         accept: bool,
+    },
+    /// The independent reviewer lane's verdict on a pending review.
+    ///
+    /// `accept` is the client's whole verdict vocabulary on purpose:
+    /// `ReviewVerdict` can only settle a review, never reopen one, so there is
+    /// no third option to model. `feedback` is optional reviewer prose; empty
+    /// or whitespace-only input is absence, not an empty note.
+    DecideReview {
+        review_id: String,
+        accept: bool,
+        feedback: Option<String>,
     },
 }
 

@@ -41,28 +41,36 @@ Close this request when each live-work fact carries a full `RuntimeOwner` and
 the canonical D1 fixture proves selected-Lane projection for two concurrent
 owners.
 
-## GUI-CORE-011: Review decision command
+## GUI-CORE-011: Review decision command — CLOSED
 
-`frontend-contract-v1` publishes `ReviewRequestRecord` with a `Pending` status
-and exposes `RuntimeCommand::RequestReview`, but no command records a review
-decision. D2 therefore lists pending reviews with their Core evidence and
-renders the accept/reject actions disabled with this code; it must not reuse
+History: `frontend-contract-v1` published `ReviewRequestRecord` with a
+`Pending` status and `RuntimeCommand::RequestReview`, but no command recorded a
+review decision. D2 listed pending reviews with their Core evidence and
+rendered the accept/reject actions disabled with this code; it never reused
 `AcceptLaneOutput` or an approval response as a substitute review verdict.
 
-Close this request when Core publishes a review-decision command carrying the
-review id, verdict, optional feedback, and audit id, and the canonical fixture
-proves the resulting `ReviewRequestStatus` transition.
-
-Core status: delivered in `core-v0.3.2` (commit pending) as
+Core status: delivered in `core-v0.3.2` (`a04260af`) as
 `RuntimeCommand::DecideReview { review_id, verdict, feedback, actor }`. Only
 the independent reviewer lane may decide; the verdict settles the review and
 stamps the gate validator on accept, an accepted verdict is never overwritten
 by a later gate decision, and `AcceptMergeGate` fails closed after a rejected
 review. `ReviewRequestRecord` gained an additive optional `feedback`. The
 schema-1 extension fixture `review-decision.json` proves the
-`Pending -> Accepted` transition. GUI wiring is still open: D2 keeps rendering
-the accept/reject actions disabled with this code until the client sends
-`DecideReview`.
+`Pending -> Accepted` transition.
+
+GUI status: wired on `claude/gui-supervision-debts`. D2 sends `DecideReview`
+with the actor `validate_review_decider` accepts, derived the way the TUI
+derives it — the gate validator Core recorded for this review when it names the
+reviewer Lane, otherwise Core's own `reviewer_owner_from_requester` shape (the
+review owner re-pointed at the reviewer Lane, session and turn identity left
+unclaimed). Reviewer prose is optional, trimmed, and refused above Core's
+500-character cap rather than truncated. The verdict is confirmed only by an
+ordered `ReviewRequestUpdated` naming this review with the status the command
+asked for; `CommandAccepted` alone never confirms it, and the validator-stamping
+`MergeGateUpdated` that follows is tolerated. A review Core would refuse stays
+disabled with a local reason instead of this code: `D2-REVIEW-SETTLED` for an
+already-decided review, `D2-NO-REVIEWER-ACTOR` when no acceptable reviewer
+identity is derivable.
 
 ## GUI-CORE-012: Structured decision context for an approval
 
