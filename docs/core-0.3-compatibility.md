@@ -24,6 +24,19 @@ the exact common branch base for TUI and GUI; its parent must equal the recorded
 payload SHA. This document does not authorize a tag, push, publish, or Homebrew
 change.
 
+### Execution Target Freeze
+
+`ExecutionTarget` (`crates/types/src/agent.rs`) is frozen for the 0.3.x line
+as a schema-1 lane fact with exactly two declared variants: `local` and
+`ssh { host }`. Only `local` has an execution adapter; `ssh` is a declared
+P1 target — a lane may carry it as contract data, but no runtime adapter
+executes it yet, and clients must render that state honestly rather than
+implying remote execution works. New target kinds are additive schema
+changes and land only through the same contract review that governs every
+frozen-surface addition in this document; the enum is intentionally exact
+(not `non_exhaustive`) so client matches fail closed at compile time when a
+variant is added.
+
 ## Frozen Capability Set
 
 The frozen capability constant exposed to Core as `CORE_CLIENT_CAPABILITIES` is

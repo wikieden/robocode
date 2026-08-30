@@ -21,6 +21,16 @@ evidence commit 落盘；该 evidence commit 是 TUI 与 GUI 的共同精确分�
 parent 必须等于这里记录的 payload SHA。本文不授权 tag、push、publish 或 Homebrew
 变更。
 
+### ExecutionTarget 冻结
+
+`ExecutionTarget`（`crates/types/src/agent.rs`）在 0.3.x 线冻结为 schema-1 的
+lane 事实，仅有两个已声明变体：`local` 与 `ssh { host }`。目前只有 `local` 拥有
+执行适配器；`ssh` 是已声明的 P1 目标——lane 可以携带它作为契约数据，但尚无运行时
+适配器执行它，客户端必须诚实呈现该状态，不得暗示远程执行可用。新增目标类型属于
+加法式 schema 变更，只能经由本文管辖所有冻结面新增的同一契约评审落地；该枚举有意
+保持精确（不加 `non_exhaustive`），使新增变体时客户端的穷尽匹配在编译期 fail
+closed。
+
 ## 冻结 Capability 集合
 
 Core 以 `CORE_CLIENT_CAPABILITIES` 暴露并供 handshake 使用的冻结 capability 常量是
