@@ -53,6 +53,10 @@
           "src/player/dash.gd"
         ],
         "auditId": "audit-revert-1",
+        "auditScope": {
+          "kind": "revert",
+          "id": "revert-1"
+        },
         "revertedAt": 1700000900
       }
     ],

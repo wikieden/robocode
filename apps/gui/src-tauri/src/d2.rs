@@ -118,6 +118,11 @@ pub struct D2DetailProjection {
     pub task_id: Option<String>,
     /// Where Core writes the decision and its reason.
     pub audit_id: String,
+    /// The audit object this decision's records actually link, when one
+    /// exists. `AuditQuery` filters by object, not by audit id, so a decision
+    /// whose records link nothing queryable offers no trail rather than an
+    /// affordance that would open an empty timeline.
+    pub audit_scope: Option<crate::D14AuditScopeProjection>,
     pub policy_reason_key: Option<String>,
     pub blocked_by_plan: bool,
     pub context: D2ContextProjection,

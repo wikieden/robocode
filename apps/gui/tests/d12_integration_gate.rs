@@ -572,3 +572,33 @@ fn d12_declares_the_conflict_hunk_unavailable_instead_of_rendering_one() {
         .expect("the conflict hunk gap must be declared");
     assert_eq!(entry.key, "d12.conflict.noStructuredHunk");
 }
+
+#[test]
+fn d12_scopes_a_revert_row_to_the_audit_object_core_actually_linked() {
+    let mut view = gate_view();
+    view.reverts.push(RevertRecord {
+        revert_id: "revert-1".to_string(),
+        gate_id: view.merge_gates[0].gate_id.clone(),
+        applied_change_id: "change-1".to_string(),
+        owner: owner("lane-3"),
+        reason: "cancel window regressed".to_string(),
+        restored_paths: vec!["src/player/dash.gd".to_string()],
+        audit_id: "audit-revert-1".to_string(),
+        reverted_at: 1_700_000_900,
+    });
+
+    let detail = connected(view)
+        .d12_integration_gate()
+        .unwrap()
+        .detail
+        .expect("detail");
+    // `change.reverted` links `revert:<revert_id>` (crates/runtime/src/
+    // trust_loop.rs), so the row scopes by that object and not by its audit id,
+    // which `AuditQuery` cannot filter on at all.
+    let scope = detail.reverts[0]
+        .audit_scope
+        .as_ref()
+        .expect("a revert row must offer its audit trail");
+    assert_eq!(scope.kind, "revert");
+    assert_eq!(scope.id, "revert-1");
+}

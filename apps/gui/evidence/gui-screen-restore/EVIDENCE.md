@@ -39,7 +39,8 @@ dimensions and does not invoke browser automation outside that runtime.
 | D10 lane monitor | `…?screen=d10` |
 | D12 integration gate | `…?screen=d12` |
 | D13 fleet and workflow | `…?screen=d13` |
-| D14 audit timeline | `…?screen=d14` |
+| D14 audit trail (audit mode) | `…?screen=d14-audit` |
+| D14 raw event replay (capability absent) | `…?screen=d14-raw` |
 | Locale and skin proof | `…?screen=d12&locale=zh-CN&mode=light` |
 
 `locale`, `mode`, and `density` are accepted on every screen and resolve through
@@ -58,9 +59,17 @@ the shared `resolveTheme` path, so the harness never ships a second palette.
   missing; the bounce timeline and the post-merge revert; `GUI-CORE-015`.
 - **D13**: the DAG goal and status; a node's declared `depends on` edge; a
   blocked node naming its Core dependency reason; `Core recorded no handoff`.
-- **D14**: rows in Core cursor order labelled with Core's own event
-  discriminants; the undecodable row kept and highlighted; the paging control
-  present while the batch is incomplete.
+- **D14 audit mode**: the mode toggle with `Audit trail` pressed; one row per
+  `AuditRecord` newest-first with Core's raw dotted `action` key, the actor
+  (including the agent id when the actor is an agent lane), the outcome, the
+  linked object chips, the bounded argument chips, and a readable
+  `YYYY-MM-DD HH:MM:SS UTC` time; the load-older control
+  present while Core's page is incomplete.
+- **D14 raw mode**: the same toggle with `Raw event replay (diagnostic)`
+  pressed, the audit button visibly disabled, and the note naming the absent
+  `runtime.audit` capability; below it, rows in Core cursor order labelled with
+  Core's own event discriminants, the undecodable row kept and highlighted, and
+  the paging control present while the batch is incomplete.
 
 ## Facts added on top of a fixture
 
@@ -73,7 +82,8 @@ field is invented and no display string is parsed into a fact.
 | D10 | `multi-lane.json` | one `LaneRuntimeOwnerBinding`, so both the bound and unbound paths render |
 | D12 | `merge-gate.json` | gate status `needs_changes` with one required evidence id, one `ConflictBounce`, one `RevertRecord` |
 | D13 | `dag-blocker.json` | one blocked `DependencyRecord` |
-| D14 | none | the replay contract has no fixture, so the batch is built from typed Core events and served through the same `CoreClient::replay` path |
+| D14 raw | none | the replay contract has no fixture, so the batch is built from typed Core events and served through the same `CoreClient::replay` path |
+| D14 audit | none | the audit store is not view state and has no fixture, so the page is built from `AuditRecord::sanitized` values — the only constructor Core's own emission sites use — and delivered as `CommandAccepted` then `AuditPageLoaded` through the production acceptance-first correlation machine |
 
 ## Known limitation
 

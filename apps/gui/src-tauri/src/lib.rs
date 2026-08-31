@@ -59,7 +59,11 @@ pub use d13::{
     D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
     D13WorkflowProjection,
 };
-pub use d14::{D14AuditTimelineProjection, D14RowProjection};
+pub use d14::{
+    AUDIT_CAPABILITY, D14_AUDIT_PAGE_LIMIT, D14AuditArgProjection, D14AuditObjectProjection,
+    D14AuditProjection, D14AuditRowProjection, D14AuditScopeInput, D14AuditScopeProjection,
+    D14AuditTimelineProjection, D14RowProjection,
+};
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
@@ -474,6 +478,49 @@ fn d14_audit_timeline(
         .d14_audit_timeline(after.as_deref(), limit)
 }
 
+/// Reads the newest page of the Core audit timeline, optionally object-scoped.
+#[tauri::command]
+fn d14_audit_query(
+    command_id: String,
+    scope: Option<D14AuditScopeInput>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D14AuditProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .query_audit_and_wait(&command_id, scope, Duration::from_millis(250))
+}
+
+/// Reads the page older than the cursor Core handed back.
+#[tauri::command]
+fn d14_audit_load_older(
+    command_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D14AuditProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .load_older_audit_and_wait(&command_id, Duration::from_millis(250))
+}
+
+/// Drains ordered Core events while an audit read is still pending.
+#[tauri::command]
+fn d14_audit_poll(state: tauri::State<'_, DesktopState>) -> Result<D14AuditProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_audit(Duration::from_millis(250))
+}
+
 /// Reads the Agent content Core persisted for a message part.
 ///
 /// The webview cannot load a workspace path, so the shell reads the file Core
@@ -658,6 +705,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d12_send_intent,
             d13_fleet_workflow,
             d14_audit_timeline,
+            d14_audit_query,
+            d14_audit_load_older,
+            d14_audit_poll,
             agent_content,
             d6_recover,
             d6_send_intent

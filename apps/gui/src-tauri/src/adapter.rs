@@ -6,13 +6,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use viden_core::{
     AgentSessionInput, AgentSessionRequest, AgentSessionStatus, ApprovalDecision,
-    ApprovalRequestView, ApprovalResponse, ApprovalScope, BoundCoreClient, CoreClient,
-    CoreClientError, CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, LocaleId, MergeGateStatus,
-    PermissionLevel, ReplayBatch, ReplayRequest, ReviewRequestStatus, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshotEnvelope, RuntimeWireEvent, StarterLanePreset, StarterLaneRequest,
-    TranscriptPage, TranscriptPageRequest, UiColorMode, UiDensity, UiMotion, UiPreferencePatch,
-    UiPreferences, UiSkin, WorkMode, WorkspaceOpenRequest,
+    ApprovalRequestView, ApprovalResponse, ApprovalScope, AuditActor, AuditCursor, AuditObjectRef,
+    AuditOutcome, AuditQuery, AuditRecord, BoundCoreClient, CoreClient, CoreClientError,
+    CoreHandshake, FRONTEND_SCHEMA_V1, LocalCoreHost, LocaleId, MergeGateStatus, PermissionLevel,
+    ReplayBatch, ReplayRequest, ReviewRequestStatus, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
+    UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
+    WorkspaceOpenRequest,
 };
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
@@ -21,6 +22,10 @@ use crate::d1::{
     D1OutcomeProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
+use crate::d14::{
+    AUDIT_CAPABILITY, D14_AUDIT_PAGE_LIMIT, D14AuditArgProjection, D14AuditObjectProjection,
+    D14AuditProjection, D14AuditRowProjection, D14AuditScopeInput, D14AuditScopeProjection,
+};
 use crate::projection::{
     PreferenceDiagnosticProjection, ResolvedPreferencesProjection, exact_terminal_agent_session,
     preference_diagnostic_projection,
@@ -83,6 +88,15 @@ pub struct GuiCoreAdapter {
     /// verdict sent while the first is unanswered could only race Core's own
     /// "already decided" rejection; the slot refuses it locally instead.
     pending_d2_review: Option<PendingD2Review>,
+    /// One audit read at a time, for exactly the reason `pending_recent_work`
+    /// has one: `AuditPageLoaded` carries no command id, so two concurrent
+    /// reads could not be told apart. See [`PendingAuditPage`].
+    pending_audit: Option<PendingAuditPage>,
+    audit_outcome: D1OutcomeProjection,
+    /// What Core published for the audit reads confirmed so far. Only a
+    /// confirming page fills this, so D14 can never render a record the
+    /// ordered Core stream did not hand it.
+    audit_receipt: AuditReceipt,
 }
 
 struct HostedCoreClient {
@@ -797,6 +811,132 @@ impl PendingRecentWork {
     }
 }
 
+/// Label for a `#[non_exhaustive]` actor or outcome this build cannot name.
+const UNKNOWN_AUDIT_LABEL: &str = "unknown";
+
+/// Encodes a Core cursor as an opaque webview token.
+///
+/// `timestamp` is decimal digits and carries no `:`, so the first colon is
+/// always the separator even though an audit id may legally contain one.
+fn encode_audit_cursor(cursor: &AuditCursor) -> String {
+    format!("{}:{}", cursor.timestamp, cursor.audit_id)
+}
+
+fn audit_object_projection(object: &AuditObjectRef) -> D14AuditObjectProjection {
+    D14AuditObjectProjection {
+        kind: object.kind.clone(),
+        id: object.id.clone(),
+    }
+}
+
+fn audit_row_projection(record: &AuditRecord) -> D14AuditRowProjection {
+    let (actor_kind, agent_id) = match &record.actor {
+        AuditActor::Operator => ("operator", None),
+        AuditActor::System => ("system", None),
+        AuditActor::Agent { agent_id } => ("agent", Some(agent_id.clone())),
+        // `AuditActor` is `#[non_exhaustive]`: a newer Core's actor is named
+        // as unknown rather than folded into one of the three above.
+        _ => (UNKNOWN_AUDIT_LABEL, None),
+    };
+    D14AuditRowProjection {
+        audit_id: record.audit_id.clone(),
+        timestamp: record.timestamp,
+        actor_kind: actor_kind.to_string(),
+        agent_id,
+        action: record.action.clone(),
+        objects: record.objects.iter().map(audit_object_projection).collect(),
+        outcome: match record.outcome {
+            AuditOutcome::Success => "success",
+            AuditOutcome::Denied => "denied",
+            AuditOutcome::Failed => "failed",
+            // See `actor_kind`: `AuditOutcome` is `#[non_exhaustive]` too, and
+            // an unknown outcome must never borrow a known status.
+            _ => UNKNOWN_AUDIT_LABEL,
+        }
+        .to_string(),
+        args: record
+            .args
+            .iter()
+            .map(|(key, value)| D14AuditArgProjection {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// One in-flight `QueryAudit` awaiting its ordered Core answer.
+struct PendingAuditPage {
+    command_id: String,
+    accepted: bool,
+    /// Whether this read continues the current list (load older) or replaces
+    /// it (a first or re-scoped page). Applied only on confirmation.
+    older: bool,
+}
+
+/// What Core published across the audit reads confirmed so far.
+#[derive(Default)]
+struct AuditReceipt {
+    /// Newest first, exactly as Core delivered; older pages append at the end.
+    rows: Vec<D14AuditRowProjection>,
+    next_before: Option<AuditCursor>,
+    complete: bool,
+    /// True once one page has actually arrived. Absence and emptiness are
+    /// different facts; see [`D14AuditProjection::loaded`].
+    loaded: bool,
+    /// The object filter the current list was read under, if any.
+    scope: Option<AuditObjectRef>,
+}
+
+enum AuditObservation {
+    Continue,
+    Confirmed,
+    Rejected(String),
+}
+
+impl PendingAuditPage {
+    /// Reconciles one ordered event against this read.
+    ///
+    /// Core answers a `QueryAudit` with exactly `CommandAccepted` then
+    /// `AuditPageLoaded`. The page carries no command id, so it only counts
+    /// once *this* command was accepted.
+    ///
+    /// Known correlation limitation, stated rather than papered over — the
+    /// same one `apps/tui/src/tui/audit_panel.rs` documents: acceptance-first
+    /// rules out a page that arrived before our own acceptance, but a *second*
+    /// client querying concurrently could still land its page between our
+    /// acceptance and Core's answer, and we would attribute it to this read.
+    /// The page is still a real Core page, it is dropped when the screen
+    /// re-queries, and speculative correlation (matching on record contents or
+    /// guessing from the cursor) would invent certainty the contract does not
+    /// provide. `GUI-CORE-024` tracks the contract fix.
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id
+                && matches!(command, RuntimeCommand::QueryAudit { .. }) =>
+            {
+                self.accepted = true;
+                AuditObservation::Continue
+            }
+            RuntimeEventKind::AuditPageLoaded { .. } if self.accepted => {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
+}
+
 fn recent_project_projection(summary: &RecentProjectSummary) -> RecentProjectProjection {
     RecentProjectProjection {
         canonical_root: summary.canonical_root.clone(),
@@ -1019,6 +1159,9 @@ impl GuiCoreAdapter {
             connection_detail: None,
             d2_selected: None,
             pending_d2_review: None,
+            pending_audit: None,
+            audit_outcome: D1OutcomeProjection::idle(),
+            audit_receipt: AuditReceipt::default(),
         }
     }
 
@@ -1109,11 +1252,213 @@ impl GuiCoreAdapter {
         self.projection.permission_dock()
     }
 
-    /// Pages the audit trail through the Core replay cursor.
+    /// Whether Core's handshake published the audit timeline.
     ///
-    /// `after` is the opaque `stream:sequence` cursor returned by the previous
-    /// page. A replay failure is reported rather than rendered as a shorter
-    /// trail, because a truncated audit view reads as a complete one.
+    /// D14 reads this before it renders, so an absent capability shows as an
+    /// honest unavailable audit mode with the raw replay mode still usable,
+    /// rather than as an empty timeline that reads as "nothing ever happened".
+    pub fn supports_audit(&self) -> bool {
+        self.supports(AUDIT_CAPABILITY)
+    }
+
+    /// Sends one `QueryAudit` for the newest page and waits for Core's answer.
+    ///
+    /// `scope` is the object filter, or `None` for the project timeline: Core's
+    /// store is already scoped to the project's own workflow directory, so an
+    /// unscoped query needs no locally invented `project_id`. The read is
+    /// available in Plan mode and never requests approval.
+    ///
+    /// A missing capability is not an error: it returns the honest projection
+    /// with `capability_available == false` and sends nothing, so D14 can fall
+    /// back to raw replay mode instead of showing a failed screen.
+    pub fn query_audit_and_wait(
+        &mut self,
+        command_id: &str,
+        scope: Option<D14AuditScopeInput>,
+        event_timeout: Duration,
+    ) -> Result<D14AuditProjection, String> {
+        let scope = scope.map(|scope| AuditObjectRef::new(scope.kind, scope.id));
+        self.send_audit_query(command_id, scope, None, false, event_timeout)
+    }
+
+    /// Sends one `QueryAudit` for the page older than Core's own cursor.
+    ///
+    /// The cursor travels back verbatim; the client never derives a position
+    /// from a timestamp it rendered.
+    pub fn load_older_audit_and_wait(
+        &mut self,
+        command_id: &str,
+        event_timeout: Duration,
+    ) -> Result<D14AuditProjection, String> {
+        let before = self
+            .audit_receipt
+            .next_before
+            .clone()
+            .ok_or_else(|| "Core published no older audit cursor".to_string())?;
+        let scope = self.audit_receipt.scope.clone();
+        self.send_audit_query(command_id, scope, Some(before), true, event_timeout)
+    }
+
+    fn send_audit_query(
+        &mut self,
+        command_id: &str,
+        scope: Option<AuditObjectRef>,
+        before: Option<AuditCursor>,
+        older: bool,
+        event_timeout: Duration,
+    ) -> Result<D14AuditProjection, String> {
+        if !self.supports_audit() {
+            return Ok(self.d14_audit());
+        }
+        if let Some(pending) = &self.pending_audit {
+            return Err(format!(
+                "audit query `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The timeline spans every Lane in the project, so the read is
+                // project-scoped rather than bound to a Lane owner.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::QueryAudit {
+                    query: AuditQuery {
+                        project_id: None,
+                        lane_id: None,
+                        object: scope.clone(),
+                        before,
+                        limit: D14_AUDIT_PAGE_LIMIT,
+                    },
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_audit = Some(PendingAuditPage {
+            command_id: command_id.to_string(),
+            accepted: false,
+            older,
+        });
+        self.audit_outcome = D1OutcomeProjection::pending();
+        if !older {
+            // A first or re-scoped read replaces the list. Clearing before the
+            // answer keeps the previous scope's records from being read as
+            // this scope's, and `loaded` goes back to false so the screen says
+            // "loading", never "no records".
+            self.audit_receipt = AuditReceipt {
+                scope,
+                ..AuditReceipt::default()
+            };
+        }
+        self.poll_audit(event_timeout)
+    }
+
+    /// Drains ordered Core events for an audit read still in flight.
+    pub fn poll_audit(&mut self, event_timeout: Duration) -> Result<D14AuditProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    // The transport state is already classified by receive_event.
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_audit(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.d14_audit())
+    }
+
+    /// Reconciles one ordered event against the in-flight audit read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain can never swallow the only
+    /// page the screen is waiting for.
+    fn observe_pending_audit(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_audit
+            .as_mut()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                let older = self
+                    .pending_audit
+                    .take()
+                    .is_some_and(|pending| pending.older);
+                self.audit_outcome = D1OutcomeProjection::confirmed();
+                // The confirming page is the authority for the rows and for
+                // the next cursor; nothing is re-ordered or recomputed.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::AuditPageLoaded { page } = &known.kind
+                {
+                    let rows = page.records.iter().map(audit_row_projection);
+                    if older {
+                        self.audit_receipt.rows.extend(rows);
+                    } else {
+                        self.audit_receipt.rows = rows.collect();
+                    }
+                    self.audit_receipt.next_before = page.next_before.clone();
+                    self.audit_receipt.complete = page.complete;
+                    self.audit_receipt.loaded = true;
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                self.pending_audit = None;
+                self.audit_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
+    }
+
+    /// The audit mode's current projection, with no Core traffic of its own.
+    pub fn d14_audit(&self) -> D14AuditProjection {
+        D14AuditProjection {
+            outcome: self.audit_outcome.clone(),
+            rows: self.audit_receipt.rows.clone(),
+            next_before: self
+                .audit_receipt
+                .next_before
+                .as_ref()
+                .map(encode_audit_cursor),
+            complete: self.audit_receipt.complete,
+            loaded: self.audit_receipt.loaded,
+            pending_command_id: self
+                .pending_audit
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_audit(),
+            scope: self
+                .audit_receipt
+                .scope
+                .as_ref()
+                .map(|object| D14AuditScopeProjection {
+                    kind: object.kind.clone(),
+                    id: object.id.clone(),
+                }),
+        }
+    }
+
+    /// Pages the raw event log through the Core replay cursor.
+    ///
+    /// This is D14's diagnostic mode, not its audit trail: it answers "which
+    /// ordered events did Core emit", which stays meaningful when the audit
+    /// capability is absent. `after` is the opaque `stream:sequence` cursor
+    /// returned by the previous page. A replay failure is reported rather than
+    /// rendered as a shorter trail, because a truncated view reads as a
+    /// complete one.
     pub fn d14_audit_timeline(
         &mut self,
         after: Option<&str>,
@@ -2923,6 +3268,7 @@ impl GuiCoreAdapter {
             self.observe_pending_permission(&event);
             self.observe_pending_preference(&event);
             self.observe_pending_recent_work(&event);
+            self.observe_pending_audit(&event);
             self.observe_pending(&event);
             self.observe_pending_d12(&event);
             self.observe_d4(&event);

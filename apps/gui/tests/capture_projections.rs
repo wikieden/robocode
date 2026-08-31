@@ -18,11 +18,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use viden_core::{
-    ApprovalScope, ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord,
-    DependencyRecord, DependencyState, EventCursor, EvidenceView, FRONTEND_SCHEMA_V1,
-    MergeGateStatus, ReplayBatch, RevertRecord, ReviewRequestRecord, ReviewRequestStatus,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, RuntimeWireEvent,
+    ApprovalScope, AuditActor, AuditCursor, AuditObjectRef, AuditOutcome, AuditPage, AuditRecord,
+    ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,
+    DependencyState, EventCursor, EvidenceView, FRONTEND_SCHEMA_V1, LaneRunStats, MergeGateStatus,
+    ReplayBatch, RevertRecord, ReviewRequestRecord, ReviewRequestStatus, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
+    RuntimeWireEvent,
 };
 use viden_gui::GuiCoreAdapter;
 
@@ -185,21 +186,18 @@ fn emit_capture_projections() {
     d10.lanes[0].status = viden_core::LaneStatus::WaitingApproval;
     // Bounded run facts on the fixture's cost-blind terminal lane, so the
     // capture shows the facts D10 renders in place of a cost figure Core
-    // cannot produce. Written through the lane record's own wire form:
-    // `viden-core` re-exports `AgentLaneRecord` but not `LaneRunStats`.
+    // cannot produce.
     let blind = d10
         .lanes
         .iter()
         .position(|lane| lane.route == viden_core::AgentRoute::Terminal)
         .expect("the multi-lane fixture carries a terminal lane");
-    let mut lane_wire = serde_json::to_value(&d10.lanes[blind]).unwrap();
-    lane_wire["run_stats"] = serde_json::json!({
-        "wall_time_ms": 200_400,
-        "run_count": 3,
-        "diff_bytes": 8_192,
-        "last_exit_code": 0,
+    d10.lanes[blind].run_stats = Some(LaneRunStats {
+        wall_time_ms: 200_400,
+        run_count: 3,
+        diff_bytes: 8_192,
+        last_exit_code: Some(0),
     });
-    d10.lanes[blind] = serde_json::from_value(lane_wire).unwrap();
     d10.lane_runtime_owners
         .push(viden_core::LaneRuntimeOwnerBinding {
             lane_id: bound.clone(),
@@ -315,5 +313,124 @@ fn emit_capture_projections() {
         });
     let mut adapter = GuiCoreAdapter::new(Box::new(client));
     adapter.connect().unwrap();
-    write("d14", &adapter.d14_audit_timeline(None, 200).unwrap());
+    write("d14-raw", &adapter.d14_audit_timeline(None, 200).unwrap());
+
+    // D14 audit mode: the real acceptance-first read over a Core page. Audit
+    // records are their own append-only store rather than view state, so the
+    // page is built from typed `AuditRecord` values and delivered through the
+    // ordered event stream the production correlation machine consumes.
+    let audit_page = AuditPage {
+        records: vec![
+            audit_record(
+                "audit-gate-decided",
+                1_700_000_900,
+                AuditActor::Operator,
+                "gate.decided",
+                vec![
+                    AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, "gate-integration"),
+                    AuditObjectRef::new(AuditObjectRef::KIND_TASK, "task-lane-3"),
+                ],
+                AuditOutcome::Success,
+                &[("outcome", "accepted")],
+            ),
+            audit_record(
+                "audit-review-decided",
+                1_700_000_800,
+                AuditActor::Operator,
+                "review.decided",
+                vec![
+                    AuditObjectRef::new(AuditObjectRef::KIND_REVIEW_REQUEST, "review-jump-feel"),
+                    AuditObjectRef::new(AuditObjectRef::KIND_MERGE_GATE, "gate-integration"),
+                ],
+                AuditOutcome::Success,
+                &[("verdict", "accepted")],
+            ),
+            audit_record(
+                "audit-evidence-rejected",
+                1_700_000_700,
+                AuditActor::Agent {
+                    agent_id: "codex-acp".to_string(),
+                },
+                "evidence.rejected",
+                vec![AuditObjectRef::new(
+                    AuditObjectRef::KIND_EVIDENCE,
+                    "replay-regression",
+                )],
+                AuditOutcome::Denied,
+                &[("outcome", "rejected")],
+            ),
+        ],
+        next_before: Some(AuditCursor {
+            timestamp: 1_700_000_700,
+            audit_id: "audit-evidence-rejected".to_string(),
+        }),
+        complete: false,
+    };
+    let mut adapter = GuiCoreAdapter::new(Box::new(
+        TestCoreClient::new(load("multi-lane.json"), Arc::new(Mutex::new(Vec::new())))
+            .with_envelope(audit_envelope(
+                1,
+                RuntimeEventKind::CommandAccepted {
+                    command_id: "gui-audit-capture".to_string(),
+                    command: viden_core::RuntimeCommand::QueryAudit {
+                        query: Default::default(),
+                    },
+                },
+            ))
+            .with_envelope(audit_envelope(
+                2,
+                RuntimeEventKind::AuditPageLoaded { page: audit_page },
+            )),
+    ));
+    adapter.connect().unwrap();
+    write(
+        "d14-audit",
+        &adapter
+            .query_audit_and_wait(
+                "gui-audit-capture",
+                None,
+                std::time::Duration::from_millis(10),
+            )
+            .unwrap(),
+    );
+}
+
+fn audit_record(
+    audit_id: &str,
+    timestamp: u64,
+    actor: AuditActor,
+    action: &str,
+    objects: Vec<AuditObjectRef>,
+    outcome: AuditOutcome,
+    args: &[(&str, &str)],
+) -> AuditRecord {
+    AuditRecord::sanitized(
+        audit_id.to_string(),
+        timestamp,
+        owner("lane-3"),
+        actor,
+        action.to_string(),
+        objects,
+        outcome,
+        args.iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect(),
+    )
+    .expect("the capture must use records Core itself would accept")
+}
+
+fn audit_envelope(sequence: u64, kind: RuntimeEventKind) -> RuntimeEventEnvelope {
+    RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner::default(),
+        cursor: EventCursor {
+            stream_id: "core".to_string(),
+            sequence,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+            sequence,
+            Some(1_700_000_000 + sequence),
+            kind,
+        )),
+    }
 }

@@ -13,13 +13,18 @@ Extended on `claude/gui-supervision-debts` with the D2 review verdict
 (`RuntimeCommand::DecideReview`, closing GUI-CORE-011) and the D10 cost-blind
 lane marker with the bounded run facts Core publishes for it.
 
+Extended again on `claude/gui-d14-audit` with D14's two modes: the audit trail
+over Core's `QueryAudit` -> `AuditPageLoaded` contract (`runtime.audit`), the
+same trail scoped by the object D12's revert row navigates with, and the raw
+event replay fallback a Core without `runtime.audit` leaves behind.
+
 ## What the harness is
 
 [`qa.html`](qa.html) plus [`qa.ts`](qa.ts) render exactly one screenshot state
 per `?state=` value. The page calls **only exported production render
 functions** — `renderD1Cockpit`, `renderD6Recovery` (through the cockpit's own
 work surface), `renderD11Intake`, `renderD12IntegrationGate`,
-`renderD2Decisions`, `renderD10LaneMonitor`, and the components they mount. Nothing here reimplements a control, a label, or a
+`renderD2Decisions`, `renderD10LaneMonitor`, `renderD14`, and the components they mount. Nothing here reimplements a control, a label, or a
 layout, so a regression in `src/**` shows up in the capture instead of being
 masked by a harness copy of the UI.
 
@@ -50,6 +55,8 @@ typechecks the harness against the production render signatures.
 | `d2-review-*` | [`../gui-screen-restore/projections/d2-review.json`](../gui-screen-restore/projections/d2-review.json) | **generated** by `tests/capture_projections.rs` — the decision queue with the pending review selected |
 | `d2-review-confirmed` | [`../gui-screen-restore/projections/d2-review-decided.json`](../gui-screen-restore/projections/d2-review-decided.json) | **generated** by the same test — the queue Core leaves behind after `decide_review` |
 | `d10-blind*` | [`../gui-screen-restore/projections/d10.json`](../gui-screen-restore/projections/d10.json) | **generated** by `tests/capture_projections.rs` |
+| `d14-audit*` | [`../gui-screen-restore/projections/d14-audit.json`](../gui-screen-restore/projections/d14-audit.json) | **generated** by the same test — the projection the production acceptance-first correlation produced from a Core `AuditPageLoaded` page |
+| `d14-raw-fallback` | [`../gui-screen-restore/projections/d14-raw.json`](../gui-screen-restore/projections/d14-raw.json) | **generated** by the same test through `CoreClient::replay` |
 | `d11`, `d11-recent` | mirrors the fixtures in `tests/d11_intake.spec.ts`, plus the hand-written `RecentWorkResult` below for the history panel | hand-written; D11 has no generated capture projection yet |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | the shared D1 fixture plus a hand-written `RecentWorkResult` | hand-written; `frontend-contract-v1` has no canonical recent-work capture projection yet, so the shapes mirror `tests/recent_work.rs` and `tests/project_picker.spec.ts` |
 
@@ -96,6 +103,8 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d2-review-*` | the intent result the host returns (`pending`, `confirmed`, or `rejected` with Core's own refusal sentence); the reviewer note is typed through the production input listener. `confirmed` swaps in the generated decided projection; `pending` and `rejected` keep the pending one, because Core has not answered yet in the first case and refused the command outright in the second | the outcome states asserted in `tests/d2_decisions.rs` and `tests/d2_decisions.spec.ts` |
 | `d2-review-blocked` | both verdicts forced unavailable with `D2-NO-REVIEWER-ACTOR` | `d2_review_actions_fail_closed_with_a_local_code_when_no_actor_is_derivable` in `tests/d2_decisions.rs` |
 | `d10-blind-unobserved` | `runStats` cleared on the blind lane | `d10_leaves_run_stats_absent_for_a_blind_lane_core_never_observed_running` in `tests/d10_lane_monitor.rs` |
+| `d14-audit-scoped` | only `scope` set to the `revert:revert-1` object; the rows are the generated page untouched, because a capture must not invent records for a filter | `a_scoped_query_passes_the_exact_object_through_and_reports_the_scope` in `tests/d14_audit_trail.rs` |
+| `d14-raw-fallback` | `capabilityAvailable` cleared with no rows and an idle outcome — absence, not emptiness | `audit_mode_is_unavailable_and_sends_nothing_without_the_core_capability` in `tests/d14_audit_trail.rs` |
 | `d11`, `d11-recent` | the shared two-project `RecentWorkResult` handed to the screen's recent-work port | the loaded-rows fixture in `tests/d11_intake.spec.ts` |
 | `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | a two-project `RecentWorkResult` whose timestamps are offsets from the frozen clock, so the rendered ages are stable. The open root is included on purpose — the picker must drop it from Recent rather than offer a switch to the project already open | the `RecentWorkLoaded` payloads asserted in `tests/recent_work.rs` |
@@ -146,6 +155,9 @@ All URLs share the prefix
 | `d2-review-blocked` | `…/qa.html?state=d2-review-blocked` | both verdicts disabled and named by `D2-NO-REVIEWER-ACTOR`, the reason spelled out once below the bar, and the reviewer note disabled — never enabled-and-inert and never silently hidden |
 | `d10-blind` | `…/qa.html?state=d10-blind` | the cost-blind terminal lane with its `cost-blind route` marker and the four bounded run facts (wall time, runs, applied diff, last exit), beside a metered ACP lane carrying none of them |
 | `d10-blind-unobserved` | `…/qa.html?state=d10-blind-unobserved` | the same blind lane before Core observed any run: the marker plus the sentence saying no run was observed, and no zeroed facts |
+| `d14-audit` | `…/qa.html?state=d14-audit` | the mode toggle with `Audit trail` pressed beside `Raw event replay (diagnostic)`; three audit rows newest-first, each showing Core's raw dotted `action` key, the actor (with `codex-acp` on the agent row), the outcome (`denied` visibly distinct from `success`), the linked object chips, the bounded argument chips, and a readable `YYYY-MM-DD HH:MM:SS UTC` time with the zone spelled out; the load-older control, because Core's page is incomplete |
+| `d14-audit-scoped` | `…/qa.html?state=d14-audit-scoped` | the same trail as D12's revert row opens it: the removable `Scoped to revert · revert-1` chip in the header, which re-queries unscoped when removed |
+| `d14-raw-fallback` | `…/qa.html?state=d14-raw-fallback` | a Core without `runtime.audit`: raw mode pressed, the audit button disabled, the note naming the capability, and the replay rows below with the undecodable row kept and highlighted |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -245,3 +257,33 @@ committed images until an operator captures them. `tools/capture-d1-visual.sh`
 deliberately stops at the same boundary. The images listed above were captured
 by an operator running headless Chrome directly with the flags recorded beside
 each table.
+
+## D14 audit captures
+
+Captured 2026-08-31 with headless Chrome
+(`--headless --disable-gpu --window-size=1440,900 --virtual-time-budget=6000`)
+against the vite dev server on port 4177, then visually reviewed (all four
+sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d14-audit-1440x900-dark-en.png](d14-audit-1440x900-dark-en.png) | d14-audit | 1440x900 | dark | en |
+| [d14-audit-scoped-1440x900-dark-en.png](d14-audit-scoped-1440x900-dark-en.png) | d14-audit-scoped | 1440x900 | dark | en |
+| [d14-raw-fallback-1440x900-dark-en.png](d14-raw-fallback-1440x900-dark-en.png) | d14-raw-fallback | 1440x900 | dark | en |
+| [d14-audit-1440x900-light-zh-CN.png](d14-audit-1440x900-light-zh-CN.png) | d14-audit | 1440x900 | light | zh-CN |
+
+The light/`zh-CN` capture is the locale and skin proof: the mode toggle, the
+screen title, the load-older control, and the scope-chip label are translated,
+while every Core value in a row — the dotted `action` key, the object kinds and
+ids, and the argument keys and values — stays exactly as Core published it.
+That is the intended split: localizing the action vocabulary would destroy the
+property that makes two audit timelines diffable.
+
+The row timestamp sits on the same side of that split. It is rendered readable
+(`2023-11-14 22:28:20 UTC`) rather than as the raw epoch second, but the format
+is fixed and the zone is UTC in both locales: an audit record is evidence
+compared across machines, so a locale-shifted clock would let two readers
+disagree about one fact. The ISO value stays on the `<time datetime>` attribute
+for machine reading. Raw replay mode deliberately keeps its epoch readout — its
+`d14-raw-fallback` capture came back byte-identical after this change, which is
+the proof that the diagnostic mode's presentation was not touched.

@@ -108,3 +108,118 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* Dual-mode shell: the toggle sits above whichever mode is rendered. */
+.d14-shell {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--bg-base);
+}
+
+.d14-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+
+.d14-mode {
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-sans);
+}
+
+.d14-mode[aria-pressed="true"] {
+  color: var(--fg-primary);
+  border-color: var(--border-active);
+}
+
+/* An unavailable mode is visibly disabled, never enabled-and-inert. */
+.d14-mode:disabled {
+  cursor: not-allowed;
+  color: var(--fg-muted);
+}
+
+.d14-mode:focus-visible,
+.d14-scope-chip:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}
+
+.d14-body {
+  min-height: 0;
+  display: grid;
+}
+
+.d14-scope-chip {
+  cursor: pointer;
+  margin-left: auto;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-active);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d14-arow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+/* Core's stable dotted key is the row's identity, so it reads first. */
+.d14-a-action {
+  color: var(--fg-primary);
+}
+
+.d14-a-actor {
+  color: var(--fg-muted);
+}
+
+.d14-a-outcome {
+  color: var(--accent);
+}
+
+.d14-arow[data-d14-outcome="denied"] .d14-a-outcome,
+.d14-arow[data-d14-outcome="failed"] .d14-a-outcome {
+  color: var(--error);
+}
+
+/* An outcome or actor this build cannot name must look unknown, never known. */
+.d14-arow[data-d14-outcome="unknown"] .d14-a-outcome,
+.d14-arow[data-d14-actor="unknown"] .d14-a-actor {
+  color: var(--warning);
+}
+
+.d14-a-objects,
+.d14-a-args {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.d14-a-object,
+.d14-a-arg {
+  padding: 0 var(--sp-2);
+  color: var(--fg-secondary);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+.d14-a-arg {
+  color: var(--fg-muted);
+}

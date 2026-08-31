@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use viden_core::{
     ApprovalRequestView, ApprovalScope, ContractDecision, ContractRecord, EvidenceView,
     MergeGateRecord, MergeGateStatus, MergeGateValidator, ReviewRequestRecord, ReviewRequestStatus,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState,
+    ReviewVerdict, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshot, RuntimeViewState,
 };
 use viden_gui::{
     D2_REVIEW_NO_ACTOR_CODE, D2_REVIEW_SETTLED_CODE, D2Intent, GuiCoreAdapter, PermissionChoice,
@@ -295,18 +295,17 @@ fn validator_gate(review_id: &str, validator_owner: RuntimeOwner) -> MergeGateRe
 }
 
 /// The `DecideReview` command Core echoes back on `CommandAccepted`.
-///
-/// Built through the wire form on purpose: `viden-core` re-exports
-/// `RuntimeCommand` but not `ReviewVerdict`, and the GUI track must not reach
-/// around the facade into `viden-types`.
 fn decide_review(review_id: &str, accept: bool, actor: RuntimeOwner) -> RuntimeCommand {
-    serde_json::from_value(serde_json::json!({
-        "type": "decide_review",
-        "review_id": review_id,
-        "verdict": if accept { "accepted" } else { "rejected" },
-        "actor": actor,
-    }))
-    .expect("DecideReview wire form")
+    RuntimeCommand::DecideReview {
+        review_id: review_id.to_string(),
+        verdict: if accept {
+            ReviewVerdict::Accepted
+        } else {
+            ReviewVerdict::Rejected
+        },
+        feedback: None,
+        actor,
+    }
 }
 
 /// The `ReviewRequestUpdated` fact Core emits from `decide_review`.
@@ -673,4 +672,51 @@ fn d2_review_actions_fail_closed_once_core_has_settled_the_review() {
         )
         .expect_err("a settled review must be refused before the wire");
     assert!(sent.lock().unwrap().is_empty());
+}
+
+#[test]
+fn d2_scopes_a_review_decision_to_its_parent_gate() {
+    let (view, _) = decision_view();
+    let (adapter, _) = connected(view);
+    let detail = adapter
+        .d2_decisions_for("review-jump-feel")
+        .expect("review projection")
+        .detail
+        .expect("review detail");
+    // Every trust record in the chain links the gate (crates/runtime/src/
+    // trust_loop.rs), so scoping by the parent gate is what makes the audit
+    // view the decision chain rather than one isolated record.
+    let scope = detail.audit_scope.expect("a review offers its audit trail");
+    assert_eq!(scope.kind, "merge_gate");
+    assert_eq!(scope.id, "gate-integration");
+}
+
+#[test]
+fn d2_scopes_a_contract_decision_to_the_contract_object() {
+    let (view, _) = decision_view();
+    let (adapter, _) = connected(view);
+    let detail = adapter
+        .d2_decisions_for("contract-feel-v1-1")
+        .expect("contract projection")
+        .detail
+        .expect("contract detail");
+    let scope = detail
+        .audit_scope
+        .expect("a contract offers its audit trail");
+    assert_eq!(scope.kind, "contract");
+    assert_eq!(scope.id, "contract-feel-v1-1");
+}
+
+#[test]
+fn d2_offers_no_audit_scope_for_a_tool_approval_core_links_no_object_for() {
+    let (view, approval) = decision_view();
+    let (adapter, _) = connected(view);
+    let detail = adapter
+        .d2_decisions_for(&approval.id)
+        .expect("approval projection")
+        .detail
+        .expect("approval detail");
+    // The runtime emits no audit object for a tool approval, so an affordance
+    // here would open an empty timeline and claim it was the decision's trail.
+    assert_eq!(detail.audit_scope, None);
 }

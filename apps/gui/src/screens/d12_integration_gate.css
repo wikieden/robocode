@@ -184,3 +184,20 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* The revert's own audit trail. Navigation only; it changes no gate state. */
+.d12-trail {
+  cursor: pointer;
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-sans);
+}
+
+.d12-trail:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

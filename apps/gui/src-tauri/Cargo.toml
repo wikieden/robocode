@@ -106,6 +106,10 @@ name = "d14_audit_timeline"
 path = "../tests/d14_audit_timeline.rs"
 
 [[test]]
+name = "d14_audit_trail"
+path = "../tests/d14_audit_trail.rs"
+
+[[test]]
 name = "d13_fleet_workflow"
 path = "../tests/d13_fleet_workflow.rs"
 

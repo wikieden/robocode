@@ -260,3 +260,25 @@
 .d2-outcome[data-d2-outcome="confirmed"] {
   color: var(--success);
 }
+
+/* The decision's audit trail. A secondary affordance beside the audit sink:
+   it navigates to D14, it never decides anything. */
+.d2-trail {
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-sans);
+}
+
+.d2-trail:disabled {
+  cursor: progress;
+  color: var(--fg-muted);
+}
+
+.d2-trail:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

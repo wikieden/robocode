@@ -52,6 +52,9 @@ export function createTauriCoreClient(): CoreClient {
     d12SendIntent: (commandId, intent) => invoke("d12_send_intent", { commandId, intent }),
     d13FleetWorkflow: () => invoke("d13_fleet_workflow"),
     d14AuditTimeline: (after, limit) => invoke("d14_audit_timeline", { after, limit }),
+    d14AuditQuery: (commandId, scope) => invoke("d14_audit_query", { commandId, scope }),
+    d14AuditLoadOlder: (commandId) => invoke("d14_audit_load_older", { commandId }),
+    d14AuditPoll: () => invoke("d14_audit_poll"),
 
     permissionSendIntent: (commandId, intent) =>
       invoke("permission_send_intent", { commandId, intent }),

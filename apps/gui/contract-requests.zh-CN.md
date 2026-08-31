@@ -268,3 +268,34 @@ Agent 都会停止。
 
 最近工作清单（`runtime.recent_work`）**不是**这个缺口：它已经能让客户端列出可以打开
 的项目。缺的是同时打开多个项目的能力。
+
+## GUI-CORE-024：AuditQuery 过滤器与 AuditPageLoaded 的 command id
+
+D14 在 `runtime.audit` capability 之下，通过
+`RuntimeCommand::QueryAudit` -> `RuntimeEventKind::AuditPageLoaded` 读取 Core 的
+审计时间线。该契约有两处缺口，直接决定客户端能诚实实现到什么程度。
+
+**1. `AuditPageLoaded` 不携带 command id。** 客户端只能以 acceptance-first 方式关联：
+只有在 Core 接受了*本次* `command_id` 之后到达的页面才被采纳，并且本地拒绝第二个并发
+读取，使在途读取始终至多一个。这排除了「在我们被接受之前就到达的页面」，但*另一个*
+客户端并发查询同一个 Core 时，其页面仍可能落在我们的 acceptance 与 Core 答复之间，从而
+被归属到本次读取。该页面依然是真实的 Core 页面，屏幕重新查询时即被丢弃；而替代方案
+（按记录内容匹配，或从 cursor 猜测）会凭空制造契约并不提供的确定性，因此不予实现。
+TUI 在 `apps/tui/src/tui/audit_panel.rs` 记录了同一限制。
+
+**2. `AuditQuery` 没有 actor 与时间过滤。** 其过滤项只有 `project_id`、`lane_id`、
+`object` 与 `before` cursor。D14 设计稿展示了 actor 与时间范围过滤 chip 以及按天分组；
+客户端只能对已加载的页面做过滤，而当匹配记录位于尚未加载的页面时，这会静默地误报
+「该 actor 没有记录」。因此 D14 两者都不提供，而不是提供一个会谎报完整性的过滤器。
+
+当 Core 发布以下内容时，关闭此请求：
+
+1. **`AuditPageLoaded` 上的 command id**，使页面可归属到发起它的确切读取，并使并发
+   读取者不再构成关联风险；
+2. **服务端 `AuditQuery` 过滤器**，覆盖 actor（operator / system / 指定 agent）与时间
+   范围，且在分页之前应用，使 `complete` 与 `next_before` 描述的是过滤后的时间线；
+3. **规范 `frontend-contract-v1` fixture**，覆盖两个并发审计读取与一个过滤页面，让
+   关联与过滤拥有生成的证据而非手写投影。
+
+无需 Core 改动、因而**不属于**本请求的客户端后续项：对已加载页面做按天分组、选中记录
+的详情侧栏、已加载页面的汇总。导出需要的是宿主文件写入路径，而不是 Core 契约新增。

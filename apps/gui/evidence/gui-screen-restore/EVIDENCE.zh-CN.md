@@ -36,7 +36,8 @@ npm --prefix apps/gui run dev -- --port 4173 --strictPort
 | D10 Lane 监视器 | `…?screen=d10` |
 | D12 集成闸 | `…?screen=d12` |
 | D13 Fleet 编排 | `…?screen=d13` |
-| D14 审计时间线 | `…?screen=d14` |
+| D14 审计轨迹（审计模式） | `…?screen=d14-audit` |
+| D14 原始事件回放（capability 缺失） | `…?screen=d14-raw` |
 | 语言与皮肤验证 | `…?screen=d12&locale=zh-CN&mode=light` |
 
 `locale`、`mode`、`density` 每屏都接受，并统一走共享的 `resolveTheme`，捕获页不携带
@@ -52,8 +53,13 @@ npm --prefix apps/gui run dev -- --port 4173 --strictPort
   可见且禁用；退回时间线与合入后回滚；`GUI-CORE-015`。
 - **D13**：DAG 目标与状态；节点声明的依赖边；被阻塞节点点名 Core 依赖原因；
   「Core 未记录任何交接」。
-- **D14**：按 Core cursor 顺序排列并标注 Core 自己的事件判别名；无法解码的行保留并
-  高亮；批次未完时显示分页控件。
+- **D14 审计模式**：模式切换里 `审计轨迹` 处于按下态；每条 `AuditRecord` 一行、
+  newest-first，显示 Core 原始的点分 `action` key、actor（actor 为 agent lane 时含
+  agent id）、outcome、关联对象 chip、有界参数 chip，以及可读的
+  `YYYY-MM-DD HH:MM:SS UTC` 时间；Core 页面未完时显示加载更早控件。
+- **D14 原始模式**：同一组切换里 `原始事件回放（诊断）` 处于按下态，审计按钮可见且
+  禁用，并有点名缺失 `runtime.audit` 的说明；下方按 Core cursor 顺序排列并标注 Core
+  自己的事件判别名，无法解码的行保留并高亮，批次未完时显示分页控件。
 
 ## 在 fixture 之上补充的事实
 
@@ -66,7 +72,8 @@ npm --prefix apps/gui run dev -- --port 4173 --strictPort
 | D10 | `multi-lane.json` | 一条 `LaneRuntimeOwnerBinding`，使已绑定与未绑定两条路径同时可见 |
 | D12 | `merge-gate.json` | 闸状态 `needs_changes` 加一条必需证据 id、一条 `ConflictBounce`、一条 `RevertRecord` |
 | D13 | `dag-blocker.json` | 一条 blocked 状态的 `DependencyRecord` |
-| D14 | 无 | 回放契约没有 fixture，批次由类型化 Core 事件构造，并经同一条 `CoreClient::replay` 路径提供 |
+| D14 raw | 无 | 回放契约没有 fixture，批次由类型化 Core 事件构造，并经同一条 `CoreClient::replay` 路径提供 |
+| D14 audit | 无 | 审计存储不是 view state，也没有 fixture，因此页面由 `AuditRecord::sanitized`（Core 自身发射点唯一支持的构造器）构造，并以 `CommandAccepted` + `AuditPageLoaded` 经生产用的 acceptance-first 关联机送达 |
 
 ## 已知限制
 

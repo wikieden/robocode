@@ -15,7 +15,11 @@ import type {
   D12IntentResult,
 } from "../screens/d12_integration_gate";
 import type { D13FleetWorkflowProjection } from "../screens/d13_fleet_workflow";
-import type { D14AuditTimelineProjection } from "../screens/d14_audit_timeline";
+import type {
+  D14AuditProjection,
+  D14AuditScope,
+  D14AuditTimelineProjection,
+} from "../screens/d14_audit_timeline";
 import type { D2DecisionsProjection, D2Intent, D2IntentResult } from "../screens/d2_decisions";
 import type { D4Intent, D4IntentResult } from "../screens/d4_lane_create";
 
@@ -112,7 +116,23 @@ export interface CoreClient {
    */
   d12SendIntent(commandId: string, intent: D12Intent): Promise<D12IntentResult>;
   d13FleetWorkflow(): Promise<D13FleetWorkflowProjection | null>;
+  /** D14's diagnostic mode: one raw replay page through the Core cursor. */
   d14AuditTimeline(after: string | null, limit: number): Promise<D14AuditTimelineProjection>;
+
+  /**
+   * D14's primary mode: Core's read-only `QueryAudit` for the newest page,
+   * optionally scoped to one audit object. Core owns the store, the
+   * newest-first order, the `1..=500` clamp, and the sanitized record bounds;
+   * the frontend never reads the workflow directory or derives a record.
+   *
+   * An absent `runtime.audit` capability resolves with
+   * `capabilityAvailable: false` and sends no command.
+   */
+  d14AuditQuery(commandId: string, scope: D14AuditScope | null): Promise<D14AuditProjection>;
+  /** One `QueryAudit` for the page older than the cursor Core handed back. */
+  d14AuditLoadOlder(commandId: string): Promise<D14AuditProjection>;
+  /** Drains ordered Core events while an audit read is still pending. */
+  d14AuditPoll(): Promise<D14AuditProjection>;
 
   permissionSendIntent(
     commandId: string,

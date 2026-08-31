@@ -76,6 +76,10 @@
     "laneId": "lane-review",
     "taskId": "task-lane-review",
     "auditId": "audit-review",
+    "auditScope": {
+      "kind": "merge_gate",
+      "id": "gate-integration"
+    },
     "policyReasonKey": null,
     "blockedByPlan": false,
     "context": {

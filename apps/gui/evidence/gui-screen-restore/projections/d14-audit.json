@@ -1,0 +1,82 @@
+{
+  "outcome": {
+    "state": "confirmed",
+    "reason": null
+  },
+  "rows": [
+    {
+      "auditId": "audit-gate-decided",
+      "timestamp": 1700000900,
+      "actorKind": "operator",
+      "agentId": null,
+      "action": "gate.decided",
+      "objects": [
+        {
+          "kind": "merge_gate",
+          "id": "gate-integration"
+        },
+        {
+          "kind": "task",
+          "id": "task-lane-3"
+        }
+      ],
+      "outcome": "success",
+      "args": [
+        {
+          "key": "outcome",
+          "value": "accepted"
+        }
+      ]
+    },
+    {
+      "auditId": "audit-review-decided",
+      "timestamp": 1700000800,
+      "actorKind": "operator",
+      "agentId": null,
+      "action": "review.decided",
+      "objects": [
+        {
+          "kind": "review_request",
+          "id": "review-jump-feel"
+        },
+        {
+          "kind": "merge_gate",
+          "id": "gate-integration"
+        }
+      ],
+      "outcome": "success",
+      "args": [
+        {
+          "key": "verdict",
+          "value": "accepted"
+        }
+      ]
+    },
+    {
+      "auditId": "audit-evidence-rejected",
+      "timestamp": 1700000700,
+      "actorKind": "agent",
+      "agentId": "codex-acp",
+      "action": "evidence.rejected",
+      "objects": [
+        {
+          "kind": "evidence",
+          "id": "replay-regression"
+        }
+      ],
+      "outcome": "denied",
+      "args": [
+        {
+          "key": "outcome",
+          "value": "rejected"
+        }
+      ]
+    }
+  ],
+  "nextBefore": "1700000700:audit-evidence-rejected",
+  "complete": false,
+  "loaded": true,
+  "pendingCommandId": null,
+  "capabilityAvailable": true,
+  "scope": null
+}

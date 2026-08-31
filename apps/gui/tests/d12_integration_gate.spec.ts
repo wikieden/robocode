@@ -72,8 +72,36 @@ function setup(
   document.body.innerHTML = '<div id="host"></div>';
   const root = document.querySelector<HTMLElement>("#host")!;
   const onSelect = vi.fn();
-  renderD12IntegrationGate(root, projection, "en", onSelect, send);
-  return { root, onSelect };
+  const onViewAuditTrail = vi.fn();
+  renderD12IntegrationGate(root, projection, "en", onSelect, send, onViewAuditTrail);
+  return { root, onSelect, onViewAuditTrail };
+}
+
+/// The merged gate Core leaves behind after a post-merge rollback.
+function mergedProjection(): D12IntegrationGateProjection {
+  return {
+    ...PROJECTION,
+    detail: {
+      ...PROJECTION.detail!,
+      gate: { ...GATE, status: "merged" },
+      missingEvidence: [],
+      actions: [
+        { kind: "accept", available: false, code: null },
+        { kind: "reject", available: false, code: null },
+      ],
+      reverts: [
+        {
+          revertId: "revert-1",
+          appliedChangeId: "change-1",
+          reason: "cancel window regressed",
+          restoredPaths: ["src/player/dash.gd"],
+          auditId: "audit-revert-1",
+          auditScope: { kind: "revert", id: "revert-1" },
+          revertedAt: 1_700_000_900,
+        },
+      ],
+    },
+  };
 }
 
 function result(
@@ -118,28 +146,7 @@ describe("D12 integration gate", () => {
   });
 
   test("shows the post-merge rollback once Core records one", () => {
-    const { root } = setup({
-      ...PROJECTION,
-      detail: {
-        ...PROJECTION.detail!,
-        gate: { ...GATE, status: "merged" },
-        missingEvidence: [],
-        actions: [
-          { kind: "accept", available: false, code: null },
-          { kind: "reject", available: false, code: null },
-        ],
-        reverts: [
-          {
-            revertId: "revert-1",
-            appliedChangeId: "change-1",
-            reason: "cancel window regressed",
-            restoredPaths: ["src/player/dash.gd"],
-            auditId: "audit-revert-1",
-            revertedAt: 1_700_000_900,
-          },
-        ],
-      },
-    });
+    const { root } = setup(mergedProjection());
     expect(root.querySelector<HTMLElement>("[data-d12-banner]")?.dataset.d12Banner).toBe(
       "resolved",
     );
@@ -290,5 +297,15 @@ describe("D12 merge-gate decisions", () => {
     root.querySelector<HTMLButtonElement>("[data-d12-action='reject']")?.click();
     expect(send).not.toHaveBeenCalled();
     expect(root.querySelector<HTMLInputElement>("[data-d12-reason]")?.disabled).toBe(true);
+  });
+});
+
+describe("D12 audit trail navigation", () => {
+  test("a revert row navigates to the revert object Core linked, not its audit id", () => {
+    const { root, onViewAuditTrail } = setup(mergedProjection());
+    const trail = root.querySelector<HTMLButtonElement>("[data-d12-audit-trail]");
+    expect(trail?.dataset.d12AuditTrail).toBe("revert:revert-1");
+    trail!.click();
+    expect(onViewAuditTrail).toHaveBeenCalledWith({ kind: "revert", id: "revert-1" });
   });
 });

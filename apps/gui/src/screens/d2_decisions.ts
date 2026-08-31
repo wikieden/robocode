@@ -1,4 +1,5 @@
 import type { Locale } from "../i18n/catalog";
+import type { D14AuditScope } from "./d14_audit_timeline";
 import "./d2_decisions.css";
 
 /// D2 Decision Center.
@@ -65,6 +66,12 @@ export interface D2Detail {
   laneId: string | null;
   taskId: string | null;
   auditId: string;
+  /**
+   * The audit object this decision's records link, when one exists. `null` for
+   * a decision Core links no queryable object for; the host decides, and the
+   * screen never spells an object kind itself.
+   */
+  auditScope: D14AuditScope | null;
   policyReasonKey: string | null;
   blockedByPlan: boolean;
   context: D2Context;
@@ -121,6 +128,7 @@ const COPY: Record<Locale, Copy> = {
     evidence: "Evidence",
     noEvidence: "Core published no evidence for this decision.",
     decisionSink: "Decision and reason are written to audit",
+    auditTrail: "View audit trail",
     once: "Approve once",
     session: "Approve for session",
     repo_allowlist: "Approve for repo paths",
@@ -159,6 +167,7 @@ const COPY: Record<Locale, Copy> = {
     evidence: "证据",
     noEvidence: "Core 未为该决策提供证据。",
     decisionSink: "决策与理由写入审计",
+    auditTrail: "查看审计轨迹",
     once: "批准本次",
     session: "批准本会话",
     repo_allowlist: "批准指定仓库路径",
@@ -191,6 +200,7 @@ export function renderD2Decisions(
   initial: D2DecisionsProjection,
   send: (intent: D2Intent) => Promise<D2IntentResult>,
   locale: Locale,
+  onViewAuditTrail?: (scope: D14AuditScope) => void,
 ): D2Controller {
   let projection = initial;
   let filter = "all";
@@ -392,6 +402,20 @@ export function renderD2Decisions(
     sink.className = "d2-gsink";
     sink.textContent = `${copy.decisionSink} ${detail.auditId}`;
     gatebar.append(sink);
+    // The audit id names where the decision is written; the trail is reachable
+    // only through the object Core linked, because `AuditQuery` filters by
+    // object and never by audit id.
+    const auditScope = detail.auditScope;
+    if (auditScope && onViewAuditTrail) {
+      const trail = document.createElement("button");
+      trail.type = "button";
+      trail.className = "d2-trail";
+      trail.dataset.d2AuditTrail = `${auditScope.kind}:${auditScope.id}`;
+      trail.disabled = busy;
+      trail.textContent = copy.auditTrail;
+      trail.addEventListener("click", () => onViewAuditTrail(auditScope));
+      gatebar.append(trail);
+    }
     if (detail.blockedByPlan) {
       const blocked = document.createElement("span");
       blocked.className = "d2-muted";

@@ -68,6 +68,9 @@ const PROJECTION: D2DecisionsProjection = {
     laneId: "lane-gate",
     taskId: "task-lane-gate",
     auditId: "audit-gate",
+    // The runtime links no audit object for a tool approval, so this detail
+    // offers no trail affordance.
+    auditScope: null,
     policyReasonKey: "permission.requires_approval",
     blockedByPlan: false,
     context: {
@@ -102,8 +105,9 @@ function setup(projection: D2DecisionsProjection = PROJECTION) {
       outcome: { state: "pending", reason: null },
     }),
   );
-  const controller = renderD2Decisions(root, projection, send, "en");
-  return { root, send, controller };
+  const onViewAuditTrail = vi.fn();
+  const controller = renderD2Decisions(root, projection, send, "en", onViewAuditTrail);
+  return { root, send, controller, onViewAuditTrail };
 }
 
 describe("D2 decision center", () => {
@@ -184,6 +188,7 @@ function reviewProjection(
       laneId: "lane-review",
       taskId: "task-lane-review",
       auditId: "audit-review",
+      auditScope: { kind: "merge_gate", id: "gate-integration" },
       policyReasonKey: null,
       context: { source: "review_request", text: "gate-integration", unavailable: null },
       actions: [
@@ -277,5 +282,25 @@ describe("D2 review decisions", () => {
     await vi.waitFor(() =>
       expect(root.querySelector("[data-d2-outcome]")?.textContent).toContain(reason),
     );
+  });
+});
+
+describe("D2 audit trail navigation", () => {
+  test("a tool approval offers no trail, because Core links no object for it", () => {
+    const { root } = setup();
+    expect(root.querySelector("[data-d2-audit-trail]")).toBeNull();
+  });
+
+  test("a review decision navigates to its parent gate's audit trail", () => {
+    const { root, onViewAuditTrail } = setup(
+      reviewProjection({ available: true, code: null }),
+    );
+    const trail = root.querySelector<HTMLButtonElement>("[data-d2-audit-trail]");
+    expect(trail?.dataset.d2AuditTrail).toBe("merge_gate:gate-integration");
+    trail!.click();
+    expect(onViewAuditTrail).toHaveBeenCalledWith({
+      kind: "merge_gate",
+      id: "gate-integration",
+    });
   });
 });

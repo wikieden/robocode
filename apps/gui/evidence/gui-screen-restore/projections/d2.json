@@ -76,6 +76,7 @@
     "laneId": "lane-gate",
     "taskId": "task-lane-gate",
     "auditId": "audit_approval_allow",
+    "auditScope": null,
     "policyReasonKey": "approval.contract_fixture",
     "blockedByPlan": false,
     "context": {

@@ -11,12 +11,17 @@ D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填�
 （`RuntimeCommand::DecideReview`，关闭 GUI-CORE-011）与 D10 成本不可计量 Lane
 标记及 Core 为其发布的有界运行事实。
 
+在 `claude/gui-d14-audit` 上再次扩展，覆盖 D14 的两种模式：基于 Core
+`QueryAudit` -> `AuditPageLoaded` 契约（`runtime.audit`）的审计轨迹、按 D12 回滚行
+导航所用对象带范围的同一条轨迹，以及缺少 `runtime.audit` 的 Core 留下的原始事件
+回放兜底。
+
 ## harness 是什么
 
 [`qa.html`](qa.html) 加 [`qa.ts`](qa.ts) 按 `?state=` 每次只渲染一个截图状态。
 页面**只调用生产环境导出的渲染函数** —— `renderD1Cockpit`、`renderD6Recovery`
 （经由驾驶舱自己的工作区挂载）、`renderD11Intake`、`renderD12IntegrationGate`、
-`renderD2Decisions`、`renderD10LaneMonitor` 以及它们挂载的组件。这里不重新实现任何控件、文案或布局，因此 `src/**` 的回归
+`renderD2Decisions`、`renderD10LaneMonitor`、`renderD14` 以及它们挂载的组件。这里不重新实现任何控件、文案或布局，因此 `src/**` 的回归
 会直接反映在截图里，而不会被 harness 自带的 UI 副本掩盖。
 
 渲染逻辑放在 `qa.ts` 而不是内联 `<script>`，这样 `tsc --noEmit` 会按生产渲染
@@ -43,6 +48,8 @@ D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填�
 | `d2-review-*` | [`../gui-screen-restore/projections/d2-review.json`](../gui-screen-restore/projections/d2-review.json) | 由 `tests/capture_projections.rs`**生成** —— 已选中待处理评审的决策队列 |
 | `d2-review-confirmed` | [`../gui-screen-restore/projections/d2-review-decided.json`](../gui-screen-restore/projections/d2-review-decided.json) | 由同一测试**生成** —— `decide_review` 之后 Core 留下的队列 |
 | `d10-blind*` | [`../gui-screen-restore/projections/d10.json`](../gui-screen-restore/projections/d10.json) | 由 `tests/capture_projections.rs`**生成** |
+| `d14-audit*` | [`../gui-screen-restore/projections/d14-audit.json`](../gui-screen-restore/projections/d14-audit.json) | 由同一测试**生成** —— 生产用的 acceptance-first 关联机从 Core `AuditPageLoaded` 页面产出的投影 |
+| `d14-raw-fallback` | [`../gui-screen-restore/projections/d14-raw.json`](../gui-screen-restore/projections/d14-raw.json) | 由同一测试经 `CoreClient::replay`**生成** |
 | `d11`、`d11-recent` | 镜像 `tests/d11_intake.spec.ts` 里的 fixture，历史面板另用下文手写的 `RecentWorkResult` | 手写；D11 目前还没有生成的捕获投影 |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 共享 D1 fixture 加一份手写的 `RecentWorkResult` | 手写；`frontend-contract-v1` 目前还没有规范的最近工作捕获投影，因此形状镜像 `tests/recent_work.rs` 与 `tests/project_picker.spec.ts` |
 
@@ -84,6 +91,8 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `d12-actions` | 已记录必需证据、验证方满足，两个动作都可用且 code 为 `null` | `tests/d12_integration_gate.spec.ts` 中的 `DECIDABLE` fixture |
 | `d11` | 已探测的 `/workspace/demo` rust 项目，提供方处于凭据锁定状态 | `tests/d11_intake.spec.ts` 中的已探测项目 fixture |
 | `d11`、`d11-recent` | 交给屏幕最近工作端口的同一份两项目 `RecentWorkResult` | `tests/d11_intake.spec.ts` 中的已加载行 fixture |
+| `d14-audit-scoped` | 仅把 `scope` 设为 `revert:revert-1` 对象；行仍是生成页面本身，因为截图不得为过滤器编造记录 | `tests/d14_audit_trail.rs` 的 `a_scoped_query_passes_the_exact_object_through_and_reports_the_scope` |
+| `d14-raw-fallback` | 清空 `capabilityAvailable`，行为空且 outcome 为 idle —— 表达「缺失」而非「为空」 | `tests/d14_audit_trail.rs` 的 `audit_mode_is_unavailable_and_sends_nothing_without_the_core_capability` |
 | `palette` | 交给 `loadPaletteCrossLane` 的一条跨 Lane 合并闸与一条询问 | `tests/d12_integration_gate.spec.ts` 的闸 fixture，以及 D1 fixture 本就带的那条 `liveWork.approvals` |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 一份两项目的 `RecentWorkResult`，时间戳是相对冻结时钟的偏移，因此渲染出的相对时间稳定。当前打开的根目录被刻意包含在内——选择器必须把它从「最近」中剔除，而不是提供切换到已经打开的项目 | `tests/recent_work.rs` 断言的 `RecentWorkLoaded` 载荷 |
 
@@ -126,6 +135,9 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d2-review-blocked` | `…/qa.html?state=d2-review-blocked` | 两个裁决动作均禁用并点名 `D2-NO-REVIEWER-ACTOR`，动作栏下方完整说明原因，评审意见输入框禁用——既不「可点却无效」，也不隐藏 |
 | `d10-blind` | `…/qa.html?state=d10-blind` | 成本不可计量的 terminal Lane 带「成本不可计量路由」标记与四项有界运行事实（累计耗时、运行次数、已应用 diff、最近退出码），旁边是完全不带这些事实的可计量 ACP Lane |
 | `d10-blind-unobserved` | `…/qa.html?state=d10-blind-unobserved` | 同一盲路由 Lane 在 Core 观测到任何运行之前：只有标记与「尚未观测到运行」的说明，没有任何补零的事实 |
+| `d14-audit` | `…/qa.html?state=d14-audit` | 模式切换里「审计轨迹」按下，旁边是「原始事件回放（诊断）」；三条 newest-first 审计行，每行显示 Core 原始的点分 `action` key、actor（agent 行带 `codex-acp`）、outcome（`denied` 与 `success` 明显区分）、关联对象 chip、有界参数 chip，以及明确标出时区的可读时间 `YYYY-MM-DD HH:MM:SS UTC`；Core 页面未完，因此显示加载更早控件 |
+| `d14-audit-scoped` | `…/qa.html?state=d14-audit-scoped` | D12 回滚行打开的同一条轨迹：头部带可移除的 `Scoped to revert · revert-1` chip，移除后重新发起无范围查询 |
+| `d14-raw-fallback` | `…/qa.html?state=d14-raw-fallback` | 缺少 `runtime.audit` 的 Core：原始模式按下、审计按钮禁用、说明点名该 capability，下方是回放行，其中无法解码的行被保留并高亮 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及点名 `GUI-CORE-022` 的永久禁用「文件」行 |
 | `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
@@ -218,3 +230,27 @@ DOM 级验证)。
 截图之前，本目录保存的是可复现的 harness 而不是已提交的图片。
 `tools/capture-d1-visual.sh` 也刻意停在同一条边界上。上文列出的图片由操作者
 直接运行 headless Chrome 采集，所用参数记录在各自表格旁。
+
+## D14 审计截图
+
+2026-08-31 使用 headless Chrome
+（`--headless --disable-gpu --window-size=1440,900 --virtual-time-budget=6000`）
+对 4177 端口上的 vite dev server 采集，并逐张目视复核（四张全部复核）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [d14-audit-1440x900-dark-en.png](d14-audit-1440x900-dark-en.png) | d14-audit | 1440x900 | dark | en |
+| [d14-audit-scoped-1440x900-dark-en.png](d14-audit-scoped-1440x900-dark-en.png) | d14-audit-scoped | 1440x900 | dark | en |
+| [d14-raw-fallback-1440x900-dark-en.png](d14-raw-fallback-1440x900-dark-en.png) | d14-raw-fallback | 1440x900 | dark | en |
+| [d14-audit-1440x900-light-zh-CN.png](d14-audit-1440x900-light-zh-CN.png) | d14-audit | 1440x900 | light | zh-CN |
+
+light/`zh-CN` 截图是语言与皮肤验证：模式切换、屏幕标题、加载更早控件与范围 chip 文案
+都已翻译，而行内每个 Core 值——点分 `action` key、对象 kind 与 id、参数 key 与 value
+——都保持 Core 发布时的原样。这正是刻意的划分：把动作词汇表本地化会毁掉两份审计
+时间线可互相 diff 这一性质。
+
+行内时间戳落在这条划分的同一侧：它渲染为可读形式（`2023-11-14 22:28:20 UTC`）而不是
+原始 epoch 秒，但格式固定、两种语言下时区都是 UTC——审计记录是要跨机器比对的证据，
+随语言漂移的时钟会让两位读者对同一事实产生分歧。ISO 值保留在 `<time datetime>` 属性上
+供机器读取。原始回放模式刻意保留 epoch 读数：本次改动后其 `d14-raw-fallback` 截图
+逐字节不变，这正是诊断模式呈现未被改动的证明。

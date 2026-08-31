@@ -1,4 +1,5 @@
 import type { Locale } from "../i18n/catalog";
+import type { D14AuditScope } from "./d14_audit_timeline";
 import "./d12_integration_gate.css";
 
 /// D12 integration gate.
@@ -41,6 +42,11 @@ export interface D12Revert {
   reason: string;
   restoredPaths: string[];
   auditId: string;
+  /**
+   * The audit object Core's `change.reverted` record links, when one exists.
+   * The host computes it; the screen never spells an object kind itself.
+   */
+  auditScope: D14AuditScope | null;
   revertedAt: number;
 }
 
@@ -123,6 +129,7 @@ const COPY: Record<Locale, Copy> = {
     timeline: "Recovery timeline",
     noBounce: "Core recorded no bounce for this gate.",
     reverts: "Post-merge rollback",
+    auditTrail: "View audit trail",
     checks: "Checks",
     accept: "Accept and merge",
     reject: "Bounce to origin Lane",
@@ -152,6 +159,7 @@ const COPY: Record<Locale, Copy> = {
     timeline: "恢复时间线",
     noBounce: "Core 未为该闸记录任何退回。",
     reverts: "合入后回滚",
+    auditTrail: "查看审计轨迹",
     checks: "检查",
     accept: "批准并合入",
     reject: "退回原 Lane",
@@ -182,6 +190,7 @@ export function renderD12IntegrationGate(
   locale: Locale,
   onSelect?: (gateId: string) => void,
   send?: SendD12Intent,
+  onViewAuditTrail?: (scope: D14AuditScope) => void,
 ): D12Controller {
   let projection = initial;
   const copy = COPY[locale];
@@ -334,7 +343,21 @@ export function renderD12IntegrationGate(
       for (const revert of detail.reverts) {
         const item = document.createElement("li");
         item.dataset.d12Revert = revert.revertId;
-        item.textContent = `${revert.reason} · ${revert.restoredPaths.join(", ")} · ${revert.auditId}`;
+        const text = document.createElement("span");
+        text.textContent = `${revert.reason} · ${revert.restoredPaths.join(", ")} · ${revert.auditId}`;
+        item.append(text);
+        // The audit id alone is not queryable: `AuditQuery` filters by object.
+        // The affordance therefore carries the object Core actually linked.
+        const scope = revert.auditScope;
+        if (scope && onViewAuditTrail) {
+          const trail = document.createElement("button");
+          trail.type = "button";
+          trail.className = "d12-trail";
+          trail.dataset.d12AuditTrail = `${scope.kind}:${scope.id}`;
+          trail.textContent = copy.auditTrail;
+          trail.addEventListener("click", () => onViewAuditTrail(scope));
+          item.append(trail);
+        }
         reverts.append(item);
       }
       stage.append(reverts);

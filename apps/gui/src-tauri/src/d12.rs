@@ -115,6 +115,10 @@ pub struct D12RevertProjection {
     pub reason: String,
     pub restored_paths: Vec<String>,
     pub audit_id: String,
+    /// The audit object `change.reverted` links for this revert, so the row can
+    /// open the revert's own trail. `AuditQuery` filters by object, never by
+    /// audit id.
+    pub audit_scope: Option<crate::D14AuditScopeProjection>,
     pub reverted_at: u64,
 }
 

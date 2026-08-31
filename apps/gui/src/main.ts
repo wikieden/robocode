@@ -39,8 +39,9 @@ import {
   type D13FleetWorkflowProjection,
 } from "./screens/d13_fleet_workflow";
 import {
-  renderD14AuditTimeline,
-  type D14AuditTimelineProjection,
+  renderD14,
+  type D14AuditProjection,
+  type D14AuditScope,
 } from "./screens/d14_audit_timeline";
 import {
   renderD2Decisions,
@@ -310,7 +311,7 @@ export async function hydrateShellFromCore(
               else if (route === "d11") void showD11();
               else if (route === "d12") void showD12(arg);
               else if (route === "d13") void showD13();
-              else if (route === "d14") void showD14();
+              else if (route === "d14") void showD14(arg);
             },
           },
         );
@@ -423,6 +424,7 @@ export async function hydrateShellFromCore(
           async (intent: D2Intent) =>
             await core.d2SendIntent(`gui-d2-${crypto.randomUUID()}`, intent),
           locale,
+          openAuditTrail,
         );
       };
 
@@ -456,18 +458,62 @@ export async function hydrateShellFromCore(
           (next) => void showD12(next),
           async (intent: D12Intent) =>
             await core.d12SendIntent(`gui-d12-${crypto.randomUUID()}`, intent),
+          openAuditTrail,
         );
       };
 
-      // D14 is the audit trail. It pages the Core replay cursor and never
+      // D14 is the audit trail. Audit mode reads Core's append-only audit
+      // store; raw replay mode stays available as the diagnostic event log and
+      // is the only mode when Core published no `runtime.audit`. Neither mode
       // reconstructs history from the current view state.
-      const showD14 = async () => {
+      //
+      // `scope` is the route argument, `kind:id`, exactly the way the palette
+      // hands D2 and D12 the one Core id to preselect.
+      const showD14 = async (scope?: string) => {
         activeD1?.dispose();
         activeD1 = null;
-        const page = async (after: string | null) => await core.d14AuditTimeline(after, 200);
-        const projection = await page(null);
+        const parsed = parseAuditScope(scope);
+        const audit = await queryAudit(parsed);
+        // Raw mode is pre-loaded only when it is the mode D14 will open in, so
+        // an available audit trail costs no replay traffic.
+        const raw = audit.capabilityAvailable ? null : await core.d14AuditTimeline(null, 200);
         root.dataset.route = "d14";
-        renderD14AuditTimeline(root, projection, locale, (after) => page(after));
+        renderD14(
+          root,
+          audit,
+          locale,
+          {
+            queryAudit: (next) => queryAudit(next),
+            loadOlderAudit: async () =>
+              await core.d14AuditLoadOlder(`gui-audit-${crypto.randomUUID()}`),
+            loadRaw: async (after) => await core.d14AuditTimeline(after, 200),
+          },
+          raw,
+        );
+      };
+
+      /// One bounded audit read. The send call waits briefly; a slower Core is
+      /// drained here rather than reported as an empty timeline.
+      const queryAudit = async (scope: D14AuditScope | null): Promise<D14AuditProjection> => {
+        let result = await core.d14AuditQuery(`gui-audit-${crypto.randomUUID()}`, scope);
+        for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+          result = await core.d14AuditPoll();
+        }
+        return result;
+      };
+
+      /// Parses the `kind:id` route argument. The kind never contains `:`
+      /// (`AuditObjectRef` restricts it to lowercase, digits, and `_`), while an
+      /// audit object id legally may, so the first colon is the separator.
+      const parseAuditScope = (raw?: string): D14AuditScope | null => {
+        if (!raw) return null;
+        const separator = raw.indexOf(":");
+        if (separator <= 0 || separator === raw.length - 1) return null;
+        return { kind: raw.slice(0, separator), id: raw.slice(separator + 1) };
+      };
+
+      const openAuditTrail = (scope: D14AuditScope) => {
+        void showD14(`${scope.kind}:${scope.id}`);
       };
 
       // D13 is the fleet board. It is read-only: workflow mutations stay with

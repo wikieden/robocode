@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use viden_core::{RuntimeSnapshot, RuntimeViewState};
+use viden_core::{LaneRunStats, RuntimeSnapshot, RuntimeViewState};
 use viden_gui::GuiCoreAdapter;
 
 mod support;
@@ -174,11 +174,7 @@ fn d10_declares_the_event_stream_unavailable_instead_of_inventing_one() {
     assert_eq!(unavailable.key, "d10.events.noOrderedLog");
 }
 
-/// Writes bounded run facts onto a Core lane record through its own wire form.
-///
-/// `viden-core` re-exports `AgentLaneRecord` but not `LaneRunStats`, and the
-/// GUI track must not reach around the facade into `viden-types`, so the
-/// fixture is built the way Core serializes it.
+/// Writes the bounded run facts Core records onto a lane fixture.
 fn with_run_stats(
     view: &mut RuntimeViewState,
     lane_index: usize,
@@ -187,14 +183,12 @@ fn with_run_stats(
     diff_bytes: u64,
     last_exit_code: Option<i32>,
 ) {
-    let mut wire = serde_json::to_value(&view.lanes[lane_index]).expect("serialize lane record");
-    wire["run_stats"] = serde_json::json!({
-        "wall_time_ms": wall_time_ms,
-        "run_count": run_count,
-        "diff_bytes": diff_bytes,
-        "last_exit_code": last_exit_code,
+    view.lanes[lane_index].run_stats = Some(LaneRunStats {
+        wall_time_ms,
+        run_count,
+        diff_bytes,
+        last_exit_code,
     });
-    view.lanes[lane_index] = serde_json::from_value(wire).expect("lane record with run stats");
 }
 
 fn lane_index_by_route(view: &RuntimeViewState, route: viden_core::AgentRoute) -> usize {

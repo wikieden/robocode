@@ -4,13 +4,13 @@ use serde::Serialize;
 use viden_core::{
     AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
     AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
-    ApprovalRequestView, ApprovalRisk, ApprovalScope, COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus,
-    ConflictBounceStatus, ContractDecision, ContractRecord, CredentialHandle, DependencyState,
-    EventCursor, GateStrength, LaneStatus, LocaleId, MergeGateStatus, MergeGateType,
-    MutationPolicy, ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
-    ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
-    RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
-    WorkspaceChangeKind, WorkspaceSourceStatus,
+    ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
+    CheckRunStatus, ConflictBounceStatus, ContractDecision, ContractRecord, CostMeterability,
+    CredentialHandle, DependencyState, EventCursor, GateStrength, LaneStatus, LocaleId,
+    MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
+    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
+    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -487,6 +487,10 @@ impl RuntimeProjection {
                 lane_id: approval.owner.lane_id.clone(),
                 task_id: approval.owner.task_id.clone(),
                 audit_id: approval.audit_id.clone(),
+                // The runtime emits no audit object for a tool approval
+                // (`AuditObjectRef::KIND_PERMISSION` has no emission site), so
+                // there is nothing to scope a trail by and none is offered.
+                audit_scope: None,
                 policy_reason_key: Some(approval.policy_reason_key.clone()),
                 blocked_by_plan,
                 context: D2ContextProjection {
@@ -531,6 +535,13 @@ impl RuntimeProjection {
                 lane_id: review.owner.lane_id.clone(),
                 task_id: Some(review.task_id.clone()),
                 audit_id: review.audit_id.clone(),
+                // Request, verdict, gate decision, and revert all link the
+                // gate (crates/runtime/src/trust_loop.rs), so scoping by the
+                // parent gate opens the decision chain rather than one record.
+                audit_scope: Some(audit_scope(
+                    AuditObjectRef::KIND_MERGE_GATE,
+                    &review.gate_id,
+                )),
                 policy_reason_key: None,
                 blocked_by_plan,
                 context: D2ContextProjection {
@@ -573,6 +584,12 @@ impl RuntimeProjection {
             lane_id: contract.owner.lane_id.clone(),
             task_id: Some(contract.task_id.clone()),
             audit_id: contract.audit_id.clone(),
+            // `contract.confirmed` links `contract:<contract_id>`; a contract
+            // record carries no gate, so its own object is the whole trail.
+            audit_scope: Some(audit_scope(
+                AuditObjectRef::KIND_CONTRACT,
+                &contract.contract_id,
+            )),
             policy_reason_key: None,
             blocked_by_plan,
             context: D2ContextProjection {
@@ -744,6 +761,10 @@ impl RuntimeProjection {
                     reason: revert.reason.clone(),
                     restored_paths: revert.restored_paths.clone(),
                     audit_id: revert.audit_id.clone(),
+                    // `change.reverted` links `revert:<revert_id>`
+                    // (crates/runtime/src/trust_loop.rs), which is the object
+                    // `AuditQuery` can actually filter on.
+                    audit_scope: Some(audit_scope(AuditObjectRef::KIND_REVERT, &revert.revert_id)),
                     reverted_at: revert.reverted_at,
                 })
                 .collect();
@@ -2089,17 +2110,29 @@ fn agent_route(route: AgentRoute) -> &'static str {
     }
 }
 
+/// One audit object filter, built from Core's own object-kind constants.
+///
+/// The kind vocabulary stays in Rust: a frontend that spelled `"merge_gate"`
+/// itself could silently drift from `AuditObjectRef`'s constants and query an
+/// object kind Core never links.
+fn audit_scope(kind: &str, id: &str) -> crate::D14AuditScopeProjection {
+    crate::D14AuditScopeProjection {
+        kind: kind.to_string(),
+        id: id.to_string(),
+    }
+}
+
 /// Core's own cost-meterability verdict for a route.
 ///
-/// Read through the serde token `AgentRoute::cost_meterability` produces rather
-/// than by re-matching the route here: `viden-core` re-exports `AgentRoute` but
-/// not `CostMeterability`, and duplicating the policy would let the monitor
-/// disagree with Core about which lanes can carry a cost figure at all.
+/// Read from `AgentRoute::cost_meterability` rather than by re-matching the
+/// route here: duplicating the policy would let the monitor disagree with Core
+/// about which lanes can carry a cost figure at all.
 fn cost_meterability(route: AgentRoute) -> String {
-    serde_json::to_value(route.cost_meterability())
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
-        .unwrap_or_else(|| "blind".to_string())
+    match route.cost_meterability() {
+        CostMeterability::Metered => "metered",
+        CostMeterability::Blind => "blind",
+    }
+    .to_string()
 }
 
 /// The bounded run facts D10 shows in place of a cost figure Core cannot

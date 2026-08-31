@@ -336,3 +336,45 @@ Close this request when Core publishes:
 The recent-work inventory (`runtime.recent_work`) is *not* this gap: it already
 lets a client list projects it could open. What is missing is the ability to
 have more than one of them open at once.
+
+## GUI-CORE-024: AuditQuery filters and an AuditPageLoaded command id
+
+D14 reads Core's audit timeline through `RuntimeCommand::QueryAudit` ->
+`RuntimeEventKind::AuditPageLoaded` under the `runtime.audit` capability. Two
+gaps in that contract shape what the client can honestly build.
+
+**1. `AuditPageLoaded` carries no command id.** The client correlates a page to
+its own read acceptance-first: the page counts only after Core accepted *this*
+`command_id`, and a second concurrent read is refused locally so there is
+always at most one in flight. That rules out a page that arrived before our
+acceptance, but a *different* client querying the same Core concurrently could
+still land its page between our acceptance and Core's answer, and we would
+attribute it to this read. The page is still a real Core page, it is dropped
+when the screen re-queries, and the alternative — matching on record contents
+or guessing from the cursor — would invent certainty the contract does not
+provide, so it is not built. The TUI documents the same limitation in
+`apps/tui/src/tui/audit_panel.rs`.
+
+**2. `AuditQuery` has no actor or time filter.** Its filters are `project_id`,
+`lane_id`, `object`, and the `before` cursor. The D14 design shows actor and
+time-range filter chips and day grouping; a client can only implement those by
+filtering a page it already holds, which silently misreports "no records for
+this actor" whenever the matching record sits on a page that was never loaded.
+D14 therefore ships neither, rather than shipping a filter that lies about
+completeness.
+
+Close this request when Core publishes:
+
+1. **a command id on `AuditPageLoaded`**, so a page is attributable to the exact
+   read that asked for it and concurrent readers stop being a correlation risk;
+2. **server-side `AuditQuery` filters** for actor (operator / system / a named
+   agent) and a time range, applied before pagination so `complete` and
+   `next_before` describe the filtered timeline;
+3. **a canonical `frontend-contract-v1` fixture** covering two concurrent audit
+   reads and a filtered page, so correlation and filtering have generated
+   evidence rather than hand-written projections.
+
+Client-side follow-ups that need no Core change, and are therefore *not* part of
+this request: day grouping of a loaded page, a detail rail for the selected
+record, and a rollup of a loaded page. Export needs a host file-write path, not
+a Core contract addition.

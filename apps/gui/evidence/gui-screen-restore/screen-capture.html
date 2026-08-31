@@ -31,7 +31,7 @@
       import { renderD10LaneMonitor } from "../../src/screens/d10_lane_monitor.ts";
       import { renderD12IntegrationGate } from "../../src/screens/d12_integration_gate.ts";
       import { renderD13FleetWorkflow } from "../../src/screens/d13_fleet_workflow.ts";
-      import { renderD14AuditTimeline } from "../../src/screens/d14_audit_timeline.ts";
+      import { renderD14 } from "../../src/screens/d14_audit_timeline.ts";
 
       const params = new URLSearchParams(window.location.search);
       const screen = params.get("screen") ?? "d2";
@@ -48,6 +48,12 @@
 
       const root = document.querySelector("#app");
       const projection = await (await fetch(`./projections/${screen}.json`)).json();
+      // D14's audit capture keeps the raw page beside it so the mode toggle is
+      // live in the capture rather than an inert control.
+      const rawPage =
+        screen === "d14-audit"
+          ? await (await fetch("./projections/d14-raw.json")).json()
+          : null;
 
       switch (screen) {
         case "d2":
@@ -66,8 +72,40 @@
         case "d13":
           renderD13FleetWorkflow(root, projection, locale);
           break;
-        case "d14":
-          renderD14AuditTimeline(root, projection, locale, async () => projection);
+        // D14 mounts its real two-mode shell. `d14-audit` is the audit
+        // projection Core's own `AuditPageLoaded` produced; `d14-raw` is the
+        // replay projection. Each capture pins one mode by supplying only the
+        // projection that mode reads.
+        case "d14-audit":
+          renderD14(root, projection, locale, {
+            queryAudit: async () => projection,
+            loadOlderAudit: async () => projection,
+            loadRaw: async () => rawPage,
+          });
+          break;
+        case "d14-raw":
+          renderD14(
+            root,
+            // Audit mode unavailable, so the shell opens in raw mode and says
+            // why — the state a client without `runtime.audit` actually gets.
+            {
+              outcome: { state: "idle", reason: null },
+              rows: [],
+              nextBefore: null,
+              complete: false,
+              loaded: false,
+              pendingCommandId: null,
+              capabilityAvailable: false,
+              scope: null,
+            },
+            locale,
+            {
+              queryAudit: async () => projection,
+              loadOlderAudit: async () => projection,
+              loadRaw: async () => projection,
+            },
+            projection,
+          );
           break;
         default:
           root.textContent = `unknown screen ${screen}`;
