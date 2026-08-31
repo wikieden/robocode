@@ -70,6 +70,7 @@ core.workspace_host
 runtime.agent_adapters
 runtime.agent_permission_bridge
 runtime.agent_sessions
+runtime.audit
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -87,6 +88,10 @@ schema 仍为 `1`。客户端只具备冻结 base 集合也可以连接；extens
 work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D4 创建要求
 `runtime.starter_lane_preview`；精确 active-Lane cancel 还要求
 `runtime.lane_owner_projection` 且恰好一条权威 binding。
+
+只读的追加式 audit timeline 查询（`QueryAudit` -> `AuditPageLoaded`）要求
+`runtime.audit`：不触发 permission prompt，也不被 plan mode 阻断。缺少该 capability
+的客户端零发送，并明确显示 timeline 不可用，而不是渲染成空列表。
 
 Agent 选择要求 `runtime.agent_adapters`；启动和取消 typed external session 要求
 `runtime.agent_sessions`；ACP permission request 只有在协商到

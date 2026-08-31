@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.5"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
@@ -59,6 +59,12 @@ availability = "frontends require exactly one live binding for the selected acti
 [runtime_recent_work]
 commands = ["query_recent_work"]
 events = ["recent_work_loaded"]
+
+[runtime_audit]
+commands = ["query_audit"]
+events = ["audit_page_loaded"]
+boundary = "read-only, newest-first, exclusive `before` cursor, page size clamped to 1..=500; `action` is a stable dotted key and args are bounded sanitized tokens, never localized prose or secret bytes"
+correlation = "audit_page_loaded carries no command id; a client correlates a page to its own accepted query and must not infer one from record contents"
 
 [runtime_starter_lane_preview]
 commands = ["preview_starter_lane", "create_starter_lane"]

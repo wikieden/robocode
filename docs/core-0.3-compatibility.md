@@ -78,6 +78,7 @@ core.workspace_host
 runtime.agent_adapters
 runtime.agent_permission_bridge
 runtime.agent_sessions
+runtime.audit
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -97,6 +98,11 @@ sends no command. In particular, the TUI gates stable Settings on
 `core.workspace_host` plus `runtime.recent_work`; TUI and GUI gate reviewed D4
 creation on `runtime.starter_lane_preview`; and exact active-Lane cancellation
 requires `runtime.lane_owner_projection` plus one authoritative binding.
+
+The append-only audit timeline read (`QueryAudit` -> `AuditPageLoaded`) requires
+`runtime.audit`. It is read-only: no permission prompt, no plan-mode block. A
+client without the capability sends nothing and states the timeline is
+unavailable rather than rendering an empty one.
 
 Agent selection requires `runtime.agent_adapters`; starting and cancelling a
 typed external session requires `runtime.agent_sessions`; and ACP permission

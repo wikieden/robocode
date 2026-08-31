@@ -31,24 +31,24 @@ pub use viden_types::{
     AuditQuery, AuditRecord, CapabilityId, CheckRunStatus, CheckRunView, CommandAction,
     ConflictBounce, ConflictBounceStatus, ContextBundleRecord, ContextOmittedSourceRecord,
     ContextSourceRecord, ContractDecision, ContractRecord, CoreHandshake, CostLedgerTotals,
-    CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus, DataEgressPolicy,
-    DependencyRecord, DependencyState, EventCursor, EvidenceView, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
-    LaneConflictView, LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGatePolicySnapshot,
-    MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy,
-    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
-    ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
-    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
-    ReviewRequestRecord, ReviewRequestStatus, ReviewedEvidenceBinding, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus,
-    RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
-    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
-    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
-    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
-    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility,
-    WorkspaceSourceStatus, WorkspaceSourceView,
+    CostMeterability, CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus,
+    DataEgressPolicy, DependencyRecord, DependencyState, EventCursor, EvidenceView,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance,
+    HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneStatus,
+    LocaleId, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType,
+    MergeGateValidator, MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview,
+    ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary,
+    RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
+    RuntimeWireEvent, SchemaVersion, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
+    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
+    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView,
+    WorkspaceEligibility, WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -97,6 +97,12 @@ mod tests {
         assert!(std::any::type_name::<AuditPage>().contains("AuditPage"));
         assert!(std::any::type_name::<AuditRecord>().contains("AuditRecord"));
         assert!(std::any::type_name::<AuditObjectRef>().contains("AuditObjectRef"));
+        // Supervision and lane-cost vocabularies a frontend needs to build a
+        // typed command or read a typed fact without reaching past this facade
+        // into `viden-types`.
+        assert!(std::any::type_name::<ReviewVerdict>().contains("ReviewVerdict"));
+        assert!(std::any::type_name::<CostMeterability>().contains("CostMeterability"));
+        assert!(std::any::type_name::<LaneRunStats>().contains("LaneRunStats"));
         assert!(std::any::type_name::<RecentProjectSummary>().contains("RecentProjectSummary"));
         assert!(std::any::type_name::<RecentSessionSummary>().contains("RecentSessionSummary"));
         assert!(std::any::type_name::<AgentAdapterView>().contains("AgentAdapterView"));
