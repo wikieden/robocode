@@ -623,6 +623,17 @@ pub enum RuntimeEventKind {
     /// state: the timeline is unbounded and paginated, so it is deliberately
     /// not folded into `RuntimeViewState`.
     AuditPageLoaded {
+        /// The exact `QueryAudit` command id this page answers.
+        ///
+        /// Additive since core-0.3.6 (GUI-CORE-024): without it a client could
+        /// only correlate a page to its own *acceptance*, so a second client
+        /// reading the same Core concurrently could land its page in the
+        /// window between our acceptance and Core's answer. `None` means the
+        /// page came from a Core that predates the field, where that
+        /// acceptance-gated correlation is still the best available; a client
+        /// must never fabricate an id for it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         page: AuditPage,
     },
     WorkspaceSourceUpdated {

@@ -135,8 +135,11 @@ impl WorkflowStore {
     ///
     /// Read-only JSONL scan. A malformed line is a hard error rather than a
     /// skipped line: an audit answer that silently omits records would be read
-    /// as evidence that nothing happened.
+    /// as evidence that nothing happened. For the same reason a query that
+    /// cannot mean what it says (an inverted time range) is rejected rather
+    /// than answered with an empty page.
     pub fn query_audit(&self, query: &AuditQuery) -> Result<AuditPage, String> {
+        query.validate()?;
         let records = self.load_audit_records()?;
         Ok(audit_page(records, query))
     }

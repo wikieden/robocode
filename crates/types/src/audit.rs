@@ -197,7 +197,55 @@ pub struct AuditCursor {
     pub audit_id: String,
 }
 
+/// Which actor a query keeps.
+///
+/// A separate type from [`AuditActor`] because the two answer different
+/// questions: the record names one concrete actor, while the filter also has to
+/// express "any agent lane" — the operator-facing chip that means "not a human
+/// and not the runtime" without naming a lane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AuditActorFilter {
+    /// Only human operator actions.
+    Operator,
+    /// Only runtime actions with no direct human or agent trigger.
+    System,
+    /// Any [`AuditActor::Agent`], whatever its lane.
+    AnyAgent,
+    /// Exactly one agent lane, matched on the full id — never a prefix.
+    Agent { agent_id: String },
+}
+
+impl AuditActorFilter {
+    /// Whether this filter keeps `actor`.
+    ///
+    /// Fail-closed on both sides of the `#[non_exhaustive]` boundary: an actor
+    /// variant this build cannot classify, and a filter variant it does not
+    /// know, both match nothing. A filter that quietly kept records it could
+    /// not classify would report them under the wrong actor; the honest answer
+    /// for an unclassifiable record is to leave the filter off.
+    pub fn matches(&self, actor: &AuditActor) -> bool {
+        match (self, actor) {
+            (Self::Operator, AuditActor::Operator) => true,
+            (Self::System, AuditActor::System) => true,
+            (Self::AnyAgent, AuditActor::Agent { .. }) => true,
+            (Self::Agent { agent_id }, AuditActor::Agent { agent_id: actual }) => {
+                agent_id == actual
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Read-only audit timeline query. Every filter is an AND.
+///
+/// Every filter here is applied by Core *before* pagination, so `complete` and
+/// `next_before` on the returned [`AuditPage`] describe the filtered timeline.
+/// This is the reason the filters are a contract addition rather than client
+/// work: a client filtering a page it already holds cannot know whether a
+/// matching record sits on a page it never loaded, so its "no records for this
+/// actor" is a guess.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AuditQuery {
     #[serde(default)]
@@ -206,6 +254,18 @@ pub struct AuditQuery {
     pub lane_id: Option<String>,
     #[serde(default)]
     pub object: Option<AuditObjectRef>,
+    /// Keeps only records performed by this actor.
+    #[serde(default)]
+    pub actor: Option<AuditActorFilter>,
+    /// Inclusive lower bound on `AuditRecord::timestamp`, unix seconds.
+    #[serde(default)]
+    pub from: Option<u64>,
+    /// Exclusive upper bound on `AuditRecord::timestamp`, unix seconds.
+    ///
+    /// Half-open with `from` so two adjacent windows tile the timeline without
+    /// overlapping or dropping a record on the boundary second.
+    #[serde(default)]
+    pub until: Option<u64>,
     /// Exclusive upper bound; pagination walks newest to oldest.
     #[serde(default)]
     pub before: Option<AuditCursor>,
@@ -217,6 +277,23 @@ pub struct AuditQuery {
 impl AuditQuery {
     pub fn clamped_limit(&self) -> usize {
         self.limit.clamp(1, MAX_AUDIT_PAGE_SIZE) as usize
+    }
+
+    /// Rejects a query that cannot mean what it says.
+    ///
+    /// Unlike `limit`, an inverted time range is not clamped: the empty page it
+    /// would produce is indistinguishable from "nothing happened in that
+    /// window", and an audit answer must never be readable as evidence of
+    /// absence when it is really a malformed request.
+    pub fn validate(&self) -> Result<(), String> {
+        if let (Some(from), Some(until)) = (self.from, self.until)
+            && from > until
+        {
+            return Err(format!(
+                "audit query time range is inverted: from {from} is after until {until}"
+            ));
+        }
+        Ok(())
     }
 }
 

@@ -10,8 +10,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use viden_types::{
-    AuditActor, AuditCursor, AuditObjectRef, AuditOutcome, AuditQuery, AuditRecord, RuntimeOwner,
-    fresh_id,
+    AuditActor, AuditActorFilter, AuditCursor, AuditObjectRef, AuditOutcome, AuditQuery,
+    AuditRecord, RuntimeOwner, fresh_id,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -142,12 +142,240 @@ fn ids(page: &viden_types::AuditPage) -> Vec<String> {
 
 fn query(limit: u32) -> AuditQuery {
     AuditQuery {
-        project_id: None,
-        lane_id: None,
-        object: None,
-        before: None,
         limit,
+        ..AuditQuery::default()
     }
+}
+
+/// One record by a chosen actor, so the actor filter has something to separate.
+fn actor_record(audit_id: &str, timestamp: u64, actor: AuditActor) -> AuditRecord {
+    AuditRecord::sanitized(
+        audit_id.to_string(),
+        timestamp,
+        owner("project-1", Some("lane-a")),
+        actor,
+        "gate.decided".to_string(),
+        vec![object(AuditObjectRef::KIND_MERGE_GATE, "gate-1")],
+        AuditOutcome::Success,
+        args(&[("outcome", "success")]),
+    )
+    .unwrap()
+}
+
+/// Four records, one per actor shape the filter must distinguish.
+fn seed_actors(store: &WorkflowStore) {
+    for entry in [
+        actor_record("audit_0001", 10, AuditActor::Operator),
+        actor_record("audit_0002", 20, AuditActor::System),
+        actor_record(
+            "audit_0003",
+            30,
+            AuditActor::Agent {
+                agent_id: "agent-planner".to_string(),
+            },
+        ),
+        actor_record(
+            "audit_0004",
+            40,
+            AuditActor::Agent {
+                agent_id: "agent-coder".to_string(),
+            },
+        ),
+    ] {
+        store.append_audit_record(&entry).unwrap();
+    }
+}
+
+#[test]
+fn audit_query_filters_by_actor() {
+    let (_home, _cwd, store) = store("actor_filter");
+    seed_actors(&store);
+
+    let operator = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::Operator),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(ids(&operator), vec!["audit_0001".to_string()]);
+
+    let system = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::System),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(ids(&system), vec!["audit_0002".to_string()]);
+
+    // `AnyAgent` is the "not a human, not the runtime" chip: it matches every
+    // agent lane without the operator having to name one.
+    let any_agent = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::AnyAgent),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(
+        ids(&any_agent),
+        vec!["audit_0004".to_string(), "audit_0003".to_string()]
+    );
+
+    let named_agent = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::Agent {
+                agent_id: "agent-planner".to_string(),
+            }),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(ids(&named_agent), vec!["audit_0003".to_string()]);
+
+    // A named agent id matches exactly; it is never a prefix or substring test.
+    let unknown_agent = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::Agent {
+                agent_id: "agent-plan".to_string(),
+            }),
+            ..query(10)
+        })
+        .unwrap();
+    assert!(unknown_agent.records.is_empty());
+    assert!(unknown_agent.complete);
+}
+
+#[test]
+fn audit_query_filters_by_a_half_open_time_range() {
+    let (_home, _cwd, store) = store("time_filter");
+    seed_interleaved(&store);
+
+    // `from` is inclusive and `until` is exclusive, so two adjacent windows
+    // tile the timeline without overlapping or dropping a record.
+    let window = store
+        .query_audit(&AuditQuery {
+            from: Some(20),
+            until: Some(50),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(
+        ids(&window),
+        vec![
+            "audit_0004".to_string(),
+            "audit_0003".to_string(),
+            "audit_0002".to_string(),
+        ]
+    );
+
+    let older = store
+        .query_audit(&AuditQuery {
+            until: Some(20),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(ids(&older), vec!["audit_0001".to_string()]);
+
+    let newer = store
+        .query_audit(&AuditQuery {
+            from: Some(50),
+            ..query(10)
+        })
+        .unwrap();
+    assert_eq!(
+        ids(&newer),
+        vec!["audit_0006".to_string(), "audit_0005".to_string()]
+    );
+}
+
+/// The whole point of a server-side filter: `complete` and `next_before` must
+/// describe the *filtered* timeline. A client-side filter over an unfiltered
+/// page reports completeness for records it never asked about.
+#[test]
+fn audit_filters_apply_before_pagination_so_completeness_is_the_filtered_timeline() {
+    let (_home, _cwd, store) = store("filter_before_paging");
+    seed_actors(&store);
+
+    // Two agent records exist; a page of one is therefore incomplete and its
+    // cursor names the agent record it stopped at, never the newest record of
+    // the unfiltered timeline.
+    let first = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::AnyAgent),
+            ..query(1)
+        })
+        .unwrap();
+    assert_eq!(ids(&first), vec!["audit_0004".to_string()]);
+    assert!(!first.complete);
+    assert_eq!(
+        first.next_before,
+        Some(AuditCursor {
+            timestamp: 40,
+            audit_id: "audit_0004".to_string(),
+        })
+    );
+
+    let second = store
+        .query_audit(&AuditQuery {
+            actor: Some(AuditActorFilter::AnyAgent),
+            before: first.next_before.clone(),
+            ..query(1)
+        })
+        .unwrap();
+    assert_eq!(ids(&second), vec!["audit_0003".to_string()]);
+    assert!(
+        second.complete,
+        "the filtered timeline is exhausted even though older unfiltered records remain"
+    );
+    assert_eq!(second.next_before, None);
+
+    // The unfiltered read over the same store still sees everything, so the
+    // filtered completeness above is a filter fact, not a missing-record bug.
+    let unfiltered = store.query_audit(&query(10)).unwrap();
+    assert_eq!(unfiltered.records.len(), 4);
+}
+
+/// An inverted range is a caller bug. Answering it with an empty page would
+/// read as "nothing happened in that window", so it is rejected instead.
+#[test]
+fn audit_query_rejects_an_inverted_time_range() {
+    let (_home, _cwd, store) = store("inverted_range");
+    seed_interleaved(&store);
+
+    let error = store
+        .query_audit(&AuditQuery {
+            from: Some(50),
+            until: Some(20),
+            ..query(10)
+        })
+        .unwrap_err();
+    assert!(error.contains("from"), "unexpected error: {error}");
+
+    // An equal bound is legal and empty by construction: `until` is exclusive.
+    let empty = store
+        .query_audit(&AuditQuery {
+            from: Some(20),
+            until: Some(20),
+            ..query(10)
+        })
+        .unwrap();
+    assert!(empty.records.is_empty());
+    assert!(empty.complete);
+}
+
+/// Additive fields must not break a page written by an older client.
+#[test]
+fn a_legacy_audit_query_without_filters_deserializes_to_no_filter() {
+    let legacy = r#"{"project_id":null,"lane_id":null,"object":null,"before":null,"limit":10}"#;
+    let query: AuditQuery = serde_json::from_str(legacy).unwrap();
+    assert_eq!(query.actor, None);
+    assert_eq!(query.from, None);
+    assert_eq!(query.until, None);
+    assert_eq!(
+        query,
+        AuditQuery {
+            limit: 10,
+            ..AuditQuery::default()
+        }
+    );
 }
 
 #[test]

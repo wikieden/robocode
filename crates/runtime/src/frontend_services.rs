@@ -37,11 +37,23 @@ impl SessionEngine {
     /// Pure read: no permission prompt, no plan-mode gate, no mutation. The
     /// page is answered from the canonical JSONL, so it stays correct after
     /// the derived SQLite index is deleted.
-    pub(crate) fn query_audit(&self, query: AuditQuery) -> Result<Vec<RuntimeEvent>, String> {
+    ///
+    /// `command_id` is the id of the `QueryAudit` being answered and is
+    /// published on the page, so a client can attribute the page to the exact
+    /// read that asked instead of to whatever read it happened to have in
+    /// flight. It is only ever the caller's own id: no other path may mint one.
+    pub(crate) fn query_audit(
+        &self,
+        command_id: &str,
+        query: AuditQuery,
+    ) -> Result<Vec<RuntimeEvent>, String> {
         let page = self.workflows.query_audit(&query)?;
         Ok(vec![RuntimeEvent::new(
             1,
-            RuntimeEventKind::AuditPageLoaded { page },
+            RuntimeEventKind::AuditPageLoaded {
+                command_id: Some(command_id.to_string()),
+                page,
+            },
         )])
     }
 

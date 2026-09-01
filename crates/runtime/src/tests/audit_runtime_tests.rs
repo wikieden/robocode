@@ -121,11 +121,8 @@ pub(super) fn all_audit_records(engine: &SessionEngine) -> Vec<AuditRecord> {
     engine
         .workflow_store()
         .query_audit(&AuditQuery {
-            project_id: None,
-            lane_id: None,
-            object: None,
-            before: None,
             limit: 500,
+            ..AuditQuery::default()
         })
         .unwrap()
         .records
@@ -480,11 +477,9 @@ fn audit_runtime_records_conflict_bounce_and_revert_with_trust_audit_ids() {
     let lane_page = engine
         .workflow_store()
         .query_audit(&AuditQuery {
-            project_id: None,
             lane_id: Some("lane-origin".to_string()),
-            object: None,
-            before: None,
             limit: 500,
+            ..AuditQuery::default()
         })
         .unwrap();
     assert!(
@@ -539,11 +534,8 @@ fn audit_runtime_query_command_round_trips_the_page_in_plan_mode() {
             RuntimeCommand::QueryAudit {
                 // An out-of-range limit is clamped, not rejected.
                 query: AuditQuery {
-                    project_id: None,
-                    lane_id: None,
-                    object: None,
-                    before: None,
                     limit: u32::MAX,
+                    ..AuditQuery::default()
                 },
             },
             &mut denier,
@@ -555,15 +547,75 @@ fn audit_runtime_query_command_round_trips_the_page_in_plan_mode() {
         &events[0].kind,
         RuntimeEventKind::CommandAccepted { command_id, .. } if command_id == "audit-query"
     ));
-    let RuntimeEventKind::AuditPageLoaded { page } = &events[1].kind else {
+    let RuntimeEventKind::AuditPageLoaded { command_id, page } = &events[1].kind else {
         panic!("expected AuditPageLoaded, got {:?}", events[1].kind);
     };
+    // The page names the exact read that asked for it, so a concurrent reader
+    // on the same Core can never claim it (GUI-CORE-024).
+    assert_eq!(command_id.as_deref(), Some("audit-query"));
     assert!(page.complete);
     assert_eq!(page.next_before, None);
     assert!(
         page.records
             .iter()
             .any(|record| record.action == "handoff.created")
+    );
+}
+
+/// Two reads on one Core must be told apart by the page itself.
+///
+/// Before GUI-CORE-024 a client could only correlate a page to its own
+/// acceptance, so a second reader's page landing between our acceptance and
+/// Core's answer was indistinguishable from ours. The command id is minted by
+/// the caller, so each page carries the id of the read that produced it and
+/// nothing else.
+#[test]
+fn audit_pages_carry_the_command_id_of_their_own_read() {
+    let cwd = temp_dir("audit_runtime_correlation_cwd");
+    let home = temp_dir("audit_runtime_correlation_home");
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-correlation";
+    start_gate(
+        &mut engine,
+        &mut approver,
+        task_id,
+        vec!["patch".to_string()],
+    );
+
+    let page_command_id = |engine: &mut SessionEngine, command_id: &str| {
+        let mut denier = |_prompt| panic!("read-only audit query must not request approval");
+        let events = engine
+            .handle_runtime_command(
+                command_id,
+                RuntimeCommand::QueryAudit {
+                    query: AuditQuery {
+                        limit: 10,
+                        ..AuditQuery::default()
+                    },
+                },
+                &mut denier,
+            )
+            .unwrap();
+        let RuntimeEventKind::AuditPageLoaded { command_id, .. } = &events[1].kind else {
+            panic!("expected AuditPageLoaded, got {:?}", events[1].kind);
+        };
+        command_id.clone()
+    };
+
+    assert_eq!(
+        page_command_id(&mut engine, "reader-a"),
+        Some("reader-a".to_string())
+    );
+    assert_eq!(
+        page_command_id(&mut engine, "reader-b"),
+        Some("reader-b".to_string()),
+        "a second reader's page must never carry the first reader's id"
     );
 }
 

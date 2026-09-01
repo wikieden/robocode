@@ -15,17 +15,18 @@ use viden_types::{
     AgentNextAction, AgentRole, AgentRoute, AgentSessionStatus, AgentSessionView,
     AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CapabilityId, ContextBudgetRecord, ContextBundleRecord,
+    ApprovalTarget, AuditActor, AuditActorFilter, AuditObjectRef, AuditOutcome, AuditPage,
+    AuditQuery, AuditRecord, CapabilityId, ContextBudgetRecord, ContextBundleRecord,
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, CostScope, CostUsageOutcome,
     CostUsageRecord, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength,
     LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
     MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe,
     QueuedInputView, RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences,
-    ReviewRequestStatus, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
-    TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
+    ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent,
+    SchemaVersion, StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    TokenCostView, TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
     WorkspaceEligibility,
 };
 
@@ -849,6 +850,171 @@ fn refresh_message_parts_extension_fixture() {
     let fixture = message_parts_fixture();
     fs::write(
         root.join("message-parts.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-024: canonical proof that an audit page names the read it answers
+/// and that a server-side filter is applied before the page is cut.
+///
+/// The two concurrent reads are answered out of order, so nothing but the
+/// command id can attribute a page. The filtered read comes back `complete`
+/// while strictly older non-agent records are visible on the unfiltered pages —
+/// a client filtering a page it already held could not have established that.
+#[test]
+fn audit_reads_fixture_attributes_each_page_and_filters_before_paging() {
+    let name = "audit-reads.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read audit reads fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "audit_reads_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact audit reads fixture bytes"
+    );
+    assert!(extension_manifest.contains("audit_reads_fixture = \"audit-reads.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (_, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    let known = |envelope: &RuntimeEventEnvelope| match &envelope.event {
+        RuntimeWireEvent::Known(event) => event.kind.clone(),
+        RuntimeWireEvent::Unknown { event_type, .. } => {
+            panic!("audit fixture events must all be known, got {event_type}")
+        }
+    };
+    let kinds = fixture.events.iter().map(known).collect::<Vec<_>>();
+
+    // An audit page is a query result, not view state: reducing every page in
+    // the fixture must leave the view exactly as the snapshot published it, so
+    // a client can never read a page as runtime truth.
+    let mut pages_only = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for kind in &kinds {
+        if matches!(kind, RuntimeEventKind::AuditPageLoaded { .. }) {
+            pages_only.apply_event(&RuntimeEvent::new(1, kind.clone()));
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&pages_only),
+        canonical_view_sha256(&RuntimeViewState::new(fixture.initial_snapshot.clone())),
+        "an audit page must never fold into RuntimeViewState"
+    );
+
+    let accepted_ids = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: RuntimeCommand::QueryAudit { .. },
+            } => Some(command_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let pages = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::AuditPageLoaded { command_id, page } => {
+                Some((command_id.clone(), page.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(accepted_ids.len(), 3);
+    assert_eq!(pages.len(), 3);
+
+    // Both concurrent reads were accepted before either was answered, and the
+    // pages came back in the opposite order, so arrival order attributes them
+    // wrongly and only the published command id gets them right.
+    let first_page_position = kinds
+        .iter()
+        .position(|kind| matches!(kind, RuntimeEventKind::AuditPageLoaded { .. }))
+        .expect("the fixture must publish a page");
+    assert!(
+        first_page_position > 1,
+        "both concurrent reads must be accepted before either is answered"
+    );
+    assert_eq!(pages[0].0.as_deref(), Some("audit_read_second"));
+    assert_eq!(pages[1].0.as_deref(), Some("audit_read_first"));
+    for (command_id, _) in &pages {
+        let command_id = command_id.as_deref().expect("every page names its read");
+        assert!(
+            accepted_ids.iter().any(|accepted| accepted == command_id),
+            "a page must name a read Core actually accepted, got {command_id}"
+        );
+    }
+
+    // The two reads' pages are genuinely different answers, so attributing one
+    // to the other read would have been a visible error, not a harmless swap.
+    let (_, second_read_page) = &pages[0];
+    let (_, first_read_page) = &pages[1];
+    assert_eq!(second_read_page.records.len(), 3);
+    assert!(second_read_page.complete);
+    assert_eq!(first_read_page.records.len(), 2);
+    assert!(!first_read_page.complete);
+    assert_eq!(
+        first_read_page.next_before,
+        Some(second_read_page.records[1].cursor()),
+        "the incomplete page's cursor names the record it stopped at"
+    );
+
+    // The filtered read: Core applied the actor filter before cutting the page,
+    // so `complete` is the agent timeline's completeness even though the
+    // unfiltered pages above carry strictly older operator and system records.
+    let filtered_query = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: RuntimeCommand::QueryAudit { query },
+            } if command_id == "audit_read_agents" => Some(query.clone()),
+            _ => None,
+        })
+        .expect("the fixture must accept a filtered read");
+    assert_eq!(filtered_query.actor, Some(AuditActorFilter::AnyAgent));
+    let (_, filtered_page) = &pages[2];
+    assert_eq!(pages[2].0.as_deref(), Some("audit_read_agents"));
+    assert!(
+        filtered_page
+            .records
+            .iter()
+            .all(|record| matches!(record.actor, AuditActor::Agent { .. })),
+        "a filtered page must contain only records the filter kept"
+    );
+    assert!(filtered_page.complete);
+    assert_eq!(filtered_page.next_before, None);
+    let oldest_filtered = filtered_page
+        .records
+        .last()
+        .expect("the filtered page must not be empty")
+        .timestamp;
+    assert!(
+        second_read_page
+            .records
+            .iter()
+            .any(|record| record.timestamp < oldest_filtered),
+        "older unfiltered records must exist, so `complete` can only be the filtered timeline"
+    );
+}
+
+#[test]
+#[ignore = "manual audit reads fixture refresh; normal tests validate committed JSON only"]
+fn refresh_audit_reads_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = audit_reads_fixture();
+    fs::write(
+        root.join("audit-reads.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -1979,6 +2145,133 @@ fn message_parts_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, owner, kinds, 1_700_000_400),
+    )
+}
+
+/// Canonical proof that an audit page is attributable to the exact read that
+/// asked for it, and that a server-side filter is applied before paging
+/// (GUI-CORE-024).
+///
+/// Two reads are accepted before either is answered, and the pages come back in
+/// the opposite order, so arrival order cannot stand in for correlation: only
+/// the command id on each page tells them apart. A third read filters to agent
+/// actors and comes back `complete` while strictly older operator and system
+/// records are still visible on the unfiltered pages — the fact a client-side
+/// filter could never establish.
+fn audit_reads_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "audit-reads";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_audit_reads".to_string()),
+        session_id: Some("session_audit_reads".to_string()),
+        task_id: Some("task_audit_reads".to_string()),
+        turn_id: Some("turn_audit_reads".to_string()),
+    };
+    let audit_record = |audit_id: &str, timestamp: u64, actor: AuditActor, action: &str| {
+        AuditRecord::sanitized(
+            audit_id.to_string(),
+            timestamp,
+            owner.clone(),
+            actor,
+            action.to_string(),
+            vec![AuditObjectRef::new(
+                AuditObjectRef::KIND_LANE,
+                "lane_audit_reads",
+            )],
+            AuditOutcome::Success,
+            BTreeMap::from([("outcome".to_string(), "accepted".to_string())]),
+        )
+        .expect("fixture audit records must satisfy the sanitization bounds")
+    };
+    let operator_gate = audit_record(
+        "audit_operator_gate",
+        1_700_000_100,
+        AuditActor::Operator,
+        "gate.decided",
+    );
+    let system_probe = audit_record(
+        "audit_system_probe",
+        1_700_000_200,
+        AuditActor::System,
+        "project.probed",
+    );
+    let agent_handoff = audit_record(
+        "audit_agent_handoff",
+        1_700_000_300,
+        AuditActor::Agent {
+            agent_id: "lane_audit_reads_coder".to_string(),
+        },
+        "handoff.created",
+    );
+
+    let unfiltered = |limit: u32| AuditQuery {
+        limit,
+        ..AuditQuery::default()
+    };
+    let accepted = |command_id: &str, query: AuditQuery| RuntimeEventKind::CommandAccepted {
+        command_id: command_id.to_string(),
+        command: RuntimeCommand::QueryAudit { query },
+    };
+    let loaded = |command_id: &str, page: AuditPage| RuntimeEventKind::AuditPageLoaded {
+        command_id: Some(command_id.to_string()),
+        page,
+    };
+    let agent_filter = AuditQuery {
+        actor: Some(AuditActorFilter::AnyAgent),
+        limit: 2,
+        ..AuditQuery::default()
+    };
+
+    let kinds = vec![
+        // Both reads are outstanding before either is answered.
+        accepted("audit_read_first", unfiltered(2)),
+        accepted("audit_read_second", unfiltered(3)),
+        // The second read is answered first, so a client correlating by
+        // arrival order would attribute this page to the first read.
+        loaded(
+            "audit_read_second",
+            AuditPage {
+                records: vec![
+                    agent_handoff.clone(),
+                    system_probe.clone(),
+                    operator_gate.clone(),
+                ],
+                next_before: None,
+                complete: true,
+            },
+        ),
+        loaded(
+            "audit_read_first",
+            AuditPage {
+                records: vec![agent_handoff.clone(), system_probe.clone()],
+                next_before: Some(system_probe.cursor()),
+                complete: false,
+            },
+        ),
+        // The filtered read: `complete` describes the agent timeline, not the
+        // project timeline the two reads above just published in full.
+        accepted("audit_read_agents", agent_filter),
+        loaded(
+            "audit_read_agents",
+            AuditPage {
+                records: vec![agent_handoff],
+                next_before: None,
+                complete: true,
+            },
+        ),
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.audit",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Plan),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_000_500),
     )
 }
 

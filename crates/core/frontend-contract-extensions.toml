@@ -21,6 +21,9 @@ streamed_turn_view_sha256 = "bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0
 message_parts_fixture = "message-parts.json"
 message_parts_fixture_sha256 = "b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1"
 message_parts_view_sha256 = "d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee"
+audit_reads_fixture = "audit-reads.json"
+audit_reads_fixture_sha256 = "a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2"
+audit_reads_view_sha256 = "389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e"
 
 [runtime_agent_session_input]
 commands = ["send_agent_session_input", "retry_agent_session"]
@@ -73,7 +76,8 @@ events = ["recent_work_loaded"]
 commands = ["query_audit"]
 events = ["audit_page_loaded"]
 boundary = "read-only, newest-first, exclusive `before` cursor, page size clamped to 1..=500; `action` is a stable dotted key and args are bounded sanitized tokens, never localized prose or secret bytes"
-correlation = "audit_page_loaded carries no command id; a client correlates a page to its own accepted query and must not infer one from record contents"
+correlation = "audit_page_loaded carries the command id of the query it answers; a client requires an exact match and falls back to its own accepted query only for a page with no id (a Core predating the field), never inferring one from record contents"
+filters = "query_audit accepts optional actor (operator / system / any_agent / a named agent) and a half-open [from, until) unix-second range, applied before pagination so `complete` and `next_before` describe the filtered timeline; an inverted range is rejected rather than answered with an empty page"
 
 [runtime_starter_lane_preview]
 commands = ["preview_starter_lane", "create_starter_lane"]

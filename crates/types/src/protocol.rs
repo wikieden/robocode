@@ -320,6 +320,12 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "workspace_eligibility_updated"
             | "ui_preferences_updated"
             | "recent_work_loaded"
+            // The answer to a `QueryAudit`. Omitting it here would quarantine
+            // every audit page as an unknown event on any serialized
+            // snapshot/replay path, and a dropped page reads to an operator as
+            // "nothing was audited" — the one failure an append-only timeline
+            // exists to prevent.
+            | "audit_page_loaded"
             | "workspace_source_updated"
             | "runtime_service_health_updated"
             | "workspace_change_updated"

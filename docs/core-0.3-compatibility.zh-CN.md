@@ -93,6 +93,19 @@ work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D
 `runtime.audit`：不触发 permission prompt，也不被 plan mode 阻断。缺少该 capability
 的客户端零发送，并明确显示 timeline 不可用，而不是渲染成空列表。
 
+自 core-0.3.5 起新增两处 schema-1 additive 扩展，用于在并发与过滤场景下保持该查询诚实：
+
+- `AuditPageLoaded.command_id` 指名该 page 所回答的那次 `QueryAudit`。客户端要求精确
+  匹配；携带其他读者 id 的 page 一律忽略。该字段是 optional，因此早于该字段的 Core 发出的
+  page 会反序列化为 `None`，客户端退回到"以自己被接受的查询做关联"的旧规则。客户端绝不
+  为这类 page 伪造 id。
+- `AuditQuery.actor`、`AuditQuery.from` 与 `AuditQuery.until` 按 actor（`operator`、
+  `system`、`any_agent` 或具名 agent）与半开区间 `[from, until)`（unix 秒）过滤。Core 在
+  分页之前应用它们，因此 `complete` 与 `next_before` 描述的是**过滤后**的 timeline。区间
+  倒置会被拒绝，而不是返回空 page，因为空 page 会被读成"该时间窗内什么都没发生"。本次构建
+  无法归类的 filter 变体或 actor 变体一律不匹配，因此 filter 绝不会声称拥有它无法指名的
+  记录。三个字段默认缺省，因此旧客户端写出的查询语义完全不变。
+
 Agent 选择要求 `runtime.agent_adapters`；启动和取消 typed external session 要求
 `runtime.agent_sessions`；ACP permission request 只有在协商到
 `runtime.agent_permission_bridge` 后才可交互。Adapter view 只包含安全的
@@ -219,6 +232,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `context-budgets` | 两条并发 Lane 各自携带精确绑定的 owner 与互不相同的 task-scoped budget，一条处于软压力、一条越过硬上限 | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae` | `819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001` |
 | `message-parts` | ACP turn 在文本之外返回 image part：typed part 只挂到自己的消息上，reference 是 parts 目录的不可变 digest 路径，未建模的 part kind 无损往返 | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
+| `audit-reads` | 两次并发 audit 读取以相反顺序被回答，每个 page 指名自己的 `command_id`；另有一次过滤读取，其 `complete` 描述的是过滤后的 timeline，而未过滤 page 上仍存在更旧的记录 | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
@@ -228,6 +242,13 @@ scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixtu
 `streamed-turn` 与 `message-parts` fixture 把已实现的流式与 typed content part 行为固化为
 规范。`agent_message_part` 是 schema-1 的已知 event type，因此 part 会被归约而不是作为未知
 事件隔离；part 只挂到其事件指名的那条消息上；Core 未建模的 part kind 保留其发布时的原始对象。
+
+`audit-reads` fixture 是 audit 关联与服务端过滤的生成式证据。两次读取在任一被回答之前都已
+被接受，且 page 以相反顺序返回，因此按到达顺序归属会归错，只有已发布的 `command_id` 能归
+对。第三次读取过滤到 agent actor，返回 `complete`，而未过滤 page 上仍能看到严格更旧的
+operator 与 system 记录——这正是客户端侧过滤永远无法确立的完备性事实。与
+`agent_message_part` 一样，`audit_page_loaded` 现已进入 schema-1 已知集合，因此 audit page
+会被归约而不是作为未知事件隔离；该 fixture 同时证明 page 绝不折叠进 `RuntimeViewState`。
 
 扩展 fixture 使用六个正式 known event：`UiPreferencesUpdated`、`RecentWorkLoaded`、
 `StarterLanePreviewed`、`StarterLaneCreated`、`StarterLanePreviewInvalidated`、

@@ -511,7 +511,7 @@ impl SessionEngine {
             },
             // Read-only, exactly like QueryRecentWork: no permission prompt,
             // no plan-mode block, no transaction snapshot.
-            RuntimeCommand::QueryAudit { query } => match self.query_audit(query) {
+            RuntimeCommand::QueryAudit { query } => match self.query_audit(&command_id, query) {
                 Ok(audit_events) => append_resequenced(&mut events, audit_events),
                 Err(err) => return Ok(vec![command_rejected(command_id, err)]),
             },

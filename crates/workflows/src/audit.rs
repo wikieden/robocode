@@ -39,6 +39,13 @@ pub(crate) fn revalidate_audit_record(record: &AuditRecord) -> Result<(), String
 /// Ordering is `(timestamp, audit_id)` descending. The id tiebreak is what
 /// makes pagination stable when several records share a timestamp: without it
 /// a `before` cursor could re-emit or skip a record.
+///
+/// Every filter runs *before* the page is cut, so `complete` and `next_before`
+/// describe the filtered timeline. This ordering is the whole reason the actor
+/// and time filters live in the contract instead of the client: a client
+/// filtering a page it already holds cannot see the matching record that sits
+/// on a page it never loaded, so its "no records for this actor" would be a
+/// claim about completeness it has no evidence for.
 pub(crate) fn audit_page(records: Vec<AuditRecord>, query: &AuditQuery) -> AuditPage {
     let mut matching = records
         .into_iter()
@@ -91,6 +98,23 @@ fn matches_query(record: &AuditRecord, query: &AuditQuery) -> bool {
     }
     if let Some(object) = query.object.as_ref()
         && !record.objects.contains(object)
+    {
+        return false;
+    }
+    if let Some(actor) = query.actor.as_ref()
+        && !actor.matches(&record.actor)
+    {
+        return false;
+    }
+    // Half-open `[from, until)`, so two adjacent windows tile the timeline
+    // without overlapping or dropping the boundary second.
+    if let Some(from) = query.from
+        && record.timestamp < from
+    {
+        return false;
+    }
+    if let Some(until) = query.until
+        && record.timestamp >= until
     {
         return false;
     }

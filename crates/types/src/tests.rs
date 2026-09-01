@@ -4560,6 +4560,89 @@ fn an_agent_message_part_survives_the_wire_as_a_known_event() {
     assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
 }
 
+/// An audit page must survive the wire, not degrade to an unknown event.
+///
+/// Sibling of the `agent_message_part` gap: `audit_page_loaded` was missing
+/// from the known schema-1 event types, so every audit page quarantined as
+/// `RuntimeWireEvent::Unknown` on any serialized snapshot or replay path
+/// (in-process delivery masked it). A quarantined page reads to an operator as
+/// "nothing was audited", which is the one failure the append-only timeline
+/// exists to prevent (GUI-CORE-024).
+#[test]
+fn an_audit_page_survives_the_wire_as_a_known_event() {
+    let envelope = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner {
+            workspace_id: "workspace-viden".to_string(),
+            project_id: "project-viden".to_string(),
+            ..Default::default()
+        },
+        cursor: EventCursor {
+            stream_id: "stream-audit".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::AuditPageLoaded {
+                command_id: Some("client-audit-1".to_string()),
+                page: AuditPage {
+                    records: vec![
+                        AuditRecord::sanitized(
+                            "audit-1".to_string(),
+                            1_700_000_000,
+                            RuntimeOwner {
+                                workspace_id: "workspace-viden".to_string(),
+                                project_id: "project-viden".to_string(),
+                                ..Default::default()
+                            },
+                            AuditActor::Operator,
+                            "gate.decided".to_string(),
+                            vec![AuditObjectRef::new(
+                                AuditObjectRef::KIND_MERGE_GATE,
+                                "gate-1",
+                            )],
+                            AuditOutcome::Success,
+                            BTreeMap::new(),
+                        )
+                        .expect("the fixture record must satisfy the audit bounds"),
+                    ],
+                    next_before: None,
+                    complete: true,
+                },
+            },
+        )),
+    };
+    let encoded = serde_json::to_string(&envelope).unwrap();
+    let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, envelope);
+    assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
+}
+
+/// The page's `command_id` is additive: a page written by a Core that predates
+/// it stays a known event and reads back as `None`, never as a fabricated id.
+#[test]
+fn a_legacy_audit_page_without_a_command_id_stays_known_and_uncorrelated() {
+    let legacy = r#"{
+        "sequence": 1,
+        "timestamp": 1700000000,
+        "kind": {
+            "type": "audit_page_loaded",
+            "payload": {"page": {"records": [], "next_before": null, "complete": true}}
+        }
+    }"#;
+    let decoded: RuntimeEvent = serde_json::from_str(legacy).unwrap();
+    let RuntimeEventKind::AuditPageLoaded { command_id, page } = &decoded.kind else {
+        panic!("a legacy audit page must stay a known event, got {decoded:?}");
+    };
+    assert_eq!(*command_id, None);
+    assert!(page.complete);
+
+    // `skip_serializing_if` keeps the uncorrelated page byte-identical to what
+    // an older Core wrote, so re-encoding never invents the field.
+    let re_encoded = serde_json::to_value(&decoded).unwrap();
+    assert!(re_encoded["kind"]["payload"].get("command_id").is_none());
+}
+
 /// A part for a message Core never published must not fabricate one.
 #[test]
 fn an_orphan_message_part_is_dropped() {

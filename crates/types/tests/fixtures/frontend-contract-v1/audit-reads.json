@@ -1,0 +1,406 @@
+{
+  "fixture_id": "audit-reads",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.audit",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "plan",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_audit_reads",
+        "session_id": "session_audit_reads",
+        "task_id": "task_audit_reads",
+        "turn_id": "turn_audit_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:audit-reads",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000501,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "audit_read_first",
+            "command": {
+              "type": "query_audit",
+              "query": {
+                "project_id": null,
+                "lane_id": null,
+                "object": null,
+                "actor": null,
+                "from": null,
+                "until": null,
+                "before": null,
+                "limit": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_audit_reads",
+        "session_id": "session_audit_reads",
+        "task_id": "task_audit_reads",
+        "turn_id": "turn_audit_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:audit-reads",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000502,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "audit_read_second",
+            "command": {
+              "type": "query_audit",
+              "query": {
+                "project_id": null,
+                "lane_id": null,
+                "object": null,
+                "actor": null,
+                "from": null,
+                "until": null,
+                "before": null,
+                "limit": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_audit_reads",
+        "session_id": "session_audit_reads",
+        "task_id": "task_audit_reads",
+        "turn_id": "turn_audit_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:audit-reads",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000503,
+        "kind": {
+          "type": "audit_page_loaded",
+          "payload": {
+            "command_id": "audit_read_second",
+            "page": {
+              "records": [
+                {
+                  "audit_id": "audit_agent_handoff",
+                  "timestamp": 1700000300,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_audit_reads",
+                    "session_id": "session_audit_reads",
+                    "task_id": "task_audit_reads",
+                    "turn_id": "turn_audit_reads"
+                  },
+                  "actor": {
+                    "agent": {
+                      "agent_id": "lane_audit_reads_coder"
+                    }
+                  },
+                  "action": "handoff.created",
+                  "objects": [
+                    {
+                      "kind": "lane",
+                      "id": "lane_audit_reads"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "outcome": "accepted"
+                  }
+                },
+                {
+                  "audit_id": "audit_system_probe",
+                  "timestamp": 1700000200,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_audit_reads",
+                    "session_id": "session_audit_reads",
+                    "task_id": "task_audit_reads",
+                    "turn_id": "turn_audit_reads"
+                  },
+                  "actor": "system",
+                  "action": "project.probed",
+                  "objects": [
+                    {
+                      "kind": "lane",
+                      "id": "lane_audit_reads"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "outcome": "accepted"
+                  }
+                },
+                {
+                  "audit_id": "audit_operator_gate",
+                  "timestamp": 1700000100,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_audit_reads",
+                    "session_id": "session_audit_reads",
+                    "task_id": "task_audit_reads",
+                    "turn_id": "turn_audit_reads"
+                  },
+                  "actor": "operator",
+                  "action": "gate.decided",
+                  "objects": [
+                    {
+                      "kind": "lane",
+                      "id": "lane_audit_reads"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "outcome": "accepted"
+                  }
+                }
+              ],
+              "next_before": null,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_audit_reads",
+        "session_id": "session_audit_reads",
+        "task_id": "task_audit_reads",
+        "turn_id": "turn_audit_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:audit-reads",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000504,
+        "kind": {
+          "type": "audit_page_loaded",
+          "payload": {
+            "command_id": "audit_read_first",
+            "page": {
+              "records": [
+                {
+                  "audit_id": "audit_agent_handoff",
+                  "timestamp": 1700000300,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_audit_reads",
+                    "session_id": "session_audit_reads",
+                    "task_id": "task_audit_reads",
+                    "turn_id": "turn_audit_reads"
+                  },
+                  "actor": {
+                    "agent": {
+                      "agent_id": "lane_audit_reads_coder"
+                    }
+                  },
+                  "action": "handoff.created",
+                  "objects": [
+                    {
+                      "kind": "lane",
+                      "id": "lane_audit_reads"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "outcome": "accepted"
+                  }
+                },
+                {
+                  "audit_id": "audit_system_probe",
+                  "timestamp": 1700000200,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_audit_reads",
+                    "session_id": "session_audit_reads",
+                    "task_id": "task_audit_reads",
+                    "turn_id": "turn_audit_reads"
+                  },
+                  "actor": "system",
+                  "action": "project.probed",
+                  "objects": [
+                    {
+                      "kind": "lane",
+                      "id": "lane_audit_reads"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "outcome": "accepted"
+                  }
+                }
+              ],
+              "next_before": {
+                "timestamp": 1700000200,
+                "audit_id": "audit_system_probe"
+              },
+              "complete": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_audit_reads",
+        "session_id": "session_audit_reads",
+        "task_id": "task_audit_reads",
+        "turn_id": "turn_audit_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:audit-reads",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000505,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "audit_read_agents",
+            "command": {
+              "type": "query_audit",
+              "query": {
+                "project_id": null,
+                "lane_id": null,
+                "object": null,
+                "actor": "any_agent",
+                "from": null,
+                "until": null,
+                "before": null,
+                "limit": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_audit_reads",
+        "session_id": "session_audit_reads",
+        "task_id": "task_audit_reads",
+        "turn_id": "turn_audit_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:audit-reads",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000506,
+        "kind": {
+          "type": "audit_page_loaded",
+          "payload": {
+            "command_id": "audit_read_agents",
+            "page": {
+              "records": [
+                {
+                  "audit_id": "audit_agent_handoff",
+                  "timestamp": 1700000300,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_audit_reads",
+                    "session_id": "session_audit_reads",
+                    "task_id": "task_audit_reads",
+                    "turn_id": "turn_audit_reads"
+                  },
+                  "actor": {
+                    "agent": {
+                      "agent_id": "lane_audit_reads_coder"
+                    }
+                  },
+                  "action": "handoff.created",
+                  "objects": [
+                    {
+                      "kind": "lane",
+                      "id": "lane_audit_reads"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "outcome": "accepted"
+                  }
+                }
+              ],
+              "next_before": null,
+              "complete": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:audit-reads",
+    "sequence": 6
+  },
+  "expected_view_sha256": "389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e"
+}

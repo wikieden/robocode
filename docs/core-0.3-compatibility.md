@@ -104,6 +104,24 @@ The append-only audit timeline read (`QueryAudit` -> `AuditPageLoaded`) requires
 client without the capability sends nothing and states the timeline is
 unavailable rather than rendering an empty one.
 
+Two additive schema-1 extensions since core-0.3.5 keep that read honest under
+concurrency and filtering:
+
+- `AuditPageLoaded.command_id` names the exact `QueryAudit` a page answers. A
+  client requires an exact match; a page carrying another reader's id is
+  ignored. The field is optional, so a page from a Core that predates it
+  deserializes to `None` and the client falls back to correlating with its own
+  accepted query. A client must never fabricate an id for such a page.
+- `AuditQuery.actor`, `AuditQuery.from`, and `AuditQuery.until` filter by actor
+  (`operator`, `system`, `any_agent`, or a named agent) and by a half-open
+  `[from, until)` unix-second range. Core applies them before pagination, so
+  `complete` and `next_before` describe the *filtered* timeline. An inverted
+  range is rejected rather than answered with an empty page, because an empty
+  page reads as "nothing happened in that window". A filter variant or actor
+  variant this build cannot classify matches nothing, so a filter never claims a
+  record it cannot name. All three fields default to absent, so a query written
+  by an older client keeps its exact previous meaning.
+
 Agent selection requires `runtime.agent_adapters`; starting and cancelling a
 typed external session requires `runtime.agent_sessions`; and ACP permission
 requests are interactive only when `runtime.agent_permission_bridge` is
@@ -265,6 +283,7 @@ registered schema-1 extension fixtures are:
 | `context-budgets` | Two concurrent Lanes with their exact bound owners and distinct task-scoped budgets, one under soft pressure and one over its hard limit | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | Ordered `AssistantDelta` chunks under one session and message id reconstruct exactly the final reply, and the terminal completion fact does not duplicate it | `bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae` | `819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001` |
 | `message-parts` | An ACP turn returning an image part alongside text: typed parts attach to their own message, the reference is an immutable parts-directory digest path, and an unmodeled kind round-trips losslessly | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
+| `audit-reads` | Two concurrent audit reads answered out of order, each page naming its own `command_id`, plus a filtered read whose `complete` describes the filtered timeline while older unfiltered records remain | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
@@ -278,6 +297,17 @@ and typed-content-part behavior canonical. `agent_message_part` is a known
 schema-1 event type, so a part is reduced rather than quarantined as an unknown
 event; parts attach only to the message their event named, and a part kind Core
 does not model keeps the exact object it published.
+
+The `audit-reads` fixture is the generated evidence for audit correlation and
+server-side filtering. Two reads are accepted before either is answered and the
+pages come back in the opposite order, so arrival order attributes them wrongly
+and only the published `command_id` gets them right. The third read filters to
+agent actors and comes back `complete` while strictly older operator and system
+records are still visible on the unfiltered pages — the completeness fact a
+client-side filter could never establish. Like `agent_message_part`, the
+`audit_page_loaded` event type is now in the known schema-1 set, so an audit
+page is reduced rather than quarantined as an unknown event; the fixture also
+proves a page never folds into `RuntimeViewState`.
 
 The extension fixture uses the six real known events
 `UiPreferencesUpdated`, `RecentWorkLoaded`, `StarterLanePreviewed`,
