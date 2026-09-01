@@ -150,6 +150,18 @@ Frontends must render these rows in order and may use the latest `task`/`output`
 pair only as a compatibility fallback for an older snapshot that does not
 advertise `runtime.agent_conversation`.
 
+A streamed reply arrives as ordered `AssistantDelta` chunks carrying the session
+id and one stable message id for the whole prompt turn. Replaying them grows a
+single `AgentConversationMessageView` whose content equals the finished reply,
+and the terminal completion fact settles the turn without appending a second
+copy. Non-text content travels as `AgentMessagePart`: typed `AgentContentPart`
+values with a media type and an immutable content reference into the Agent parts
+directory, never inline bytes. `agent_message_part` is a known schema-1 event
+type, so a part is reduced instead of being quarantined as an unknown event, it
+attaches only to the message its event named, and a part kind Core does not
+model round-trips verbatim rather than being dropped. The canonical extension
+fixtures are `streamed-turn.json` and `message-parts.json`.
+
 Frontend acknowledgement remains event-driven and should appear as soon as the
 ordered input/start facts arrive. Warm ACP turns must not pay another
 `initialize` or `session/load` round trip; model queueing, context processing,

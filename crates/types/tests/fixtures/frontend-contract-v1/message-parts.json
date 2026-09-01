@@ -1,0 +1,242 @@
+{
+  "fixture_id": "message-parts",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_conversation",
+    "runtime.agent_sessions",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_message_parts",
+        "session_id": "session_message_parts",
+        "task_id": "task_message_parts",
+        "turn_id": "turn_message_parts"
+      },
+      "cursor": {
+        "stream_id": "fixture:message-parts",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000401,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_message_parts",
+              "lane_id": "lane_message_parts",
+              "agent_id": "claude-acp",
+              "model": "claude-sonnet",
+              "status": "running",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_message_parts",
+                "session_id": "session_message_parts",
+                "task_id": "task_message_parts",
+                "turn_id": "turn_message_parts"
+              },
+              "task": "task.message_parts.render_chart",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_message_parts",
+        "session_id": "session_message_parts",
+        "task_id": "task_message_parts",
+        "turn_id": "turn_message_parts"
+      },
+      "cursor": {
+        "stream_id": "fixture:message-parts",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000402,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_parts_reply",
+            "task_id": "task_message_parts",
+            "session_id": "session_message_parts",
+            "content": "Rendered the coverage chart."
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_message_parts",
+        "session_id": "session_message_parts",
+        "task_id": "task_message_parts",
+        "turn_id": "turn_message_parts"
+      },
+      "cursor": {
+        "stream_id": "fixture:message-parts",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000403,
+        "kind": {
+          "type": "agent_message_part",
+          "payload": {
+            "session_id": "session_message_parts",
+            "message_id": "message_parts_reply",
+            "part": {
+              "type": "image",
+              "mediaType": "image/png",
+              "reference": ".viden/agents/parts/7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c.png",
+              "alt": "message.part.coverage_chart"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_message_parts",
+        "session_id": "session_message_parts",
+        "task_id": "task_message_parts",
+        "turn_id": "turn_message_parts"
+      },
+      "cursor": {
+        "stream_id": "fixture:message-parts",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000404,
+        "kind": {
+          "type": "agent_message_part",
+          "payload": {
+            "session_id": "session_message_parts",
+            "message_id": "message_parts_reply",
+            "part": {
+              "mediaType": "audio/wav",
+              "reference": ".viden/agents/parts/3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d.wav",
+              "type": "audio"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_message_parts",
+        "session_id": "session_message_parts",
+        "task_id": "task_message_parts",
+        "turn_id": "turn_message_parts"
+      },
+      "cursor": {
+        "stream_id": "fixture:message-parts",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000405,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_parts_follow_up",
+            "task_id": "task_message_parts",
+            "session_id": "session_message_parts",
+            "content": "Nothing else changed."
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_message_parts",
+        "session_id": "session_message_parts",
+        "task_id": "task_message_parts",
+        "turn_id": "turn_message_parts"
+      },
+      "cursor": {
+        "stream_id": "fixture:message-parts",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000406,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session_message_parts",
+              "lane_id": "lane_message_parts",
+              "agent_id": "claude-acp",
+              "model": "claude-sonnet",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_message_parts",
+                "session_id": "session_message_parts",
+                "task_id": "task_message_parts",
+                "turn_id": "turn_message_parts"
+              },
+              "task": "task.message_parts.render_chart",
+              "diagnostic": null,
+              "output": "Nothing else changed."
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:message-parts",
+    "sequence": 6
+  },
+  "expected_view_sha256": "d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee"
+}

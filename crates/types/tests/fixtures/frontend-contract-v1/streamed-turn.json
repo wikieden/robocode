@@ -1,0 +1,207 @@
+{
+  "fixture_id": "streamed-turn",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_conversation",
+    "runtime.agent_sessions",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_streamed_turn",
+        "session_id": "session_streamed_turn",
+        "task_id": "task_streamed_turn",
+        "turn_id": "turn_streamed_turn"
+      },
+      "cursor": {
+        "stream_id": "fixture:streamed-turn",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000301,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_streamed_turn",
+              "lane_id": "lane_streamed_turn",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "running",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_streamed_turn",
+                "session_id": "session_streamed_turn",
+                "task_id": "task_streamed_turn",
+                "turn_id": "turn_streamed_turn"
+              },
+              "task": "task.streamed_turn.investigate",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_streamed_turn",
+        "session_id": "session_streamed_turn",
+        "task_id": "task_streamed_turn",
+        "turn_id": "turn_streamed_turn"
+      },
+      "cursor": {
+        "stream_id": "fixture:streamed-turn",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000302,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_streamed_turn_reply",
+            "task_id": "task_streamed_turn",
+            "session_id": "session_streamed_turn",
+            "content": "Read the reducer, "
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_streamed_turn",
+        "session_id": "session_streamed_turn",
+        "task_id": "task_streamed_turn",
+        "turn_id": "turn_streamed_turn"
+      },
+      "cursor": {
+        "stream_id": "fixture:streamed-turn",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000303,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_streamed_turn_reply",
+            "task_id": "task_streamed_turn",
+            "session_id": "session_streamed_turn",
+            "content": "found the duplicate branch, "
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_streamed_turn",
+        "session_id": "session_streamed_turn",
+        "task_id": "task_streamed_turn",
+        "turn_id": "turn_streamed_turn"
+      },
+      "cursor": {
+        "stream_id": "fixture:streamed-turn",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000304,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_streamed_turn_reply",
+            "task_id": "task_streamed_turn",
+            "session_id": "session_streamed_turn",
+            "content": "and covered it with a replay test."
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_streamed_turn",
+        "session_id": "session_streamed_turn",
+        "task_id": "task_streamed_turn",
+        "turn_id": "turn_streamed_turn"
+      },
+      "cursor": {
+        "stream_id": "fixture:streamed-turn",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000305,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session_streamed_turn",
+              "lane_id": "lane_streamed_turn",
+              "agent_id": "codex-acp",
+              "model": "gpt-5",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_streamed_turn",
+                "session_id": "session_streamed_turn",
+                "task_id": "task_streamed_turn",
+                "turn_id": "turn_streamed_turn"
+              },
+              "task": "task.streamed_turn.investigate",
+              "diagnostic": null,
+              "output": "Read the reducer, found the duplicate branch, and covered it with a replay test."
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:streamed-turn",
+    "sequence": 5
+  },
+  "expected_view_sha256": "bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae"
+}

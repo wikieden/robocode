@@ -29,26 +29,27 @@ pub use viden_types::{
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, AuditActor, AuditCursor, AuditId, AuditObjectRef, AuditOutcome, AuditPage,
     AuditQuery, AuditRecord, CapabilityId, CheckRunStatus, CheckRunView, CommandAction,
-    ConflictBounce, ConflictBounceStatus, ContextBundleRecord, ContextOmittedSourceRecord,
-    ContextSourceRecord, ContractDecision, ContractRecord, CoreHandshake, CostLedgerTotals,
-    CostMeterability, CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus,
-    DataEgressPolicy, DependencyRecord, DependencyState, EventCursor, EvidenceView,
-    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance,
-    HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneStatus,
-    LocaleId, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType,
-    MergeGateValidator, MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigPreview,
-    ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary,
-    RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
-    RuntimeWireEvent, SchemaVersion, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
-    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView,
-    WorkspaceEligibility, WorkspaceSourceStatus, WorkspaceSourceView,
+    ConflictBounce, ConflictBounceStatus, ContextBudgetRecord, ContextBundleRecord,
+    ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContractDecision,
+    ContractRecord, CoreHandshake, CostLedgerTotals, CostMeterability, CostUsageRecord,
+    CredentialHandle, CredentialRequestId, CredentialStatus, DataEgressPolicy, DependencyRecord,
+    DependencyState, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery,
+    GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats,
+    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MergeGatePolicySnapshot, MergeGateRecord,
+    MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, PermissionLevel,
+    PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView,
+    QueuedInputView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch,
+    ReplayRequest, ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewRequestStatus,
+    ReviewVerdict, ReviewedEvidenceBinding, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshot,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, StarterLanePreset,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage, TranscriptPageRequest,
+    TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity,
+    UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
+    WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility, WorkspaceSourceStatus,
+    WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -97,6 +98,29 @@ mod tests {
         assert!(std::any::type_name::<AuditPage>().contains("AuditPage"));
         assert!(std::any::type_name::<AuditRecord>().contains("AuditRecord"));
         assert!(std::any::type_name::<AuditObjectRef>().contains("AuditObjectRef"));
+        // GUI-CORE-008: the typed context budget and its scope. A frontend must
+        // be able to prove that a budget belongs to the selected Lane's task
+        // instead of reconstructing a private serialization of the scope shape.
+        assert!(std::any::type_name::<ContextBudgetRecord>().contains("ContextBudgetRecord"));
+        assert!(std::any::type_name::<ContextScope>().contains("ContextScope"));
+        assert_eq!(
+            ContextScope::Task("task_facade".to_string()),
+            ContextScope::Task("task_facade".to_string())
+        );
+        assert!(matches!(
+            ContextBudgetRecord {
+                budget_id: "ctxbudget-facade".to_string(),
+                scope: ContextScope::Task("task_facade".to_string()),
+                soft_token_limit: 2,
+                hard_token_limit: 4,
+                used_tokens: 3,
+                remaining_tokens: 1,
+                exceeded: false,
+                updated_at: None,
+            }
+            .scope,
+            ContextScope::Task(_)
+        ));
         // Supervision and lane-cost vocabularies a frontend needs to build a
         // typed command or read a typed fact without reaching past this facade
         // into `viden-types`.

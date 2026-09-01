@@ -4520,6 +4520,46 @@ fn an_agent_message_part_attaches_to_its_streamed_message() {
     ));
 }
 
+/// A typed content part must survive the wire, not degrade to an unknown event.
+///
+/// `RuntimeWireEvent` quarantines an event type it does not recognize, so an
+/// `agent_message_part` missing from the known-type set would silently drop
+/// every image and file an Agent returned during snapshot/replay — the exact
+/// "the agent says it drew something and nothing is there" failure the typed
+/// parts exist to prevent (GUI-CORE-017).
+#[test]
+fn an_agent_message_part_survives_the_wire_as_a_known_event() {
+    let envelope = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner {
+            workspace_id: "workspace-viden".to_string(),
+            project_id: "project-viden".to_string(),
+            session_id: Some("agent-session-1".to_string()),
+            ..Default::default()
+        },
+        cursor: EventCursor {
+            stream_id: "stream-agent".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::AgentMessagePart {
+                session_id: "agent-session-1".to_string(),
+                message_id: "turn-1".to_string(),
+                part: AgentContentPart::Image {
+                    media_type: "image/png".to_string(),
+                    reference: ".viden/agents/parts/aa.png".to_string(),
+                    alt: None,
+                },
+            },
+        )),
+    };
+    let encoded = serde_json::to_string(&envelope).unwrap();
+    let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, envelope);
+    assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
+}
+
 /// A part for a message Core never published must not fabricate one.
 #[test]
 fn an_orphan_message_part_is_dropped() {

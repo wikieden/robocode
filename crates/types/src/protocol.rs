@@ -326,6 +326,10 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "check_run_updated"
             | "snapshot_updated"
             | "assistant_delta"
+            // Typed non-text Agent content. Omitting it here would quarantine
+            // every image and file part as an unknown event, which is exactly
+            // the dropped-content failure typed parts exist to prevent.
+            | "agent_message_part"
             | "tool_call_started"
             | "tool_call_finished"
             | "approval_requested"

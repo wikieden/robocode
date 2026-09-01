@@ -1,0 +1,280 @@
+{
+  "fixture_id": "context-budgets",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.context",
+    "runtime.events",
+    "runtime.lane_lifecycle",
+    "runtime.lane_owner_projection",
+    "runtime.snapshot",
+    "runtime.typed_lanes"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_context_alpha",
+        "session_id": "session_context_alpha",
+        "task_id": "task_context_alpha",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:context-budgets",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000201,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_context_alpha",
+              "task_id": "task_context_alpha",
+              "role": "coder",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane_context_alpha",
+              "branch": "codex/lane_context_alpha",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [
+                "session_context_alpha"
+              ],
+              "summary": "lane.context.alpha.running",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_context_alpha",
+        "session_id": "session_context_alpha",
+        "task_id": "task_context_alpha",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:context-budgets",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000202,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane_context_alpha",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_context_alpha",
+                "session_id": "session_context_alpha",
+                "task_id": "task_context_alpha",
+                "turn_id": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_context_beta",
+        "session_id": "session_context_beta",
+        "task_id": "task_context_beta",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:context-budgets",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000203,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_context_beta",
+              "task_id": "task_context_beta",
+              "role": "coder",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane_context_beta",
+              "branch": "codex/lane_context_beta",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [
+                "session_context_beta"
+              ],
+              "summary": "lane.context.beta.running",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_context_beta",
+        "session_id": "session_context_beta",
+        "task_id": "task_context_beta",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:context-budgets",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000204,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane_context_beta",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_context_beta",
+                "session_id": "session_context_beta",
+                "task_id": "task_context_beta",
+                "turn_id": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_context_alpha",
+        "session_id": "session_context_alpha",
+        "task_id": "task_context_alpha",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:context-budgets",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000205,
+        "kind": {
+          "type": "context_budget_exceeded",
+          "payload": {
+            "budget": {
+              "budget_id": "ctxbudget-bundle_context_alpha",
+              "scope": {
+                "type": "task",
+                "id": "task_context_alpha"
+              },
+              "soft_token_limit": 48000,
+              "hard_token_limit": 80000,
+              "used_tokens": 52000,
+              "remaining_tokens": 28000,
+              "exceeded": false,
+              "updated_at": 1700000201
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_context_beta",
+        "session_id": "session_context_beta",
+        "task_id": "task_context_beta",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:context-budgets",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000206,
+        "kind": {
+          "type": "context_budget_exceeded",
+          "payload": {
+            "budget": {
+              "budget_id": "ctxbudget-bundle_context_beta",
+              "scope": {
+                "type": "task",
+                "id": "task_context_beta"
+              },
+              "soft_token_limit": 24000,
+              "hard_token_limit": 40000,
+              "used_tokens": 41000,
+              "remaining_tokens": 0,
+              "exceeded": true,
+              "updated_at": 1700000202
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:context-budgets",
+    "sequence": 6
+  },
+  "expected_view_sha256": "1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b"
+}

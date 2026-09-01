@@ -10,22 +10,23 @@ use viden_core::{
     local_core_handshake,
 };
 use viden_types::{
-    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentDagRecord,
-    AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord, AgentNextAction, AgentRole, AgentRoute,
-    AgentSessionStatus, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
-    AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView,
-    ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, CapabilityId,
-    ContextBundleRecord, ContextOmittedSourceRecord, ContextSourceRecord, CostScope,
-    CostUsageOutcome, CostUsageRecord, EventCursor, EvidenceView, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus,
-    MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
-    MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, PermissionLevel,
-    PermissionMode, ProjectConfigState, ProjectProbe, QueuedInputView, RecentProjectSummary,
-    RecentSessionSummary, ResolvedUiPreferences, ReviewRequestStatus, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView, TokenUsage,
-    UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode, WorkspaceEligibility,
+    AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
+    AgentConversationRole, AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord,
+    AgentNextAction, AgentRole, AgentRoute, AgentSessionStatus, AgentSessionView,
+    AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, CapabilityId, ContextBudgetRecord, ContextBundleRecord,
+    ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, CostScope, CostUsageOutcome,
+    CostUsageRecord, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength,
+    LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
+    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
+    MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe,
+    QueuedInputView, RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences,
+    ReviewRequestStatus, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
+    TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
+    WorkspaceEligibility,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -529,6 +530,325 @@ fn refresh_review_decision_extension_fixture() {
     let fixture = review_decision_fixture();
     fs::write(
         root.join("review-decision.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-008: canonical proof that a published context budget is readable as
+/// the selected Lane's own task scope.
+///
+/// Two Lanes run concurrently with distinct task-scoped budgets. A client that
+/// took "the most recent budget", or matched a budget to a Lane by anything but
+/// the typed scope, would attribute the wrong numbers to a Lane. That is the
+/// guess the request refuses, so the fixture makes both budgets resolvable and
+/// mutually exclusive.
+///
+/// Registered as a post-freeze schema-1 extension fixture, so the frozen base
+/// corpus of nine `0.3.0` fixtures keeps its byte and digest identity.
+#[test]
+fn context_budgets_fixture_scopes_each_lane_budget_to_its_own_task() {
+    let name = "context-budgets.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read context budget fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "context_budgets_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact context budget fixture bytes"
+    );
+    assert!(extension_manifest.contains("context_budgets_fixture = \"context-budgets.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    // Both Lanes are live at once, so "the latest budget" is never a safe pick.
+    assert_eq!(first_view.context_budgets.len(), 2);
+    assert_eq!(first_view.lane_runtime_owners.len(), 2);
+
+    for (lane_id, task_id, budget_id, used, hard, exceeded) in [
+        (
+            "lane_context_alpha",
+            "task_context_alpha",
+            "ctxbudget-bundle_context_alpha",
+            52_000_u64,
+            80_000_u64,
+            false,
+        ),
+        (
+            "lane_context_beta",
+            "task_context_beta",
+            "ctxbudget-bundle_context_beta",
+            41_000_u64,
+            40_000_u64,
+            true,
+        ),
+    ] {
+        // The exact Core-bound owner is what names the Lane's task; the client
+        // never derives a task id from display text or Lane ordering.
+        let owner = first_view
+            .lane_runtime_owners
+            .iter()
+            .find(|binding| binding.lane_id == lane_id)
+            .map(|binding| &binding.owner)
+            .expect("each fixture Lane publishes exactly one live owner binding");
+        assert_eq!(owner.task_id.as_deref(), Some(task_id));
+
+        let scope = ContextScope::Task(task_id.to_string());
+        let mut scoped = first_view
+            .context_budgets
+            .iter()
+            .filter(|budget| budget.scope == scope);
+        let budget = scoped
+            .next()
+            .unwrap_or_else(|| panic!("{lane_id} task scope must resolve exactly one budget"));
+        assert!(
+            scoped.next().is_none(),
+            "{lane_id} task scope must not resolve a second budget"
+        );
+        assert_eq!(budget.budget_id, budget_id);
+        assert_eq!(budget.used_tokens, used);
+        assert_eq!(budget.hard_token_limit, hard);
+        assert_eq!(budget.exceeded, exceeded);
+    }
+
+    // The two scopes are disjoint, so neither Lane can resolve the other's
+    // budget even though both were published on the same stream.
+    let scopes = first_view
+        .context_budgets
+        .iter()
+        .map(|budget| budget.scope.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        scopes,
+        vec![
+            ContextScope::Task("task_context_alpha".to_string()),
+            ContextScope::Task("task_context_beta".to_string()),
+        ]
+    );
+}
+
+#[test]
+#[ignore = "manual context budget fixture refresh; normal tests validate committed JSON only"]
+fn refresh_context_budgets_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = context_budgets_fixture();
+    fs::write(
+        root.join("context-budgets.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-016: canonical proof that replaying ordered `AssistantDelta` chunks
+/// reconstructs exactly the final Agent message.
+///
+/// The terminal marker for a streamed reply is the session-completion fact that
+/// carries the same finished text. Reducing it must settle the turn without
+/// appending a second copy of the reply, otherwise a client would render the
+/// paragraph twice at the moment streaming ends.
+#[test]
+fn streamed_turn_fixture_reconstructs_exactly_the_final_message() {
+    let name = "streamed-turn.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read streamed turn fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "streamed_turn_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact streamed turn fixture bytes"
+    );
+    assert!(extension_manifest.contains("streamed_turn_fixture = \"streamed-turn.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    // The stream itself carries ordered chunks scoped to one session and one
+    // message id, followed by the terminal completion fact.
+    let mut chunks = Vec::new();
+    let mut terminal_output = None;
+    for envelope in &fixture.events {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::AssistantDelta {
+                message_id,
+                session_id,
+                content,
+                ..
+            } => {
+                assert_eq!(session_id.as_deref(), Some("session_streamed_turn"));
+                assert_eq!(message_id, "message_streamed_turn_reply");
+                chunks.push(content.clone());
+            }
+            RuntimeEventKind::AgentSessionCompleted { session } => {
+                terminal_output = session.output.clone();
+            }
+            _ => {}
+        }
+    }
+    assert!(chunks.len() >= 3, "a streamed turn must carry many chunks");
+    let reconstructed = chunks.concat();
+
+    let assistant_messages = first_view
+        .agent_conversation
+        .iter()
+        .filter(|message| {
+            message.session_id == "session_streamed_turn"
+                && message.role == AgentConversationRole::Assistant
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        assistant_messages.len(),
+        1,
+        "the completion fact must settle the streamed message, not duplicate it"
+    );
+    let reply = assistant_messages[0];
+    assert_eq!(reply.message_id, "message_streamed_turn_reply");
+    assert_eq!(reply.content, reconstructed);
+    assert_eq!(terminal_output.as_deref(), Some(reply.content.as_str()));
+
+    // The unscoped assistant stream stays the same bytes, so a client that
+    // predates owner-scoped conversation still renders the identical reply.
+    assert_eq!(first_view.assistant_stream, reconstructed);
+}
+
+#[test]
+#[ignore = "manual streamed turn fixture refresh; normal tests validate committed JSON only"]
+fn refresh_streamed_turn_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = streamed_turn_fixture();
+    fs::write(
+        root.join("streamed-turn.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-017: canonical proof that an ACP turn returning an image alongside
+/// text reaches the client as typed content parts.
+///
+/// Parts attach to the message they belong to, so a second message in the same
+/// session stays part-free. A part kind this build does not model round-trips
+/// verbatim instead of being dropped into prose that claims content exists.
+#[test]
+fn message_parts_fixture_attaches_typed_parts_to_their_own_message() {
+    let name = "message-parts.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read message parts fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "message_parts_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact message parts fixture bytes"
+    );
+    assert!(extension_manifest.contains("message_parts_fixture = \"message-parts.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    let message = |message_id: &str| {
+        first_view
+            .agent_conversation
+            .iter()
+            .find(|message| {
+                message.session_id == "session_message_parts" && message.message_id == message_id
+            })
+            .unwrap_or_else(|| panic!("the fixture must project {message_id}"))
+    };
+    let reply = message("message_parts_reply");
+    let follow_up = message("message_parts_follow_up");
+
+    // Both parts landed on the message their event named, never on the later
+    // message that happens to share the session.
+    assert_eq!(reply.parts.len(), 2);
+    assert!(
+        follow_up.parts.is_empty(),
+        "a part must not drift onto another message in the same session"
+    );
+
+    let AgentContentPart::Image {
+        media_type,
+        reference,
+        alt,
+    } = &reply.parts[0]
+    else {
+        panic!("the first part must be the returned image");
+    };
+    assert_eq!(media_type, "image/png");
+    // An immutable content reference into the Agent parts directory, named by
+    // the content digest. Bytes never travel on the wire.
+    assert_eq!(
+        reference,
+        &format!(".viden/agents/parts/{}.png", "7c".repeat(32))
+    );
+    assert_eq!(alt.as_deref(), Some("message.part.coverage_chart"));
+
+    // An unmodeled kind keeps its exact published object, so re-encoding the
+    // projected part is byte-identical to what Core sent.
+    let unknown = &reply.parts[1];
+    let AgentContentPart::Unknown { kind, payload } = unknown else {
+        panic!("the second part must stay an unmodeled kind");
+    };
+    assert_eq!(kind, "audio");
+    let encoded = serde_json::to_value(unknown).expect("re-encode the unmodeled part");
+    assert_eq!(&encoded, payload);
+    let decoded: AgentContentPart =
+        serde_json::from_value(encoded).expect("re-decode the unmodeled part");
+    assert_eq!(&decoded, unknown);
+
+    // The text surface stays the compatibility contract: a client that predates
+    // parts still renders the same prose Core published.
+    assert_eq!(reply.content, "Rendered the coverage chart.");
+}
+
+#[test]
+#[ignore = "manual message parts fixture refresh; normal tests validate committed JSON only"]
+fn refresh_message_parts_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = message_parts_fixture();
+    fs::write(
+        root.join("message-parts.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -1344,6 +1664,351 @@ fn review_decision_fixture() -> FrontendContractFixtureOut {
         snapshot(WorkMode::Build),
         events,
     )
+}
+
+/// Canonical D1 proof that two concurrent Lanes carry distinct task-scoped
+/// context budgets (GUI-CORE-008).
+///
+/// The stream is exactly what two Lanes under context pressure publish: each
+/// Lane's typed record, the exact runtime owner Core bound to it, and the
+/// budget for that owner's task. `ContextBudgetExceeded` is the production
+/// carrier for both soft pressure (`exceeded: false`) and a breached hard
+/// limit, so one Lane of each is present.
+fn context_budgets_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "context-budgets";
+    let lane_owner = |lane: &str, task: &str, session: &str| RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some(lane.to_string()),
+        session_id: Some(session.to_string()),
+        task_id: Some(task.to_string()),
+        turn_id: None,
+    };
+    let lane = |id: &str, task: &str, session: &str, summary: &str| AgentLaneRecord {
+        id: id.to_string(),
+        task_id: Some(task.to_string()),
+        role: AgentRole::Coder,
+        route: AgentRoute::BuiltIn,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some(format!("workspace/.worktrees/{id}")),
+        branch: Some(format!("codex/{id}")),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: LaneStatus::Running,
+        budget: LaneBudget::default(),
+        active_session_ids: vec![session.to_string()],
+        summary: summary.to_string(),
+        evidence: Vec::new(),
+        run_stats: None,
+    };
+    let budget = |bundle: &str,
+                  task: &str,
+                  soft: u64,
+                  hard: u64,
+                  used: u64,
+                  updated_at: u64|
+     -> ContextBudgetRecord {
+        ContextBudgetRecord {
+            budget_id: format!("ctxbudget-{bundle}"),
+            scope: ContextScope::Task(task.to_string()),
+            soft_token_limit: soft,
+            hard_token_limit: hard,
+            used_tokens: used,
+            remaining_tokens: hard.saturating_sub(used),
+            exceeded: used > hard,
+            updated_at: Some(updated_at),
+        }
+    };
+
+    let alpha_owner = lane_owner(
+        "lane_context_alpha",
+        "task_context_alpha",
+        "session_context_alpha",
+    );
+    let beta_owner = lane_owner(
+        "lane_context_beta",
+        "task_context_beta",
+        "session_context_beta",
+    );
+
+    let kinds = vec![
+        RuntimeEventKind::LaneUpdated {
+            lane: lane(
+                "lane_context_alpha",
+                "task_context_alpha",
+                "session_context_alpha",
+                "lane.context.alpha.running",
+            ),
+        },
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: "lane_context_alpha".to_string(),
+                owner: alpha_owner.clone(),
+            },
+        },
+        RuntimeEventKind::LaneUpdated {
+            lane: lane(
+                "lane_context_beta",
+                "task_context_beta",
+                "session_context_beta",
+                "lane.context.beta.running",
+            ),
+        },
+        RuntimeEventKind::LaneRuntimeOwnerBound {
+            binding: LaneRuntimeOwnerBinding {
+                lane_id: "lane_context_beta".to_string(),
+                owner: beta_owner.clone(),
+            },
+        },
+        RuntimeEventKind::ContextBudgetExceeded {
+            budget: budget(
+                "bundle_context_alpha",
+                "task_context_alpha",
+                48_000,
+                80_000,
+                52_000,
+                1_700_000_201,
+            ),
+        },
+        RuntimeEventKind::ContextBudgetExceeded {
+            budget: budget(
+                "bundle_context_beta",
+                "task_context_beta",
+                24_000,
+                40_000,
+                41_000,
+                1_700_000_202,
+            ),
+        },
+    ];
+    let owners = [
+        alpha_owner.clone(),
+        alpha_owner,
+        beta_owner.clone(),
+        beta_owner.clone(),
+        // The budget facts belong to the same owners that were just bound; a
+        // Lane never publishes a budget under another Lane's owner.
+        lane_owner(
+            "lane_context_alpha",
+            "task_context_alpha",
+            "session_context_alpha",
+        ),
+        beta_owner,
+    ];
+    let events = kinds
+        .into_iter()
+        .zip(owners)
+        .enumerate()
+        .map(|(index, (kind, owner))| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner,
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(1_700_000_200 + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect();
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.context",
+            "runtime.events",
+            "runtime.lane_lifecycle",
+            "runtime.lane_owner_projection",
+            "runtime.snapshot",
+            "runtime.typed_lanes",
+        ],
+        snapshot(WorkMode::Build),
+        events,
+    )
+}
+
+/// Canonical proof that ordered `AssistantDelta` chunks reconstruct exactly the
+/// final Agent message (GUI-CORE-016).
+///
+/// The producer keeps one message id for the whole prompt turn, so the reply
+/// grows as a single owner-scoped conversation message. The terminal marker is
+/// the completion fact carrying the same finished text; reducing it settles the
+/// turn without appending a duplicate paragraph.
+fn streamed_turn_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "streamed-turn";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_streamed_turn".to_string()),
+        session_id: Some("session_streamed_turn".to_string()),
+        task_id: Some("task_streamed_turn".to_string()),
+        turn_id: Some("turn_streamed_turn".to_string()),
+    };
+    let chunks = [
+        "Read the reducer, ",
+        "found the duplicate branch, ",
+        "and covered it with a replay test.",
+    ];
+    let reply = chunks.concat();
+    let session = AgentSessionView {
+        session_id: "session_streamed_turn".to_string(),
+        lane_id: "lane_streamed_turn".to_string(),
+        agent_id: "codex-acp".to_string(),
+        model: Some("gpt-5".to_string()),
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "task.streamed_turn.investigate".to_string(),
+        diagnostic: None,
+        output: None,
+    };
+
+    let mut kinds = vec![RuntimeEventKind::AgentSessionStarted {
+        session: session.clone(),
+    }];
+    kinds.extend(chunks.iter().map(|chunk| RuntimeEventKind::AssistantDelta {
+        message_id: "message_streamed_turn_reply".to_string(),
+        task_id: Some("task_streamed_turn".to_string()),
+        session_id: Some("session_streamed_turn".to_string()),
+        content: (*chunk).to_string(),
+    }));
+    kinds.push(RuntimeEventKind::AgentSessionCompleted {
+        session: AgentSessionView {
+            status: AgentSessionStatus::Completed,
+            output: Some(reply),
+            ..session
+        },
+    });
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.agent_conversation",
+            "runtime.agent_sessions",
+            "runtime.events",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_000_300),
+    )
+}
+
+/// Canonical proof that an ACP turn returning an image alongside text publishes
+/// typed content parts (GUI-CORE-017).
+///
+/// The image travels as an immutable reference into the Agent parts directory,
+/// named by the content digest; inline bytes never reach the wire. A second
+/// message in the same session proves that a part attaches to the message its
+/// event named, and an unmodeled kind is preserved verbatim.
+fn message_parts_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "message-parts";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_message_parts".to_string()),
+        session_id: Some("session_message_parts".to_string()),
+        task_id: Some("task_message_parts".to_string()),
+        turn_id: Some("turn_message_parts".to_string()),
+    };
+    let session = AgentSessionView {
+        session_id: "session_message_parts".to_string(),
+        lane_id: "lane_message_parts".to_string(),
+        agent_id: "claude-acp".to_string(),
+        model: Some("claude-sonnet".to_string()),
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "task.message_parts.render_chart".to_string(),
+        diagnostic: None,
+        output: None,
+    };
+    let follow_up = "Nothing else changed.";
+    let delta = |message_id: &str, content: &str| RuntimeEventKind::AssistantDelta {
+        message_id: message_id.to_string(),
+        task_id: Some("task_message_parts".to_string()),
+        session_id: Some("session_message_parts".to_string()),
+        content: content.to_string(),
+    };
+    let part = |part: AgentContentPart| RuntimeEventKind::AgentMessagePart {
+        session_id: "session_message_parts".to_string(),
+        message_id: "message_parts_reply".to_string(),
+        part,
+    };
+
+    let kinds = vec![
+        RuntimeEventKind::AgentSessionStarted {
+            session: session.clone(),
+        },
+        delta("message_parts_reply", "Rendered the coverage chart."),
+        part(AgentContentPart::Image {
+            media_type: "image/png".to_string(),
+            reference: format!(".viden/agents/parts/{}.png", "7c".repeat(32)),
+            alt: Some("message.part.coverage_chart".to_string()),
+        }),
+        // A kind this build does not model. Core keeps the exact published
+        // object so a newer producer never loses content on an older client.
+        part(AgentContentPart::Unknown {
+            kind: "audio".to_string(),
+            payload: serde_json::json!({
+                "type": "audio",
+                "mediaType": "audio/wav",
+                "reference": format!(".viden/agents/parts/{}.wav", "3d".repeat(32)),
+            }),
+        }),
+        delta("message_parts_follow_up", follow_up),
+        RuntimeEventKind::AgentSessionCompleted {
+            session: AgentSessionView {
+                status: AgentSessionStatus::Completed,
+                output: Some(follow_up.to_string()),
+                ..session
+            },
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.agent_conversation",
+            "runtime.agent_sessions",
+            "runtime.events",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_000_400),
+    )
+}
+
+/// Wraps ordered event kinds published by one owner into contiguous envelopes.
+fn owned_envelopes(
+    fixture_id: &str,
+    owner: RuntimeOwner,
+    kinds: Vec<RuntimeEventKind>,
+    base_timestamp: u64,
+) -> Vec<RuntimeEventEnvelope> {
+    kinds
+        .into_iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner: owner.clone(),
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(base_timestamp + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect()
 }
 
 fn frontend_host_services_fixture() -> FrontendContractFixtureOut {

@@ -12,6 +12,15 @@ interaction_view_sha256 = "46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01
 review_decision_fixture = "review-decision.json"
 review_decision_fixture_sha256 = "b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b"
 review_decision_view_sha256 = "38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c"
+context_budgets_fixture = "context-budgets.json"
+context_budgets_fixture_sha256 = "7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f"
+context_budgets_view_sha256 = "1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b"
+streamed_turn_fixture = "streamed-turn.json"
+streamed_turn_fixture_sha256 = "819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001"
+streamed_turn_view_sha256 = "bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae"
+message_parts_fixture = "message-parts.json"
+message_parts_fixture_sha256 = "b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1"
+message_parts_view_sha256 = "d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee"
 
 [runtime_agent_session_input]
 commands = ["send_agent_session_input", "retry_agent_session"]

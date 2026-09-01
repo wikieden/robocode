@@ -137,6 +137,15 @@ Core 将首次 `AgentSessionStarted` task、每次已接受续聊的 start，以
 渲染这些行。只有旧快照未声明 `runtime.agent_conversation` 能力时，才可使用最新
 `task`/`output` 对作为兼容回退。
 
+流式回复以有序 `AssistantDelta` chunk 到达，每个 chunk 携带 session id 以及整个 prompt turn
+共用的稳定 message id。重放这些 chunk 会生长出唯一一条 `AgentConversationMessageView`，其
+content 恰好等于最终回复；作为终止标记的完成事实只结算该 turn，不会再追加一份副本。非文本
+内容通过 `AgentMessagePart` 传递：带 media type 与指向 Agent parts 目录的不可变 content
+reference 的 typed `AgentContentPart`，绝不内联字节。`agent_message_part` 是 schema-1 的已知
+event type，因此 part 会被归约而不是作为未知事件隔离；part 只挂到其事件指名的那条消息上；
+Core 未建模的 part kind 原样往返，而不会被丢弃。规范扩展 fixture 为 `streamed-turn.json`
+与 `message-parts.json`。
+
 前端确认仍由有序事件驱动，并应在 input/start 事实到达时立即显示。热 ACP turn 不得再次
 承担 `initialize` 或 `session/load` 往返；模型排队、上下文处理与推理耗时仍属于
 agent/provider latency，应与 Core dispatch latency 分开报告。
