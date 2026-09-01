@@ -3685,6 +3685,30 @@ fn lane_supervisor_keeps_waiting_lane_isolated_and_routes_owner_events() {
         .cursor
         .sequence;
     assert!(queued_sequence < dequeued_sequence);
+    // GUI-CORE-010: a queued input carries the exact worker owner Core also
+    // published as the Lane's runtime owner binding, so a client can scope it
+    // to the selected Lane without attributing it by timing or label.
+    let bound_owner = envelopes
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                ..
+            }) if binding.lane_id == "lane-b" => Some(binding.owner.clone()),
+            _ => None,
+        })
+        .expect("the Lane worker must publish exactly one runtime owner binding");
+    let queued_owner = envelopes
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::InputQueued { input },
+                ..
+            }) if envelope.owner == owner_b => Some(input.owner.clone()),
+            _ => None,
+        })
+        .expect("the queued input fact must be published");
+    assert_eq!(queued_owner.as_ref(), Some(&bound_owner));
     assert!(
         supervisor
             .snapshot_envelope()

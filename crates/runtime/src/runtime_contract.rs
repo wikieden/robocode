@@ -168,6 +168,10 @@ impl QueuedRuntimeInput {
             id: self.id.clone(),
             content_preview: truncate_for_preview(&self.content, 500),
             created_at: Some(self.created_at),
+            // A follow-up queued on the built-in engine belongs to no Lane and
+            // no Agent session; Core has no owner to publish for it. Lane input
+            // is queued by the Lane worker, which does attach its exact owner.
+            owner: None,
         }
     }
 }
@@ -245,6 +249,9 @@ impl SessionEngine {
                                 canonical: None,
                                 metadata: None,
                                 timestamp: None,
+                                // This projection is a pure function of engine
+                                // events; it holds no owner identity at all.
+                                owner: None,
                             },
                         },
                     ));
@@ -272,6 +279,9 @@ impl SessionEngine {
                             tool_call_id,
                             name,
                             input_preview,
+                            // See the `System` arm: this projection carries no
+                            // owner identity.
+                            owner: None,
                         },
                     ));
                 }
@@ -302,6 +312,7 @@ impl SessionEngine {
                                 canonical: None,
                                 metadata: None,
                                 timestamp: None,
+                                owner: None,
                             }),
                         },
                     ));
@@ -319,6 +330,7 @@ impl SessionEngine {
                                 canonical: None,
                                 metadata: None,
                                 timestamp: None,
+                                owner: None,
                             },
                         },
                     ));
@@ -2205,6 +2217,13 @@ impl SessionEngine {
             canonical: None,
             metadata: None,
             timestamp: Some(now_timestamp()),
+            // The owner Core recorded on the task this summary closes. Never a
+            // fresh owner: the evidence belongs to whoever owns the task.
+            owner: self
+                .runtime_tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .and_then(|task| task.owner.clone()),
         };
         self.upsert_runtime_evidence(evidence.clone());
         events.push(RuntimeEvent::new(
@@ -2777,6 +2796,8 @@ impl SessionEngine {
             canonical: Some(canonical),
             metadata: None,
             timestamp: None,
+            // Validator input only; this record is never published.
+            owner: None,
         };
         let report = validate_canonical_evidence_for_gate(
             &self.runtime_merge_gates[gate_index],
@@ -3134,6 +3155,9 @@ impl SessionEngine {
             canonical,
             metadata: None,
             timestamp: Some(now),
+            // Gate-bound evidence carries the gate's own owner — the identity
+            // Core already publishes on `MergeGateRecord` — never a new one.
+            owner: Some(self.runtime_merge_gates[gate_index].owner.clone()),
         };
         self.upsert_runtime_evidence(evidence.clone());
 
@@ -5058,6 +5082,9 @@ fn agent_task_record_from_spec(
             command: Some(format!("/agent start {}", spec.task_id)),
             reason: Some("task is queued in the supervised Agent DAG".to_string()),
         }),
+        // A DAG spec binds no Lane, session, or turn, and the only identity it
+        // adds is `spec.task_id`, which is already this record's `id`.
+        owner: None,
     }
 }
 
@@ -5437,6 +5464,9 @@ fn runtime_evidence(sequence: u64, kind: &str, summary: String) -> EvidenceView 
         canonical: None,
         metadata: None,
         timestamp: None,
+        // Command receipts are built from a sequence number and a kind; the
+        // helper holds no owner identity.
+        owner: None,
     }
 }
 
@@ -5516,6 +5546,8 @@ pub(crate) fn execute_context_retrieval_job(
                 redact_identifier_for_event(&job.handle.handle_id),
                 job.reason_category
             ),
+            // A retrieval job carries a `ContextScope`, not a runtime owner.
+            owner: None,
         },
     ));
     let bytes = ContextEngine::open(&job.root)
@@ -5552,6 +5584,8 @@ pub(crate) fn execute_context_retrieval_job(
                 canonical: None,
                 metadata: None,
                 timestamp: Some(now_timestamp()),
+                // See the matching `ToolCallStarted`: scope, not owner.
+                owner: None,
             }),
         },
     ));

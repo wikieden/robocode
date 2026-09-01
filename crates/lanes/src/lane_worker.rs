@@ -966,6 +966,10 @@ impl LaneWorker {
                 id: input_id.clone(),
                 content_preview: input.chars().take(160).collect(),
                 created_at: Some(now_timestamp()),
+                // The worker owner is the exact identity Core publishes as this
+                // Lane's `LaneRuntimeOwnerBinding`, so an owner-scoped client
+                // matches the queued input without inferring it (GUI-CORE-010).
+                owner: Some(self.owner.clone()),
             },
         });
         let result = self.effects.execute(request);

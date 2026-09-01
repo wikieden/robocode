@@ -92,6 +92,10 @@ impl SessionEngine {
                 command: Some("/status".to_string()),
                 reason: Some("provider turn is active".to_string()),
             }),
+            // A built-in provider turn is bound to no Lane and no Agent
+            // session, and Core mints no workspace/project identity of its own
+            // (GUI-CORE-023), so there is no owner to attach here.
+            owner: None,
         }
     }
 
@@ -134,6 +138,9 @@ impl SessionEngine {
                 command: Some("/status".to_string()),
                 reason: Some("tool call is part of current turn".to_string()),
             }),
+            // Same as `provider_task`: a built-in tool call belongs to the
+            // engine turn, which carries no owner identity.
+            owner: None,
         }
     }
 
@@ -194,6 +201,9 @@ impl SessionEngine {
                 command: Some(format!("/test {command}")),
                 reason: Some("latest test command can be rerun".to_string()),
             }),
+            // Same as `provider_task`: an engine test task has no Lane or
+            // Agent-session binding to name.
+            owner: None,
         }
     }
 }

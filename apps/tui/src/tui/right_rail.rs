@@ -307,6 +307,7 @@ mod tests {
                 command: Some("retry".to_string()),
                 reason: Some("dependency recovered".to_string()),
             }),
+            owner: None,
         });
         state.runtime.token_cost = Some(viden_types::TokenCostView {
             input_tokens: 100,
@@ -326,6 +327,7 @@ mod tests {
                 canonical: None,
                 metadata: None,
                 timestamp: Some(1),
+                owner: None,
             });
 
         let rendered = right_rail(&state, 42, 28).join("\n");

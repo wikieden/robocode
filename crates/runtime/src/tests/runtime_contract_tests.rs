@@ -4858,6 +4858,7 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
                         canonical: None,
                         metadata: None,
                         timestamp: None,
+                        owner: None,
                     },
                 },
             ))

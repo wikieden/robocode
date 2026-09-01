@@ -145,6 +145,7 @@ fn emit_capture_projections() {
         canonical: None,
         metadata: None,
         timestamp: Some(1_700_000_150),
+        owner: None,
     });
     // The queue after Core settled the review, captured before the pending
     // view is consumed. This is the state `decide_review` actually leaves

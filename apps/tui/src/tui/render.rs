@@ -988,6 +988,7 @@ mod structured_runtime_tests {
             tool_call_id: "tool-1".to_string(),
             name: "search".to_string(),
             input_preview: "src".to_string(),
+            owner: None,
         });
 
         let rendered = render_frame(&state, 140, 36);
@@ -1128,6 +1129,7 @@ mod structured_runtime_tests {
             tool_call_id: "tool-active".to_string(),
             name: "search".to_string(),
             input_preview: "src".to_string(),
+            owner: None,
         });
         runtime.assistant_stream = "streaming".to_string();
         let mut state = TuiState::new(runtime);
@@ -1305,6 +1307,7 @@ mod structured_runtime_tests {
             tool_call_id: "tool-1".to_string(),
             name: "search".to_string(),
             input_preview: "src".to_string(),
+            owner: None,
         });
 
         let rendered = render_frame(&state, 140, 40);

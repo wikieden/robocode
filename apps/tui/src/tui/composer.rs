@@ -439,6 +439,7 @@ mod tests {
             tool_call_id: "tool-1".to_string(),
             name: "test".to_string(),
             input_preview: "{}".to_string(),
+            owner: None,
         });
     }
 
@@ -501,6 +502,7 @@ mod tests {
             id: "queue-1".to_string(),
             content_preview: "follow up".to_string(),
             created_at: None,
+            owner: None,
         });
         let mut frame = Frame::new(120, 40);
         render_composer(&mut frame, &state, 1);

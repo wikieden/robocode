@@ -371,6 +371,13 @@ pub struct EvidenceView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     pub timestamp: Option<u64>,
+    /// Runtime owner this evidence was recorded under.
+    ///
+    /// Additive since core-0.3.6 (GUI-CORE-010). `None` means Core did not
+    /// know the owner at emission — never a default owner, and never an owner
+    /// a client may infer from timing, ordering, or display text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<RuntimeOwner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -467,6 +474,13 @@ pub struct ToolCallView {
     pub tool_call_id: ToolCallId,
     pub name: String,
     pub input_preview: String,
+    /// Runtime owner whose turn started this tool call.
+    ///
+    /// Additive since core-0.3.6 (GUI-CORE-010). Copied verbatim from
+    /// [`RuntimeEventKind::ToolCallStarted`]; `None` means Core did not know
+    /// the owner at emission — never a default owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<RuntimeOwner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -509,6 +523,12 @@ pub struct QueuedInputView {
     pub id: String,
     pub content_preview: String,
     pub created_at: Option<u64>,
+    /// Runtime owner of the session that queued this input.
+    ///
+    /// Additive since core-0.3.6 (GUI-CORE-010). `None` means Core did not
+    /// know the owner at emission — never a default owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<RuntimeOwner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -689,6 +709,14 @@ pub enum RuntimeEventKind {
         tool_call_id: ToolCallId,
         name: String,
         input_preview: String,
+        /// Runtime owner whose turn started this call.
+        ///
+        /// Additive since core-0.3.6 (GUI-CORE-010). The reducer folds a
+        /// `ToolCallView` out of these fields, so the owner has to travel on
+        /// the event: `RuntimeViewState::apply_event` never sees the envelope.
+        /// `None` means Core did not know the owner at emission.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<RuntimeOwner>,
     },
     ToolCallFinished {
         tool_call_id: ToolCallId,
@@ -1244,12 +1272,14 @@ impl RuntimeViewState {
                 tool_call_id,
                 name,
                 input_preview,
+                owner,
             } => upsert_by_id(
                 &mut self.active_tool_calls,
                 ToolCallView {
                     tool_call_id: tool_call_id.clone(),
                     name: name.clone(),
                     input_preview: input_preview.clone(),
+                    owner: owner.clone(),
                 },
                 |tool| tool.tool_call_id == *tool_call_id,
             ),

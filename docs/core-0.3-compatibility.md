@@ -122,6 +122,21 @@ concurrency and filtering:
   record it cannot name. All three fields default to absent, so a query written
   by an older client keeps its exact previous meaning.
 
+One further additive schema-1 extension since core-0.3.5 makes live work
+attributable (GUI-CORE-010). `AgentTaskRecord`, `ToolCallView`,
+`QueuedInputView`, and `EvidenceView` each gained an optional full
+`RuntimeOwner`, and `RuntimeEventKind::ToolCallStarted` carries the same field
+because the reducer folds the view out of the event rather than the envelope.
+Core populates it only where the emitting site holds a real owner identity: the
+Lane worker's own binding for a queued Lane input, the owner Core published an
+Agent session under for that session's tool calls and evidence, the merge gate's
+own owner for gate-bound evidence, and the owner persisted with a durable agent
+job for its task record. Everywhere else the field stays absent, which means
+"Core did not know the owner at emission" — never a default owner, and never an
+owner a client may infer from timing, ordering, or a display label. The field is
+omitted from the wire when absent, so records with no known owner encode to
+exactly the bytes they did before it existed and the frozen corpus is unchanged.
+
 Agent selection requires `runtime.agent_adapters`; starting and cancelling a
 typed external session requires `runtime.agent_sessions`; and ACP permission
 requests are interactive only when `runtime.agent_permission_bridge` is
@@ -284,6 +299,7 @@ registered schema-1 extension fixtures are:
 | `streamed-turn` | Ordered `AssistantDelta` chunks under one session and message id reconstruct exactly the final reply, and the terminal completion fact does not duplicate it | `bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae` | `819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001` |
 | `message-parts` | An ACP turn returning an image part alongside text: typed parts attach to their own message, the reference is an immutable parts-directory digest path, and an unmodeled kind round-trips losslessly | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
 | `audit-reads` | Two concurrent audit reads answered out of order, each page naming its own `command_id`, plus a filtered read whose `complete` describes the filtered timeline while older unfiltered records remain | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
+| `owner-scoped-live-work` | Two concurrent Lanes with interleaved task, tool-call, queued-input, and evidence facts under their exact bound owners, plus the same four fact kinds published with no owner | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
@@ -297,6 +313,13 @@ and typed-content-part behavior canonical. `agent_message_part` is a known
 schema-1 event type, so a part is reduced rather than quarantined as an unknown
 event; parts attach only to the message their event named, and a part kind Core
 does not model keeps the exact object it published.
+
+The `owner-scoped-live-work` fixture is the generated evidence for owner-scoped
+live work. Both Lanes are live at once and their facts are interleaved, so
+neither ordering nor recency can stand in for ownership: only the published
+owner resolves a fact to a Lane. The fourth group carries no owner and therefore
+belongs to no Lane scope while staying visible workspace-wide, which is what an
+honest client renders instead of attributing it to whichever Lane is selected.
 
 The `audit-reads` fixture is the generated evidence for audit correlation and
 server-side filtering. Two reads are accepted before either is answered and the

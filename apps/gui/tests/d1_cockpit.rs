@@ -397,6 +397,7 @@ fn d1_cockpit_scopes_transcript_and_live_work_to_the_selected_lane_or_omits_unow
         tool_call_id: "global-tool".into(),
         name: "shell".into(),
         input_preview: "must not leak".into(),
+        owner: None,
     }];
 
     let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
@@ -961,6 +962,7 @@ fn accepted_queue_confirms_only_after_same_owner_input_queued() {
                     id: "queued-1".into(),
                     content_preview: "confirmed input".into(),
                     created_at: Some(1),
+                    owner: None,
                 },
             },
         );

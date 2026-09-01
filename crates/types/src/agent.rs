@@ -485,6 +485,12 @@ pub struct AgentTaskRecord {
     pub resume_handle: Option<String>,
     pub pid: Option<u32>,
     pub next_action: Option<AgentNextAction>,
+    /// Runtime owner this task belongs to.
+    ///
+    /// Additive since core-0.3.6 (GUI-CORE-010). `None` means Core did not
+    /// know the owner at emission — never a default owner, and never an owner
+    /// a client may infer from timing, ordering, or the task's own label.
+    pub owner: Option<crate::RuntimeOwner>,
 }
 
 impl AgentTaskRecord {
@@ -549,6 +555,7 @@ impl<'de> Deserialize<'de> for AgentTaskRecord {
             resume_handle: wire.resume_handle,
             pid: wire.pid,
             next_action: wire.next_action,
+            owner: wire.owner,
         })
     }
 }
@@ -577,6 +584,10 @@ struct AgentTaskRecordWireRef<'a> {
     resume_handle: &'a Option<String>,
     pid: &'a Option<u32>,
     next_action: &'a Option<AgentNextAction>,
+    /// Omitted entirely when absent, so a record with no known owner encodes
+    /// to exactly the bytes it did before the field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: &'a Option<crate::RuntimeOwner>,
 }
 
 impl<'a> From<&'a AgentTaskRecord> for AgentTaskRecordWireRef<'a> {
@@ -602,6 +613,7 @@ impl<'a> From<&'a AgentTaskRecord> for AgentTaskRecordWireRef<'a> {
             resume_handle: &task.resume_handle,
             pid: &task.pid,
             next_action: &task.next_action,
+            owner: &task.owner,
         }
     }
 }
@@ -634,6 +646,10 @@ struct AgentTaskRecordWire {
     resume_handle: Option<String>,
     pid: Option<u32>,
     next_action: Option<AgentNextAction>,
+    /// Absent in every record written before core-0.3.6; absence stays absence
+    /// rather than becoming a default owner.
+    #[serde(default)]
+    owner: Option<crate::RuntimeOwner>,
 }
 
 // Legacy task names identify implementations, not roles. The migration keeps

@@ -83,6 +83,7 @@ fn decision_view() -> (RuntimeViewState, ApprovalRequestView) {
         canonical: None,
         metadata: None,
         timestamp: Some(1_700_000_150),
+        owner: None,
     });
 
     (view, approval)

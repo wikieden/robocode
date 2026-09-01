@@ -3495,6 +3495,7 @@ mod tests {
             }),
             metadata: None,
             timestamp: Some(1),
+            owner: None,
         }
     }
 
@@ -5456,6 +5457,7 @@ mod tests {
             tool_call_id: "tool-1".to_string(),
             name: "slow".to_string(),
             input_preview: "request".to_string(),
+            owner: None,
         });
         state.ui.input_mode = InputMode::Insert;
 
@@ -5727,6 +5729,7 @@ mod tests {
             tool_call_id: "tool-after-restart".to_string(),
             name: "shell".to_string(),
             input_preview: "cargo test".to_string(),
+            owner: None,
         });
         handle_ui_event(&mut driver, &mut state, ctrl_c, (120, 40))
             .expect("stale binding remains unavailable");
@@ -5778,6 +5781,7 @@ mod tests {
             tool_call_id: "tool-active".to_string(),
             name: "shell".to_string(),
             input_preview: "cargo test".to_string(),
+            owner: None,
         });
         handle_ui_event(&mut driver, &mut state, ctrl_c.clone(), (120, 40))
             .expect("cancel active work");
@@ -5819,6 +5823,7 @@ mod tests {
             tool_call_id: "tool-arrived".to_string(),
             name: "shell".to_string(),
             input_preview: "cargo test".to_string(),
+            owner: None,
         });
         let outcome = handle_ui_event(
             &mut driver,
@@ -6519,6 +6524,7 @@ mod tests {
             id: "queue-1".to_string(),
             content_preview: "continue with tests".to_string(),
             created_at: Some(1),
+            owner: None,
         });
         let client = StatefulCoreClient::new(FakeCoreTransport {
             view: Some(view),
@@ -6780,6 +6786,7 @@ mod tests {
             tool_call_id: "tool-1".to_string(),
             name: "first".to_string(),
             input_preview: "{}".to_string(),
+            owner: None,
         });
 
         assert!(matches!(

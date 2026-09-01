@@ -1,0 +1,680 @@
+{
+  "fixture_id": "owner-scoped-live-work",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.events",
+    "runtime.evidence",
+    "runtime.lane_lifecycle",
+    "runtime.lane_owner_projection",
+    "runtime.queued_input",
+    "runtime.snapshot",
+    "runtime.typed_lanes",
+    "runtime.typed_tasks"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_alpha",
+        "session_id": "session_live_alpha",
+        "task_id": "task_live_alpha",
+        "turn_id": "turn_live_alpha"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000601,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_live_alpha",
+              "task_id": "task_live_alpha",
+              "role": "coder",
+              "route": "acp",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane_live_alpha",
+              "branch": "codex/lane_live_alpha",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [
+                "session_live_alpha"
+              ],
+              "summary": "lane.lane_live_alpha.running",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_alpha",
+        "session_id": "session_live_alpha",
+        "task_id": "task_live_alpha",
+        "turn_id": "turn_live_alpha"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000602,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane_live_alpha",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_alpha",
+                "session_id": "session_live_alpha",
+                "task_id": "task_live_alpha",
+                "turn_id": "turn_live_alpha"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_beta",
+        "session_id": "session_live_beta",
+        "task_id": "task_live_beta",
+        "turn_id": "turn_live_beta"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000603,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_live_beta",
+              "task_id": "task_live_beta",
+              "role": "coder",
+              "route": "acp",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane_live_beta",
+              "branch": "codex/lane_live_beta",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [
+                "session_live_beta"
+              ],
+              "summary": "lane.lane_live_beta.running",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_beta",
+        "session_id": "session_live_beta",
+        "task_id": "task_live_beta",
+        "turn_id": "turn_live_beta"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000604,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane_live_beta",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_beta",
+                "session_id": "session_live_beta",
+                "task_id": "task_live_beta",
+                "turn_id": "turn_live_beta"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_alpha",
+        "session_id": "session_live_alpha",
+        "task_id": "task_live_alpha",
+        "turn_id": "turn_live_alpha"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000605,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_live_alpha",
+              "parent_id": null,
+              "agent": "coder",
+              "kind": "job",
+              "transport": "acp",
+              "title": "task_live_alpha title",
+              "status": "running_tool",
+              "activity": "running an agent job",
+              "summary": "task_live_alpha summary",
+              "progress": 40,
+              "started_at": 1700000600,
+              "updated_at": 1700000640,
+              "workspace": null,
+              "evidence": [],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": null,
+              "pid": null,
+              "next_action": null,
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_alpha",
+                "session_id": "session_live_alpha",
+                "task_id": "task_live_alpha",
+                "turn_id": "turn_live_alpha"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_alpha",
+        "session_id": "session_live_alpha",
+        "task_id": "task_live_alpha",
+        "turn_id": "turn_live_alpha"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000606,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_live_alpha",
+            "name": "shell",
+            "input_preview": "cargo test",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_live_alpha",
+              "session_id": "session_live_alpha",
+              "task_id": "task_live_alpha",
+              "turn_id": "turn_live_alpha"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_alpha",
+        "session_id": "session_live_alpha",
+        "task_id": "task_live_alpha",
+        "turn_id": "turn_live_alpha"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700000607,
+        "kind": {
+          "type": "input_queued",
+          "payload": {
+            "input": {
+              "id": "queued_live_alpha",
+              "content_preview": "queued_live_alpha preview",
+              "created_at": 1700000650,
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_alpha",
+                "session_id": "session_live_alpha",
+                "task_id": "task_live_alpha",
+                "turn_id": "turn_live_alpha"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_alpha",
+        "session_id": "session_live_alpha",
+        "task_id": "task_live_alpha",
+        "turn_id": "turn_live_alpha"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700000608,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "evidence_live_alpha",
+              "kind": "tool_log",
+              "summary": "evidence_live_alpha summary",
+              "path": null,
+              "source": "acp",
+              "timestamp": 1700000660,
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_alpha",
+                "session_id": "session_live_alpha",
+                "task_id": "task_live_alpha",
+                "turn_id": "turn_live_alpha"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_beta",
+        "session_id": "session_live_beta",
+        "task_id": "task_live_beta",
+        "turn_id": "turn_live_beta"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700000609,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_live_beta",
+              "parent_id": null,
+              "agent": "coder",
+              "kind": "job",
+              "transport": "acp",
+              "title": "task_live_beta title",
+              "status": "running_tool",
+              "activity": "running an agent job",
+              "summary": "task_live_beta summary",
+              "progress": 40,
+              "started_at": 1700000600,
+              "updated_at": 1700000640,
+              "workspace": null,
+              "evidence": [],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": null,
+              "pid": null,
+              "next_action": null,
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_beta",
+                "session_id": "session_live_beta",
+                "task_id": "task_live_beta",
+                "turn_id": "turn_live_beta"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_beta",
+        "session_id": "session_live_beta",
+        "task_id": "task_live_beta",
+        "turn_id": "turn_live_beta"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700000610,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_live_beta",
+            "name": "shell",
+            "input_preview": "cargo test",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_live_beta",
+              "session_id": "session_live_beta",
+              "task_id": "task_live_beta",
+              "turn_id": "turn_live_beta"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_beta",
+        "session_id": "session_live_beta",
+        "task_id": "task_live_beta",
+        "turn_id": "turn_live_beta"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700000611,
+        "kind": {
+          "type": "input_queued",
+          "payload": {
+            "input": {
+              "id": "queued_live_beta",
+              "content_preview": "queued_live_beta preview",
+              "created_at": 1700000650,
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_beta",
+                "session_id": "session_live_beta",
+                "task_id": "task_live_beta",
+                "turn_id": "turn_live_beta"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_live_beta",
+        "session_id": "session_live_beta",
+        "task_id": "task_live_beta",
+        "turn_id": "turn_live_beta"
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700000612,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "evidence_live_beta",
+              "kind": "tool_log",
+              "summary": "evidence_live_beta summary",
+              "path": null,
+              "source": "acp",
+              "timestamp": 1700000660,
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_live_beta",
+                "session_id": "session_live_beta",
+                "task_id": "task_live_beta",
+                "turn_id": "turn_live_beta"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700000613,
+        "kind": {
+          "type": "task_updated",
+          "payload": {
+            "task": {
+              "id": "task_live_unowned",
+              "parent_id": null,
+              "agent": "coder",
+              "kind": "job",
+              "transport": "acp",
+              "title": "task_live_unowned title",
+              "status": "running_tool",
+              "activity": "running an agent job",
+              "summary": "task_live_unowned summary",
+              "progress": 40,
+              "started_at": 1700000600,
+              "updated_at": 1700000640,
+              "workspace": null,
+              "evidence": [],
+              "permissions": [
+                "ask"
+              ],
+              "decision": null,
+              "result": null,
+              "resume_handle": null,
+              "pid": null,
+              "next_action": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700000614,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_live_unowned",
+            "name": "shell",
+            "input_preview": "cargo test"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700000615,
+        "kind": {
+          "type": "input_queued",
+          "payload": {
+            "input": {
+              "id": "queued_live_unowned",
+              "content_preview": "queued_live_unowned preview",
+              "created_at": 1700000650
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:owner-scoped-live-work",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700000616,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "evidence_live_unowned",
+              "kind": "tool_log",
+              "summary": "evidence_live_unowned summary",
+              "path": null,
+              "source": "acp",
+              "timestamp": 1700000660
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:owner-scoped-live-work",
+    "sequence": 16
+  },
+  "expected_view_sha256": "6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4"
+}

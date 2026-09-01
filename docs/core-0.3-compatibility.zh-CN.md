@@ -106,6 +106,17 @@ work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D
   无法归类的 filter 变体或 actor 变体一律不匹配，因此 filter 绝不会声称拥有它无法指名的
   记录。三个字段默认缺省，因此旧客户端写出的查询语义完全不变。
 
+自 core-0.3.5 起还新增一处 additive schema-1 扩展，使实时工作可归属（GUI-CORE-010）。
+`AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与 `EvidenceView` 各自新增一个
+optional 的完整 `RuntimeOwner`；`RuntimeEventKind::ToolCallStarted` 也带上同一字段，因为
+reducer 是从 event 而不是 envelope 折出该 view 的。Core 只在发出点确实持有真实 owner 身份
+时才填充它：Lane worker 自身的绑定（Lane 排队输入）、Core 发布该 Agent session 时使用的
+owner（该 session 的 tool call 与 evidence）、merge gate 自身的 owner（gate 绑定的
+evidence）、以及随 durable agent job 持久化的 owner（其 task 记录）。其余位置一律留空，
+含义是"Core 在发出时并不知道 owner"——绝不是 default owner，客户端也绝不可依据时序、顺序
+或展示标签推断。字段缺省时不写入 wire，因此无已知 owner 的记录编码字节与该字段存在之前完全
+一致，冻结语料未变。
+
 Agent 选择要求 `runtime.agent_adapters`；启动和取消 typed external session 要求
 `runtime.agent_sessions`；ACP permission request 只有在协商到
 `runtime.agent_permission_bridge` 后才可交互。Adapter view 只包含安全的
@@ -233,6 +244,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae` | `819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001` |
 | `message-parts` | ACP turn 在文本之外返回 image part：typed part 只挂到自己的消息上，reference 是 parts 目录的不可变 digest 路径，未建模的 part kind 无损往返 | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
 | `audit-reads` | 两次并发 audit 读取以相反顺序被回答，每个 page 指名自己的 `command_id`；另有一次过滤读取，其 `complete` 描述的是过滤后的 timeline，而未过滤 page 上仍存在更旧的记录 | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
+| `owner-scoped-live-work` | 两个并发 Lane 在各自精确绑定的 owner 下交错发布 task、tool call、排队输入与 evidence 事实，另有同样四类事实在没有 owner 的情况下发布 | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
@@ -249,6 +261,11 @@ scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixtu
 operator 与 system 记录——这正是客户端侧过滤永远无法确立的完备性事实。与
 `agent_message_part` 一样，`audit_page_loaded` 现已进入 schema-1 已知集合，因此 audit page
 会被归约而不是作为未知事件隔离；该 fixture 同时证明 page 绝不折叠进 `RuntimeViewState`。
+
+`owner-scoped-live-work` fixture 是 owner 范围实时工作的生成式证据。两个 Lane 同时存活且
+事实交错发布，因此顺序与新近度都不能代替归属：只有已发布的 owner 才能把一条事实归到某个
+Lane。第四组事实没有 owner，因此不属于任何 Lane 范围，同时仍在 workspace 层可见——诚实的
+客户端渲染的正是这一点，而不是把它归给当前选中的 Lane。
 
 扩展 fixture 使用六个正式 known event：`UiPreferencesUpdated`、`RecentWorkLoaded`、
 `StarterLanePreviewed`、`StarterLaneCreated`、`StarterLanePreviewInvalidated`、

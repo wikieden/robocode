@@ -813,6 +813,7 @@ mod tests {
             canonical: None,
             metadata: None,
             timestamp: Some(1),
+            owner: None,
         });
         runtime.context = Some(ContextBundleRecord {
             bundle_id: "bundle-1".to_string(),

@@ -699,6 +699,7 @@ mod tests {
             }),
             metadata: None,
             timestamp: Some(1),
+            owner: None,
         }
     }
 

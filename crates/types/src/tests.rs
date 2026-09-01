@@ -549,6 +549,7 @@ fn agent_task_and_context_records_roundtrip_json() {
             command: Some("/lane inspect lane-1".to_string()),
             reason: Some("running lane".to_string()),
         }),
+        owner: None,
     };
     assert!(task.is_active());
     assert_eq!(task.priority(), AgentTaskStatus::Running.priority());
@@ -1333,6 +1334,7 @@ fn canonical_evidence_status_reports_verified_and_quality_failed_states() {
         }),
         metadata: None,
         timestamp: Some(12),
+        owner: None,
     };
 
     assert_eq!(
@@ -4030,6 +4032,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         canonical: None,
         metadata: None,
         timestamp: Some(42),
+        owner: None,
     };
     let task = AgentTaskRecord {
         id: "task_1".to_string(),
@@ -4052,11 +4055,13 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         resume_handle: None,
         pid: None,
         next_action: None,
+        owner: None,
     };
     let queued = QueuedInputView {
         id: "queued_1".to_string(),
         content_preview: "follow-up question".to_string(),
         created_at: Some(43),
+        owner: None,
     };
 
     let events = vec![
@@ -4776,4 +4781,239 @@ fn lane_run_stats_default_is_a_measured_zero_distinct_from_absence() {
         ..lane.clone()
     };
     assert_ne!(observed, lane);
+}
+
+fn owner_scoped_live_work_owner() -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "workspace_owner_facts".to_string(),
+        project_id: "project_owner_facts".to_string(),
+        lane_id: Some("lane_owner_facts".to_string()),
+        session_id: Some("session_owner_facts".to_string()),
+        task_id: Some("task_owner_facts".to_string()),
+        turn_id: Some("turn_owner_facts".to_string()),
+    }
+}
+
+#[test]
+fn live_work_facts_carry_an_optional_runtime_owner() {
+    let owner = owner_scoped_live_work_owner();
+
+    let evidence = EvidenceView {
+        id: "evidence_owner".to_string(),
+        kind: "tool_log".to_string(),
+        summary: "owned evidence".to_string(),
+        path: None,
+        source: Some("acp".to_string()),
+        canonical: None,
+        metadata: None,
+        timestamp: Some(7),
+        owner: Some(owner.clone()),
+    };
+    let tool = ToolCallView {
+        tool_call_id: "tool_owner".to_string(),
+        name: "shell".to_string(),
+        input_preview: "cargo test".to_string(),
+        owner: Some(owner.clone()),
+    };
+    let queued = QueuedInputView {
+        id: "queued_owner".to_string(),
+        content_preview: "follow-up".to_string(),
+        created_at: Some(8),
+        owner: Some(owner.clone()),
+    };
+    let task = AgentTaskRecord {
+        id: "task_owner_facts".to_string(),
+        parent_id: None,
+        role: AgentRole::Coder,
+        kind: AgentTaskKind::Job,
+        route: AgentRoute::Acp,
+        title: "owned job".to_string(),
+        status: AgentTaskStatus::Thinking,
+        activity: "running".to_string(),
+        summary: "owned job".to_string(),
+        progress: 10,
+        started_at: Some(1),
+        updated_at: Some(2),
+        workspace: None,
+        evidence: Vec::new(),
+        permissions: Vec::new(),
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+        next_action: None,
+        owner: Some(owner.clone()),
+    };
+
+    for value in [
+        serde_json::to_value(&evidence).unwrap(),
+        serde_json::to_value(&tool).unwrap(),
+        serde_json::to_value(&queued).unwrap(),
+        serde_json::to_value(&task).unwrap(),
+    ] {
+        assert_eq!(
+            value.get("owner"),
+            Some(&serde_json::to_value(&owner).unwrap())
+        );
+    }
+
+    assert_eq!(
+        serde_json::from_value::<EvidenceView>(serde_json::to_value(&evidence).unwrap()).unwrap(),
+        evidence
+    );
+    assert_eq!(
+        serde_json::from_value::<ToolCallView>(serde_json::to_value(&tool).unwrap()).unwrap(),
+        tool
+    );
+    assert_eq!(
+        serde_json::from_value::<QueuedInputView>(serde_json::to_value(&queued).unwrap()).unwrap(),
+        queued
+    );
+    assert_eq!(
+        serde_json::from_value::<AgentTaskRecord>(serde_json::to_value(&task).unwrap()).unwrap(),
+        task
+    );
+}
+
+#[test]
+fn live_work_facts_without_an_owner_stay_byte_identical_on_the_wire() {
+    let evidence = EvidenceView {
+        id: "evidence_plain".to_string(),
+        kind: "system".to_string(),
+        summary: "no owner".to_string(),
+        path: None,
+        source: None,
+        canonical: None,
+        metadata: None,
+        timestamp: None,
+        owner: None,
+    };
+    let tool = ToolCallView {
+        tool_call_id: "tool_plain".to_string(),
+        name: "shell".to_string(),
+        input_preview: "ls".to_string(),
+        owner: None,
+    };
+    let queued = QueuedInputView {
+        id: "queued_plain".to_string(),
+        content_preview: "later".to_string(),
+        created_at: None,
+        owner: None,
+    };
+
+    for value in [
+        serde_json::to_value(&evidence).unwrap(),
+        serde_json::to_value(&tool).unwrap(),
+        serde_json::to_value(&queued).unwrap(),
+    ] {
+        assert!(
+            value.get("owner").is_none(),
+            "an ownerless live-work fact must not add a wire field: {value}"
+        );
+    }
+
+    // Legacy JSON that predates the field still parses, and absence stays
+    // absence rather than becoming a default owner.
+    let legacy_tool: ToolCallView = serde_json::from_value(serde_json::json!({
+        "tool_call_id": "tool_plain",
+        "name": "shell",
+        "input_preview": "ls"
+    }))
+    .unwrap();
+    assert_eq!(legacy_tool, tool);
+
+    let legacy_queued: QueuedInputView = serde_json::from_value(serde_json::json!({
+        "id": "queued_plain",
+        "content_preview": "later",
+        "created_at": null
+    }))
+    .unwrap();
+    assert_eq!(legacy_queued, queued);
+
+    let legacy_evidence: EvidenceView = serde_json::from_value(serde_json::json!({
+        "id": "evidence_plain",
+        "kind": "system",
+        "summary": "no owner",
+        "path": null,
+        "source": null,
+        "timestamp": null
+    }))
+    .unwrap();
+    assert_eq!(legacy_evidence, evidence);
+
+    let legacy_task: AgentTaskRecord = serde_json::from_value(serde_json::json!({
+        "id": "task_plain",
+        "parent_id": null,
+        "agent": "codex",
+        "kind": "tool",
+        "transport": "shell",
+        "title": "legacy",
+        "status": "thinking",
+        "activity": "running",
+        "summary": "legacy",
+        "progress": 0,
+        "started_at": null,
+        "updated_at": null,
+        "workspace": null,
+        "evidence": [],
+        "permissions": [],
+        "decision": null,
+        "result": null,
+        "resume_handle": null,
+        "pid": null,
+        "next_action": null
+    }))
+    .unwrap();
+    assert_eq!(legacy_task.owner, None);
+    let reencoded = serde_json::to_value(&legacy_task).unwrap();
+    assert!(reencoded.get("owner").is_none());
+}
+
+#[test]
+fn tool_call_started_publishes_the_owner_onto_the_active_tool_call() {
+    let owner = owner_scoped_live_work_owner();
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::ToolCallStarted {
+            tool_call_id: "tool_owner".to_string(),
+            name: "shell".to_string(),
+            input_preview: "cargo test".to_string(),
+            owner: Some(owner.clone()),
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::ToolCallStarted {
+            tool_call_id: "tool_unowned".to_string(),
+            name: "shell".to_string(),
+            input_preview: "ls".to_string(),
+            owner: None,
+        },
+    ));
+
+    assert_eq!(view.active_tool_calls.len(), 2);
+    assert_eq!(view.active_tool_calls[0].owner.as_ref(), Some(&owner));
+    assert_eq!(view.active_tool_calls[1].owner, None);
+
+    // A producer that predates the field still round-trips as unowned.
+    let legacy: RuntimeEventKind = serde_json::from_value(serde_json::json!({
+        "type": "tool_call_started",
+        "payload": {
+            "tool_call_id": "tool_legacy",
+            "name": "shell",
+            "input_preview": "ls"
+        }
+    }))
+    .unwrap();
+    let RuntimeEventKind::ToolCallStarted {
+        owner: legacy_owner,
+        ..
+    } = &legacy
+    else {
+        panic!("legacy event must decode as a tool call start");
+    };
+    assert_eq!(legacy_owner, &None);
+    let reencoded = serde_json::to_value(&legacy).unwrap();
+    assert!(reencoded["payload"].get("owner").is_none());
 }

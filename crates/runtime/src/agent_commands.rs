@@ -980,6 +980,13 @@ where
     /// A resumed turn reuses the remote session and restarts ACP request ids,
     /// so the request id alone cannot keep two turns from sharing a message.
     turn_id: Option<String>,
+    /// Full runtime owner Core published this Agent session under.
+    ///
+    /// Every live-work fact this turn emits carries it verbatim, so a client
+    /// can scope tool calls and evidence to the exact Lane Core bound
+    /// (GUI-CORE-010). `None` on the ad-hoc probe path, where Core published
+    /// no session and therefore knows no owner.
+    owner: Option<RuntimeOwner>,
     on_pid: P,
 }
 
@@ -1605,6 +1612,10 @@ fn agent_task_from_job_record(cwd: &Path, mut job: CodexJobRecord) -> AgentTaskR
             command: Some(format!("/agent result {}", job.id)),
             reason: Some("tracked agent job state is available".to_string()),
         }),
+        // The owner Core persisted with the job record when it started the
+        // Agent session. A job record without agent metadata predates that
+        // identity and stays unowned rather than being given one.
+        owner: job.agent.as_ref().map(|agent| agent.owner.clone()),
     }
 }
 
@@ -2371,6 +2382,8 @@ fn start_typed_agent_session_attempt(
     // published this Agent session under, and the artifact id of this turn.
     let monitor_owner_session_id = session_id.clone();
     let monitor_turn_id = artifact_id.clone();
+    // The exact owner Core published this Agent session under.
+    let monitor_owner = session.owner.clone();
     std::thread::spawn(move || {
         let resident_session_id = monitor_record.id.clone();
         let result = run_acp_session_prompt_for_agent_with_log(
@@ -2388,6 +2401,7 @@ fn start_typed_agent_session_attempt(
                 resident_session_id: Some(resident_session_id),
                 owner_session_id: Some(monitor_owner_session_id),
                 turn_id: Some(monitor_turn_id),
+                owner: Some(monitor_owner),
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -2568,6 +2582,9 @@ fn start_acp_session_job(
                 resident_session_id: None,
                 owner_session_id: None,
                 turn_id: None,
+                // Core published no session for this legacy job path, so it
+                // knows no owner to attach.
+                owner: None,
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
                         *slot = Some(pid);
@@ -4264,6 +4281,8 @@ fn run_acp_session_prompt_for_agent_with_permissions(
             resident_session_id: None,
             owner_session_id: None,
             turn_id: None,
+            // An ad-hoc probe runs outside any published Agent session.
+            owner: None,
             on_pid: |_| {},
         },
     )
@@ -4290,6 +4309,7 @@ where
         resident_session_id,
         owner_session_id,
         turn_id,
+        owner,
         mut on_pid,
     } = context;
     let mut log_entries = Vec::new();
@@ -4611,6 +4631,7 @@ where
                     &turn_message_id,
                     &mut acp_gate_evidence_ids,
                     Some(cwd),
+                    owner.as_ref(),
                     update,
                 );
                 if let Some(path) = runtime_event_log_path.as_deref()
@@ -4812,6 +4833,7 @@ fn acp_message_chunk_text(update: &Value) -> Option<String> {
 fn acp_message_chunk_part(
     update: &Value,
     cwd: Option<&Path>,
+    owner: Option<&RuntimeOwner>,
 ) -> Option<(AgentContentPart, Option<EvidenceView>)> {
     let content = update.get("content")?;
     let kind = content.get("type").and_then(Value::as_str)?;
@@ -4849,7 +4871,7 @@ fn acp_message_chunk_part(
                 .get("data")
                 .or_else(|| content.get("blob"))
                 .and_then(Value::as_str)?;
-            match persist_acp_inline_bytes(cwd, kind, &media_type, data) {
+            match persist_acp_inline_bytes(cwd, kind, &media_type, data, owner) {
                 Some(persisted) => persisted,
                 None => return unknown(),
             }
@@ -4888,6 +4910,7 @@ fn persist_acp_inline_bytes(
     kind: &str,
     media_type: &str,
     data: &str,
+    owner: Option<&RuntimeOwner>,
 ) -> Option<(String, Option<EvidenceView>)> {
     use base64::Engine as _;
 
@@ -4917,6 +4940,7 @@ fn persist_acp_inline_bytes(
             "bytes": bytes.len(),
         })),
         timestamp: None,
+        owner: owner.cloned(),
     };
     Some((reference, Some(evidence)))
 }
@@ -5190,6 +5214,7 @@ fn acp_usage_summary(response: &Value) -> Option<String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_acp_update_runtime_events(
     events: &mut Vec<RuntimeEvent>,
     sequence: &mut u64,
@@ -5202,6 +5227,10 @@ fn append_acp_update_runtime_events(
     // persisted under it; without it they stay unresolved rather than being
     // written outside the workspace.
     cwd: Option<&Path>,
+    // Owner Core published this Agent session under, when it published one.
+    // Every fact below carries it verbatim; `None` stays `None` rather than
+    // becoming an owner derived from the session id alone (GUI-CORE-010).
+    owner: Option<&RuntimeOwner>,
     update: &Value,
 ) {
     match acp_update_kind(update).as_deref() {
@@ -5221,7 +5250,7 @@ fn append_acp_update_runtime_events(
             // Content the text extractor cannot represent still belongs to the
             // reply. Publishing it as a typed part keeps an image or a file the
             // Agent returned from disappearing into prose about it.
-            if let Some((part, evidence)) = acp_message_chunk_part(update, cwd) {
+            if let Some((part, evidence)) = acp_message_chunk_part(update, cwd, owner) {
                 // Persisted bytes are published as evidence before the part
                 // that references them, so a client never sees a reference
                 // whose fact has not been recorded yet.
@@ -5254,6 +5283,7 @@ fn append_acp_update_runtime_events(
                     tool_call_id,
                     name: title,
                     input_preview: truncate_for_preview(&update.to_string(), 500),
+                    owner: owner.cloned(),
                 },
             );
         }
@@ -5279,6 +5309,7 @@ fn append_acp_update_runtime_events(
                     canonical: None,
                     metadata: Some(acp_patch_metadata(&patch, path.as_deref(), update)),
                     timestamp: None,
+                    owner: owner.cloned(),
                 };
                 push_unique_evidence_id(gate_evidence_ids, &patch_evidence.id);
                 push_acp_runtime_event(
@@ -5298,6 +5329,7 @@ fn append_acp_update_runtime_events(
                 canonical: None,
                 metadata: None,
                 timestamp: None,
+                owner: owner.cloned(),
             };
             push_acp_runtime_event(
                 events,
@@ -5349,6 +5381,7 @@ fn append_acp_update_runtime_events(
                     canonical: None,
                     metadata: Some(acp_patch_metadata(&patch, path.as_deref(), update)),
                     timestamp: None,
+                    owner: owner.cloned(),
                 };
                 push_unique_evidence_id(gate_evidence_ids, &evidence.id);
                 push_acp_runtime_event(
@@ -5383,6 +5416,7 @@ fn append_acp_update_runtime_events(
                 canonical: None,
                 metadata: None,
                 timestamp: None,
+                owner: owner.cloned(),
             };
             push_unique_evidence_id(gate_evidence_ids, &evidence.id);
             push_acp_runtime_event(
@@ -8775,6 +8809,7 @@ mod tests {
                 &format!("acp-message-{agent_id}-turn-1"),
                 &mut evidence_ids,
                 None,
+                None,
                 &fixture["tool_update"],
             );
             assert!(events.iter().any(|event| matches!(
@@ -10107,6 +10142,7 @@ mod agent_streaming_tests {
                 turn_message_id,
                 &mut evidence_ids,
                 None,
+                None,
                 &chunk(text),
             );
         }
@@ -10155,6 +10191,7 @@ mod agent_streaming_tests {
             "turn-1",
             &mut evidence_ids,
             None,
+            None,
             &serde_json::json!({
                 "sessionUpdate": "agent_message_chunk",
                 "content": {
@@ -10197,6 +10234,7 @@ mod agent_streaming_tests {
             "turn-1",
             &mut evidence_ids,
             None,
+            None,
             &serde_json::json!({
                 "sessionUpdate": "agent_message_chunk",
                 "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=" }
@@ -10231,6 +10269,7 @@ mod agent_streaming_tests {
             "turn-1",
             &mut evidence_ids,
             Some(cwd.as_path()),
+            None,
             &serde_json::json!({
                 "sessionUpdate": "agent_message_chunk",
                 "content": {
@@ -10305,6 +10344,7 @@ mod agent_streaming_tests {
                 turn,
                 &mut evidence_ids,
                 Some(cwd.as_path()),
+                None,
                 &update,
             );
             references.extend(events.iter().filter_map(|event| match &event.kind {
@@ -10378,6 +10418,7 @@ mod agent_streaming_tests {
             "acp-message-session_1-turn-7",
             &mut evidence_ids,
             None,
+            None,
             &chunk("first"),
         );
         append_acp_update_runtime_events(
@@ -10386,6 +10427,7 @@ mod agent_streaming_tests {
             "session_1",
             "acp-message-session_1-turn-8",
             &mut evidence_ids,
+            None,
             None,
             &chunk("second"),
         );
@@ -10399,5 +10441,92 @@ mod agent_streaming_tests {
             .collect();
         assert_eq!(ids.len(), 2);
         assert_ne!(ids[0], ids[1], "turns are separate replies");
+    }
+
+    /// GUI-CORE-010: an Agent session's tool calls and evidence carry the exact
+    /// owner Core published the session under, and stay unowned when Core
+    /// published no session for the turn.
+    #[test]
+    fn acp_live_work_facts_carry_the_published_session_owner() {
+        let owner = RuntimeOwner {
+            workspace_id: "workspace_acp".to_string(),
+            project_id: "project_acp".to_string(),
+            lane_id: Some("lane_acp".to_string()),
+            session_id: Some("session_acp".to_string()),
+            task_id: Some("task_acp".to_string()),
+            turn_id: Some("turn_acp".to_string()),
+        };
+        let update = serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_1",
+            "title": "shell"
+        });
+        let finished = serde_json::json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_1",
+            "title": "shell",
+            "status": "completed",
+            "content": "ok"
+        });
+
+        let mut owned = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        for value in [&update, &finished] {
+            append_acp_update_runtime_events(
+                &mut owned,
+                &mut sequence,
+                "session_acp",
+                "acp-message-session_acp-turn-1",
+                &mut evidence_ids,
+                None,
+                Some(&owner),
+                value,
+            );
+        }
+        let owners: Vec<Option<RuntimeOwner>> = owned
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RuntimeEventKind::ToolCallStarted { owner, .. } => Some(owner.clone()),
+                RuntimeEventKind::EvidenceRecorded { evidence } => Some(evidence.owner.clone()),
+                RuntimeEventKind::ToolCallFinished {
+                    evidence: Some(evidence),
+                    ..
+                } => Some(evidence.owner.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(owners.len() >= 3, "the turn must publish live-work facts");
+        assert!(
+            owners.iter().all(|value| value.as_ref() == Some(&owner)),
+            "every ACP live-work fact carries the session owner: {owners:?}"
+        );
+
+        let mut unowned = Vec::new();
+        let mut sequence = 1;
+        let mut evidence_ids = Vec::new();
+        for value in [&update, &finished] {
+            append_acp_update_runtime_events(
+                &mut unowned,
+                &mut sequence,
+                "session_acp",
+                "acp-message-session_acp-turn-1",
+                &mut evidence_ids,
+                None,
+                None,
+                value,
+            );
+        }
+        assert!(
+            unowned.iter().all(|event| match &event.kind {
+                RuntimeEventKind::ToolCallStarted { owner, .. } => owner.is_none(),
+                RuntimeEventKind::EvidenceRecorded { evidence } => evidence.owner.is_none(),
+                RuntimeEventKind::ToolCallFinished { evidence, .. } => evidence
+                    .as_ref()
+                    .is_none_or(|evidence| evidence.owner.is_none()),
+                _ => true,
+            }),
+            "a turn Core published no session for stays unowned"
+        );
     }
 }

@@ -1020,6 +1020,145 @@ fn refresh_audit_reads_extension_fixture() {
     .unwrap();
 }
 
+/// GUI-CORE-010: canonical proof that every live-work fact names the owner it
+/// belongs to, and that selecting one Lane's exact owner projects that Lane's
+/// facts and no others.
+///
+/// The two Lanes are live at the same time and their facts are interleaved, so
+/// neither ordering nor recency can stand in for ownership. The ownerless group
+/// proves the honest case: Core did not know an owner, so the fact belongs to
+/// no Lane scope while staying visible workspace-wide.
+#[test]
+fn owner_scoped_live_work_fixture_projects_each_fact_to_its_own_owner() {
+    let name = "owner-scoped-live-work.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read owner scoped live work fixture");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "owner_scoped_live_work_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact owner scoped live work fixture bytes"
+    );
+    assert!(
+        extension_manifest
+            .contains("owner_scoped_live_work_fixture = \"owner-scoped-live-work.json\"")
+    );
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    // Both Lanes are live at once, so "the latest fact" is never a safe pick.
+    assert_eq!(first_view.lane_runtime_owners.len(), 2);
+    assert_eq!(first_view.tasks.len(), 3);
+    assert_eq!(first_view.active_tool_calls.len(), 3);
+    assert_eq!(first_view.queued_inputs.len(), 3);
+    assert_eq!(first_view.latest_evidence.len(), 3);
+
+    for (lane_id, suffix, other) in [
+        ("lane_live_alpha", "alpha", "beta"),
+        ("lane_live_beta", "beta", "alpha"),
+    ] {
+        // The selected owner is the exact Core-bound one, the same identity the
+        // context dock resolves a Lane's task scope with.
+        let selected = first_view
+            .lane_runtime_owners
+            .iter()
+            .find(|binding| binding.lane_id == lane_id)
+            .map(|binding| binding.owner.clone())
+            .expect("each fixture Lane publishes exactly one live owner binding");
+
+        let scoped_tasks = first_view
+            .tasks
+            .iter()
+            .filter(|task| task.owner.as_ref() == Some(&selected))
+            .map(|task| task.id.as_str())
+            .collect::<Vec<_>>();
+        let scoped_tools = first_view
+            .active_tool_calls
+            .iter()
+            .filter(|tool| tool.owner.as_ref() == Some(&selected))
+            .map(|tool| tool.tool_call_id.as_str())
+            .collect::<Vec<_>>();
+        let scoped_inputs = first_view
+            .queued_inputs
+            .iter()
+            .filter(|input| input.owner.as_ref() == Some(&selected))
+            .map(|input| input.id.as_str())
+            .collect::<Vec<_>>();
+        let scoped_evidence = first_view
+            .latest_evidence
+            .iter()
+            .filter(|evidence| evidence.owner.as_ref() == Some(&selected))
+            .map(|evidence| evidence.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(scoped_tasks, vec![format!("task_live_{suffix}")]);
+        assert_eq!(scoped_tools, vec![format!("tool_live_{suffix}")]);
+        assert_eq!(scoped_inputs, vec![format!("queued_live_{suffix}")]);
+        assert_eq!(scoped_evidence, vec![format!("evidence_live_{suffix}")]);
+
+        // Neither the other Lane's facts nor the ownerless ones can leak in.
+        for excluded in [other, "unowned"] {
+            assert!(!scoped_tasks.contains(&format!("task_live_{excluded}").as_str()));
+            assert!(!scoped_tools.contains(&format!("tool_live_{excluded}").as_str()));
+            assert!(!scoped_inputs.contains(&format!("queued_live_{excluded}").as_str()));
+            assert!(!scoped_evidence.contains(&format!("evidence_live_{excluded}").as_str()));
+        }
+    }
+
+    // The ownerless group is published and visible; absence of an owner is a
+    // stated fact, not a fact Core dropped.
+    assert!(
+        first_view
+            .tasks
+            .iter()
+            .any(|task| task.id == "task_live_unowned" && task.owner.is_none())
+    );
+    assert!(
+        first_view
+            .active_tool_calls
+            .iter()
+            .any(|tool| tool.tool_call_id == "tool_live_unowned" && tool.owner.is_none())
+    );
+    assert!(
+        first_view
+            .queued_inputs
+            .iter()
+            .any(|input| input.id == "queued_live_unowned" && input.owner.is_none())
+    );
+    assert!(
+        first_view
+            .latest_evidence
+            .iter()
+            .any(|evidence| evidence.id == "evidence_live_unowned" && evidence.owner.is_none())
+    );
+}
+
+#[test]
+#[ignore = "manual owner scoped live work fixture refresh; normal tests validate committed JSON only"]
+fn refresh_owner_scoped_live_work_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = owner_scoped_live_work_fixture();
+    fs::write(
+        root.join("owner-scoped-live-work.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
 #[test]
 fn frontend_contract_v1_migrations_are_idempotent_before_fixture_replay() {
     let legacy_lanes = parse_legacy_lanes_tsv(include_str!(
@@ -2275,6 +2414,237 @@ fn audit_reads_fixture() -> FrontendContractFixtureOut {
     )
 }
 
+/// Canonical proof that live-work facts carry the runtime owner they belong to
+/// and that a selected-owner projection sees only its own (GUI-CORE-010).
+///
+/// Two Lanes run at once, each with its own task, active tool call, queued
+/// input, and evidence record. A fourth group of the same four fact kinds is
+/// published without an owner, because Core did not know one at emission; those
+/// stay visible workspace-wide and belong to neither Lane. Nothing in the
+/// stream lets a client tell the groups apart by ordering, timing, or label —
+/// only the published owner does.
+fn owner_scoped_live_work_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "owner-scoped-live-work";
+    let lane_owner = |lane: &str, task: &str, session: &str, turn: &str| RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some(lane.to_string()),
+        session_id: Some(session.to_string()),
+        task_id: Some(task.to_string()),
+        turn_id: Some(turn.to_string()),
+    };
+    // The envelope owner for facts Core published with no owner of their own:
+    // the workspace-scoped runtime owner, bound to no Lane.
+    let workspace_owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    let lane = |id: &str, task: &str, session: &str| AgentLaneRecord {
+        id: id.to_string(),
+        task_id: Some(task.to_string()),
+        role: AgentRole::Coder,
+        route: AgentRoute::Acp,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some(format!("workspace/.worktrees/{id}")),
+        branch: Some(format!("codex/{id}")),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: LaneStatus::Running,
+        budget: LaneBudget::default(),
+        active_session_ids: vec![session.to_string()],
+        summary: format!("lane.{id}.running"),
+        evidence: Vec::new(),
+        run_stats: None,
+    };
+    let owned_task = |id: &str, owner: Option<&RuntimeOwner>| AgentTaskRecord {
+        id: id.to_string(),
+        parent_id: None,
+        role: AgentRole::Coder,
+        kind: AgentTaskKind::Job,
+        route: AgentRoute::Acp,
+        title: format!("{id} title"),
+        status: AgentTaskStatus::RunningTool,
+        activity: "running an agent job".to_string(),
+        summary: format!("{id} summary"),
+        progress: 40,
+        started_at: Some(1_700_000_600),
+        updated_at: Some(1_700_000_640),
+        workspace: None,
+        evidence: Vec::new(),
+        permissions: vec!["ask".to_string()],
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+        next_action: None,
+        owner: owner.cloned(),
+    };
+    let owned_evidence = |id: &str, owner: Option<&RuntimeOwner>| EvidenceView {
+        id: id.to_string(),
+        kind: "tool_log".to_string(),
+        summary: format!("{id} summary"),
+        path: None,
+        source: Some("acp".to_string()),
+        canonical: None,
+        metadata: None,
+        timestamp: Some(1_700_000_660),
+        owner: owner.cloned(),
+    };
+    let owned_input = |id: &str, owner: Option<&RuntimeOwner>| QueuedInputView {
+        id: id.to_string(),
+        content_preview: format!("{id} preview"),
+        created_at: Some(1_700_000_650),
+        owner: owner.cloned(),
+    };
+    let tool_call = |id: &str, owner: Option<&RuntimeOwner>| RuntimeEventKind::ToolCallStarted {
+        tool_call_id: id.to_string(),
+        name: "shell".to_string(),
+        input_preview: "cargo test".to_string(),
+        owner: owner.cloned(),
+    };
+
+    let alpha = lane_owner(
+        "lane_live_alpha",
+        "task_live_alpha",
+        "session_live_alpha",
+        "turn_live_alpha",
+    );
+    let beta = lane_owner(
+        "lane_live_beta",
+        "task_live_beta",
+        "session_live_beta",
+        "turn_live_beta",
+    );
+
+    let mut owned_events: Vec<(RuntimeEventKind, RuntimeOwner)> = vec![
+        (
+            RuntimeEventKind::LaneUpdated {
+                lane: lane("lane_live_alpha", "task_live_alpha", "session_live_alpha"),
+            },
+            alpha.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: "lane_live_alpha".to_string(),
+                    owner: alpha.clone(),
+                },
+            },
+            alpha.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneUpdated {
+                lane: lane("lane_live_beta", "task_live_beta", "session_live_beta"),
+            },
+            beta.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: "lane_live_beta".to_string(),
+                    owner: beta.clone(),
+                },
+            },
+            beta.clone(),
+        ),
+    ];
+    // Interleave the two Lanes' live work so arrival order carries no grouping
+    // a client could mistake for ownership.
+    for (suffix, owner) in [("alpha", &alpha), ("beta", &beta)] {
+        owned_events.extend([
+            (
+                RuntimeEventKind::TaskUpdated {
+                    task: owned_task(&format!("task_live_{suffix}"), Some(owner)),
+                },
+                owner.clone(),
+            ),
+            (
+                tool_call(&format!("tool_live_{suffix}"), Some(owner)),
+                owner.clone(),
+            ),
+            (
+                RuntimeEventKind::InputQueued {
+                    input: owned_input(&format!("queued_live_{suffix}"), Some(owner)),
+                },
+                owner.clone(),
+            ),
+            (
+                RuntimeEventKind::EvidenceRecorded {
+                    evidence: owned_evidence(&format!("evidence_live_{suffix}"), Some(owner)),
+                },
+                owner.clone(),
+            ),
+        ]);
+    }
+    // The same four fact kinds with no owner Core could name.
+    owned_events.extend([
+        (
+            RuntimeEventKind::TaskUpdated {
+                task: owned_task("task_live_unowned", None),
+            },
+            workspace_owner.clone(),
+        ),
+        (
+            tool_call("tool_live_unowned", None),
+            workspace_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::InputQueued {
+                input: owned_input("queued_live_unowned", None),
+            },
+            workspace_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::EvidenceRecorded {
+                evidence: owned_evidence("evidence_live_unowned", None),
+            },
+            workspace_owner,
+        ),
+    ]);
+
+    let events = owned_events
+        .into_iter()
+        .enumerate()
+        .map(|(index, (kind, owner))| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner,
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(1_700_000_600 + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect();
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.evidence",
+            "runtime.events",
+            "runtime.lane_lifecycle",
+            "runtime.lane_owner_projection",
+            "runtime.queued_input",
+            "runtime.snapshot",
+            "runtime.typed_lanes",
+            "runtime.typed_tasks",
+        ],
+        snapshot(WorkMode::Build),
+        events,
+    )
+}
+
 /// Wraps ordered event kinds published by one owner into contiguous envelopes.
 fn owned_envelopes(
     fixture_id: &str,
@@ -2695,6 +3065,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
                 tool_call_id: "tool-loop-test".to_string(),
                 name: "shell".to_string(),
                 input_preview: "command.test.core".to_string(),
+                owner: None,
             },
         ),
         (
@@ -2962,6 +3333,7 @@ fn to_runtime_event_kind(kind: RuntimeEventKindExt) -> viden_types::RuntimeEvent
                 tool_call_id: tool_call_id.to_string(),
                 name: name.to_string(),
                 input_preview: input_preview.to_string(),
+                owner: None,
             }
         }
         RuntimeEventKindExt::ToolFinished(tool_call_id, name, success, evidence) => {
@@ -2998,6 +3370,7 @@ fn to_runtime_event_kind(kind: RuntimeEventKindExt) -> viden_types::RuntimeEvent
                     id: id.to_string(),
                     content_preview: content_preview.to_string(),
                     created_at: Some(1_700_000_010),
+                    owner: None,
                 },
             }
         }
@@ -3215,6 +3588,7 @@ fn task(
             command: Some("retry".to_string()),
             reason: Some("blocked dependency recovered".to_string()),
         }),
+        owner: None,
     }
 }
 
@@ -3260,6 +3634,7 @@ fn evidence(id: &str, kind: &str, summary: &str) -> EvidenceView {
         canonical: None,
         metadata: None,
         timestamp: Some(1_700_000_070),
+        owner: None,
     }
 }
 

@@ -131,11 +131,13 @@ mod tests {
             tool_call_id: "tool-41".to_string(),
             name: "cargo".to_string(),
             input_preview: "cargo test".to_string(),
+            owner: None,
         });
         state.runtime.queued_inputs.push(QueuedInputView {
             id: "queue-17".to_string(),
             content_preview: "next task".to_string(),
             created_at: Some(1),
+            owner: None,
         });
         state.runtime.lane_outputs.push(LaneOutputView {
             lane_id: "lane-core".to_string(),
