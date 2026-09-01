@@ -2,19 +2,26 @@
 
 英文版：[contract-requests.md](contract-requests.md)
 
-## GUI-CORE-008：所选 Lane 的上下文作用域
+## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
-Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
-的 `viden-core` facade 尚未重新导出 `ContextBudgetRecord` 与
-`ContextScope`。因此，GUI 无法在不重建私有序列化 schema 的前提下证明某个
-budget 属于所选 Lane 的 task。
+历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
+的 `viden-core` facade 尚未重新导出 `ContextBudgetRecord` 与 `ContextScope`。因此
+GUI 无法在不重建私有序列化 schema 的前提下证明某个 budget 属于所选 Lane 的 task，
+D1 只能把 `contextDock.context` 投影为 `null`；它从未任意选择 budget、反序列化猜测
+的 scope 形状，也从未从展示文本推断用量。
 
-在 Core 通过 `viden-core` 导出 typed scope/budget 契约前，D1 将
-`contextDock.context` 投影为 `null`。GUI 不得任意选择 budget、反序列化猜测的
-scope 形状，也不得从展示文本推断用量。
+Core 状态：已交付。`viden-core` 现在重新导出 `ContextScope` 与
+`ContextBudgetRecord`，并由 facade 测试断言。schema-1 扩展 fixture
+`context-budgets.json` 发布两条并发 Lane，各自携带精确绑定的 runtime owner 与互不
+相交的 task-scoped budget，一条处于软压力、一条越过硬上限；其重放测试证明每条 Lane
+的 task scope 恰好解析出一条 budget，且永远不是另一条 Lane 的。
 
-当 facade 导出所需 frontend-neutral 类型，且规范 D1 fixture 覆盖两个具有不同
-task-scoped budget 的 Lane 后，可关闭此请求。
+GUI 状态：已在 `claude/core-contract-closures` 接线。D1 通过 Core 为所选 Lane 绑定的
+精确 runtime owner 所指名的 typed `ContextScope::Task` 解析 `contextDock.context`，
+并取该 scope 内最新的 budget；新旧比较绝不跨 scope。若没有精确 owner、没有 task id，
+或该 scope 内没有 budget，仍然投影 `null`，而不是借用一条仅仅被发布过的 budget。
+statusbar 的 context 段未改动，仍是其类型所记录的工作区级「最新 budget」粗粒度指示，
+不是按 Lane 的数字。
 
 ## GUI-CORE-009：按 Owner 范围限定的类型化转录行
 
@@ -100,9 +107,9 @@ D12 设计稿要求并排展示两条 Lane 的 hunk 与冲突标记。D12 只渲
 计算冲突所依据的基线），且规范 merge-gate fixture 覆盖单文件两 Lane 冲突时，
 关闭此请求。
 
-## GUI-CORE-016：Agent 消息的流式分片
+## GUI-CORE-016：Agent 消息的流式分片 — 已关闭
 
-ACP 适配器已经收到 `agent_message_chunk` 更新，但
+历史：ACP 适配器已经收到 `agent_message_chunk` 更新，但
 `crates/runtime/src/agent_commands.rs` 只是把它们累加进一个局部字符串，在轮次结束
 时发布单条 `AgentConversationMessageView`。没有任何有序事件承载部分消息，因此 GUI
 无法边生成边渲染，只能显示已完成的整段。
@@ -113,29 +120,32 @@ D1 因此按整条消息渲染，并用工作状态条表达「仍在进行」�
 当 Core 发布携带会话 id、所属消息 id、追加文本与终止标记的有序分片事件，且规范
 fixture 证明重放分片可精确重建最终消息时，关闭此请求。
 
-状态：Core 已实现，fixture 仍缺。`AssistantDelta` 现在携带可选会话 id，ACP 适配器在
-整个提示轮次内保持同一个消息 id，reducer 因此增长单条归属明确的消息。crate 测试证明
-重放分片可精确重建回复，且完成事件不会重复它。在规范 `frontend-contract-v1` fixture
-覆盖一次流式轮次之前，此请求保持开启。
+Core 状态：已交付。`AssistantDelta` 携带可选会话 id，ACP 适配器在整个提示轮次内保持
+同一个消息 id，reducer 因此增长单条归属明确的消息。schema-1 扩展 fixture
+`streamed-turn.json` 将其固化为规范：其重放测试证明有序分片恰好重建最终消息、作为终止
+标记的完成事实只结算该轮次而不再追加一份副本，以及未归属会话的 `assistant_stream` 仍
+保有完全相同的回复，供尚未支持 owner-scoped 对话的客户端使用。
 
-## GUI-CORE-017：Agent 消息的非文本内容
+## GUI-CORE-017：Agent 消息的非文本内容 — 已关闭
 
-`AgentConversationMessageView.content` 是单个 `String`，且 `acp_message_chunk_text`
-只提取 `content.type == "text"`。因此当 ACP agent 返回图像块时，到达客户端的只是一段
-声称「图已画好」的文字，背后没有任何图像事实——这正是操作者看到的「agent 说画了，
-但什么都没有」。
+历史：`AgentConversationMessageView.content` 是单个 `String`，且
+`acp_message_chunk_text` 只提取 `content.type == "text"`。因此当 ACP agent 返回图像块
+时，到达客户端的只是一段声称「图已画好」的文字，背后没有任何图像事实——这正是操作者
+看到的「agent 说画了，但什么都没有」。D1 只渲染 Core 发布的文本，从不合成附件。
 
-D1 只渲染 Core 发布的文本，不合成附件。
+Core 状态：已交付。会话消息携带类型化内容分部，`AgentMessagePart` 把分部挂到它所属的
+消息上；内联字节按内容摘要写入 `.viden/agents/parts/`，因此引用不可变，字节同时作为
+证据发布。Core 未建模的分部类型无损往返，而不是被丢弃。桌面外壳通过 `agent_content`
+命令解析工作区引用——webview 无法直接打开工作区路径——并拒绝 parts 目录之外的任何引用。
 
-当会话消息携带类型化内容分部（文本，加上带媒体类型与客户端可解析的不可变内容引用的
-图像/文件分部），且规范 fixture 覆盖一次返回图像分部与文本的 ACP 轮次时，关闭此请求。
+schema-1 扩展 fixture `message-parts.json` 将其固化为规范：一次 ACP 轮次在文本之外
+返回图像分部；两个分部都只挂到其事件指名的那条消息上，而同一会话中的第二条消息保持
+无分部；图像引用是 parts 目录的摘要路径而非内联字节；未建模的分部类型重新编码后与
+Core 发布的对象完全一致。
 
-状态：Core 已实现，fixture 仍缺。会话消息现在携带类型化内容分部，`AgentMessagePart`
-把分部挂到它所属的消息上；内联字节按内容摘要写入 `.viden/agents/parts/`，因此引用不可
-变，字节同时作为证据发布。Core 未建模的分部类型无损往返，而不是被丢弃。桌面外壳通过
-`agent_content` 命令解析工作区引用——webview 无法直接打开工作区路径——并拒绝 parts 目录
-之外的任何引用。在规范 `frontend-contract-v1` fixture 覆盖一次返回图像分部与文本的 ACP
-轮次之前，此请求保持开启。
+编写该 fixture 同时暴露并修复了一个真实的 wire 缺口：`agent_message_part` 此前不在
+schema-1 已知 event type 列表内，因此每个分部都会退化为被隔离的未知事件，并在
+snapshot 与 replay 中被丢弃。现在它已是已知 event type，并有 types 层往返测试覆盖。
 
 ## GUI-CORE-018：检查点的捕获与恢复
 

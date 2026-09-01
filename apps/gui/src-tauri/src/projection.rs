@@ -5,9 +5,9 @@ use viden_core::{
     AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
     AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
-    CheckRunStatus, ConflictBounceStatus, ContractDecision, ContractRecord, CostMeterability,
-    CredentialHandle, DependencyState, EventCursor, GateStrength, LaneStatus, LocaleId,
-    MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
+    CheckRunStatus, ConflictBounceStatus, ContextScope, ContractDecision, ContractRecord,
+    CostMeterability, CredentialHandle, DependencyState, EventCursor, GateStrength, LaneStatus,
+    LocaleId, MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
     ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
     RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
     UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
@@ -16,14 +16,14 @@ use viden_core::{
 use crate::d1::{
     D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentConversationMessageProjection,
     D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
-    D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection, D1CostUsageProjection,
-    D1CursorProjection, D1EnvironmentProjection, D1LaneAgentProjection, D1LaneProjection,
-    D1LiveWorkProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
-    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
-    D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
-    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TopbarSourceProjection,
-    D1TranscriptRowProjection, D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection,
-    unavailable_features,
+    D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection,
+    D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1EnvironmentProjection,
+    D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection, D1ProviderHealthProjection,
+    D1RuntimeServiceProjection, D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection,
+    D1StatusbarContextProjection, D1StatusbarLaneProjection, D1StatusbarLatencyProjection,
+    D1StatusbarProjection, D1StatusbarRequestsProjection, D1StatusbarTokensProjection,
+    D1TopbarSourceProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
+    D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
@@ -1285,10 +1285,34 @@ impl RuntimeProjection {
                         deleted: source.deleted,
                         dirty: source.dirty,
                     }),
-                // Core exposes the budget collection through RuntimeViewState,
-                // but its task scope type is not available through viden-core.
-                // Stay unavailable until the facade can prove selected-Lane scope.
-                context: None,
+                // GUI-CORE-008: a budget belongs to the selected Lane only
+                // through the typed task scope named by the exact owner Core
+                // bound to that Lane. No exact owner, no task, or no budget in
+                // that scope stays `None`: the dock never borrows a budget that
+                // is merely published, and never guesses a scope shape.
+                context: selected_owner
+                    .and_then(|owner| owner.task_id.as_deref())
+                    .and_then(|task_id| {
+                        let scope = ContextScope::Task(task_id.to_string());
+                        // One task accumulates a budget record per built context
+                        // bundle, so the Lane's current pressure is the freshest
+                        // fact inside its own scope. Recency never crosses
+                        // scopes, so another Lane's budget stays unreachable.
+                        view.context_budgets
+                            .iter()
+                            .filter(|budget| budget.scope == scope)
+                            .enumerate()
+                            .max_by_key(|(index, budget)| (budget.updated_at, *index))
+                            .map(|(_, budget)| budget)
+                    })
+                    .map(|budget| D1ContextUsageProjection {
+                        budget_id: budget.budget_id.clone(),
+                        used_tokens: budget.used_tokens,
+                        soft_token_limit: budget.soft_token_limit,
+                        hard_token_limit: budget.hard_token_limit,
+                        remaining_tokens: budget.remaining_tokens,
+                        exceeded: budget.exceeded,
+                    }),
                 lane_agent,
                 provider: view
                     .provider

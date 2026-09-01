@@ -51,6 +51,12 @@ pub struct D1TopbarSourceProjection {
     pub lane_worktree_count: u32,
 }
 
+/// Context pressure for the selected Lane's own task.
+///
+/// Resolved through the typed `ContextScope::Task` named by the exact runtime
+/// owner Core bound to that Lane, so it is never another Lane's budget and
+/// never a client-side estimate. Absent when the Lane has no exact owner, no
+/// task, or no budget published in that scope.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D1ContextUsageProjection {
@@ -406,9 +412,11 @@ pub struct D1UnavailableFeatureProjection {
     pub message: &'static str,
 }
 
-/// Context usage for the statusbar. Budgets are not Lane-scoped through
-/// viden-core yet, so this is the most recently updated workspace-level
-/// budget Core published, never a per-Lane estimate.
+/// Context usage for the statusbar. This is the most recently updated budget
+/// Core published anywhere in the workspace, never a per-Lane estimate. The
+/// Lane-scoped number lives in the Context Dock's
+/// [`D1ContextUsageProjection`], which resolves the selected Lane's own task
+/// scope; this segment stays a coarse workspace-level indicator.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D1StatusbarContextProjection {

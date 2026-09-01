@@ -13,6 +13,8 @@ use support::TestCoreClient;
 
 const D1_MAIN_COCKPIT_FIXTURE: &str =
     include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json");
+const CONTEXT_BUDGETS_FIXTURE: &str =
+    include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/context-budgets.json");
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -22,9 +24,8 @@ struct Fixture {
     expected_view_sha256: String,
 }
 
-fn replay_fixture() -> (Fixture, RuntimeViewState) {
-    let fixture: Fixture =
-        serde_json::from_str(D1_MAIN_COCKPIT_FIXTURE).expect("parse D1 cockpit fixture");
+fn replay(raw: &str) -> (Fixture, RuntimeViewState) {
+    let fixture: Fixture = serde_json::from_str(raw).expect("parse canonical Core fixture");
     let mut view = RuntimeViewState::new(fixture.initial_snapshot.clone());
     for envelope in &fixture.events {
         if let RuntimeWireEvent::Known(event) = &envelope.event {
@@ -32,6 +33,32 @@ fn replay_fixture() -> (Fixture, RuntimeViewState) {
         }
     }
     (fixture, view)
+}
+
+fn replay_fixture() -> (Fixture, RuntimeViewState) {
+    replay(D1_MAIN_COCKPIT_FIXTURE)
+}
+
+fn assert_fixture_digest(fixture: &Fixture, view: &RuntimeViewState) {
+    let canonical_view = sort_json(serde_json::to_value(view).expect("serialize canonical view"));
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&canonical_view).expect("encode canonical view"))
+    );
+    assert_eq!(digest, fixture.expected_view_sha256);
+    assert_eq!(
+        fixture.events.last().map(|event| &event.cursor),
+        Some(&fixture.expected_final_cursor)
+    );
+}
+
+fn connected(view: RuntimeViewState) -> GuiCoreAdapter {
+    let mut adapter = GuiCoreAdapter::new(Box::new(TestCoreClient::new(
+        view,
+        Arc::new(Mutex::new(Vec::new())),
+    )));
+    adapter.connect().expect("connect canonical fixture");
+    adapter
 }
 
 fn sort_json(value: serde_json::Value) -> serde_json::Value {
@@ -143,5 +170,69 @@ fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
                 }
             ]
         })
+    );
+}
+
+/// GUI-CORE-008: the Context Dock shows the selected Lane's own task budget.
+///
+/// The canonical fixture runs two Lanes with disjoint task-scoped budgets at
+/// once, so a projection that took "the latest budget" would show one Lane the
+/// other's pressure. Each selection must resolve exactly its own scope.
+#[test]
+fn context_budget_fixture_projects_each_lanes_own_task_scope() {
+    let (fixture, view) = replay(CONTEXT_BUDGETS_FIXTURE);
+    assert_fixture_digest(&fixture, &view);
+
+    for (lane_id, expected) in [
+        (
+            "lane_context_alpha",
+            serde_json::json!({
+                "budgetId": "ctxbudget-bundle_context_alpha",
+                "usedTokens": 52000,
+                "softTokenLimit": 48000,
+                "hardTokenLimit": 80000,
+                "remainingTokens": 28000,
+                "exceeded": false
+            }),
+        ),
+        (
+            "lane_context_beta",
+            serde_json::json!({
+                "budgetId": "ctxbudget-bundle_context_beta",
+                "usedTokens": 41000,
+                "softTokenLimit": 24000,
+                "hardTokenLimit": 40000,
+                "remainingTokens": 0,
+                "exceeded": true
+            }),
+        ),
+    ] {
+        let projection = connected(view.clone())
+            .d1_cockpit(Some(lane_id))
+            .expect("project the canonical D1 cockpit");
+        let context =
+            serde_json::to_value(&projection.context_dock.context).expect("serialize context");
+        assert_eq!(context, expected, "{lane_id} must project its own budget");
+    }
+}
+
+/// A Lane Core bound without a task has no scope to resolve, so the dock stays
+/// unavailable instead of borrowing a budget that is published and visible.
+#[test]
+fn a_lane_without_a_task_scope_projects_no_context_budget() {
+    let (_, mut view) = replay(CONTEXT_BUDGETS_FIXTURE);
+    let taskless = view
+        .lane_runtime_owners
+        .iter_mut()
+        .find(|binding| binding.lane_id == "lane_context_alpha")
+        .expect("the fixture binds an exact owner to every Lane");
+    taskless.owner.task_id = None;
+
+    let projection = connected(view)
+        .d1_cockpit(Some("lane_context_alpha"))
+        .expect("project the canonical D1 cockpit");
+    assert!(
+        projection.context_dock.context.is_none(),
+        "a taskless owner must not resolve the other Lane's budget"
     );
 }

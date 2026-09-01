@@ -2,21 +2,30 @@
 
 Chinese version: [contract-requests.zh-CN.md](contract-requests.zh-CN.md)
 
-## GUI-CORE-008: Selected-Lane context scope
+## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
-Core `0.3.5` exposes `RuntimeViewState.context_budgets`, but the
-frontend-neutral `viden-core` facade does not re-export `ContextBudgetRecord`
-and `ContextScope`. The GUI therefore cannot prove that a budget belongs to
-the selected Lane's task without reconstructing a private serialization
-schema.
+History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
+frontend-neutral `viden-core` facade did not re-export `ContextBudgetRecord`
+and `ContextScope`. The GUI therefore could not prove that a budget belonged to
+the selected Lane's task without reconstructing a private serialization schema,
+so D1 projected `contextDock.context` as `null`; it never selected an arbitrary
+budget, deserialized a guessed scope shape, or inferred usage from display text.
 
-Until Core exports the typed scope/budget contract through `viden-core`, D1
-projects `contextDock.context` as `null`. The GUI must not select an arbitrary
-budget, deserialize a guessed scope shape, or infer usage from display text.
+Core status: `viden-core` now re-exports `ContextScope` and
+`ContextBudgetRecord`, asserted by the facade test. The schema-1 extension
+fixture `context-budgets.json` publishes two concurrent Lanes with their exact
+bound runtime owners and disjoint task-scoped budgets, one under soft pressure
+and one over its hard limit, and its replay test proves each Lane's task scope
+resolves exactly one budget and never the other Lane's.
 
-Close this request when the facade exports the required frontend-neutral types
-and the canonical D1 fixture covers two Lanes with distinct task-scoped
-budgets.
+GUI status: wired on `claude/core-contract-closures`. D1 resolves
+`contextDock.context` through the typed `ContextScope::Task` named by the exact
+runtime owner Core bound to the selected Lane, taking the freshest budget inside
+that scope. Recency never crosses scopes. No exact owner, no task id, or no
+budget in that scope still projects `null` rather than a budget that is merely
+published. The statusbar's context segment is unchanged and remains the coarse
+workspace-level "latest budget" indicator its type documents, not a per-Lane
+number.
 
 ## GUI-CORE-009: Owner-scoped typed transcript rows
 
@@ -122,9 +131,9 @@ bounced gate — file path, ours/theirs hunks with line numbers, and the
 baseline the conflict was computed against — and the canonical merge-gate
 fixture covers a two-Lane conflict on one file.
 
-## GUI-CORE-016: Streaming Agent message chunks
+## GUI-CORE-016: Streaming Agent message chunks — CLOSED
 
-The ACP adapter already receives `agent_message_chunk` updates, but
+History: the ACP adapter already received `agent_message_chunk` updates, but
 `crates/runtime/src/agent_commands.rs` accumulates them into a local string
 and publishes one `AgentConversationMessageView` at turn end. No ordered event
 carries a partial message, so the GUI cannot render a reply as it is produced;
@@ -138,39 +147,43 @@ session id, the message id the chunk belongs to, the appended text, and a
 terminal marker, and the canonical fixture proves that replaying the chunks
 reconstructs exactly the final message.
 
-Status: implemented in Core, fixture outstanding. `AssistantDelta` now carries
-an optional session id, the ACP adapter keeps one message id for a whole
-prompt turn, and the reducer grows a single owner-scoped message. Crate tests
-prove that replaying the chunks reconstructs the reply exactly and that the
-completion event does not duplicate it. This request stays open until the
-canonical `frontend-contract-v1` fixture covers a streamed turn.
+Core status: delivered. `AssistantDelta` carries an optional session id, the
+ACP adapter keeps one message id for a whole prompt turn, and the reducer grows
+a single owner-scoped message. The schema-1 extension fixture
+`streamed-turn.json` makes this canonical: its replay test proves the ordered
+chunks reconstruct exactly the final message, that the terminal completion fact
+settles the turn without appending a second copy, and that the unscoped
+`assistant_stream` still holds the identical reply for a client that predates
+owner-scoped conversation.
 
-## GUI-CORE-017: Non-text Agent message content
+## GUI-CORE-017: Non-text Agent message content — CLOSED
 
-`AgentConversationMessageView.content` is a single `String`, and
-`acp_message_chunk_text` extracts only `content.type == "text"`. An ACP agent
-that returns an image block therefore reaches the client as prose claiming an
+History: `AgentConversationMessageView.content` was a single `String`, and
+`acp_message_chunk_text` extracted only `content.type == "text"`. An ACP agent
+that returned an image block therefore reached the client as prose claiming an
 image exists, with no image fact behind it — exactly what an operator sees as
-"the agent says it drew something and nothing is there".
+"the agent says it drew something and nothing is there". D1 rendered the text
+Core published and never synthesized an attachment.
 
-D1 renders the text Core published and does not synthesize an attachment.
+Core status: delivered. A conversation message carries typed content parts,
+`AgentMessagePart` attaches a part to the message it belongs to, and inline
+Agent bytes are persisted under `.viden/agents/parts/` with the content digest
+as their file name, so the reference is immutable and the bytes are also
+published as evidence. A part kind Core does not model round-trips losslessly
+rather than being dropped. The desktop shell resolves a workspace reference
+through the `agent_content` command, because a webview cannot open a workspace
+path; it refuses any reference outside the parts directory.
 
-Close this request when a conversation message carries typed content parts —
-text plus image or file parts with a media type and an immutable content
-reference the client can resolve — and the canonical fixture covers an ACP
-turn that returns an image part alongside text.
+The schema-1 extension fixture `message-parts.json` makes this canonical: an
+ACP turn returns an image part alongside text, both parts attach to the message
+their event named while a second message in the same session stays part-free,
+the image reference is a parts-directory digest path rather than inline bytes,
+and the unmodeled kind re-encodes to the exact object Core published.
 
-Status: implemented in Core, fixture outstanding. A conversation message now
-carries typed content parts, `AgentMessagePart` attaches a part to the message
-it belongs to, and inline Agent bytes are persisted under
-`.viden/agents/parts/` with the content digest as their file name, so the
-reference is immutable and the bytes are also published as evidence. A part
-kind Core does not model round-trips losslessly rather than being dropped. The
-desktop shell resolves a workspace reference through the `agent_content`
-command, because a webview cannot open a workspace path; it refuses any
-reference outside the parts directory. This request stays open until the
-canonical `frontend-contract-v1` fixture covers an ACP turn returning an image
-part alongside text.
+Writing that fixture also closed a real wire gap: `agent_message_part` was
+missing from the known schema-1 event types, so every part degraded to a
+quarantined unknown event and was dropped during snapshot and replay. It is now
+a known event type with a types-level round-trip test.
 
 ## GUI-CORE-018: Checkpoint capture and restore
 
