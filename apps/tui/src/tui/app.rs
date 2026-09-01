@@ -4414,6 +4414,13 @@ mod tests {
         }
     }
 
+    /// A scripted page with no command id.
+    ///
+    /// These overlay tests script their events before the driver mints the
+    /// command id, so they cannot name the read. `None` is the honest wire
+    /// shape for that (a Core predating GUI-CORE-024), and it exercises the
+    /// legacy awaiting-gated path; exact-id correlation is covered where it
+    /// lives, in `audit_panel`'s own tests.
     fn audit_page_event(
         sequence: u64,
         records: Vec<viden_types::AuditRecord>,
@@ -4422,6 +4429,7 @@ mod tests {
         event(
             sequence,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: viden_types::AuditPage {
                     complete: next_before.is_none(),
                     records,
@@ -4491,14 +4499,14 @@ mod tests {
         assert_eq!(
             audit_query_of(&envelopes[0]),
             &viden_types::AuditQuery {
-                project_id: None,
-                lane_id: None,
                 object: Some(viden_types::AuditObjectRef::new(
                     viden_types::AuditObjectRef::KIND_MERGE_GATE,
                     "gate-1"
                 )),
-                before: None,
                 limit: 100,
+                // The overlay ships no filter control yet, so it never sends an
+                // actor or time filter the operator did not choose.
+                ..viden_types::AuditQuery::default()
             }
         );
         assert!(audit_rows(&state).contains("SCOPE merge_gate:gate-1"));

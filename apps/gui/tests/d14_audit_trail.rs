@@ -1,9 +1,12 @@
 //! D14 audit mode: the Core audit contract as the primary D14 surface.
 //!
-//! These tests cover the acceptance-first correlation machine, the capability
-//! gate, paging, and the projection's fallback labels. The raw replay-cursor
-//! mode keeps its own coverage in `d14_audit_timeline.rs`; the two modes are
-//! deliberately separate because they read two different Core surfaces.
+//! These tests cover the correlation machine, the capability gate, paging, and
+//! the projection's fallback labels. Correlation has three cases since
+//! GUI-CORE-024: a page naming this read is applied, a page naming another read
+//! is ignored, and a page with no id at all (a Core predating the field) falls
+//! back to the acceptance-first rule. The raw replay-cursor mode keeps its own
+//! coverage in `d14_audit_timeline.rs`; the two modes are deliberately separate
+//! because they read two different Core surfaces.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -83,8 +86,28 @@ fn accepted(sequence: u64, command_id: &str) -> RuntimeEventEnvelope {
     )
 }
 
-fn loaded(sequence: u64, page: AuditPage) -> RuntimeEventEnvelope {
-    envelope(sequence, RuntimeEventKind::AuditPageLoaded { page })
+/// A page naming the exact read it answers, as Core publishes it since
+/// GUI-CORE-024.
+fn loaded(sequence: u64, command_id: &str, page: AuditPage) -> RuntimeEventEnvelope {
+    envelope(
+        sequence,
+        RuntimeEventKind::AuditPageLoaded {
+            command_id: Some(command_id.to_string()),
+            page,
+        },
+    )
+}
+
+/// A page from a Core that predates the command id, where acceptance-first is
+/// the only correlation available.
+fn loaded_legacy(sequence: u64, page: AuditPage) -> RuntimeEventEnvelope {
+    envelope(
+        sequence,
+        RuntimeEventKind::AuditPageLoaded {
+            command_id: None,
+            page,
+        },
+    )
 }
 
 fn rejected(sequence: u64, command_id: &str, reason: &str) -> RuntimeEventEnvelope {
@@ -147,12 +170,15 @@ fn audit_mode_is_unavailable_and_sends_nothing_without_the_core_capability() {
     );
 }
 
+/// Legacy fallback: an unnamed page arriving before our own acceptance belongs
+/// to some other reader, and acceptance-first is the only rule available for a
+/// Core that predates the page's command id.
 #[test]
 fn a_page_arriving_before_our_acceptance_is_not_treated_as_our_answer() {
     // The page lands first; it belongs to some other reader's query.
     let mut harness = harness(
         vec![
-            loaded(
+            loaded_legacy(
                 1,
                 page(
                     vec![record(
@@ -182,6 +208,62 @@ fn a_page_arriving_before_our_acceptance_is_not_treated_as_our_answer() {
     );
 }
 
+/// Exact correlation: a page naming a *different* read is ignored even after
+/// our own acceptance, which is precisely the window acceptance-first could
+/// not close. The following page, which names our read, still confirms it.
+#[test]
+fn a_page_naming_another_read_is_ignored_even_after_our_acceptance() {
+    let mut harness = harness(
+        vec![
+            accepted(1, "gui-audit-1"),
+            loaded(
+                2,
+                "someone-elses-read",
+                page(
+                    vec![record(
+                        "audit-other",
+                        1_700_000_500,
+                        AuditActor::Operator,
+                        AuditOutcome::Success,
+                    )],
+                    None,
+                ),
+            ),
+            loaded(
+                3,
+                "gui-audit-1",
+                page(
+                    vec![record(
+                        "audit-ours",
+                        1_700_000_600,
+                        AuditActor::Operator,
+                        AuditOutcome::Success,
+                    )],
+                    None,
+                ),
+            ),
+        ],
+        true,
+    );
+    let projection = harness
+        .adapter
+        .query_audit_and_wait("gui-audit-1", None, TIMEOUT)
+        .expect("query");
+
+    assert_eq!(
+        projection
+            .rows
+            .iter()
+            .map(|row| row.audit_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["audit-ours"],
+        "a concurrent reader's page must never be attributed to this read"
+    );
+    assert!(projection.loaded);
+    assert_eq!(projection.outcome.state, "confirmed");
+    assert_eq!(projection.pending_command_id, None);
+}
+
 #[test]
 fn a_page_after_our_acceptance_confirms_the_read_and_supplies_every_row() {
     let mut harness = harness(
@@ -189,6 +271,7 @@ fn a_page_after_our_acceptance_confirms_the_read_and_supplies_every_row() {
             accepted(1, "gui-audit-1"),
             loaded(
                 2,
+                "gui-audit-1",
                 page(
                     vec![
                         record(
@@ -302,7 +385,7 @@ fn an_empty_page_is_only_empty_after_core_confirmed_one() {
     let mut harness = harness(
         vec![
             accepted(1, "gui-audit-1"),
-            loaded(2, page(Vec::new(), None)),
+            loaded(2, "gui-audit-1", page(Vec::new(), None)),
         ],
         true,
     );
@@ -324,6 +407,7 @@ fn load_older_pages_from_cores_cursor_and_appends_at_the_end() {
             accepted(1, "gui-audit-1"),
             loaded(
                 2,
+                "gui-audit-1",
                 page(
                     vec![record(
                         "audit-3",
@@ -340,6 +424,7 @@ fn load_older_pages_from_cores_cursor_and_appends_at_the_end() {
             accepted(3, "gui-audit-2"),
             loaded(
                 4,
+                "gui-audit-2",
                 page(
                     vec![record(
                         "audit-1",
@@ -391,7 +476,7 @@ fn a_scoped_query_passes_the_exact_object_through_and_reports_the_scope() {
     let mut harness = harness(
         vec![
             accepted(1, "gui-audit-1"),
-            loaded(2, page(Vec::new(), None)),
+            loaded(2, "gui-audit-1", page(Vec::new(), None)),
         ],
         true,
     );
@@ -425,6 +510,7 @@ fn dropping_the_scope_requeries_unscoped_and_discards_the_scoped_rows() {
             accepted(1, "gui-audit-1"),
             loaded(
                 2,
+                "gui-audit-1",
                 page(
                     vec![record(
                         "audit-scoped",
@@ -438,6 +524,7 @@ fn dropping_the_scope_requeries_unscoped_and_discards_the_scoped_rows() {
             accepted(3, "gui-audit-2"),
             loaded(
                 4,
+                "gui-audit-2",
                 page(
                     vec![record(
                         "audit-all",
@@ -489,6 +576,7 @@ fn the_desktop_event_pump_cannot_swallow_the_page_the_screen_is_waiting_for() {
         .with_envelope(accepted(1, "gui-audit-1"))
         .with_envelope(loaded(
             2,
+            "gui-audit-1",
             page(
                 vec![record(
                     "audit-1",

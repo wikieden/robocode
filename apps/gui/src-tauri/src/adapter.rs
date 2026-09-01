@@ -88,9 +88,10 @@ pub struct GuiCoreAdapter {
     /// verdict sent while the first is unanswered could only race Core's own
     /// "already decided" rejection; the slot refuses it locally instead.
     pending_d2_review: Option<PendingD2Review>,
-    /// One audit read at a time, for exactly the reason `pending_recent_work`
-    /// has one: `AuditPageLoaded` carries no command id, so two concurrent
-    /// reads could not be told apart. See [`PendingAuditPage`].
+    /// One audit read at a time. Core now names the read each page answers
+    /// (GUI-CORE-024), so two reads *could* be told apart, but a single slot
+    /// keeps the receipt's replace/append decision unambiguous and keeps the
+    /// screen from paging two lists into one. See [`PendingAuditPage`].
     pending_audit: Option<PendingAuditPage>,
     audit_outcome: D1OutcomeProjection,
     /// What Core published for the audit reads confirmed so far. Only a
@@ -898,18 +899,19 @@ impl PendingAuditPage {
     /// Reconciles one ordered event against this read.
     ///
     /// Core answers a `QueryAudit` with exactly `CommandAccepted` then
-    /// `AuditPageLoaded`. The page carries no command id, so it only counts
-    /// once *this* command was accepted.
+    /// `AuditPageLoaded`. Since GUI-CORE-024 the page names the exact command
+    /// id it answers, so a page carrying *another* reader's id is ignored even
+    /// while this read is outstanding.
     ///
-    /// Known correlation limitation, stated rather than papered over — the
-    /// same one `apps/tui/src/tui/audit_panel.rs` documents: acceptance-first
-    /// rules out a page that arrived before our own acceptance, but a *second*
-    /// client querying concurrently could still land its page between our
-    /// acceptance and Core's answer, and we would attribute it to this read.
-    /// The page is still a real Core page, it is dropped when the screen
-    /// re-queries, and speculative correlation (matching on record contents or
-    /// guessing from the cursor) would invent certainty the contract does not
-    /// provide. `GUI-CORE-024` tracks the contract fix.
+    /// The residual limitation, stated rather than papered over — the same one
+    /// `apps/tui/src/tui/audit_panel.rs` documents — applies only against a
+    /// Core that predates that field: such a page arrives with no id, the
+    /// acceptance-first fallback is the only attribution left, and a second
+    /// client's page landing between our acceptance and Core's answer would
+    /// still be attributed to this read. The page is still a real Core page, it
+    /// is dropped when the screen re-queries, and speculative correlation
+    /// (matching on record contents or guessing from the cursor) would invent
+    /// certainty the contract does not provide.
     fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
         let RuntimeWireEvent::Known(event) = &envelope.event else {
             return AuditObservation::Continue;
@@ -929,7 +931,14 @@ impl PendingAuditPage {
                 self.accepted = true;
                 AuditObservation::Continue
             }
-            RuntimeEventKind::AuditPageLoaded { .. } if self.accepted => {
+            // Exact match when Core names the read; acceptance-first fallback
+            // only for a page that carries no id at all.
+            RuntimeEventKind::AuditPageLoaded { command_id, .. }
+                if match command_id.as_deref() {
+                    Some(published) => published == self.command_id,
+                    None => self.accepted,
+                } =>
+            {
                 AuditObservation::Confirmed
             }
             _ => AuditObservation::Continue,
@@ -1326,11 +1335,13 @@ impl GuiCoreAdapter {
                 owner: RuntimeOwner::default(),
                 command: RuntimeCommand::QueryAudit {
                     query: AuditQuery {
-                        project_id: None,
-                        lane_id: None,
                         object: scope.clone(),
                         before,
                         limit: D14_AUDIT_PAGE_LIMIT,
+                        // Core's actor and time filters exist, but D14 ships no
+                        // filter chips yet, so the host never sends a filter the
+                        // operator did not choose.
+                        ..AuditQuery::default()
                     },
                 },
             })
@@ -1401,7 +1412,7 @@ impl GuiCoreAdapter {
                 // The confirming page is the authority for the rows and for
                 // the next cursor; nothing is re-ordered or recomputed.
                 if let RuntimeWireEvent::Known(known) = &event.event
-                    && let RuntimeEventKind::AuditPageLoaded { page } = &known.kind
+                    && let RuntimeEventKind::AuditPageLoaded { page, .. } = &known.kind
                 {
                     let rows = page.records.iter().map(audit_row_projection);
                     if older {

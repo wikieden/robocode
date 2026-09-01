@@ -350,7 +350,7 @@ The recent-work inventory (`runtime.recent_work`) is *not* this gap: it already
 lets a client list projects it could open. What is missing is the ability to
 have more than one of them open at once.
 
-## GUI-CORE-024: AuditQuery filters and an AuditPageLoaded command id
+## GUI-CORE-024: AuditQuery filters and an AuditPageLoaded command id — CLOSED
 
 D14 reads Core's audit timeline through `RuntimeCommand::QueryAudit` ->
 `RuntimeEventKind::AuditPageLoaded` under the `runtime.audit` capability. Two
@@ -391,3 +391,39 @@ Client-side follow-ups that need no Core change, and are therefore *not* part of
 this request: day grouping of a loaded page, a detail rail for the selected
 record, and a rollup of a loaded page. Export needs a host file-write path, not
 a Core contract addition.
+
+Core status: delivered, all three close criteria.
+
+1. `AuditPageLoaded.command_id` is the exact `QueryAudit` command id the page
+   answers, threaded from the command handler so no other path can mint one. It
+   is additive and optional, so a page from a Core that predates the field
+   deserializes to `None`.
+2. `AuditQuery` gained `actor` (`AuditActorFilter`: operator / system /
+   any_agent / a named agent, matched on the full id) and a half-open
+   `[from, until)` unix-second range. Core applies them before pagination, so
+   `complete` and `next_before` describe the filtered timeline. An inverted
+   range is rejected rather than answered with an empty page, and an actor or
+   filter variant this build cannot classify matches nothing.
+3. The schema-1 extension fixture `audit-reads.json` accepts two reads before
+   answering either, returns their pages in the opposite order — so arrival
+   order attributes them wrongly and only the published id gets them right —
+   and adds a filtered read whose `complete` describes the agent timeline while
+   strictly older operator and system records remain visible on the unfiltered
+   pages.
+
+Closing this also fixed a real wire gap of the same shape as GUI-CORE-017's:
+`audit_page_loaded` was missing from the known schema-1 event types, so every
+audit page degraded to a quarantined unknown event on any serialized
+snapshot/replay path. It is now a known event type with a types-level
+round-trip test.
+
+Client status: exact correlation adopted in both clients. The GUI host
+(`apps/gui/src-tauri/src/adapter.rs`) and the TUI panel
+(`apps/tui/src/tui/audit_panel.rs`) require a published `command_id` to equal
+their own in-flight read, ignore a page naming another read, and keep the
+acceptance-gated fallback only for a page with no id. Neither client fabricates
+an id.
+
+Remaining client-side follow-up, not blocked on Core: D14 actor and time-range
+filter chips over the new `AuditQuery` fields. No client sends an actor or time
+filter yet, because no operator control chooses one.

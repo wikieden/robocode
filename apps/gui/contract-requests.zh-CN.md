@@ -279,7 +279,7 @@ Agent 都会停止。
 最近工作清单（`runtime.recent_work`）**不是**这个缺口：它已经能让客户端列出可以打开
 的项目。缺的是同时打开多个项目的能力。
 
-## GUI-CORE-024：AuditQuery 过滤器与 AuditPageLoaded 的 command id
+## GUI-CORE-024：AuditQuery 过滤器与 AuditPageLoaded 的 command id — 已关闭
 
 D14 在 `runtime.audit` capability 之下，通过
 `RuntimeCommand::QueryAudit` -> `RuntimeEventKind::AuditPageLoaded` 读取 Core 的
@@ -309,3 +309,29 @@ TUI 在 `apps/tui/src/tui/audit_panel.rs` 记录了同一限制。
 
 无需 Core 改动、因而**不属于**本请求的客户端后续项：对已加载页面做按天分组、选中记录
 的详情侧栏、已加载页面的汇总。导出需要的是宿主文件写入路径，而不是 Core 契约新增。
+
+Core 状态：三条关闭条件全部交付。
+
+1. `AuditPageLoaded.command_id` 就是该页面所回答的那次 `QueryAudit` 的 command id，
+   由命令处理器直接透传，任何其他路径都不会铸造它。该字段是 additive optional，因此
+   早于该字段的 Core 发出的页面会反序列化为 `None`。
+2. `AuditQuery` 新增 `actor`（`AuditActorFilter`：operator / system / any_agent /
+   指定 agent，按完整 id 精确匹配）与半开区间 `[from, until)`（unix 秒）。Core 在分页
+   之前应用它们，因此 `complete` 与 `next_before` 描述的是过滤后的时间线。区间倒置会被
+   拒绝而不是返回空页面；本次构建无法归类的 actor 或 filter 变体一律不匹配。
+3. schema-1 扩展 fixture `audit-reads.json` 在回答任一读取之前先接受两次读取，并以相反
+   顺序返回它们的页面——因此按到达顺序归属会归错，只有已发布的 id 能归对——另有一次过滤
+   读取，其 `complete` 描述的是 agent 时间线，而未过滤页面上仍能看到严格更旧的 operator
+   与 system 记录。
+
+关闭本请求时还修复了与 GUI-CORE-017 同形的真实线上缺口：`audit_page_loaded` 此前不在
+schema-1 已知 event type 集合中，因此在任何序列化 snapshot/replay 路径上，每个审计页面都
+会退化为被隔离的未知事件。它现已是 known event type，并有 types 级往返测试。
+
+客户端状态：两个客户端均已采用精确关联。GUI 宿主
+（`apps/gui/src-tauri/src/adapter.rs`）与 TUI 面板
+（`apps/tui/src/tui/audit_panel.rs`）都要求已发布的 `command_id` 等于自己在途的读取，
+忽略指名其他读取的页面，并仅对不带 id 的页面保留 acceptance-gated 回退。两者都不伪造 id。
+
+剩余客户端后续项（不被 Core 阻塞）：基于新 `AuditQuery` 字段的 D14 actor 与时间范围过滤
+chip。目前没有客户端发送 actor 或时间过滤，因为还没有让操作者做出选择的控件。

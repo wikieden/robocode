@@ -379,7 +379,10 @@ fn emit_capture_projections() {
             ))
             .with_envelope(audit_envelope(
                 2,
-                RuntimeEventKind::AuditPageLoaded { page: audit_page },
+                RuntimeEventKind::AuditPageLoaded {
+                    command_id: Some("gui-audit-capture".to_string()),
+                    page: audit_page,
+                },
             )),
     ));
     adapter.connect().unwrap();

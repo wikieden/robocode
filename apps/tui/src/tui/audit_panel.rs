@@ -14,14 +14,19 @@
 //!   borrows a known status, and an empty list is only called empty once a page
 //!   has actually arrived.
 //!
-//! Known correlation limitation, stated honestly rather than papered over:
-//! `AuditPageLoaded` carries no command id, so a page produced by *another*
-//! client's concurrent query can be attributed to this panel's in-flight query.
-//! For the single-operator loop this is acceptable — the page is still a real
-//! Core page, it is discarded when the overlay closes, and the next query
-//! self-corrects. Speculative correlation machinery (matching on record
-//! contents, or guessing from the cursor) would invent certainty the contract
-//! does not provide, so it is not built.
+//! Correlation: a page Core publishes names the exact `QueryAudit` command id
+//! it answers (GUI-CORE-024), so this panel accepts a page only when that id is
+//! the one it is awaiting. A page carrying *another* reader's id is ignored
+//! even while a query of ours is in flight.
+//!
+//! The residual limitation applies only against a Core that predates that
+//! field: such a page arrives with `command_id: None`, and the only attribution
+//! left is the awaiting slot, so a concurrent reader's page can still be
+//! attributed to this panel's in-flight query. That is accepted rather than
+//! papered over — the page is still a real Core page, it is discarded when the
+//! overlay closes, and the next query self-corrects. Speculative correlation
+//! (matching on record contents, or guessing from the cursor) would invent
+//! certainty the contract does not provide, so it is not built.
 
 use std::collections::BTreeMap;
 
@@ -106,11 +111,13 @@ impl AuditPanel {
     /// otherwise the page older than the cursor Core handed back.
     pub(super) fn next_query(&self) -> AuditQuery {
         AuditQuery {
-            project_id: None,
-            lane_id: None,
             object: self.scope.clone(),
             before: self.next_before.clone(),
             limit: AUDIT_PAGE_LIMIT,
+            // Core's actor and time filters exist (GUI-CORE-024) but the TUI
+            // overlay offers no filter control yet, so it asks for the whole
+            // timeline rather than sending a filter no operator chose.
+            ..AuditQuery::default()
         }
     }
 
@@ -144,15 +151,32 @@ impl AuditPanel {
                 self.error = Some(reason.clone());
                 true
             }
-            // See the module note: the page carries no command id, so an
-            // in-flight query is the only attribution available. With none in
-            // flight the page belongs to some other reader and is ignored
-            // rather than silently replacing what the operator is looking at.
-            RuntimeEventKind::AuditPageLoaded { page } if self.awaiting.is_some() => {
+            // Exact correlation when Core names the read: only the page for
+            // the command id this panel is awaiting is applied, so another
+            // reader's concurrent page can never replace what the operator is
+            // looking at. See the module note for the `None` case.
+            RuntimeEventKind::AuditPageLoaded { command_id, page }
+                if self.accepts_page(command_id.as_deref()) =>
+            {
                 self.apply_page(page);
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Whether a delivered page belongs to this panel's in-flight query.
+    ///
+    /// `Some(id)` is Core naming the read it answered: the page counts only
+    /// when that id is exactly the one being awaited. `None` is a Core that
+    /// predates the field, where the awaiting slot is the only attribution
+    /// available; either way a page with no query in flight belongs to some
+    /// other reader and is ignored.
+    fn accepts_page(&self, command_id: Option<&str>) -> bool {
+        match (self.awaiting.as_deref(), command_id) {
+            (Some(awaiting), Some(published)) => awaiting == published,
+            (Some(_), None) => true,
+            (None, _) => false,
         }
     }
 
@@ -342,11 +366,8 @@ mod tests {
         assert_eq!(
             panel.next_query(),
             AuditQuery {
-                project_id: None,
-                lane_id: None,
-                object: None,
-                before: None,
                 limit: AUDIT_PAGE_LIMIT,
+                ..AuditQuery::default()
             }
         );
 
@@ -359,6 +380,7 @@ mod tests {
         panel.observe_event(&event(
             1,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(
                     vec![record("a-2", 20, AuditOutcome::Success)],
                     Some(cursor(20, "a-2")),
@@ -383,6 +405,7 @@ mod tests {
         panel.observe_event(&event(
             1,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(
                     vec![
                         record("a-3", 30, AuditOutcome::Success),
@@ -407,6 +430,7 @@ mod tests {
         panel.observe_event(&event(
             2,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(vec![record("a-1", 10, AuditOutcome::Failed)], None),
             },
         ));
@@ -439,6 +463,7 @@ mod tests {
         panel.observe_event(&event(
             1,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(Vec::new(), None),
             },
         ));
@@ -480,6 +505,7 @@ mod tests {
         assert!(!panel.observe_event(&event(
             1,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(vec![record("a-1", 10, AuditOutcome::Success)], None),
             }
         )));
@@ -491,6 +517,49 @@ mod tests {
         assert!(!panel.is_complete());
     }
 
+    /// The three correlation cases the contract now distinguishes.
+    ///
+    /// A page naming this panel's read is applied; a page naming somebody
+    /// else's read is ignored even while ours is in flight; a page from a Core
+    /// that predates the field keeps the legacy awaiting-gated behavior.
+    #[test]
+    fn a_page_is_applied_only_when_it_names_this_panels_read() {
+        let page_for =
+            |command_id: Option<&str>, audit_id: &str| RuntimeEventKind::AuditPageLoaded {
+                command_id: command_id.map(ToString::to_string),
+                page: page(vec![record(audit_id, 10, AuditOutcome::Success)], None),
+            };
+
+        // 1. Another reader's page is ignored, even though a query of ours is
+        //    in flight and would have accepted an unnamed page.
+        let mut panel = AuditPanel::new(None);
+        panel.begin("tui-1");
+        assert!(!panel.observe_event(&event(1, page_for(Some("gui-9"), "other-1"))));
+        assert!(panel.records().is_empty());
+        assert!(panel.is_loading(), "our read is still outstanding");
+        assert!(
+            !panel.is_empty_result(),
+            "an ignored page must not claim the timeline is empty"
+        );
+
+        // 2. Our own page, named by Core, is applied.
+        assert!(panel.observe_event(&event(2, page_for(Some("tui-1"), "ours-1"))));
+        assert_eq!(panel.records()[0].audit_id, "ours-1");
+        assert!(!panel.is_loading());
+
+        // 3. A page from a Core that predates the field carries no id, so the
+        //    awaiting slot is the only attribution left and still applies.
+        let mut legacy = AuditPanel::new(None);
+        legacy.begin("tui-2");
+        assert!(legacy.observe_event(&event(1, page_for(None, "legacy-1"))));
+        assert_eq!(legacy.records()[0].audit_id, "legacy-1");
+
+        // ...but only while a query is in flight; an idle panel still ignores
+        // an unnamed page.
+        assert!(!legacy.observe_event(&event(2, page_for(None, "legacy-2"))));
+        assert_eq!(legacy.records().len(), 1);
+    }
+
     #[test]
     fn a_second_query_while_one_is_in_flight_is_refused_locally() {
         let mut panel = AuditPanel::new(None);
@@ -498,6 +567,7 @@ mod tests {
         panel.observe_event(&event(
             1,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(
                     vec![record("a-2", 20, AuditOutcome::Success)],
                     Some(cursor(20, "a-2")),
@@ -515,6 +585,7 @@ mod tests {
         panel.observe_event(&event(
             2,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(Vec::new(), None),
             },
         ));
@@ -529,6 +600,7 @@ mod tests {
         panel.observe_event(&event(
             1,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(
                     vec![
                         record("a-3", 30, AuditOutcome::Success),
@@ -555,6 +627,7 @@ mod tests {
         panel.observe_event(&event(
             2,
             RuntimeEventKind::AuditPageLoaded {
+                command_id: None,
                 page: page(vec![record("a-1", 10, AuditOutcome::Success)], None),
             },
         ));
