@@ -569,11 +569,10 @@ pub(crate) fn unavailable_features() -> Vec<D1UnavailableFeatureProjection> {
             code: "GUI-CORE-009",
             message: "Owner-scoped assistant rows are unavailable.",
         },
-        D1UnavailableFeatureProjection {
-            id: "live_work_scope",
-            available: false,
-            code: "GUI-CORE-010",
-            message: "Owner-scoped live-work facts are unavailable.",
-        },
+        // `live_work_scope` was here under GUI-CORE-010 until Core published a
+        // `RuntimeOwner` on each live-work fact. D1 now scopes tasks, tool
+        // calls, queued inputs, and evidence by exact owner equality; a fact
+        // with no owner is still omitted from Lane scope, which is a property
+        // of that fact rather than a missing capability.
     ]
 }

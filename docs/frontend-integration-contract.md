@@ -255,6 +255,13 @@ flowchart LR
   is ignored by the reducer.
   `LaneUpdated` with `done`, `failed`, `cancelled`, or `archived` removes only
   that Lane's binding.
+- Live-work facts — `AgentTaskRecord`, `ToolCallView`, `QueuedInputView`, and
+  `EvidenceView` — carry an optional full `RuntimeOwner`. Core sets it only
+  where the emitting site holds a real owner identity, and omits it from the
+  wire otherwise. A client attributes such a fact to a Lane only by full owner
+  equality against that Lane's exact `LaneRuntimeOwnerBinding`; an absent or
+  different owner means the fact belongs to no Lane scope, and a client must
+  never attribute it by timing, ordering, or a display label.
 - The bind-once Lane-agent execution identity is durable workflow metadata,
   stored separately from the public Lane lifecycle event log. It survives
   restart and arbitrates concurrent starts, but it is not evidence that an

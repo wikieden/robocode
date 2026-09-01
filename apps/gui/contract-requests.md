@@ -40,15 +40,56 @@ row id, full `RuntimeOwner`, typed `user`/`assistant` role, content or an
 immutable content reference, and replay/pagination cursor. The canonical D1
 fixture must prove that two Lanes cannot leak rows across owners.
 
-## GUI-CORE-010: Owner-scoped live-work facts
+## GUI-CORE-010: Owner-scoped live-work facts — CLOSED
 
-`AgentTaskRecord`, active tool calls, queued inputs, and evidence views do not
-carry a `RuntimeOwner` in frontend-contract-v1. D1 omits these global facts
-from a selected Lane rather than attributing them by timing or label.
+History: `AgentTaskRecord`, active tool calls, queued inputs, and evidence views
+did not carry a `RuntimeOwner` in frontend-contract-v1. D1 omitted these global
+facts from a selected Lane and declared the gap with this code; it never
+attributed them by timing or label.
 
-Close this request when each live-work fact carries a full `RuntimeOwner` and
-the canonical D1 fixture proves selected-Lane projection for two concurrent
-owners.
+Core status: delivered. `AgentTaskRecord`, `ToolCallView`, `QueuedInputView`,
+and `EvidenceView` each carry an additive optional full `RuntimeOwner`, and
+`RuntimeEventKind::ToolCallStarted` carries the same field because the reducer
+folds the view out of the event rather than the envelope. The field is omitted
+from the wire when absent, so a record with no known owner encodes to exactly
+the bytes it did before and the nine frozen base fixtures are unchanged.
+
+Core populates it only where the emitting site structurally holds a real owner
+identity: the Lane worker's own binding for a queued Lane input, the owner Core
+published an Agent session under for that session's tool calls and evidence, the
+merge gate's own owner for gate-bound evidence, and the owner persisted with a
+durable agent job for its task record. Every other site publishes `None`, which
+means "Core did not know the owner at emission" — never a default owner, and
+never one inferred from timing, ordering, or a label. In particular the built-in
+engine's own turns stay unowned: they bind no Lane and no Agent session, and
+Core mints no workspace/project identity of its own (see GUI-CORE-023).
+
+The schema-1 extension fixture `owner-scoped-live-work.json` makes this
+canonical: two Lanes live at once publish interleaved task, tool-call,
+queued-input, and evidence facts under their exact bound owners, plus the same
+four fact kinds with no owner at all. Its replay test proves a selected-owner
+projection resolves that Lane's four facts and neither the other Lane's nor the
+ownerless ones.
+
+GUI status: wired on `claude/core-owner-facts`. D1 scopes `liveWork.tasks`,
+`tools`, `queuedInputs`, and `evidence` by full `RuntimeOwner` equality against
+the exact `LaneRuntimeOwnerBinding` for the selected Lane — the same matching
+discipline the context dock already used for workspace changes and the
+permission dock for approvals. A fact whose owner is absent or different stays
+omitted from Lane scope, and a Lane with no exact Core owner projects no live
+work at all. The `live_work_scope` unavailable-feature row is gone.
+
+TUI adoption is not part of this closure. The same fields are available to it,
+and `apps/tui` can adopt owner-scoped live work later without a Core change.
+
+Residual, and still cited by this code in the D1 work-status strip
+(`apps/gui/src/components/work_status.ts`): Core publishes no owner-scoped turn
+*start timestamp*, so the strip's elapsed clock is anchored to the moment the
+client observed work start and says so, and it still falls back to an
+unscoped-status label when Core scopes no Agent session to the selected Lane.
+Neither is a live-work fact, so neither was in this request's close criteria;
+the owner fields do not supply them, and the strip must keep stating both
+rather than inventing a start time or borrowing another Lane's status.
 
 ## GUI-CORE-011: Review decision command — CLOSED
 

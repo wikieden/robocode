@@ -34,14 +34,46 @@ Owner 渲染类型化 Lane 输出，并将 user/assistant 行明确标为不可�
 内容或不可变内容引用以及 replay/分页 cursor 的有序转录行时，关闭此请求。规范
 D1 fixture 必须证明两个 Lane 的行不会跨 Owner 泄漏。
 
-## GUI-CORE-010：按 Owner 范围限定的实时工作事实
+## GUI-CORE-010：按 Owner 范围限定的实时工作事实 — 已关闭
 
-在 frontend-contract-v1 中，`AgentTaskRecord`、活动工具调用、排队输入和证据视图
-都不携带 `RuntimeOwner`。D1 不会依据时序或标签把这些全局事实归属给选中的 Lane，
-而是省略它们。
+历史：在 frontend-contract-v1 中，`AgentTaskRecord`、活动工具调用、排队输入和证据
+视图都不携带 `RuntimeOwner`。D1 因此省略这些全局事实并以该编码声明缺口；从不依据
+时序或标签把它们归属给选中的 Lane。
 
-当每一项实时工作事实都携带完整 `RuntimeOwner`，且规范 D1 fixture 证明两个并发
-Owner 的选中 Lane 投影时，关闭此请求。
+Core 状态：已交付。`AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与
+`EvidenceView` 各自新增一个 additive、optional 的完整 `RuntimeOwner`；
+`RuntimeEventKind::ToolCallStarted` 也带上同一字段，因为 reducer 是从 event 而不是
+envelope 折出该 view 的。字段缺省时不写入 wire，因此无已知 owner 的记录编码字节与
+该字段存在之前完全一致，九份冻结基线 fixture 未变。
+
+Core 只在发出点确实持有真实 owner 身份时才填充它：Lane worker 自身的绑定（Lane
+排队输入）、Core 发布该 Agent session 时使用的 owner（该 session 的 tool call 与
+evidence）、merge gate 自身的 owner（gate 绑定的 evidence）、以及随 durable agent
+job 持久化的 owner（其 task 记录）。其余位置一律发布 `None`，含义是"Core 在发出时
+并不知道 owner"——绝不是 default owner，也绝不依据时序、顺序或标签推断。特别地，
+内建引擎自身的 turn 保持无 owner：它不绑定 Lane 或 Agent session，且 Core 不会自行
+铸造 workspace/project 身份（见 GUI-CORE-023）。
+
+schema-1 扩展 fixture `owner-scoped-live-work.json` 将其固化为规范：两个同时存活的
+Lane 在各自精确绑定的 owner 下交错发布 task、tool call、排队输入与 evidence 事实，
+另有同样四类事实完全没有 owner。其 replay 测试证明按选中 owner 的投影只解析出该
+Lane 的四条事实，既不含另一个 Lane 的，也不含无 owner 的。
+
+GUI 状态：已在 `claude/core-owner-facts` 接入。D1 通过与选中 Lane 的精确
+`LaneRuntimeOwnerBinding` 做完整 `RuntimeOwner` 相等匹配来限定 `liveWork.tasks`、
+`tools`、`queuedInputs` 与 `evidence` 的范围——与 context dock 对 workspace change、
+permission dock 对 approval 采用的匹配纪律完全一致。owner 缺省或不一致的事实仍被
+排除在 Lane 范围之外；没有精确 Core owner 的 Lane 完全不投影实时工作。
+`live_work_scope` 不可用条目已移除。
+
+TUI 接入不在本次关闭范围内。同样的字段对它同样可用，`apps/tui` 后续可以在不需要
+Core 变更的情况下接入按 owner 限定的实时工作。
+
+残留项，且 D1 工作状态条（`apps/gui/src/components/work_status.ts`）仍以该编码标注：
+Core 未发布按 owner 限定的 turn**开始时间戳**，因此该条的计时以客户端观察到工作开始
+的时刻为锚点并明示这一点；当 Core 未为选中 Lane 限定任何 Agent session 时，它仍退回
+到未限定范围的状态标签。二者都不是实时工作事实，因此都不在本请求的关闭标准内；owner
+字段并不提供它们，该条必须继续如实声明，而不是虚构开始时间或借用另一个 Lane 的状态。
 
 ## GUI-CORE-011：评审决定命令 — 已关闭
 

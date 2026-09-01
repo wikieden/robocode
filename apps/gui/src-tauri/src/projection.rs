@@ -18,10 +18,11 @@ use crate::d1::{
     D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
     D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection,
     D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1EnvironmentProjection,
-    D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection, D1ProviderHealthProjection,
-    D1RuntimeServiceProjection, D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection,
-    D1StatusbarContextProjection, D1StatusbarLaneProjection, D1StatusbarLatencyProjection,
-    D1StatusbarProjection, D1StatusbarRequestsProjection, D1StatusbarTokensProjection,
+    D1EvidenceProjection, D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection,
+    D1ProviderHealthProjection, D1QueuedInputProjection, D1RuntimeServiceProjection,
+    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
+    D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
+    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TaskProjection, D1ToolProjection,
     D1TopbarSourceProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
     D1WorkspaceSourceProjection, unavailable_features,
 };
@@ -1474,10 +1475,36 @@ impl RuntimeProjection {
                 cost_micro_usd,
             },
             live_work: D1LiveWorkProjection {
-                // These collections have no RuntimeOwner in frontend-contract-v1. Do not
-                // project global work into the selected Lane until Core supplies ownership.
-                tasks: Vec::new(),
-                tools: Vec::new(),
+                // Every live-work fact is scoped by the exact runtime owner Core
+                // published on it, matched the same way the context dock matches
+                // a workspace change: full `RuntimeOwner` equality against the
+                // Lane's own binding (GUI-CORE-010). A fact Core published with
+                // no owner is not attributable to any Lane, so it is omitted
+                // here rather than shown under whichever Lane happens to be
+                // selected; it stays visible wherever this client renders
+                // workspace-wide facts.
+                tasks: view
+                    .tasks
+                    .iter()
+                    .filter(|task| owned_by_selected_lane(selected_owner, task.owner.as_ref()))
+                    .map(|task| D1TaskProjection {
+                        id: task.id.clone(),
+                        title: task.title.clone(),
+                        status: format!("{:?}", task.status).to_lowercase(),
+                        progress: task.progress,
+                    })
+                    .collect(),
+                tools: view
+                    .active_tool_calls
+                    .iter()
+                    .filter(|tool| owned_by_selected_lane(selected_owner, tool.owner.as_ref()))
+                    .map(|tool| D1ToolProjection {
+                        id: tool.tool_call_id.clone(),
+                        name: tool.name.clone(),
+                        input_preview: tool.input_preview.clone(),
+                        state: "active",
+                    })
+                    .collect(),
                 approvals: view
                     .pending_approvals
                     .iter()
@@ -1488,8 +1515,28 @@ impl RuntimeProjection {
                         risk: format!("{:?}", approval.risk).to_lowercase(),
                     })
                     .collect(),
-                queued_inputs: Vec::new(),
-                evidence: Vec::new(),
+                queued_inputs: view
+                    .queued_inputs
+                    .iter()
+                    .filter(|input| owned_by_selected_lane(selected_owner, input.owner.as_ref()))
+                    .map(|input| D1QueuedInputProjection {
+                        id: input.id.clone(),
+                        content_preview: input.content_preview.clone(),
+                    })
+                    .collect(),
+                evidence: view
+                    .latest_evidence
+                    .iter()
+                    .filter(|evidence| {
+                        owned_by_selected_lane(selected_owner, evidence.owner.as_ref())
+                    })
+                    .map(|evidence| D1EvidenceProjection {
+                        id: evidence.id.clone(),
+                        kind: evidence.kind.clone(),
+                        summary: evidence.summary.clone(),
+                        path: evidence.path.clone(),
+                    })
+                    .collect(),
             },
             transcript,
             workspace_eligibility: view.workspace_eligibility.as_ref().map(|eligibility| {
@@ -1627,6 +1674,22 @@ fn exact_owner_binding<'a>(
     let binding = bindings.next()?;
     (bindings.next().is_none() && binding.owner.lane_id.as_deref() == Some(lane_id))
         .then_some(binding)
+}
+
+/// Whether a live-work fact belongs to the selected Lane (GUI-CORE-010).
+///
+/// Both sides must be present and exactly equal. A fact Core published with no
+/// owner is not attributable to any Lane, and a Lane with no exact Core-bound
+/// owner has nothing to match against — either way the answer is "no", never a
+/// fallback that shows one Lane's work under another.
+fn owned_by_selected_lane(
+    selected_owner: Option<&viden_core::RuntimeOwner>,
+    fact_owner: Option<&viden_core::RuntimeOwner>,
+) -> bool {
+    match (selected_owner, fact_owner) {
+        (Some(selected), Some(fact)) => selected == fact,
+        _ => false,
+    }
 }
 
 fn exact_owner_count(view: &RuntimeViewState, lane_id: &str) -> usize {

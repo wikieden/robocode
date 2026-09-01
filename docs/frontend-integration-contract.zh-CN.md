@@ -226,6 +226,11 @@ flowchart LR
   boundary 拒绝；若 `owner.lane_id` 与 `lane_id` 不精确相等则由 reducer 忽略。
   `LaneUpdated` 进入 `done`、`failed`、`cancelled` 或 `archived` 时，只移除该 Lane
   的 binding。
+- 实时工作事实——`AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与
+  `EvidenceView`——携带一个 optional 的完整 `RuntimeOwner`。Core 只在发出点持有真实
+  owner 身份时设置它，否则不写入 wire。client 只能通过与该 Lane 精确
+  `LaneRuntimeOwnerBinding` 的完整 owner 相等来把这类事实归属到 Lane；owner 缺省或
+  不一致即表示该事实不属于任何 Lane 范围，client 绝不能依据时序、顺序或展示标签归属。
 - bind-once Lane-agent execution identity 是持久 workflow metadata，独立于公开
   Lane lifecycle event log 存储。它在重启后仍可用于仲裁并发启动，但不能证明某个
   agent session 当前仍然存活。

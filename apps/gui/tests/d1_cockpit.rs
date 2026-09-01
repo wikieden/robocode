@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use viden_core::{
-    AgentLaneRecord, ApprovalRequestView, CheckRunStatus, CheckRunView, FRONTEND_SCHEMA_V1,
+    AgentLaneRecord, AgentRole, AgentRoute, AgentTaskKind, AgentTaskRecord, AgentTaskStatus,
+    ApprovalRequestView, CheckRunStatus, CheckRunView, EvidenceView, FRONTEND_SCHEMA_V1,
     LaneRuntimeOwnerBinding, QueuedInputView, RuntimeCommand, RuntimeEvent, RuntimeEventEnvelope,
     RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent,
     ToolCallView, WorkspaceChangeKind, WorkspaceChangeView,
@@ -139,7 +140,6 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
             "recovery",
             "transcript_user",
             "transcript_assistant",
-            "live_work_scope",
         ]
     );
 }
@@ -433,6 +433,182 @@ fn d1_cockpit_scopes_transcript_and_live_work_to_the_selected_lane_or_omits_unow
             .any(|row| row.content == "main output")
     );
     assert!(review.live_work.tools.is_empty());
+}
+
+/// GUI-CORE-010: with owners on live-work facts, D1 projects the selected
+/// Lane's own task, tool call, queued input, and evidence — and never the other
+/// live Lane's, nor a fact Core published with no owner.
+#[test]
+fn d1_cockpit_projects_only_the_selected_owners_live_work() {
+    let mut view = d1_main_view();
+    let main_owner = view
+        .lane_runtime_owners
+        .iter()
+        .find(|binding| binding.lane_id == "lane-d1-main")
+        .map(|binding| binding.owner.clone())
+        .expect("the main Lane publishes one exact owner");
+    let review_owner = RuntimeOwner {
+        session_id: Some("session-review".into()),
+        turn_id: Some("turn-review".into()),
+        ..owner("lane-review")
+    };
+    let mut review_lane = view.lanes[0].clone();
+    review_lane.id = "lane-review".into();
+    view.lanes.push(review_lane);
+    view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: "lane-review".into(),
+        owner: review_owner.clone(),
+    });
+
+    let task = |id: &str, owner: Option<&RuntimeOwner>| AgentTaskRecord {
+        id: id.to_string(),
+        parent_id: None,
+        role: AgentRole::Coder,
+        kind: AgentTaskKind::Job,
+        route: AgentRoute::Acp,
+        title: format!("{id} title"),
+        status: AgentTaskStatus::RunningTool,
+        activity: "running".into(),
+        summary: format!("{id} summary"),
+        progress: 40,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence: Vec::new(),
+        permissions: Vec::new(),
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+        next_action: None,
+        owner: owner.cloned(),
+    };
+    let tool = |id: &str, owner: Option<&RuntimeOwner>| ToolCallView {
+        tool_call_id: id.to_string(),
+        name: "shell".into(),
+        input_preview: "cargo test".into(),
+        owner: owner.cloned(),
+    };
+    let queued = |id: &str, owner: Option<&RuntimeOwner>| QueuedInputView {
+        id: id.to_string(),
+        content_preview: format!("{id} preview"),
+        created_at: None,
+        owner: owner.cloned(),
+    };
+    let evidence = |id: &str, owner: Option<&RuntimeOwner>| EvidenceView {
+        id: id.to_string(),
+        kind: "tool_log".into(),
+        summary: format!("{id} summary"),
+        path: None,
+        source: None,
+        canonical: None,
+        metadata: None,
+        timestamp: None,
+        owner: owner.cloned(),
+    };
+
+    view.tasks = vec![
+        task("task-main", Some(&main_owner)),
+        task("task-review", Some(&review_owner)),
+        task("task-unowned", None),
+    ];
+    view.active_tool_calls = vec![
+        tool("tool-main", Some(&main_owner)),
+        tool("tool-review", Some(&review_owner)),
+        tool("tool-unowned", None),
+    ];
+    view.queued_inputs = vec![
+        queued("queued-main", Some(&main_owner)),
+        queued("queued-review", Some(&review_owner)),
+        queued("queued-unowned", None),
+    ];
+    view.latest_evidence = vec![
+        evidence("evidence-main", Some(&main_owner)),
+        evidence("evidence-review", Some(&review_owner)),
+        evidence("evidence-unowned", None),
+    ];
+
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+    for (lane_id, suffix) in [("lane-d1-main", "main"), ("lane-review", "review")] {
+        let projection = adapter.d1_cockpit(Some(lane_id)).expect("Lane projection");
+        assert_eq!(
+            projection
+                .live_work
+                .tasks
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![format!("task-{suffix}")],
+            "{lane_id} tasks"
+        );
+        assert_eq!(
+            projection
+                .live_work
+                .tools
+                .iter()
+                .map(|tool| tool.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![format!("tool-{suffix}")],
+            "{lane_id} tools"
+        );
+        assert_eq!(
+            projection
+                .live_work
+                .queued_inputs
+                .iter()
+                .map(|input| input.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![format!("queued-{suffix}")],
+            "{lane_id} queued inputs"
+        );
+        assert_eq!(
+            projection
+                .live_work
+                .evidence
+                .iter()
+                .map(|evidence| evidence.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![format!("evidence-{suffix}")],
+            "{lane_id} evidence"
+        );
+    }
+}
+
+/// A Lane with no exact Core owner projects no live work at all: without an
+/// owner to match, every fact would be an attribution the client invented.
+#[test]
+fn d1_cockpit_projects_no_live_work_without_one_exact_owner() {
+    let mut view = d1_main_view();
+    view.lane_runtime_owners.clear();
+    view.tasks = vec![AgentTaskRecord {
+        id: "task-main".into(),
+        parent_id: None,
+        role: AgentRole::Coder,
+        kind: AgentTaskKind::Job,
+        route: AgentRoute::Acp,
+        title: "task-main".into(),
+        status: AgentTaskStatus::RunningTool,
+        activity: "running".into(),
+        summary: "task-main".into(),
+        progress: 40,
+        started_at: None,
+        updated_at: None,
+        workspace: None,
+        evidence: Vec::new(),
+        permissions: Vec::new(),
+        decision: None,
+        result: None,
+        resume_handle: None,
+        pid: None,
+        next_action: None,
+        owner: Some(owner("lane-d1-main")),
+    }];
+
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+    let projection = adapter
+        .d1_cockpit(Some("lane-d1-main"))
+        .expect("Lane projection");
+    assert!(projection.live_work.tasks.is_empty());
 }
 
 #[test]
