@@ -6,8 +6,8 @@ use viden_config::{
 };
 use viden_types::{
     ApprovalResponse, AuditQuery, PermissionDecision, RecentWorkQuery, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, ToolInput, ToolSpec, UiPreferencePatch,
-    UiPreferences, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
+    RuntimeEvent, RuntimeEventKind, ToolInput, ToolSpec, UiPreferencePatch, UiPreferences,
+    WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
     resolve_ui_preferences,
 };
 
@@ -31,24 +31,23 @@ pub(crate) const WORKSPACE_FILE_INVENTORY_TOOL: &str = "workspace_file_inventory
 /// rows, so the exclusion is unconditional rather than inherited.
 const EXCLUDED_STATE_DIRECTORIES: [&str; 5] = [".git", ".viden", ".omx", ".worktrees", ".ref"];
 
-/// Builds the Error event for a refused inventory read.
+/// Builds the rejection reason for a refused inventory read.
 ///
-/// Deliberately an `Error`, not an empty [`WorkspaceFilePage`]: a client that
-/// received an empty page for a refusal would render "this workspace has no
-/// files", which is a fabricated fact rather than a stated refusal.
-fn workspace_files_refused(reason: &str, message: &str) -> RuntimeEvent {
-    RuntimeEvent::new(
-        1,
-        RuntimeEventKind::Error {
-            error: RuntimeErrorView {
-                message: render_permission_denial(WORKSPACE_FILE_INVENTORY_TOOL, reason, message),
-                recoverable: true,
-                hint: Some(
-                    "grant the workspace file inventory permission to list workspace paths"
-                        .to_string(),
-                ),
-            },
-        },
+/// Returned as `Err` so the dispatch publishes `CommandRejected` with the
+/// caller's own command id. It is deliberately neither an empty
+/// [`WorkspaceFilePage`] — a client receiving one would render "this workspace
+/// has no files", a fabricated fact rather than a stated refusal — nor a bare
+/// `Error`, which carries no command id and would let a client with a read
+/// outstanding mistake an unrelated failure for this refusal.
+///
+/// The actionable hint is folded into the reason text rather than dropped: a
+/// `CommandRejected` has no `hint` field, and telling an operator only that
+/// they were refused, without telling them what to grant, is a worse answer
+/// than the one the `Error` shape carried.
+fn workspace_files_refusal(reason: &str, message: &str) -> String {
+    format!(
+        "{}\nhint: grant the workspace file inventory permission to list workspace paths",
+        render_permission_denial(WORKSPACE_FILE_INVENTORY_TOOL, reason, message)
     )
 }
 
@@ -220,15 +219,22 @@ impl SessionEngine {
     /// reads" is the contract request's own close criterion. Three properties
     /// follow from that and are load-bearing:
     ///
-    /// - **A refusal is an error, never an empty page.** "You may not read
-    ///   this" and "this workspace has no files" are different facts, and a
-    ///   client that received the second for the first would render a
-    ///   fabricated absence.
+    /// - **A refusal is a rejection of this exact read, never an empty page.**
+    ///   "You may not read this" and "this workspace has no files" are
+    ///   different facts, and a client that received the second for the first
+    ///   would render a fabricated absence. The refusal travels as
+    ///   `CommandRejected` carrying the caller's own command id rather than as
+    ///   a bare `Error`: an uncorrelated `Error` is indistinguishable, to a
+    ///   client with a read outstanding, from an unrelated lane or provider
+    ///   failure that happened to land in the same window — so the client
+    ///   would attribute that failure to its inventory read and render a
+    ///   refusal that never happened. Returning `Err` here is what routes it
+    ///   through the dispatch's `command_rejected` path.
     /// - **An unresolved `Ask` is also a refusal.** This is a read answering a
     ///   keystroke, not an interactive turn: blocking it on an approval prompt
     ///   would stall a client's palette behind a modal, so the gate is decided
-    ///   non-interactively and an `Ask` surfaces as the same named refusal a
-    ///   `Deny` does. `approver` is deliberately not consulted.
+    ///   non-interactively and an `Ask` is rejected exactly as a `Deny` is.
+    ///   `approver` is deliberately not consulted.
     /// - **Plan mode still answers.** The tool is non-mutating, so the
     ///   engine's `SafeRead` branch allows it while every mutation stays
     ///   blocked (`PermissionEngine::decide`).
@@ -259,16 +265,13 @@ impl SessionEngine {
         match self.permissions.decide(&tool, &input) {
             PermissionDecision::Allow(_) => {}
             PermissionDecision::Deny(deny) => {
-                return Ok(vec![workspace_files_refused(
+                return Err(workspace_files_refusal(
                     &format!("{:?}", deny.decision_reason),
                     &deny.message,
-                )]);
+                ));
             }
             PermissionDecision::Ask(ask) => {
-                return Ok(vec![workspace_files_refused(
-                    "RequiresApproval",
-                    &ask.message,
-                )]);
+                return Err(workspace_files_refusal("RequiresApproval", &ask.message));
             }
         }
 

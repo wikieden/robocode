@@ -351,12 +351,15 @@ Core status: delivered as `RuntimeCommand::QueryWorkspaceFiles` ->
 `runtime.workspace_files`. It is permission-gated at the source: Core consults
 the permission engine before it reads a single directory entry, under the
 non-mutating tool `workspace_file_inventory` with the workspace root as the
-input path — the same gate every other workspace read passes. A deny publishes
-the standard `Error` event naming the refusal, and so does an unresolved ask,
-because this read answers a keystroke rather than an interactive turn and must
-not stall a client behind an approval prompt. Neither ever publishes an empty
-page: "you may not read this" and "this workspace has no files" are different
-facts. The tool mutates nothing, so plan mode still answers through the
+input path — the same gate every other workspace read passes. A deny comes
+back as `CommandRejected` naming this exact read and carrying the refusal, and
+so does an unresolved ask, because this read answers a keystroke rather than an
+interactive turn and must not stall a client behind an approval prompt. Neither
+ever publishes an empty page: "you may not read this" and "this workspace has
+no files" are different facts. Neither is a bare `Error` either — an event with
+no command id would let a client with a read outstanding attribute an unrelated
+lane or provider failure to its own read and render a refusal Core never
+issued. The tool mutates nothing, so plan mode still answers through the
 engine's safe-read branch.
 
 The walk is gitignore-aware (honored outside a Git repository, and reading

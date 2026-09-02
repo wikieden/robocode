@@ -277,9 +277,11 @@ forge 的 CI；`MergeGateView` 是 Viden 自己的门禁，不是远端的合并
 Core 状态：以 `RuntimeCommand::QueryWorkspaceFiles` -> `RuntimeEventKind::WorkspaceFilesLoaded`
 交付，扩展 capability 为 `runtime.workspace_files`。它在源头即受权限门禁管辖：Core 在读取
 任何一个目录项之前先咨询权限引擎，工具名为非变更的 `workspace_file_inventory`，输入路径为
-工作区根——与其他所有工作区读取同一道门禁。deny 会发布指名该拒绝的标准 `Error` 事件；未解决
-的 ask 同样如此，因为这次读取回应的是一次按键而不是一次交互回合，不得把客户端卡在审批弹窗
-后面。两者都绝不发布空 page："你无权读取"与"这个工作区没有文件"是两个不同的事实。该工具不
+工作区根——与其他所有工作区读取同一道门禁。deny 会以 `CommandRejected` 返回，指名这次确切的
+读取并携带拒绝原因；未解决的 ask 同样如此，因为这次读取回应的是一次按键而不是一次交互回合，
+不得把客户端卡在审批弹窗后面。两者都绝不发布空 page："你无权读取"与"这个工作区没有文件"是
+两个不同的事实；两者也都不是不带 command id 的裸 `Error`——那会让有读取在途的客户端把无关的
+lane 或 provider 失败归给自己这次读取，渲染出 Core 从未发出的拒绝。该工具不
 产生变更，因此 plan mode 仍会通过权限引擎的 safe-read 分支给出答案。
 
 遍历遵循 gitignore（即便不在 Git 仓库内也遵循，且不读取全局或父目录的 ignore 文件，因此同一

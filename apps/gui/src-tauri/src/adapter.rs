@@ -935,11 +935,11 @@ enum AuditObservation {
 
 /// One in-flight `QueryWorkspaceFiles` awaiting its ordered Core answer.
 struct PendingWorkspaceFiles {
+    /// The only correlation this read needs. Every event that can settle it —
+    /// the page and the rejection alike — names the command id it answers, so
+    /// there is no acceptance flag to fall back on and nothing is attributed
+    /// by "a read was outstanding".
     command_id: String,
-    /// Whether Core accepted this read yet. Unlike the audit page the id on
-    /// the answer is required, so acceptance is never used to attribute a
-    /// page; it is what attributes the *refusal*, which carries no id.
-    accepted: bool,
 }
 
 /// What Core published across the inventory reads confirmed so far.
@@ -957,16 +957,18 @@ impl PendingWorkspaceFiles {
     /// Reconciles one ordered event against this read.
     ///
     /// Core answers a `QueryWorkspaceFiles` with `CommandAccepted` then either
-    /// `WorkspaceFilesLoaded` or, when the permission gate refused it, an
-    /// `Error`. The page names the exact command id it answers as a *required*
-    /// field, so a page carrying another reader's id is ignored outright and
-    /// there is no acceptance-gated fallback to guess with — the residual
-    /// limitation `AuditPageLoaded` still documents does not exist here.
+    /// `WorkspaceFilesLoaded` or, when the permission gate refused it,
+    /// `CommandRejected`. Both name the exact command id they answer — the
+    /// page's is a *required* field — so an event carrying another reader's id
+    /// is ignored outright and there is no acceptance-gated fallback to guess
+    /// with: the residual limitation `AuditPageLoaded` still documents does not
+    /// exist here.
     ///
-    /// A refusal is different: the `Error` event carries no command id, so it
-    /// is attributed to this read only once Core accepted it, and only while
-    /// this is the single outstanding read.
-    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+    /// `RuntimeEventKind::Error` is deliberately not observed. It carries no
+    /// command id, so treating one as this read's refusal because a read
+    /// happened to be outstanding would let an unrelated lane or provider
+    /// failure fabricate a refusal Core never issued.
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
         let RuntimeWireEvent::Known(event) = &envelope.event else {
             return AuditObservation::Continue;
         };
@@ -975,18 +977,6 @@ impl PendingWorkspaceFiles {
                 if command_id == &self.command_id =>
             {
                 AuditObservation::Rejected(reason.clone())
-            }
-            RuntimeEventKind::CommandAccepted {
-                command_id,
-                command,
-            } if command_id == &self.command_id
-                && matches!(command, RuntimeCommand::QueryWorkspaceFiles { .. }) =>
-            {
-                self.accepted = true;
-                AuditObservation::Continue
-            }
-            RuntimeEventKind::Error { error } if self.accepted => {
-                AuditObservation::Rejected(error.message.clone())
             }
             RuntimeEventKind::WorkspaceFilesLoaded { command_id, .. }
                 if command_id == &self.command_id =>
@@ -1662,7 +1652,6 @@ impl GuiCoreAdapter {
             .map_err(|error| error.to_string())?;
         self.pending_workspace_files = Some(PendingWorkspaceFiles {
             command_id: command_id.to_string(),
-            accepted: false,
         });
         self.workspace_files_outcome = D1OutcomeProjection::pending();
         // A fresh read replaces the list. Clearing before the answer keeps a
@@ -1709,7 +1698,7 @@ impl GuiCoreAdapter {
     pub(crate) fn observe_pending_workspace_files(&mut self, event: &RuntimeEventEnvelope) -> bool {
         let observation = self
             .pending_workspace_files
-            .as_mut()
+            .as_ref()
             .map_or(AuditObservation::Continue, |pending| pending.observe(event));
         match observation {
             AuditObservation::Continue => false,

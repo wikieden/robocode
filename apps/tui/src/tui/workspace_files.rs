@@ -19,6 +19,13 @@
 //! ignored outright — there is no acceptance-gated guess to fall back to,
 //! which is precisely the residual limitation this contract was designed
 //! without.
+//!
+//! A refusal is attributable for the same reason. Core rejects a refused
+//! inventory read with `CommandRejected` naming this exact read, so this module
+//! never inspects `RuntimeEventKind::Error`: an `Error` carries no command id,
+//! and treating one as "our refusal" because a read happened to be outstanding
+//! would let an unrelated lane or provider failure fabricate a refusal Core
+//! never issued.
 
 use viden_core::{RuntimeEvent, RuntimeEventKind, WorkspaceFileEntry, WorkspaceFilePage};
 
@@ -113,7 +120,10 @@ impl WorkspaceFileIndex {
         self.error = None;
     }
 
-    /// Records Core's verbatim refusal or rejection of the in-flight read.
+    /// Records Core's verbatim rejection of the in-flight read.
+    ///
+    /// Only ever called for a `CommandRejected` naming this read, or for a
+    /// local transport failure on the send itself.
     pub(super) fn fail(&mut self, reason: impl Into<String>) {
         self.awaiting = None;
         self.error = Some(reason.into());
@@ -145,14 +155,6 @@ impl WorkspaceFileIndex {
                 if self.awaiting.as_deref() == Some(command_id.as_str()) =>
             {
                 self.fail(reason.clone());
-                true
-            }
-            // A refused read publishes an Error rather than a page. It carries
-            // no command id, so it is attributed to the read in flight — the
-            // only read this client has outstanding, since `should_read` never
-            // starts a second one.
-            RuntimeEventKind::Error { error } if self.awaiting.is_some() => {
-                self.fail(error.message.clone());
                 true
             }
             RuntimeEventKind::WorkspaceFilesLoaded { command_id, page } => {

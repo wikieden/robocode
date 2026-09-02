@@ -529,9 +529,11 @@ impl SessionEngine {
             },
             // Read-only like the two queries above, but permission-gated: it
             // reads the operator's working tree, so the handler consults the
-            // permission engine before touching disk and publishes an Error on
-            // a refusal. `Err` here is a malformed query (an escaping prefix),
-            // which is a rejection rather than a refusal.
+            // permission engine before touching disk. `Err` covers both a
+            // malformed query (an escaping prefix) and a permission refusal,
+            // and both come back as `CommandRejected` naming this exact read —
+            // an uncorrelated `Error` would let a client with a read
+            // outstanding mistake an unrelated failure for its own refusal.
             RuntimeCommand::QueryWorkspaceFiles { query } => {
                 match self.query_workspace_files(&command_id, query) {
                     Ok(file_events) => append_resequenced(&mut events, file_events),

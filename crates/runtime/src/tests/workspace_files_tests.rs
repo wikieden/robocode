@@ -243,8 +243,41 @@ fn workspace_file_inventory_answers_in_plan_mode_without_prompting() {
     assert!(!page.entries.is_empty());
 }
 
+/// Reads the rejection reason for the read named by `command_id`.
+///
+/// A refusal is published as `CommandRejected` carrying the caller's own
+/// command id, never as a bare `Error`. An uncorrelated `Error` would be
+/// indistinguishable, to a client with a read outstanding, from an unrelated
+/// failure that happened to land in the same window, so the client would
+/// attribute a lane or provider error to its inventory read and render a
+/// refusal that never happened.
+fn rejection_reason(events: &[viden_types::RuntimeEvent], command_id: &str) -> String {
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::WorkspaceFilesLoaded { .. })),
+        "a refused read must never publish a page, empty or otherwise"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::Error { .. })),
+        "a refusal must be attributable, so it is never a bare Error event"
+    );
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::CommandRejected {
+                command_id: rejected,
+                reason,
+            } if rejected == command_id => Some(reason.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected CommandRejected for {command_id}, got {events:?}"))
+}
+
 #[test]
-fn a_denied_workspace_file_inventory_publishes_an_error_and_never_an_empty_page() {
+fn a_denied_workspace_file_inventory_is_rejected_with_the_exact_command_id() {
     let (_cwd, mut engine) = workspace_engine("workspace_files_denied");
     engine.add_permission_rule_for_test(inventory_rule(PermissionBehavior::Deny));
     let mut denier = |_prompt| panic!("a denied inventory must not reach an approval prompt");
@@ -257,34 +290,25 @@ fn a_denied_workspace_file_inventory_publishes_an_error_and_never_an_empty_page(
             &mut denier,
         )
         .unwrap();
+    let reason = rejection_reason(&events, "files-denied");
     assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event.kind, RuntimeEventKind::WorkspaceFilesLoaded { .. })),
-        "a denial must never publish a page, empty or otherwise"
+        reason.contains("workspace_file_inventory"),
+        "the reason must name the permission that refused, got {reason}"
     );
-    let error = events
-        .iter()
-        .find_map(|event| match &event.kind {
-            RuntimeEventKind::Error { error } => Some(error.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("expected an Error event, got {events:?}"));
     assert!(
-        error.message.contains("workspace_file_inventory"),
-        "the error must name the permission that refused, got {}",
-        error.message
+        reason.contains("grant the workspace file inventory permission"),
+        "the reason must keep the actionable grant hint, got {reason}"
     );
 }
 
 #[test]
-fn an_ask_rule_on_the_inventory_surfaces_as_an_error_without_blocking_on_approval() {
+fn an_ask_rule_on_the_inventory_is_rejected_without_blocking_on_approval() {
     let (_cwd, mut engine) = workspace_engine("workspace_files_ask");
     engine.add_permission_rule_for_test(inventory_rule(PermissionBehavior::Ask));
     // A read query is not an interactive turn: blocking the client's read on an
     // approval prompt would stall a palette keystroke behind a modal. The
-    // honest answer is the same refusal an operator would see, published as an
-    // error, so the approver must never be reached.
+    // honest answer is the same refusal an operator would see, attributed to
+    // the exact read, so the approver must never be reached.
     let mut denier = |_prompt| panic!("a read query must never block on an approval prompt");
     let events = engine
         .handle_runtime_command(
@@ -295,18 +319,10 @@ fn an_ask_rule_on_the_inventory_surfaces_as_an_error_without_blocking_on_approva
             &mut denier,
         )
         .unwrap();
+    let reason = rejection_reason(&events, "files-ask");
     assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event.kind, RuntimeEventKind::WorkspaceFilesLoaded { .. })),
-        "an unresolved ask must never publish a page"
-    );
-    assert!(
-        events.iter().any(
-            |event| matches!(&event.kind, RuntimeEventKind::Error { error }
-                if error.message.contains("workspace_file_inventory"))
-        ),
-        "an unresolved ask must surface as a named refusal, got {events:?}"
+        reason.contains("workspace_file_inventory"),
+        "an unresolved ask must surface as a named refusal, got {reason}"
     );
 }
 

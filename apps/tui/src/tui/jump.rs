@@ -315,7 +315,9 @@ pub(super) fn fuzzy_subsequence_score(query: &str, candidate: &str) -> Option<us
 mod tests {
     use super::*;
     use crate::tui::state::TuiState;
-    use viden_core::{WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage};
+    use viden_core::{
+        RuntimeEvent, RuntimeEventKind, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    };
 
     fn loaded_files(paths: &[(&str, WorkspaceFileKind)]) -> WorkspaceFileIndex {
         let mut index = WorkspaceFileIndex::default();
@@ -401,6 +403,59 @@ mod tests {
         assert!(!rows[0].enabled, "an unanswered read must stay disabled");
     }
 
+    /// An unrelated failure landing while a read is outstanding must not be
+    /// read as this read's refusal.
+    ///
+    /// A lane or provider `Error` carries no command id, so attributing it to
+    /// whatever read happens to be in flight would fabricate a refusal Core
+    /// never issued — and would hide the real inventory answer behind it. Core
+    /// rejects a refused inventory read with the exact command id instead, so
+    /// this index has no reason to look at `Error` at all.
+    #[test]
+    fn an_unrelated_error_never_fails_an_outstanding_read() {
+        let mut files = WorkspaceFileIndex::default();
+        files.mark_available(true);
+        files.begin("files-mine");
+        assert!(
+            !files.observe_event(&RuntimeEvent::new(
+                1,
+                RuntimeEventKind::Error {
+                    error: viden_core::RuntimeErrorView {
+                        message: "lane lane-other failed to start".to_string(),
+                        recoverable: true,
+                        hint: None,
+                    },
+                },
+            )),
+            "an unrelated error must not touch the inventory index"
+        );
+        assert_eq!(files.error(), None);
+        assert!(files.is_reading(), "our read is still outstanding");
+
+        // A rejection for another reader's command id is equally not ours.
+        assert!(!files.observe_event(&RuntimeEvent::new(
+            2,
+            RuntimeEventKind::CommandRejected {
+                command_id: "files-theirs".to_string(),
+                reason: "someone else was refused".to_string(),
+            },
+        )));
+        assert_eq!(files.error(), None);
+
+        // The row still says "reading", never "unavailable".
+        let state = TuiState::default();
+        let index = JumpIndex::from_view(&state.runtime, &files);
+        let row = index
+            .items()
+            .iter()
+            .find(|item| item.kind == JumpKind::File)
+            .expect("file row");
+        assert_eq!(
+            row.disabled_reason.as_deref(),
+            Some("Reading the workspace file inventory.")
+        );
+    }
+
     /// Capability advertised but nothing has arrived yet: the row states that
     /// it is still reading, which is a different fact from "no files".
     #[test]
@@ -444,12 +499,22 @@ mod tests {
     /// Core's rejection is rendered verbatim — a permission denial must reach
     /// the operator as Core wrote it, never as a locally composed sentence and
     /// never as an empty list.
+    ///
+    /// The refusal arrives as `CommandRejected` naming this exact read, so it
+    /// is attributable; see the unrelated-error test below for why that
+    /// matters.
     #[test]
     fn a_rejected_read_shows_cores_own_reason() {
         let mut files = WorkspaceFileIndex::default();
         files.mark_available(true);
         files.begin("files-1");
-        files.fail("Permission decision: deny (workspace_file_inventory)");
+        assert!(files.observe_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::CommandRejected {
+                command_id: "files-1".to_string(),
+                reason: "Permission decision: deny (workspace_file_inventory)".to_string(),
+            },
+        )));
         let state = TuiState::default();
         let index = JumpIndex::from_view(&state.runtime, &files);
         let row = index

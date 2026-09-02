@@ -87,7 +87,20 @@ fn loaded(sequence: u64, command_id: &str, page: WorkspaceFilePage) -> RuntimeEv
     )
 }
 
-fn refused(sequence: u64, message: &str) -> RuntimeEventEnvelope {
+/// Core's refusal: a `CommandRejected` naming the exact read it refuses.
+fn refused(sequence: u64, command_id: &str, reason: &str) -> RuntimeEventEnvelope {
+    envelope(
+        sequence,
+        RuntimeEventKind::CommandRejected {
+            command_id: command_id.to_string(),
+            reason: reason.to_string(),
+        },
+    )
+}
+
+/// An unrelated failure with no command id, of the kind a lane or provider
+/// emits while an inventory read happens to be outstanding.
+fn unrelated_error(sequence: u64, message: &str) -> RuntimeEventEnvelope {
     envelope(
         sequence,
         RuntimeEventKind::Error {
@@ -215,12 +228,13 @@ fn a_page_naming_another_read_is_ignored_with_no_acceptance_fallback() {
 }
 
 #[test]
-fn a_refused_read_surfaces_cores_denial_and_never_an_empty_inventory() {
+fn a_rejected_read_surfaces_cores_denial_and_never_an_empty_inventory() {
     let mut harness = harness(
         vec![
             accepted(1, "gui-files-1"),
             refused(
                 2,
+                "gui-files-1",
                 "Permission decision: deny\n  tool: workspace_file_inventory",
             ),
         ],
@@ -244,6 +258,74 @@ fn a_refused_read_surfaces_cores_denial_and_never_an_empty_inventory() {
     // A refusal and an empty workspace must never render the same.
     assert!(!projection.loaded);
     assert!(projection.entries.is_empty());
+}
+
+/// An unrelated failure landing while a read is outstanding must not be read
+/// as this read's refusal.
+///
+/// A lane or provider `Error` carries no command id. Attributing one to
+/// whatever read happens to be in flight would fabricate a refusal Core never
+/// issued and hide the real inventory answer behind it. Core rejects a refused
+/// inventory read with the exact command id instead, so the pending read has no
+/// reason to look at `Error` at all.
+#[test]
+fn an_unrelated_error_never_fails_an_outstanding_read() {
+    let mut harness = harness(
+        vec![
+            accepted(1, "gui-files-1"),
+            unrelated_error(2, "lane lane-other failed to start"),
+            // The real answer still arrives and still settles the read.
+            loaded(
+                3,
+                "gui-files-1",
+                page(&[("README.md", WorkspaceFileKind::File)]),
+            ),
+        ],
+        true,
+    );
+    let projection = harness
+        .adapter
+        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .expect("inventory read");
+
+    assert_eq!(
+        projection.outcome.state, "confirmed",
+        "an unrelated error must not refuse this read, got {:?}",
+        projection.outcome
+    );
+    assert!(projection.loaded);
+    assert_eq!(
+        projection
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["README.md"]
+    );
+}
+
+/// A rejection naming another reader's command id is equally not ours.
+#[test]
+fn a_rejection_for_another_read_never_fails_this_one() {
+    let mut harness = harness(
+        vec![
+            accepted(1, "gui-files-1"),
+            refused(2, "gui-files-theirs", "someone else was refused"),
+        ],
+        true,
+    );
+    let projection = harness
+        .adapter
+        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .expect("inventory read");
+
+    assert_eq!(projection.outcome.state, "pending");
+    assert_eq!(
+        projection.pending_command_id.as_deref(),
+        Some("gui-files-1"),
+        "our read is still outstanding"
+    );
+    assert!(!projection.loaded);
 }
 
 #[test]

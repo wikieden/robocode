@@ -131,12 +131,15 @@ working tree:
 - Core consults the permission engine before it reads a single directory
   entry, under the non-mutating tool name `workspace_file_inventory` with the
   workspace root as the input path — the same gate every other workspace read
-  passes. A deny publishes the standard `Error` event naming the refusal, and
-  so does an unresolved ask: this read answers a keystroke rather than an
-  interactive turn, so it is decided non-interactively instead of blocking a
-  client behind an approval prompt. Neither case ever publishes an empty page,
-  because "you may not read this" and "this workspace has no files" are
-  different facts.
+  passes. A deny comes back as `CommandRejected` naming this exact read and
+  carrying the refusal, and so does an unresolved ask: this read answers a
+  keystroke rather than an interactive turn, so it is decided
+  non-interactively instead of blocking a client behind an approval prompt.
+  Neither case ever publishes an empty page, because "you may not read this"
+  and "this workspace has no files" are different facts — and neither is a
+  bare `Error`, which carries no command id and would let a client with a read
+  outstanding mistake an unrelated lane or provider failure for its own
+  refusal.
 - The tool mutates nothing, so plan mode still answers through the permission
   engine's safe-read branch while every mutation stays blocked.
 - The walk is gitignore-aware, honors `.gitignore` even outside a Git
