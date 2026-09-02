@@ -37,6 +37,7 @@ use super::state::{
     PendingNativeLane, SupervisionInput, SupervisionPanel, TuiEntry, TuiState,
 };
 use super::terminal::TerminalGuard;
+use super::workspace_files::WORKSPACE_FILES_CAPABILITY;
 
 const PROJECT_ONBOARDING_CAPABILITY: &str = "runtime.project_onboarding";
 const AGENT_ADAPTERS_CAPABILITY: &str = "runtime.agent_adapters";
@@ -202,6 +203,11 @@ fn project_driver_view<C: CoreClient>(state: &mut TuiState, driver: &TuiClientDr
     // every atomic view projection so restart recovery cannot leave stale UI
     // affordances enabled after an extension disappears.
     state.capabilities = driver.capabilities();
+    // Snapshot-scoped like every other capability fact: an extension that
+    // disappears must take its affordance with it, so the `~` scope falls back
+    // to the honest unavailable row instead of serving a stale inventory.
+    let workspace_files = state.has_capability(WORKSPACE_FILES_CAPABILITY);
+    state.ui.workspace_files.mark_available(workspace_files);
     project_runtime_view(state, driver.view(), driver.cursor());
 }
 
@@ -448,6 +454,9 @@ fn apply_input_intent<C: CoreClient>(
             } else {
                 OverlayState::new(kind)
             });
+            if kind == OverlayKind::GlobalJump {
+                request_workspace_files(driver, state)?;
+            }
             state.ui.idle_ctrl_c_armed = false;
         }
         InputIntent::CloseOverlay => match state.ui.overlay.take() {
@@ -531,7 +540,7 @@ fn apply_input_intent<C: CoreClient>(
         InputIntent::MoveSelection(delta) => {
             if let Some(overlay) = state.ui.overlay.as_mut() {
                 let item_count = if overlay.kind == OverlayKind::GlobalJump {
-                    JumpIndex::from_view(&state.runtime)
+                    JumpIndex::from_view(&state.runtime, &state.ui.workspace_files)
                         .search(&overlay.filter)
                         .len()
                 } else {
@@ -726,6 +735,29 @@ fn open_audit_timeline<C: CoreClient>(
     state.ui.supervision = None;
     state.ui.audit = Some(panel);
     state.ui.overlay = Some(OverlayState::new(OverlayKind::AuditTimeline));
+    Ok(())
+}
+
+/// Asks Core for the workspace file inventory when the jump index opens.
+///
+/// Sent only when Core advertises `runtime.workspace_files` and nothing has
+/// been read yet: without the capability the client sends nothing at all and
+/// the `~` scope states the gap, and with a page already in hand a second read
+/// would race the first for one correlation slot. A transport failure leaves
+/// the overlay open with the honest unavailable row rather than propagating,
+/// because opening the jump index is not itself a read.
+fn request_workspace_files<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    if !state.ui.workspace_files.should_read() {
+        return Ok(());
+    }
+    let query = state.ui.workspace_files.next_query();
+    match driver.send(RuntimeCommand::QueryWorkspaceFiles { query }) {
+        Ok(command_id) => state.ui.workspace_files.begin(command_id),
+        Err(error) => state.ui.workspace_files.fail(error.to_string()),
+    }
     Ok(())
 }
 
@@ -1229,7 +1261,7 @@ fn complete_overlay_selection<C: CoreClient>(
 }
 
 fn complete_global_jump_selection(state: &mut TuiState, overlay: OverlayState) {
-    let index = JumpIndex::from_view(&state.runtime);
+    let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
     let results = index.search(&overlay.filter);
     let Some(item) = results.get(overlay.selected).map(|item| (*item).clone()) else {
         state.ui.overlay = overlay.previous_overlay.map(|previous| *previous);
@@ -1705,6 +1737,10 @@ fn observe_driver_events<C: CoreClient>(
         if let Some(panel) = state.ui.audit.as_mut() {
             panel.observe_event(event);
         }
+        // The inventory read correlates on the exact required command id, so a
+        // page for another reader is ignored whether or not the jump overlay
+        // is open.
+        state.ui.workspace_files.observe_event(event);
         if let viden_core::RuntimeEventKind::UiPreferencesUpdated {
             resolved,
             diagnostics,
@@ -4386,6 +4422,134 @@ mod tests {
                 .overlay
                 .as_ref()
                 .is_some_and(|overlay| overlay.filter.is_empty())
+        );
+    }
+
+    // ---- workspace file inventory ------------------------------------------
+
+    /// Opening the jump index reads the Core inventory once, and only once.
+    ///
+    /// GUI-CORE-022: the client must never walk the workspace, so the `~` scope
+    /// is either what Core published or an honest gap. A second open must not
+    /// re-read a tree Core already handed over, because two pages racing one
+    /// correlation slot cannot be told apart before they arrive.
+    #[test]
+    fn opening_the_jump_index_reads_the_workspace_inventory_exactly_once() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        project_driver_view(&mut state, &driver);
+        assert!(
+            state.has_capability(WORKSPACE_FILES_CAPABILITY),
+            "the fake Core advertises the full extension set"
+        );
+
+        let open = Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        handle_ui_event(&mut driver, &mut state, open.clone(), (120, 40)).expect("open jump");
+        let queries = || {
+            sent.lock()
+                .expect("sent commands")
+                .iter()
+                .filter(|envelope| {
+                    matches!(envelope.command, RuntimeCommand::QueryWorkspaceFiles { .. })
+                })
+                .count()
+        };
+        assert_eq!(queries(), 1, "opening the jump index reads the inventory");
+
+        // Answer the read, close, and reopen: the client has the page, so it
+        // asks again for nothing.
+        let command_id = sent
+            .lock()
+            .expect("sent commands")
+            .iter()
+            .find(|envelope| matches!(envelope.command, RuntimeCommand::QueryWorkspaceFiles { .. }))
+            .expect("the inventory read")
+            .command_id
+            .clone();
+        state.ui.workspace_files.observe_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::WorkspaceFilesLoaded {
+                command_id,
+                page: viden_types::WorkspaceFilePage {
+                    entries: vec![viden_types::WorkspaceFileEntry {
+                        path: "README.md".to_string(),
+                        kind: viden_types::WorkspaceFileKind::File,
+                        size_bytes: Some(12),
+                    }],
+                    next_after: None,
+                    complete: true,
+                },
+            },
+        ));
+        assert!(state.ui.workspace_files.is_loaded());
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("close jump");
+        handle_ui_event(&mut driver, &mut state, open, (120, 40)).expect("reopen jump");
+        assert_eq!(queries(), 1, "a loaded inventory is not re-read");
+
+        let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
+        let files = index
+            .items()
+            .iter()
+            .filter(|item| item.kind == JumpKind::File)
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].enabled);
+        assert_eq!(files[0].id, "README.md");
+    }
+
+    /// Without the capability the client sends nothing at all and keeps the
+    /// honest disabled row, rather than showing an empty file list.
+    #[test]
+    fn a_core_without_the_inventory_capability_gets_no_query_and_an_honest_row() {
+        let mut client = FakeCoreClient::default();
+        let capability = viden_types::CapabilityId(WORKSPACE_FILES_CAPABILITY.to_string());
+        // Start from the full advertised set and drop exactly this one, so the
+        // test proves the gate rather than an unrelated missing capability.
+        let mut capabilities = frontend_capabilities();
+        capabilities.remove(&capability);
+        client.transport.capabilities = Some(capabilities);
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        project_driver_view(&mut state, &driver);
+        assert!(!state.has_capability(WORKSPACE_FILES_CAPABILITY));
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            (120, 40),
+        )
+        .expect("open jump");
+        assert!(
+            !sent
+                .lock()
+                .expect("sent commands")
+                .iter()
+                .any(|envelope| matches!(
+                    envelope.command,
+                    RuntimeCommand::QueryWorkspaceFiles { .. }
+                )),
+            "a missing capability must send no command at all"
+        );
+        let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
+        let row = index
+            .items()
+            .iter()
+            .find(|item| item.kind == JumpKind::File)
+            .expect("file row");
+        assert!(!row.enabled);
+        assert_eq!(
+            row.disabled_reason.as_deref(),
+            Some("Core file inventory is unavailable.")
         );
     }
 

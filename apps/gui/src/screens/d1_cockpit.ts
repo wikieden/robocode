@@ -11,6 +11,7 @@ import {
   renderCommandPalette,
   type CommandPaletteController,
   type PaletteCrossLane,
+  type PaletteWorkspaceFiles,
 } from "../components/command_palette";
 import { shouldRouteComposerMutation, shouldSubmitComposer } from "../components/composer";
 import {
@@ -131,6 +132,16 @@ export interface D1RenderOptions {
     gates: PaletteCrossLane["gates"];
     asks: PaletteCrossLane["asks"];
   }>;
+  /**
+   * Reads the Core workspace file inventory the palette offers under `~`.
+   *
+   * The read belongs to the shell because it is a Core command, not a cockpit
+   * projection. Absent while no host is bound, which states the section as
+   * unavailable rather than showing an empty one — and the client never walks
+   * the workspace itself, which is outside the client boundary and would
+   * bypass Core's permission gate (GUI-CORE-022).
+   */
+  loadPaletteFiles?: () => Promise<PaletteWorkspaceFiles>;
   showWelcome?: boolean;
   poll?: boolean;
   /**
@@ -484,6 +495,7 @@ export function renderD1Cockpit(
   let remountingPalette = false;
   let paletteQuery = "";
   let paletteCrossLane: PaletteCrossLane | null = null;
+  let paletteFiles: PaletteWorkspaceFiles | null = null;
   // Project picker state. Like the other popovers the DOM is disposable, so
   // the open flag, which anchor opened it, and the recent-work answer live
   // here. The collapse flag is the rail's own presentation state: an ordered
@@ -1272,6 +1284,7 @@ export function renderD1Cockpit(
         projection,
         query: paletteQuery,
         crossLane: paletteCrossLane,
+        files: paletteFiles,
         canNavigate: Boolean(options.onNavigate),
         canOpenSettings: Boolean(options.preferences),
         canFocusComposer: Boolean(root.querySelector("[data-composer]")),
@@ -1317,6 +1330,7 @@ export function renderD1Cockpit(
     paletteOpen = true;
     paletteQuery = seed;
     paletteCrossLane = null;
+    paletteFiles = null;
     const token = (paletteReadToken += 1);
     if (!options.loadPaletteCrossLane) {
       paletteCrossLane = {
@@ -1344,6 +1358,31 @@ export function renderD1Cockpit(
           unavailable: error instanceof Error ? error.message : String(error),
         };
         paletteController?.setCrossLane(paletteCrossLane);
+      });
+    if (!options.loadPaletteFiles) return;
+    void options
+      .loadPaletteFiles()
+      .then((answer) => {
+        if (disposed || token !== paletteReadToken) return;
+        paletteFiles = answer;
+        paletteController?.setFiles(answer);
+      })
+      .catch((error: unknown) => {
+        if (disposed || token !== paletteReadToken) return;
+        // Core's own words for the refusal, never a client paraphrase, and
+        // never an empty inventory that would read as "no files here".
+        paletteFiles = {
+          outcome: {
+            state: "rejected",
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          entries: [],
+          complete: false,
+          loaded: false,
+          pendingCommandId: null,
+          capabilityAvailable: true,
+        };
+        paletteController?.setFiles(paletteFiles);
       });
   }
 

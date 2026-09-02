@@ -301,6 +301,7 @@ export async function hydrateShellFromCore(
             onPickProjectFolder: pickProjectFolder,
             onOpenWorkspace: openWorkspace,
             loadPaletteCrossLane,
+            loadPaletteFiles,
             onNavigate: (route: string, arg?: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the caller only names the route and, when the
@@ -553,6 +554,23 @@ export async function hydrateShellFromCore(
         let result = await core.queryRecentWork(`gui-recent-${crypto.randomUUID()}`, 20);
         for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
           result = await core.recentWorkPoll();
+        }
+        return result;
+      };
+
+      /**
+       * Reads the Core workspace file inventory for the palette's `~` scope.
+       *
+       * Core owns the permission gate, the walk, the exclusions, the ordering,
+       * and the page bound; the shell only names the read and waits for the
+       * ordered answer. A rejection propagates so the palette states Core's own
+       * refusal in place of the section rather than showing an empty inventory
+       * (GUI-CORE-022).
+       */
+      const loadPaletteFiles = async () => {
+        let result = await core.queryWorkspaceFiles(`gui-files-${crypto.randomUUID()}`);
+        for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+          result = await core.workspaceFilesPoll();
         }
         return result;
       };

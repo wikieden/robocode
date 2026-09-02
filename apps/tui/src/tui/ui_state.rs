@@ -4,6 +4,7 @@ use super::{
     decision::{SupervisionAction, SupervisionTarget},
     keymap::{InputMode, OverlayKind},
     preferences::{ColorDepth, SettingsPanel},
+    workspace_files::WorkspaceFileIndex,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,6 +321,11 @@ pub(super) struct TuiUiState {
     /// dropped on close, so a reopened timeline always re-queries Core instead
     /// of showing a page of unknown age.
     pub(super) audit: Option<AuditPanel>,
+    /// Client-local view of the Core workspace file inventory. It outlives one
+    /// overlay so reopening the jump index does not re-read a tree Core
+    /// already published, and it holds no authoritative record — see
+    /// `workspace_files`.
+    pub(super) workspace_files: WorkspaceFileIndex,
     pub(super) idle_ctrl_c_armed: bool,
     pub(super) color_depth: ColorDepth,
     pub(super) preference_diagnostics: Vec<String>,
@@ -353,6 +359,7 @@ impl Default for TuiUiState {
             overlay: None,
             supervision: None,
             audit: None,
+            workspace_files: WorkspaceFileIndex::default(),
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,
             preference_diagnostics: Vec::new(),

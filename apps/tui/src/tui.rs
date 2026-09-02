@@ -52,6 +52,7 @@ mod theme;
 mod topbar;
 mod transcript;
 mod ui_state;
+mod workspace_files;
 
 pub use app::{TuiError, TuiOptions, run_tui};
 pub use preview::{

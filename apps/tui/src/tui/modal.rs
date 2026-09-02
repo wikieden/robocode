@@ -706,7 +706,7 @@ fn audit_timeline_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
-    let index = JumpIndex::from_view(&state.runtime);
+    let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
     let mut rows = Vec::new();
     let mut previous_kind = None;
     for (position, item) in index.search(filter).into_iter().enumerate() {

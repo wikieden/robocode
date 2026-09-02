@@ -22,6 +22,7 @@ import {
   type CommandPaletteModel,
   type PaletteCrossLane,
   type PaletteItem,
+  type PaletteWorkspaceFiles,
 } from "../src/components/command_palette";
 import type { D1CockpitProjection } from "../src/screens/d1_cockpit";
 import { D1_PROJECTION } from "./support/d1_projection";
@@ -30,6 +31,19 @@ const CROSS_LANE: PaletteCrossLane = {
   gates: [{ gateId: "gate-1", taskId: "task-core", status: "blocked" }],
   asks: [{ id: "approval-shell", title: "Allow test", kind: "approval", laneId: "lane-core" }],
   unavailable: null,
+};
+
+const FILES: PaletteWorkspaceFiles = {
+  outcome: { state: "confirmed", reason: null },
+  entries: [
+    { path: "AGENTS.md", kind: "file", sizeBytes: 4096 },
+    { path: "crates", kind: "dir", sizeBytes: null },
+    { path: "crates/core/src/lib.rs", kind: "file", sizeBytes: 8192 },
+  ],
+  complete: true,
+  loaded: true,
+  pendingCommandId: null,
+  capabilityAvailable: true,
 };
 
 function projection(overrides: Partial<D1CockpitProjection> = {}): D1CockpitProjection {
@@ -42,6 +56,7 @@ function model(overrides: Partial<CommandPaletteModel> = {}): CommandPaletteMode
     projection: projection(),
     query: "",
     crossLane: CROSS_LANE,
+    files: FILES,
     canNavigate: true,
     canOpenSettings: true,
     canFocusComposer: true,
@@ -236,16 +251,88 @@ describe("palette index", () => {
     expect(ids(searchPalette(list, ">"))).toContain("action:open-settings");
   });
 
-  test("files is one permanently disabled row naming the missing Core capability", () => {
+  test("files lists the Core inventory in the order Core published it", () => {
     const list = items();
     const files = list.filter((item) => item.section === "files");
+    expect(files).toHaveLength(3);
+    expect(files.every((item) => item.kind === "file" && item.enabled)).toBe(true);
+    // Core's lexicographic order is preserved verbatim; the client never
+    // re-sorts, re-groups, or discovers a path of its own.
+    expect(ids(files)).toEqual([
+      "file:AGENTS.md",
+      "file:crates",
+      "file:crates/core/src/lib.rs",
+    ]);
+    expect(ids(searchPalette(list, "~"))).toEqual([
+      "file:AGENTS.md",
+      "file:crates",
+      "file:crates/core/src/lib.rs",
+    ]);
+    expect(ids(searchPalette(list, "~lib"))).toEqual(["file:crates/core/src/lib.rs"]);
+  });
+
+  test("files stays one disabled row naming the request against an old Core", () => {
+    const list = items({
+      files: { ...FILES, capabilityAvailable: false, loaded: false, entries: [] },
+    });
+    const files = list.filter((item) => item.section === "files");
     expect(files).toHaveLength(1);
-    expect(files[0]!.kind).toBe("file");
     expect(files[0]!.enabled).toBe(false);
-    // The same honesty the TUI jump index ships: no file inventory exists at
-    // frontend-contract-v1, so the row states the contract request.
+    // The same honesty the TUI jump index ships: a Core that publishes no
+    // inventory gets the contract request, never an empty list.
     expect(files[0]!.disabledReason).toContain("GUI-CORE-022");
     expect(ids(searchPalette(list, "~"))).toEqual(["file:core-file-inventory-unavailable"]);
+  });
+
+  test("an in-flight read renders a loading row rather than an empty list", () => {
+    const list = items({
+      files: {
+        ...FILES,
+        outcome: { state: "pending", reason: null },
+        entries: [],
+        loaded: false,
+        pendingCommandId: "gui-files-1",
+      },
+    });
+    const files = list.filter((item) => item.section === "files");
+    expect(files).toHaveLength(1);
+    expect(files[0]!.enabled).toBe(false);
+    expect(files[0]!.disabledReason).not.toContain("GUI-CORE-022");
+    expect(files[0]!.id).toBe("file:core-file-inventory-loading");
+  });
+
+  test("an empty inventory is stated as empty, never as unavailable", () => {
+    const list = items({ files: { ...FILES, entries: [] } });
+    const files = list.filter((item) => item.section === "files");
+    expect(files).toHaveLength(1);
+    expect(files[0]!.enabled).toBe(false);
+    expect(files[0]!.id).toBe("file:core-file-inventory-empty");
+    expect(files[0]!.disabledReason).not.toContain("GUI-CORE-022");
+  });
+
+  test("a refused read shows Core's own reason verbatim", () => {
+    const list = items({
+      files: {
+        ...FILES,
+        outcome: { state: "rejected", reason: "Permission decision: deny" },
+        entries: [],
+        loaded: false,
+      },
+    });
+    const files = list.filter((item) => item.section === "files");
+    expect(files).toHaveLength(1);
+    expect(files[0]!.enabled).toBe(false);
+    // Core's sentence, not a locally composed one.
+    expect(files[0]!.disabledReason).toBe("Permission decision: deny");
+  });
+
+  test("the palette never reads the filesystem for the files scope", () => {
+    // Every file row id is derived from a Core-published path and nothing
+    // else, so a model with no inventory can produce no path rows at all.
+    const list = items({ files: null });
+    const files = list.filter((item) => item.section === "files");
+    expect(files).toHaveLength(1);
+    expect(files[0]!.enabled).toBe(false);
   });
 });
 
@@ -307,15 +394,26 @@ describe("palette overlay", () => {
   });
 
   test("arrow keys move the highlight and skip disabled rows", () => {
-    mount();
+    // Against a Core with no inventory the Files scope is a single disabled
+    // row, which can never be activated and so can never be highlighted.
+    mount({ files: { ...FILES, capabilityAvailable: false, loaded: false, entries: [] } });
     press("ArrowDown");
     expect(rows()[1]!.getAttribute("aria-selected")).toBe("true");
     press("ArrowUp");
     expect(rows()[0]!.getAttribute("aria-selected")).toBe("true");
-    // The Files row can never be activated, so it can never be highlighted.
     type("~");
     expect(rows()).toHaveLength(1);
     expect(input().getAttribute("aria-activedescendant")).toBeNull();
+  });
+
+  test("a loaded inventory row is highlightable and activates a file", () => {
+    const { handlers: bound } = mount();
+    type("~lib");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.dataset.paletteItemId).toBe("file:crates/core/src/lib.rs");
+    expect(input().getAttribute("aria-activedescendant")).toBe(rows()[0]!.id);
+    press("Enter");
+    expect(bound.onClose).toHaveBeenCalledOnce();
   });
 
   test("typing filters live through the ported scorer", () => {
@@ -356,7 +454,9 @@ describe("palette overlay", () => {
   });
 
   test("clicking a row activates it; clicking a disabled row does nothing", () => {
-    const { handlers: bound } = mount();
+    const { handlers: bound } = mount({
+      files: { ...FILES, capabilityAvailable: false, loaded: false, entries: [] },
+    });
     type("~");
     rows()[0]!.click();
     expect(bound.onClose).not.toHaveBeenCalled();

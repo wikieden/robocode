@@ -1,3 +1,4 @@
+import type { PaletteWorkspaceFiles } from "../components/command_palette";
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
 import type { RecentWorkResult } from "../models/recent_work";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
@@ -63,6 +64,17 @@ export interface CoreClient {
   queryRecentWork(commandId: string, limit: number): Promise<RecentWorkResult>;
   /** Drains ordered Core events while a recent-work read is still pending. */
   recentWorkPoll(): Promise<RecentWorkResult>;
+
+  /**
+   * Sends Core's `QueryWorkspaceFiles` and resolves with whatever the ordered
+   * `WorkspaceFilesLoaded` page published. Core owns the permission gate, the
+   * gitignore-aware walk, the runtime-state exclusions, the ordering, and the
+   * page clamp; the frontend never walks the workspace, shells out to a file
+   * lister, or reconstructs a tree from paths seen elsewhere (GUI-CORE-022).
+   */
+  queryWorkspaceFiles(commandId: string): Promise<PaletteWorkspaceFiles>;
+  /** Drains ordered Core events while an inventory read is still pending. */
+  workspaceFilesPoll(): Promise<PaletteWorkspaceFiles>;
 
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;

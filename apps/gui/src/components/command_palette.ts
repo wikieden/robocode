@@ -120,6 +120,29 @@ export interface PaletteCrossLane {
   unavailable: string | null;
 }
 
+/**
+ * The Core workspace file inventory the palette's `~` scope lists
+ * (GUI-CORE-022).
+ *
+ * Mirrors the host's `WorkspacesFilesProjection` field for field. The client
+ * must never produce these paths itself: walking the workspace is outside the
+ * client boundary and bypasses the permission gate every other path read
+ * passes, so a row exists only because Core published it.
+ *
+ * `capabilityAvailable`, `loaded`, and an empty `entries` are three different
+ * facts — "Core publishes no inventory", "the read has not answered yet", and
+ * "this workspace is empty" — and each gets its own row.
+ */
+export interface PaletteWorkspaceFiles {
+  outcome: { state: string; reason: string | null };
+  /** Lexicographic by path, exactly as Core delivered. */
+  entries: Array<{ path: string; kind: string; sizeBytes: number | null }>;
+  complete: boolean;
+  loaded: boolean;
+  pendingCommandId: string | null;
+  capabilityAvailable: boolean;
+}
+
 export interface CommandPaletteModel {
   locale: Locale;
   projection: D1CockpitProjection;
@@ -127,6 +150,8 @@ export interface CommandPaletteModel {
   query: string;
   /** Null while the cross-Lane read is still in flight. */
   crossLane: PaletteCrossLane | null;
+  /** Null while the shell has bound no inventory read at all. */
+  files: PaletteWorkspaceFiles | null;
   /** False while the shell has bound no router, which omits the screen rows. */
   canNavigate: boolean;
   canOpenSettings: boolean;
@@ -161,6 +186,7 @@ export interface CommandPaletteController {
   dispose: () => void;
   setQuery: (query: string) => void;
   setCrossLane: (crossLane: PaletteCrossLane) => void;
+  setFiles: (files: PaletteWorkspaceFiles) => void;
 }
 
 /** Screens the shell can restore, in the order the design's rail lists them. */
@@ -379,25 +405,81 @@ export function paletteItems(
 
   /* ---- Files ---- */
 
-  // frontend-contract-v1 publishes no workspace file inventory, so the row is
-  // visible and permanently disabled rather than absent: an operator who types
-  // `~` gets the contract reason instead of silence. Mirrors the TUI jump
-  // index's own "Files unavailable" row.
-  items.push(
+  // Every row here comes from a page Core published, or there is no row: the
+  // client never walks the workspace, shells out to a file lister, or
+  // reconstructs a tree from paths that appear in evidence or tool previews.
+  // A partial inventory presented as an inventory is worse than a stated gap,
+  // so each distinct fact keeps its own disabled row rather than collapsing
+  // into an empty list. Mirrors the TUI jump index one-for-one.
+  const files = model.files;
+  const filesRow = (id: string, title: string, reason: string) =>
     disabled(
       {
         kind: "file",
         section: "files",
-        id: "file:core-file-inventory-unavailable",
-        title: translate(locale, "d1.palette.files.unavailable", {}),
+        id,
+        title,
         context: "",
         keywords: "file files path search",
         hint: null,
         icon: "evidence",
       },
-      translate(locale, "d1.palette.files.reason", {}),
-    ),
-  );
+      reason,
+    );
+  if (!files || !files.capabilityAvailable) {
+    items.push(
+      filesRow(
+        "file:core-file-inventory-unavailable",
+        translate(locale, "d1.palette.files.unavailable", {}),
+        translate(locale, "d1.palette.files.reason", {}),
+      ),
+    );
+  } else if (files.outcome.state === "rejected") {
+    // Core's own words for the refusal — a permission denial must reach the
+    // operator as Core wrote it, never as a locally composed sentence.
+    items.push(
+      filesRow(
+        "file:core-file-inventory-rejected",
+        translate(locale, "d1.palette.files.unavailable", {}),
+        files.outcome.reason ?? translate(locale, "d1.palette.files.reason", {}),
+      ),
+    );
+  } else if (!files.loaded) {
+    items.push(
+      filesRow(
+        "file:core-file-inventory-loading",
+        translate(locale, "d1.palette.files.pending", {}),
+        translate(locale, "d1.palette.files.pendingReason", {}),
+      ),
+    );
+  } else if (files.entries.length === 0) {
+    items.push(
+      filesRow(
+        "file:core-file-inventory-empty",
+        translate(locale, "d1.palette.files.empty", {}),
+        translate(locale, "d1.palette.files.emptyReason", {}),
+      ),
+    );
+  } else {
+    for (const entry of files.entries) {
+      items.push(
+        enabled({
+          kind: "file",
+          section: "files",
+          id: `file:${entry.path}`,
+          title: entry.path,
+          context: entry.kind,
+          keywords: entry.path,
+          hint: null,
+          icon: "evidence",
+          // Selecting a file closes the palette. `frontend-contract-v1`
+          // publishes no "open this path" command, so activating a row must
+          // not pretend to open an editor the client does not have.
+          activate: () => undefined,
+        }),
+      );
+    }
+  }
 
   return items;
 }
@@ -430,6 +512,7 @@ export function renderCommandPalette(
 ): CommandPaletteController {
   const { locale } = model;
   let crossLane = model.crossLane;
+  let files = model.files;
   let query = model.query;
   let highlighted = 0;
   let visible: PaletteItem[] = [];
@@ -496,7 +579,7 @@ export function renderCommandPalette(
   }
 
   function refresh(): void {
-    const items = paletteItems({ ...model, query, crossLane }, handlers);
+    const items = paletteItems({ ...model, query, crossLane, files }, handlers);
     visible = searchPalette(items, query);
     const selectable = visible.filter((item) => item.enabled);
     if (selectable.length === 0) highlighted = -1;
@@ -673,6 +756,10 @@ export function renderCommandPalette(
     },
     setCrossLane: (next) => {
       crossLane = next;
+      refresh();
+    },
+    setFiles: (next) => {
+      files = next;
       refresh();
     },
   };

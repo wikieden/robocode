@@ -1,5 +1,7 @@
 use viden_core::RuntimeViewState;
 
+use super::workspace_files::{WorkspaceFileIndex, file_row_context};
+
 /// Stable selector groups. The index only projects typed Core facts; it never
 /// discovers lanes, sessions, gates, or files from the local workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -119,7 +121,11 @@ pub(super) struct JumpIndex {
 }
 
 impl JumpIndex {
-    pub(super) fn from_view(view: &RuntimeViewState) -> Self {
+    /// Projects typed Core facts plus the Core-published workspace inventory.
+    ///
+    /// `files` is client-local presentation state over pages Core sent; the
+    /// index never discovers a path any other way.
+    pub(super) fn from_view(view: &RuntimeViewState, files: &WorkspaceFileIndex) -> Self {
         let mut items = Vec::new();
         items.extend(view.merge_gates.iter().map(|gate| JumpItem {
             kind: JumpKind::Gate,
@@ -184,16 +190,7 @@ impl JumpIndex {
                     disabled_reason: None,
                 }),
         );
-        // Core has no typed file inventory capability at frontend-contract-v1.
-        // Keep this row visible so operators get an actionable contract reason.
-        items.push(JumpItem::disabled(
-            JumpKind::File,
-            "core-file-inventory-unavailable",
-            "Files unavailable",
-            "Core capability",
-            "file inventory",
-            "Core file inventory is unavailable.",
-        ));
+        items.extend(workspace_file_items(files));
         Self::new(items)
     }
 
@@ -227,6 +224,70 @@ impl JumpIndex {
     }
 }
 
+/// Builds the `~` scope's rows from what the client actually knows.
+///
+/// Five distinct facts, five distinct rows. Collapsing any of them into an
+/// empty list would show an operator an inventory that does not exist:
+/// "Core publishes none", "the read is in flight", "Core refused it", "the
+/// workspace is empty", and the real listing are not the same statement.
+fn workspace_file_items(files: &WorkspaceFileIndex) -> Vec<JumpItem> {
+    let unavailable = |title: &str, context: &str, reason: &str| {
+        vec![JumpItem::disabled(
+            JumpKind::File,
+            "core-file-inventory-unavailable",
+            title,
+            context,
+            "file files path inventory",
+            reason,
+        )]
+    };
+    if !files.is_available() {
+        return unavailable(
+            "Files unavailable",
+            "Core capability",
+            "Core file inventory is unavailable.",
+        );
+    }
+    if let Some(error) = files.error() {
+        // Core's own sentence, verbatim: a permission denial must reach the
+        // operator as Core wrote it.
+        return unavailable("Files unavailable", "Core refused the read", error);
+    }
+    if !files.is_loaded() {
+        let context = if files.is_reading() {
+            "Reading"
+        } else {
+            "Not read yet"
+        };
+        return unavailable(
+            "Files loading",
+            context,
+            "Reading the workspace file inventory.",
+        );
+    }
+    if files.entries().is_empty() {
+        return unavailable(
+            "No workspace files",
+            "Core inventory",
+            "Core published an empty workspace file inventory.",
+        );
+    }
+    files
+        .entries()
+        .iter()
+        .map(|entry| JumpItem {
+            kind: JumpKind::File,
+            id: entry.path.clone(),
+            title: entry.path.clone(),
+            context: file_row_context(entry),
+            keywords: entry.path.clone(),
+            parent_id: None,
+            enabled: true,
+            disabled_reason: None,
+        })
+        .collect()
+}
+
 /// Returns a subsequence match score. Callers currently use only presence or
 /// absence, preserving stable source and group ordering rather than ranking.
 pub(super) fn fuzzy_subsequence_score(query: &str, candidate: &str) -> Option<usize> {
@@ -254,11 +315,159 @@ pub(super) fn fuzzy_subsequence_score(query: &str, candidate: &str) -> Option<us
 mod tests {
     use super::*;
     use crate::tui::state::TuiState;
+    use viden_core::{WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage};
+
+    fn loaded_files(paths: &[(&str, WorkspaceFileKind)]) -> WorkspaceFileIndex {
+        let mut index = WorkspaceFileIndex::default();
+        index.mark_available(true);
+        index.begin("files-1");
+        index.apply_page(
+            "files-1",
+            &WorkspaceFilePage {
+                entries: paths
+                    .iter()
+                    .map(|(path, kind)| WorkspaceFileEntry {
+                        path: (*path).to_string(),
+                        kind: *kind,
+                        size_bytes: matches!(kind, WorkspaceFileKind::File).then_some(64),
+                    })
+                    .collect(),
+                next_after: None,
+                complete: true,
+            },
+        );
+        index
+    }
+
+    /// With the capability advertised and a page loaded, the `~` scope lists
+    /// the real inventory Core published — no filesystem walking anywhere in
+    /// the client.
+    #[test]
+    fn loaded_workspace_files_become_enabled_file_rows() {
+        let state = TuiState::default();
+        let files = loaded_files(&[
+            ("README.md", WorkspaceFileKind::File),
+            ("src", WorkspaceFileKind::Dir),
+            ("src/main.rs", WorkspaceFileKind::File),
+        ]);
+        let index = JumpIndex::from_view(&state.runtime, &files);
+        let rows = index
+            .items()
+            .iter()
+            .filter(|item| item.kind == JumpKind::File)
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|row| row.enabled));
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            vec!["README.md", "src", "src/main.rs"],
+            "rows must keep Core's lexicographic order"
+        );
+        // The `~` scope reaches exactly those rows and nothing else.
+        assert_eq!(index.search("~").len(), 3);
+        assert_eq!(index.search("~main").len(), 1);
+    }
+
+    /// A page whose command id is not the one in flight belongs to another
+    /// read. Since `command_id` is required on this event there is no
+    /// acceptance fallback to fall back to, so the page is simply ignored.
+    #[test]
+    fn a_page_for_another_read_never_becomes_file_rows() {
+        let mut files = WorkspaceFileIndex::default();
+        files.mark_available(true);
+        files.begin("files-mine");
+        let applied = files.apply_page(
+            "files-theirs",
+            &WorkspaceFilePage {
+                entries: vec![WorkspaceFileEntry {
+                    path: "other/project.rs".to_string(),
+                    kind: WorkspaceFileKind::File,
+                    size_bytes: Some(1),
+                }],
+                next_after: None,
+                complete: true,
+            },
+        );
+        assert!(!applied, "another reader's page must not be applied");
+        assert!(!files.is_loaded());
+        let state = TuiState::default();
+        let index = JumpIndex::from_view(&state.runtime, &files);
+        let rows = index
+            .items()
+            .iter()
+            .filter(|item| item.kind == JumpKind::File)
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].enabled, "an unanswered read must stay disabled");
+    }
+
+    /// Capability advertised but nothing has arrived yet: the row states that
+    /// it is still reading, which is a different fact from "no files".
+    #[test]
+    fn an_in_flight_read_renders_a_loading_row_not_an_empty_list() {
+        let mut files = WorkspaceFileIndex::default();
+        files.mark_available(true);
+        files.begin("files-1");
+        let state = TuiState::default();
+        let index = JumpIndex::from_view(&state.runtime, &files);
+        let row = index
+            .items()
+            .iter()
+            .find(|item| item.kind == JumpKind::File)
+            .expect("file row");
+        assert!(!row.enabled);
+        assert_eq!(
+            row.disabled_reason.as_deref(),
+            Some("Reading the workspace file inventory.")
+        );
+    }
+
+    /// An answered read over an empty workspace says so, and never borrows the
+    /// unavailable-capability sentence.
+    #[test]
+    fn an_empty_inventory_is_stated_as_empty_not_as_unavailable() {
+        let files = loaded_files(&[]);
+        let state = TuiState::default();
+        let index = JumpIndex::from_view(&state.runtime, &files);
+        let row = index
+            .items()
+            .iter()
+            .find(|item| item.kind == JumpKind::File)
+            .expect("file row");
+        assert!(!row.enabled);
+        assert_eq!(
+            row.disabled_reason.as_deref(),
+            Some("Core published an empty workspace file inventory.")
+        );
+    }
+
+    /// Core's rejection is rendered verbatim — a permission denial must reach
+    /// the operator as Core wrote it, never as a locally composed sentence and
+    /// never as an empty list.
+    #[test]
+    fn a_rejected_read_shows_cores_own_reason() {
+        let mut files = WorkspaceFileIndex::default();
+        files.mark_available(true);
+        files.begin("files-1");
+        files.fail("Permission decision: deny (workspace_file_inventory)");
+        let state = TuiState::default();
+        let index = JumpIndex::from_view(&state.runtime, &files);
+        let row = index
+            .items()
+            .iter()
+            .find(|item| item.kind == JumpKind::File)
+            .expect("file row");
+        assert!(!row.enabled);
+        assert_eq!(
+            row.disabled_reason.as_deref(),
+            Some("Permission decision: deny (workspace_file_inventory)")
+        );
+    }
 
     #[test]
     fn index_groups_typed_runtime_facts_in_stable_order_and_keeps_file_unavailable() {
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime);
+        let index = JumpIndex::from_view(&state.runtime, &WorkspaceFileIndex::default());
 
         assert_eq!(
             index

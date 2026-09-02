@@ -15,6 +15,7 @@ mod presentation;
 mod projection;
 mod recent_work;
 mod ui_preferences;
+mod workspace_files;
 
 use std::sync::Mutex;
 use std::thread;
@@ -84,6 +85,10 @@ pub use recent_work::{
 pub use ui_preferences::{
     PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+};
+pub use workspace_files::{
+    WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_PAGE_LIMIT, WorkspaceFileRowProjection,
+    WorkspaceFilesProjection,
 };
 
 struct DesktopState {
@@ -233,6 +238,42 @@ fn recent_work_poll(state: tauri::State<'_, DesktopState>) -> Result<RecentWorkR
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .poll_recent_work(Duration::from_millis(250))
+}
+
+/// Sends one `QueryWorkspaceFiles` and waits briefly for Core's ordered answer.
+///
+/// The read is permission-gated by Core, bounded, and available in Plan mode
+/// because it mutates nothing. The `~` palette scope is its only caller, and it
+/// must never fall back to walking the workspace itself.
+#[tauri::command]
+fn query_workspace_files(
+    command_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceFilesProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .query_workspace_files_and_wait(&command_id, Duration::from_millis(250))
+}
+
+/// Drains ordered Core events for an inventory read still in flight.
+///
+/// A slow Core can leave the send call without its answer; the caller keeps
+/// waiting through this rather than rendering an empty file list.
+#[tauri::command]
+fn workspace_files_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceFilesProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_workspace_files(Duration::from_millis(250))
 }
 
 #[tauri::command]
@@ -684,6 +725,8 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             preferences_poll,
             query_recent_work,
             recent_work_poll,
+            query_workspace_files,
+            workspace_files_poll,
             d11_intake,
             d11_send_intent,
             d11_poll,

@@ -13,7 +13,7 @@ use viden_core::{
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
     RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
     UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
-    WorkspaceOpenRequest,
+    WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery, WorkspaceOpenRequest,
 };
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
@@ -36,6 +36,10 @@ use crate::recent_work::{
 use crate::ui_preferences::{
     PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
+};
+use crate::workspace_files::{
+    WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_PAGE_LIMIT, WorkspaceFileRowProjection,
+    WorkspaceFilesProjection,
 };
 use crate::{
     D6ConnectionState, D6RecoveryProjection, D6State, D11IntakeProjection, PermissionChoice,
@@ -93,6 +97,15 @@ pub struct GuiCoreAdapter {
     /// keeps the receipt's replace/append decision unambiguous and keeps the
     /// screen from paging two lists into one. See [`PendingAuditPage`].
     pending_audit: Option<PendingAuditPage>,
+    /// One inventory read at a time. `WorkspaceFilesLoaded` names the exact
+    /// read it answers, so two reads *could* be told apart, but the palette
+    /// shows one list and a second read would only race the first for it.
+    pending_workspace_files: Option<PendingWorkspaceFiles>,
+    workspace_files_outcome: D1OutcomeProjection,
+    /// What Core published for the inventory reads confirmed so far. Only a
+    /// confirming page fills this, so the palette can never render a path the
+    /// ordered Core stream did not hand it.
+    workspace_files_receipt: WorkspaceFilesReceipt,
     audit_outcome: D1OutcomeProjection,
     /// What Core published for the audit reads confirmed so far. Only a
     /// confirming page fills this, so D14 can never render a record the
@@ -830,6 +843,25 @@ fn audit_object_projection(object: &AuditObjectRef) -> D14AuditObjectProjection 
     }
 }
 
+/// Projects one inventory entry verbatim.
+///
+/// The kind is stringified rather than passed through as a serialized enum so
+/// an unmodeled `WorkspaceFileKind` — the type is `#[non_exhaustive]` — reaches
+/// the frontend as a nameable `"unknown"` instead of being silently rendered
+/// as a file.
+fn workspace_file_row_projection(entry: &WorkspaceFileEntry) -> WorkspaceFileRowProjection {
+    WorkspaceFileRowProjection {
+        path: entry.path.clone(),
+        kind: match entry.kind {
+            WorkspaceFileKind::Dir => "dir",
+            WorkspaceFileKind::File => "file",
+            _ => "unknown",
+        }
+        .to_string(),
+        size_bytes: entry.size_bytes,
+    }
+}
+
 fn audit_row_projection(record: &AuditRecord) -> D14AuditRowProjection {
     let (actor_kind, agent_id) = match &record.actor {
         AuditActor::Operator => ("operator", None),
@@ -893,6 +925,71 @@ enum AuditObservation {
     Continue,
     Confirmed,
     Rejected(String),
+}
+
+/// One in-flight `QueryWorkspaceFiles` awaiting its ordered Core answer.
+struct PendingWorkspaceFiles {
+    command_id: String,
+    /// Whether Core accepted this read yet. Unlike the audit page the id on
+    /// the answer is required, so acceptance is never used to attribute a
+    /// page; it is what attributes the *refusal*, which carries no id.
+    accepted: bool,
+}
+
+/// What Core published across the inventory reads confirmed so far.
+#[derive(Default)]
+struct WorkspaceFilesReceipt {
+    /// Lexicographic by path, exactly as Core delivered.
+    entries: Vec<WorkspaceFileRowProjection>,
+    complete: bool,
+    /// True once one page has actually arrived. Absence and emptiness are
+    /// different facts; see [`WorkspaceFilesProjection::loaded`].
+    loaded: bool,
+}
+
+impl PendingWorkspaceFiles {
+    /// Reconciles one ordered event against this read.
+    ///
+    /// Core answers a `QueryWorkspaceFiles` with `CommandAccepted` then either
+    /// `WorkspaceFilesLoaded` or, when the permission gate refused it, an
+    /// `Error`. The page names the exact command id it answers as a *required*
+    /// field, so a page carrying another reader's id is ignored outright and
+    /// there is no acceptance-gated fallback to guess with — the residual
+    /// limitation `AuditPageLoaded` still documents does not exist here.
+    ///
+    /// A refusal is different: the `Error` event carries no command id, so it
+    /// is attributed to this read only once Core accepted it, and only while
+    /// this is the single outstanding read.
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id
+                && matches!(command, RuntimeCommand::QueryWorkspaceFiles { .. }) =>
+            {
+                self.accepted = true;
+                AuditObservation::Continue
+            }
+            RuntimeEventKind::Error { error } if self.accepted => {
+                AuditObservation::Rejected(error.message.clone())
+            }
+            RuntimeEventKind::WorkspaceFilesLoaded { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
 }
 
 impl PendingAuditPage {
@@ -1169,6 +1266,9 @@ impl GuiCoreAdapter {
             d2_selected: None,
             pending_d2_review: None,
             pending_audit: None,
+            pending_workspace_files: None,
+            workspace_files_outcome: D1OutcomeProjection::idle(),
+            workspace_files_receipt: WorkspaceFilesReceipt::default(),
             audit_outcome: D1OutcomeProjection::idle(),
             audit_receipt: AuditReceipt::default(),
         }
@@ -1459,6 +1559,150 @@ impl GuiCoreAdapter {
                     kind: object.kind.clone(),
                     id: object.id.clone(),
                 }),
+        }
+    }
+
+    /// Whether Core's handshake published the workspace file inventory.
+    ///
+    /// The palette reads this before it renders the `~` scope, so an absent
+    /// capability shows the honest disabled row naming the contract request
+    /// rather than an empty list that reads as "this workspace has no files".
+    pub fn supports_workspace_files(&self) -> bool {
+        self.supports(WORKSPACE_FILES_CAPABILITY)
+    }
+
+    /// Sends one `QueryWorkspaceFiles` for the whole tree and waits for Core.
+    ///
+    /// The palette fuzzy-matches locally over what Core sent, so it asks for
+    /// the inventory rather than a prefix the operator has not typed. The read
+    /// is permission-gated by Core, stays available in Plan mode because it
+    /// mutates nothing, and never blocks on an approval prompt.
+    ///
+    /// A missing capability is not an error: it returns the honest projection
+    /// with `capability_available == false` and sends nothing, so the palette
+    /// keeps the disabled row instead of showing a failed screen.
+    pub fn query_workspace_files_and_wait(
+        &mut self,
+        command_id: &str,
+        event_timeout: Duration,
+    ) -> Result<WorkspaceFilesProjection, String> {
+        if !self.supports_workspace_files() {
+            return Ok(self.d1_workspace_files());
+        }
+        if let Some(pending) = &self.pending_workspace_files {
+            return Err(format!(
+                "workspace files query `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The inventory is the open workspace, not one Lane's
+                // worktree, so the read carries no Lane owner.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::QueryWorkspaceFiles {
+                    query: WorkspaceFilesQuery {
+                        prefix: None,
+                        limit: Some(WORKSPACE_FILES_PAGE_LIMIT),
+                        after: None,
+                    },
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_workspace_files = Some(PendingWorkspaceFiles {
+            command_id: command_id.to_string(),
+            accepted: false,
+        });
+        self.workspace_files_outcome = D1OutcomeProjection::pending();
+        // A fresh read replaces the list. Clearing before the answer keeps a
+        // previous workspace's paths from being read as this one's, and
+        // `loaded` goes back to false so the palette says "loading", never
+        // "no files".
+        self.workspace_files_receipt = WorkspaceFilesReceipt::default();
+        self.poll_workspace_files(event_timeout)
+    }
+
+    /// Drains ordered Core events for an inventory read still in flight.
+    pub fn poll_workspace_files(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<WorkspaceFilesProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_workspace_files(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.d1_workspace_files())
+    }
+
+    /// Reconciles one ordered event against the in-flight inventory read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain can never swallow the only
+    /// page the palette is waiting for.
+    pub(crate) fn observe_pending_workspace_files(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_workspace_files
+            .as_mut()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                self.pending_workspace_files = None;
+                self.workspace_files_outcome = D1OutcomeProjection::confirmed();
+                // The confirming page is the authority for the rows; nothing is
+                // re-ordered, re-sorted, or recomputed on this side.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::WorkspaceFilesLoaded { page, .. } = &known.kind
+                {
+                    self.workspace_files_receipt.entries = page
+                        .entries
+                        .iter()
+                        .map(workspace_file_row_projection)
+                        .collect();
+                    self.workspace_files_receipt.complete = page.complete;
+                    self.workspace_files_receipt.loaded = true;
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                self.pending_workspace_files = None;
+                self.workspace_files_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
+    }
+
+    /// The palette file scope's current projection, with no Core traffic.
+    pub fn d1_workspace_files(&self) -> WorkspaceFilesProjection {
+        WorkspaceFilesProjection {
+            outcome: self.workspace_files_outcome.clone(),
+            entries: self.workspace_files_receipt.entries.clone(),
+            complete: self.workspace_files_receipt.complete,
+            loaded: self.workspace_files_receipt.loaded,
+            pending_command_id: self
+                .pending_workspace_files
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_workspace_files(),
         }
     }
 
@@ -3280,6 +3524,7 @@ impl GuiCoreAdapter {
             self.observe_pending_preference(&event);
             self.observe_pending_recent_work(&event);
             self.observe_pending_audit(&event);
+            self.observe_pending_workspace_files(&event);
             self.observe_pending(&event);
             self.observe_pending_d12(&event);
             self.observe_d4(&event);

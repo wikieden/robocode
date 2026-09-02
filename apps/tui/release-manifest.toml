@@ -50,6 +50,7 @@ capabilities = [
   "runtime.starter_lane_preview",
   "runtime.trust_loop",
   "runtime.workspace_eligibility",
+  "runtime.workspace_files",
   "ui.preference_persistence",
 ]
 

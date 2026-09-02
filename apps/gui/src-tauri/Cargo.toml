@@ -136,3 +136,7 @@ path = "../tests/preferences.rs"
 [[test]]
 name = "recent_work"
 path = "../tests/recent_work.rs"
+
+[[test]]
+name = "workspace_files"
+path = "../tests/workspace_files.rs"
