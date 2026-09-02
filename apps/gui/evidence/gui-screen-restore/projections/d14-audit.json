@@ -7,6 +7,8 @@
     {
       "auditId": "audit-gate-decided",
       "timestamp": 1700000900,
+      "projectId": "project-boss-rush",
+      "laneId": "lane-3",
       "actorKind": "operator",
       "agentId": null,
       "action": "gate.decided",
@@ -31,6 +33,8 @@
     {
       "auditId": "audit-review-decided",
       "timestamp": 1700000800,
+      "projectId": "project-boss-rush",
+      "laneId": "lane-3",
       "actorKind": "operator",
       "agentId": null,
       "action": "review.decided",
@@ -55,6 +59,8 @@
     {
       "auditId": "audit-evidence-rejected",
       "timestamp": 1700000700,
+      "projectId": "project-boss-rush",
+      "laneId": "lane-3",
       "actorKind": "agent",
       "agentId": "codex-acp",
       "action": "evidence.rejected",

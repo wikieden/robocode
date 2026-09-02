@@ -82,6 +82,13 @@ pub struct D10EvidenceProjection {
     pub summary: String,
 }
 
+/// Page size for the D10 event ticker.
+///
+/// Core clamps to `1..=MAX_AUDIT_PAGE_SIZE`, so this is a readability choice,
+/// not a protocol bound: the ticker is an ambient strip of recent activity, not
+/// a browsable history — D14 is where an operator pages the full timeline.
+pub const D10_EVENT_TICKER_LIMIT: u32 = 50;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D10LaneMonitorProjection {

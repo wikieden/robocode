@@ -189,3 +189,64 @@
   color: var(--fg-muted);
   font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
 }
+
+/* Event ticker (GUI-CORE-014): one bounded newest-first page of Core's audit
+   timeline. Ambient content — the rows carry no action, so nothing here is
+   focusable or hoverable as a control. */
+.d10-ticker {
+  border-top: 1px solid var(--border-soft);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.d10-thead {
+  margin: 0 0 var(--sp-2);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.d10-tlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* Fixed columns so the dotted action keys line up and the timeline stays
+   scannable; the owner column takes the slack. */
+.d10-trow {
+  display: grid;
+  grid-template-columns: 9ch minmax(16ch, 24ch) 1fr 8ch;
+  gap: var(--sp-3);
+  align-items: baseline;
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d10-ttime {
+  color: var(--fg-muted);
+}
+
+/* Core's stable dotted key, rendered raw. */
+.d10-tkind {
+  color: var(--fg-default);
+}
+
+.d10-towner {
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d10-toutcome {
+  color: var(--fg-muted);
+  text-align: right;
+}
+
+.d10-toutcome[data-d10-outcome="denied"],
+.d10-toutcome[data-d10-outcome="failed"] {
+  color: var(--warning);
+}

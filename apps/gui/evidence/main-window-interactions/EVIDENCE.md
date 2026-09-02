@@ -107,6 +107,8 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d14-raw-fallback` | `capabilityAvailable` cleared with no rows and an idle outcome — absence, not emptiness | `audit_mode_is_unavailable_and_sends_nothing_without_the_core_capability` in `tests/d14_audit_trail.rs` |
 | `d11`, `d11-recent` | the shared two-project `RecentWorkResult` handed to the screen's recent-work port | the loaded-rows fixture in `tests/d11_intake.spec.ts` |
 | `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
+| `palette`, `palette-files` | six real Viden paths in Core's lexicographic order with fixed byte sizes, handed to `loadPaletteFiles` | the loaded-inventory fixture in `tests/command_palette.spec.ts` and the page shape asserted in `tests/workspace_files.rs` |
+| `d10-ticker` | one four-record audit page over two interleaved projects, applied through the screen's own `applyEvents` | the canonical `audit-ordering.json` fixture and `audit_ordering_fixture_orders_two_projects_as_one_newest_first_timeline` in `crates/core/tests/frontend_contract_v1.rs` |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | a two-project `RecentWorkResult` whose timestamps are offsets from the frozen clock, so the rendered ages are stable. The open root is included on purpose — the picker must drop it from Recent rather than offer a switch to the project already open | the `RecentWorkLoaded` payloads asserted in `tests/recent_work.rs` |
 
 The shared D1 fixture's `topbarSource.project` now carries `viden` rather than
@@ -137,7 +139,9 @@ All URLs share the prefix
 | `d1` | `…/qa.html?state=d1` | the full cockpit; the titlebar project selector with its branch and dirty marker beside the `↑/↓` and worktree chips; all nine statusbar segments carrying a fact plus the pending-gate chip; the three composer selector pills |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | the work-mode popover open over the composer, with the current mode marked selected |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | the model popover open, showing both the provider group and the adapter group Core published |
-| `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the permanently disabled Files row naming `GUI-CORE-022` |
+| `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the Files section listing the workspace inventory Core published |
+| `palette-files` | `…/qa.html?state=palette-files` | the same palette pre-scoped to `~`, framing the Core-published inventory alone: six paths in Core's lexicographic order, each with the entry kind Core reported and no path the client discovered itself (`GUI-CORE-022`) |
+| `d10-ticker` | `…/qa.html?state=d10-ticker` | the D10 event ticker under the lane cards: one bounded newest-first page of Core's audit timeline, with two projects interleaved so the strip shows one order across projects rather than a per-project list, each row carrying Core's stable id, raw dotted action key, owner, and timestamp (`GUI-CORE-014`) |
 | `lane-rail` | `…/qa.html?state=lane-rail` | the rail pinned open (it auto-hides), showing the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
@@ -287,3 +291,33 @@ disagree about one fact. The ISO value stays on the `<time datetime>` attribute
 for machine reading. Raw replay mode deliberately keeps its epoch readout — its
 `d14-raw-fallback` capture came back byte-identical after this change, which is
 the proof that the diagnostic mode's presentation was not touched.
+
+## Workspace inventory and event ticker captures
+
+Captured 2026-09-02 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4188, then
+visually reviewed (all four sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [palette-files-1440x900-dark-en.png](palette-files-1440x900-dark-en.png) | palette-files | 1440x900 | dark | en |
+| [palette-files-1440x900-light-zh-CN.png](palette-files-1440x900-light-zh-CN.png) | palette-files | 1440x900 | light | zh-CN |
+| [d10-ticker-1440x900-dark-en.png](d10-ticker-1440x900-dark-en.png) | d10-ticker | 1440x900 | dark | en |
+| [d10-ticker-1440x900-light-zh-CN.png](d10-ticker-1440x900-light-zh-CN.png) | d10-ticker | 1440x900 | light | zh-CN |
+
+These close `GUI-CORE-022` and `GUI-CORE-014` visually. The `palette-files`
+captures replace the permanently disabled Files row with the inventory Core
+published, in Core's own lexicographic order and with the entry kind Core
+reported beside each path; no path in either image was discovered by the
+client. The `d10-ticker` captures replace the `d10.events.noOrderedLog`
+unavailable note with the audit timeline, and their two interleaved projects
+are the visual form of the property `audit-ordering.json` proves.
+
+The light/`zh-CN` captures are the locale split for both surfaces, and it is
+the same split D14 already documents: the section headings, the entry-kind
+column, and the ticker heading translate, while every Core value stays exactly
+as Core published it — the workspace-relative paths, and the ticker's stable
+audit ids and dotted `action` keys. Localizing an action vocabulary would
+destroy the property that makes two timelines diffable, and localizing a path
+would make it un-openable.

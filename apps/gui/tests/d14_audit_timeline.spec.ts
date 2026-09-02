@@ -119,6 +119,8 @@ const AUDIT: D14AuditProjection = {
     {
       auditId: "audit-2",
       timestamp: 1_700_000_600,
+      projectId: "project-viden",
+      laneId: null,
       actorKind: "operator",
       agentId: null,
       action: "gate.decided",
@@ -132,6 +134,8 @@ const AUDIT: D14AuditProjection = {
     {
       auditId: "audit-1",
       timestamp: 1_700_000_500,
+      projectId: "project-viden",
+      laneId: null,
       actorKind: "agent",
       agentId: "codex-acp",
       action: "change.reverted",
@@ -231,6 +235,8 @@ describe("D14 dual mode", () => {
         {
           auditId: "audit-0",
           timestamp: 1_700_000_100,
+          projectId: "project-viden",
+          laneId: null,
           actorKind: "system",
           agentId: null,
           action: "handoff.created",

@@ -51,6 +51,8 @@ export function createTauriCoreClient(): CoreClient {
     d2SendIntent: (commandId, intent) => invoke("d2_send_intent", { commandId, intent }),
 
     d10LaneMonitor: () => invoke("d10_lane_monitor"),
+    d10Events: (commandId) => invoke("d10_events", { commandId }),
+    d10EventsPoll: () => invoke("d10_events_poll"),
     d12IntegrationGate: (selectedGateId) => invoke("d12_integration_gate", { selectedGateId }),
     d12SendIntent: (commandId, intent) => invoke("d12_send_intent", { commandId, intent }),
     d13FleetWorkflow: () => invoke("d13_fleet_workflow"),

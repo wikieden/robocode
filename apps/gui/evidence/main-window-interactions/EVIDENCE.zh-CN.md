@@ -94,6 +94,8 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `d14-audit-scoped` | 仅把 `scope` 设为 `revert:revert-1` 对象；行仍是生成页面本身，因为截图不得为过滤器编造记录 | `tests/d14_audit_trail.rs` 的 `a_scoped_query_passes_the_exact_object_through_and_reports_the_scope` |
 | `d14-raw-fallback` | 清空 `capabilityAvailable`，行为空且 outcome 为 idle —— 表达「缺失」而非「为空」 | `tests/d14_audit_trail.rs` 的 `audit_mode_is_unavailable_and_sends_nothing_without_the_core_capability` |
 | `palette` | 交给 `loadPaletteCrossLane` 的一条跨 Lane 合并闸与一条询问 | `tests/d12_integration_gate.spec.ts` 的闸 fixture，以及 D1 fixture 本就带的那条 `liveWork.approvals` |
+| `palette`、`palette-files` | 交给 `loadPaletteFiles` 的六条真实 Viden 路径，按 Core 的字典序排列，字节大小固定 | `tests/command_palette.spec.ts` 的已加载清单 fixture，以及 `tests/workspace_files.rs` 断言的 page 形状 |
+| `d10-ticker` | 一页四条、横跨两个交错项目的 audit 记录，经屏幕自己的 `applyEvents` 应用 | 规范 fixture `audit-ordering.json` 与 `crates/core/tests/frontend_contract_v1.rs` 中的 `audit_ordering_fixture_orders_two_projects_as_one_newest_first_timeline` |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 一份两项目的 `RecentWorkResult`，时间戳是相对冻结时钟的偏移，因此渲染出的相对时间稳定。当前打开的根目录被刻意包含在内——选择器必须把它从「最近」中剔除，而不是提供切换到已经打开的项目 | `tests/recent_work.rs` 断言的 `RecentWorkLoaded` 载荷 |
 
 共享 D1 fixture 的 `topbarSource.project` 现在携带 `viden` 而不是 `null`。这是 Core
@@ -138,7 +140,9 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d14-audit` | `…/qa.html?state=d14-audit` | 模式切换里「审计轨迹」按下，旁边是「原始事件回放（诊断）」；三条 newest-first 审计行，每行显示 Core 原始的点分 `action` key、actor（agent 行带 `codex-acp`）、outcome（`denied` 与 `success` 明显区分）、关联对象 chip、有界参数 chip，以及明确标出时区的可读时间 `YYYY-MM-DD HH:MM:SS UTC`；Core 页面未完，因此显示加载更早控件 |
 | `d14-audit-scoped` | `…/qa.html?state=d14-audit-scoped` | D12 回滚行打开的同一条轨迹：头部带可移除的 `Scoped to revert · revert-1` chip，移除后重新发起无范围查询 |
 | `d14-raw-fallback` | `…/qa.html?state=d14-raw-fallback` | 缺少 `runtime.audit` 的 Core：原始模式按下、审计按钮禁用、说明点名该 capability，下方是回放行，其中无法解码的行被保留并高亮 |
-| `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及点名 `GUI-CORE-022` 的永久禁用「文件」行 |
+| `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
+| `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
+| `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
 | `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | 同一选择器在点击最近项目后进入内联确认：目标根目录、点名 `GUI-CORE-023` 的替换说明、正在运行的工作计数，以及「取消」与「切换工作区」两个按钮 |
@@ -254,3 +258,28 @@ light/`zh-CN` 截图是语言与皮肤验证：模式切换、屏幕标题、加
 随语言漂移的时钟会让两位读者对同一事实产生分歧。ISO 值保留在 `<time datetime>` 属性上
 供机器读取。原始回放模式刻意保留 epoch 读数：本次改动后其 `d14-raw-fallback` 截图
 逐字节不变，这正是诊断模式呈现未被改动的证明。
+
+## 工作区清单与事件走马灯截图
+
+2026-09-02 以 headless Chrome
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`）对 4188 端口上的 vite dev server 采集，并逐张目视复核
+（四张全部复核）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [palette-files-1440x900-dark-en.png](palette-files-1440x900-dark-en.png) | palette-files | 1440x900 | dark | en |
+| [palette-files-1440x900-light-zh-CN.png](palette-files-1440x900-light-zh-CN.png) | palette-files | 1440x900 | light | zh-CN |
+| [d10-ticker-1440x900-dark-en.png](d10-ticker-1440x900-dark-en.png) | d10-ticker | 1440x900 | dark | en |
+| [d10-ticker-1440x900-light-zh-CN.png](d10-ticker-1440x900-light-zh-CN.png) | d10-ticker | 1440x900 | light | zh-CN |
+
+这四张在视觉上关闭 `GUI-CORE-022` 与 `GUI-CORE-014`。`palette-files` 截图把原先永久
+禁用的「文件」行换成了 Core 发布的清单，按 Core 自己的字典序排列，每条路径旁是 Core
+报告的条目类型；两张图里没有任何一条路径是客户端自行发现的。`d10-ticker` 截图把
+`d10.events.noOrderedLog` 那条不可用提示换成了审计时间线，其中两个交错的项目正是
+`audit-ordering.json` 所证明性质的可视形态。
+
+light/`zh-CN` 截图是这两个界面的语言划分，且与 D14 已记录的划分一致：分区标题、条目
+类型列与走马灯标题会翻译，而每个 Core 值都保持 Core 发布时的原样——工作区相对路径，
+以及走马灯的稳定 audit id 与点分 `action` key。把动作词汇表本地化会毁掉两份时间线
+可互相 diff 这一性质，把路径本地化则会让它无法被打开。

@@ -48,8 +48,8 @@ pub use d6::{
     D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6RecoveryProjection, D6State,
 };
 pub use d10::{
-    D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
-    D10RunStatsProjection,
+    D10_EVENT_TICKER_LIMIT, D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection,
+    D10LaneProjection, D10RunStatsProjection,
 };
 pub use d12::{
     D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
@@ -583,6 +583,37 @@ fn agent_content(
     agent_content::agent_content_data_url(Path::new(&root), &reference)
 }
 
+/// Reads the D10 event ticker from the Core audit timeline.
+///
+/// GUI-CORE-014: one bounded newest-first page over the whole workspace,
+/// ordered by Core across projects. The screen never rebuilds a timeline by
+/// diffing successive snapshots.
+#[tauri::command]
+fn d10_events(
+    command_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D14AuditProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d10_events_and_wait(&command_id, Duration::from_millis(250))
+}
+
+/// Drains ordered Core events for a D10 ticker read still in flight.
+#[tauri::command]
+fn d10_events_poll(state: tauri::State<'_, DesktopState>) -> Result<D14AuditProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_audit(Duration::from_millis(250))
+}
+
 #[tauri::command]
 fn d12_integration_gate(
     selected_gate_id: Option<String>,
@@ -744,6 +775,8 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d2_decisions,
             d2_send_intent,
             d10_lane_monitor,
+            d10_events,
+            d10_events_poll,
             d12_integration_gate,
             d12_send_intent,
             d13_fleet_workflow,

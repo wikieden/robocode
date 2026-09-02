@@ -1,4 +1,5 @@
 import type { Locale } from "../i18n/catalog";
+import type { D14AuditRow } from "./d14_audit_timeline";
 import "./d10_lane_monitor.css";
 
 /// D10 Lane monitor.
@@ -67,8 +68,28 @@ export interface D10LaneMonitorProjection {
   unavailable: D10Unavailable[];
 }
 
+/**
+ * The D10 event ticker, read from the Core audit timeline (GUI-CORE-014).
+ *
+ * Shape-compatible with `D14AuditProjection`, because D10 and D14 are two views
+ * of one Core timeline: `QueryAudit` -> `AuditPageLoaded`. One bounded
+ * newest-first page over the whole workspace, ordered by Core across projects
+ * (the `audit-ordering` fixture is the canonical proof). The screen never
+ * rebuilds a timeline by diffing successive snapshots.
+ *
+ * `capabilityAvailable`, `loaded`, and an empty `rows` are three different
+ * facts and each gets its own line.
+ */
+export interface D10Events {
+  rows: D14AuditRow[];
+  loaded: boolean;
+  capabilityAvailable: boolean;
+  outcome: { state: string; reason: string | null };
+}
+
 export interface D10Controller {
   applyProjection: (projection: D10LaneMonitorProjection) => void;
+  applyEvents: (events: D10Events) => void;
 }
 
 type Copy = Record<string, string>;
@@ -104,8 +125,10 @@ const COPY: Record<Locale, Copy> = {
     gate_full: "full gate · per-call interception",
     gate_cooperative: "cooperative · advisory plus worktree fence",
     gate_containment: "containment · worktree fence and exit diff only",
-    "d10.events.noOrderedLog":
-      "Core publishes no ordered event log in the view state, so the event stream is unavailable.",
+    events: "Event stream",
+    eventsPending: "Reading the Core audit timeline\u2026",
+    eventsEmpty: "Core published no audited event yet.",
+    eventsUnavailable: "Core publishes no audit timeline, so the event stream is unavailable.",
   },
   "zh-CN": {
     title: "Lane 监视器",
@@ -128,7 +151,10 @@ const COPY: Record<Locale, Copy> = {
     gate_full: "强门控 · 逐调用拦截",
     gate_cooperative: "半合作 · 建议性 + worktree 兜底",
     gate_containment: "围栏兜底 · 仅 worktree + 退出 diff",
-    "d10.events.noOrderedLog": "Core 在视图状态中不发布有序事件日志，事件流不可用。",
+    events: "事件流",
+    eventsPending: "正在读取 Core 审计时间线…",
+    eventsEmpty: "Core 尚未发布任何审计事件。",
+    eventsUnavailable: "Core 未发布审计时间线，事件流不可用。",
   },
 };
 
@@ -141,8 +167,10 @@ export function renderD10LaneMonitor(
   initial: D10LaneMonitorProjection,
   locale: Locale,
   openDecisionCenter?: () => void,
+  initialEvents: D10Events | null = null,
 ): D10Controller {
   let projection = initial;
+  let events = initialEvents;
   let filter = "all";
   const copy = COPY[locale];
 
@@ -266,6 +294,84 @@ export function renderD10LaneMonitor(
     return card;
   };
 
+  /**
+   * The ambient event ticker: one bounded newest-first page of the Core audit
+   * timeline, rendered exactly as Core delivered it.
+   *
+   * Every row carries the stable audit id, Core's dotted action key (never
+   * localized), the owning project and Lane, and the timestamp — the four
+   * facts GUI-CORE-014's close criteria name. Rows carry no action: this is
+   * ambient content, and the Decision Center owns the actionable queue.
+   */
+  const ticker = (): HTMLElement => {
+    const section = document.createElement("section");
+    section.className = "d10-ticker";
+    section.dataset.d10Ticker = "true";
+    const heading = document.createElement("h3");
+    heading.className = "d10-thead";
+    heading.textContent = copy.events;
+    section.append(heading);
+
+    const note = (text: string, state: string): HTMLElement => {
+      const line = document.createElement("p");
+      line.className = "d10-muted";
+      line.dataset.d10TickerState = state;
+      line.textContent = text;
+      return line;
+    };
+    if (!events || !events.capabilityAvailable) {
+      section.append(note(copy.eventsUnavailable, "unavailable"));
+      return section;
+    }
+    if (events.outcome.state === "rejected") {
+      // Core's own words for the refusal, never a client paraphrase.
+      section.append(note(events.outcome.reason ?? copy.eventsUnavailable, "rejected"));
+      return section;
+    }
+    if (!events.loaded) {
+      section.append(note(copy.eventsPending, "pending"));
+      return section;
+    }
+    if (events.rows.length === 0) {
+      section.append(note(copy.eventsEmpty, "empty"));
+      return section;
+    }
+    const list = document.createElement("ol");
+    list.className = "d10-tlist";
+    for (const row of events.rows) {
+      const item = document.createElement("li");
+      item.className = "d10-trow";
+      item.dataset.d10Event = row.auditId;
+      item.dataset.d10EventProject = row.projectId;
+
+      const when = document.createElement("span");
+      when.className = "d10-ttime";
+      // Core's unix seconds, rendered in the viewer's locale. The ordering is
+      // Core's; the client only formats.
+      when.textContent = new Date(row.timestamp * 1000).toISOString().slice(11, 19);
+
+      const kind = document.createElement("span");
+      kind.className = "d10-tkind";
+      // Core's stable dotted key, raw. Localizing it would make the timeline
+      // undiffable across languages.
+      kind.textContent = row.action;
+
+      const owner = document.createElement("span");
+      owner.className = "d10-towner";
+      owner.textContent = row.laneId ?? row.projectId ?? copy.unbound;
+
+      const outcome = document.createElement("span");
+      outcome.className = "d10-toutcome";
+      outcome.dataset.d10Outcome = row.outcome;
+      outcome.textContent = row.outcome;
+
+      item.append(when, kind, owner, outcome);
+      list.append(item);
+    }
+    section.append(list);
+    return section;
+  };
+
   const render = (): void => {
     const stage = document.createElement("section");
     stage.className = "d10-stage";
@@ -322,6 +428,8 @@ export function renderD10LaneMonitor(
     for (const lane of shown) grid.append(laneCard(lane));
     stage.append(grid);
 
+    stage.append(ticker());
+
     for (const entry of projection.unavailable) {
       const note = document.createElement("p");
       note.className = "d10-unavailable";
@@ -337,6 +445,10 @@ export function renderD10LaneMonitor(
   return {
     applyProjection: (next) => {
       projection = next;
+      render();
+    },
+    applyEvents: (next) => {
+      events = next;
       render();
     },
   };

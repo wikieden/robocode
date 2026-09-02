@@ -116,7 +116,7 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 | D1 驾驶舱 | 无项目欢迎中心、零 Lane 项目驾驶舱、activity/lane rails、streaming transcript/tool rows、Environment、Live Work、composer、evidence/context/cost facts | stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences/recent-work facts 已有；diff/apply、稳定 audit timeline、可操作 Lane recovery 与并发多工作区托管尚不完整 | 未绑定 host 才显示 Welcome；已绑定空项目仍留在 D1 并提供“新建 Lane”；Lane 侧栏把 Lane 收拢在 Core 托管的那一个项目分组下（`GUI-CORE-023`）；实时工作从 `RuntimeViewState` 渲染 |
 | Permission dock | scoped approve/deny、risk、target、expiry、default action、audit id | `ApprovalRequestView` 和 `RespondToApproval` 已有 | 可经 Core 使用；GUI 不得直接执行 tool |
 | D2 决策中心 | 跨 Lane 的统一决策队列：闸审批、lane 问询、契约确认共用「上下文 / 证据 / 动作栏」一套卡片骨架 | `pending_approvals` + `RespondToApproval`、`review_requests` + `DecideReview`、`contracts` + `ConfirmContract` 已有；审批的结构化 diff 与待确认契约事实缺失 | 入口 `?screen=d2`；闸、契约与评审决定都发出 Core 命令，评审裁决可携带可选评审意见，且只由 Core 发布的有序 `ReviewRequestUpdated` 确认；Core 会拒绝的评审保持禁用并标注 `D2-REVIEW-SETTLED` 或 `D2-NO-REVIEWER-ACTOR`，审批 diff 以 `GUI-CORE-012` 声明不可用，契约分组以 `GUI-CORE-013` 标注为已决历史 |
-| D10 Lane 监视器 | 跨项目每条 Lane 一张卡：门控强度、状态、进度、证据、成本可计量性与「等你」计数 | `lanes`、`lane_runtime_owners`、`tasks`、`agent_sessions`、`latest_evidence`、`AgentLaneRecord.run_stats` 已有；视图状态没有有序事件日志 | 入口 `?screen=d10`；只读，门控强度取自 `AgentLaneRecord.gate_strength` 而非 agent 标签，未绑定 Lane 不显示项目，无 Core 任务的 Lane 不显示进度；成本不可计量路由（`AgentRoute::cost_meterability`）会被标记，并展示 Core 记录的有界运行事实而非推断成本——Core 未观测到运行时该组事实缺席而不是补零，退出码缺失时明确标为未知；事件流以 `GUI-CORE-014` 声明不可用 |
+| D10 Lane 监视器 | 跨项目每条 Lane 一张卡：门控强度、状态、进度、证据、成本可计量性与「等你」计数 | `lanes`、`lane_runtime_owners`、`tasks`、`agent_sessions`、`latest_evidence`、`AgentLaneRecord.run_stats` 已有；有序历史来自审计时间线而非视图状态 | 入口 `?screen=d10`；只读，门控强度取自 `AgentLaneRecord.gate_strength` 而非 agent 标签，未绑定 Lane 不显示项目，无 Core 任务的 Lane 不显示进度；成本不可计量路由（`AgentRoute::cost_meterability`）会被标记，并展示 Core 记录的有界运行事实而非推断成本——Core 未观测到运行时该组事实缺席而不是补零，退出码缺失时明确标为未知；事件流是 Core 追加式审计时间线（`QueryAudit` -> `AuditPageLoaded`，limit 50，不加作用域以覆盖每个项目）的一页有界 newest-first 记录，逐行渲染稳定 id、原样的点分 action key、所属项目与 Lane、以及时间戳；缺少 `runtime.audit`、读取中、被拒绝、已回答但为空，保持四条不同的文案 |
 | D12 集成闸 | 冲突横幅、闸策略、退回原 Lane 的恢复时间线、合入后回滚，且不提供手动 merge | `merge_gates`、`conflict_bounces`、`reverts`、`check_runs`、`AcceptMergeGate`、`RejectMergeGate` 已有；不发布结构化冲突内容 | 入口 `?screen=d12`；`批准并合入` 与 `退回原 Lane` 各自发送对应 Core command，只有满足 `decide_merge_gate` 实际执行的规则时才开放，否则标注阻塞代码；时间线与回滚按选中闸限定，冲突 hunk 以 `GUI-CORE-015` 声明不可用 |
 | D14 审计与时间线 | 谁在什么对象上做了什么、结果如何，另加一份用于诊断的原始有序事件日志 | `runtime.audit` 之下的 `RuntimeCommand::QueryAudit` -> `AuditPageLoaded` 已有，`CoreClient::replay` 的 `ReplayRequest`/`ReplayBatch` 与 `EventCursor` 也已有；`AuditPageLoaded` 不携带 command id、`AuditQuery` 没有 actor 与时间过滤（`GUI-CORE-024`），视图状态没有事件日志（`GUI-CORE-014`） | 入口 `?screen=d14`，并可从 D2 决策详情与 D12 回滚行按 Core 实际关联的审计对象带范围进入。两种模式：**审计**（默认）以 newest-first 分页读取 Core 的追加式审计存储，采用 acceptance-first 关联（页面只有在 Core 接受了本次确切 `command_id` 之后才被采纳，本地拒绝第二个并发读取，行只来自确认页），点分 `action` key 原样渲染——它是 Core 稳定且可 diff 的词汇表，本构建无法命名的 actor 或 outcome 标为 `unknown` 而不是借用已知值，每条记录的时间在所有语言下都按固定的 `YYYY-MM-DD HH:MM:SS UTC` 时钟渲染——审计记录是要跨机器比对的证据；**原始事件回放（诊断）** 保留回放 cursor 日志，行标签用 Core 自己的 serde 判别名，无法解码的事件仍占一行，回放失败显式提示而不是给出更短但看起来完整的轨迹。缺少 `runtime.audit` 时 D14 直接以原始模式打开、点名该 capability，并且零发送审计命令。设计稿的过滤 chip、按天分组、详情侧栏、汇总与导出未实现；其中需要 Core 的部分记为 `GUI-CORE-024` |
 | D13 Fleet 编排与 Workflow | 每个 workflow DAG 一块看板：声明的依赖边、节点运行状态、阻塞原因与 Lane 交接 | `agent_dags`（含 `AgentDagTaskSpec`）、`tasks`、`dependencies`、`handoffs` 已有 | 入口 `?screen=d13`；只读，依赖边取自任务规格自身的 dependencies，节点只有在 Core 真正跑该任务时才显示状态，阻塞只来自 Core 的 `DependencyState::Blocked` 记录，交接绝不由依赖边推导 |
@@ -377,8 +377,12 @@ Core 一次只托管**一个**工作区。`LocalCoreHost::open_workspace` 每次
 跨 Lane 的闸与询问不在按 Lane 作用域的 D1 投影里，因此打开面板时由外壳读取
 `d2_decisions` 与 `d12_integration_gate`——这两个投影本就存在。读取是预取的，
 所以 `#` 一敲下去就有答案；也是 fail-soft 的：读取被拒时只把那一个分区降级为一条
-携带 Core 原话的提示，Lane、会话与动作照常可用。「文件」分区是恰好一行、点名
-`GUI-CORE-022`（没有工作区文件清单）的永久禁用行，与 TUI 自己的禁用行一致。
+携带 Core 原话的提示，Lane、会话与动作照常可用。「文件」分区列出 Core 发布的
+工作区清单（`runtime.workspace_files` 之下的 `QueryWorkspaceFiles` ->
+`WorkspaceFilesLoaded`，GUI-CORE-022），以同样预取且 fail-soft 的方式读取，并按 Core
+自己的字典序渲染。客户端不遍历任何东西。缺少该 capability 的 Core 会保留点名该请求的
+永久禁用行且零命令发送；读取中、携带 Core 原话的拒绝、以及已回答但工作区为空，各自
+占一行，因此空列表绝不会顶替其中任何一种。TUI 的 jump 索引对这四种情况一一对应。
 
 ### 与 TUI 的按键分歧
 

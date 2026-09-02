@@ -22,6 +22,7 @@ use crate::d1::{
     D1OutcomeProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
+use crate::d10::D10_EVENT_TICKER_LIMIT;
 use crate::d14::{
     AUDIT_CAPABILITY, D14_AUDIT_PAGE_LIMIT, D14AuditArgProjection, D14AuditObjectProjection,
     D14AuditProjection, D14AuditRowProjection, D14AuditScopeInput, D14AuditScopeProjection,
@@ -873,6 +874,11 @@ fn audit_row_projection(record: &AuditRecord) -> D14AuditRowProjection {
     };
     D14AuditRowProjection {
         audit_id: record.audit_id.clone(),
+        // The record's own owner, verbatim. D10's cross-project ticker needs
+        // it to name which project an event came from, and no client may
+        // infer a project from ordering or from the objects a record links.
+        project_id: record.owner.project_id.clone(),
+        lane_id: record.owner.lane_id.clone(),
         timestamp: record.timestamp,
         actor_kind: actor_kind.to_string(),
         agent_id,
@@ -1387,7 +1393,14 @@ impl GuiCoreAdapter {
         event_timeout: Duration,
     ) -> Result<D14AuditProjection, String> {
         let scope = scope.map(|scope| AuditObjectRef::new(scope.kind, scope.id));
-        self.send_audit_query(command_id, scope, None, false, event_timeout)
+        self.send_audit_query(
+            command_id,
+            scope,
+            None,
+            false,
+            D14_AUDIT_PAGE_LIMIT,
+            event_timeout,
+        )
     }
 
     /// Sends one `QueryAudit` for the page older than Core's own cursor.
@@ -1405,7 +1418,41 @@ impl GuiCoreAdapter {
             .clone()
             .ok_or_else(|| "Core published no older audit cursor".to_string())?;
         let scope = self.audit_receipt.scope.clone();
-        self.send_audit_query(command_id, scope, Some(before), true, event_timeout)
+        self.send_audit_query(
+            command_id,
+            scope,
+            Some(before),
+            true,
+            D14_AUDIT_PAGE_LIMIT,
+            event_timeout,
+        )
+    }
+
+    /// Reads the D10 event ticker from the same audit contract D14 uses.
+    ///
+    /// GUI-CORE-014. The ticker is one bounded newest-first page over the whole
+    /// workspace: unscoped, so it spans every project, and ordered by Core on
+    /// `(timestamp, audit_id)` — the `audit-ordering` fixture is the canonical
+    /// proof that this order is total across projects rather than per project.
+    /// The client never rebuilds a timeline by diffing successive snapshots,
+    /// which is what this request forbade.
+    ///
+    /// It shares the single audit slot deliberately: D10 and D14 are two views
+    /// of one Core timeline, and only one of them is mounted at a time, so a
+    /// second slot would buy nothing but a way to page two lists into one.
+    pub fn d10_events_and_wait(
+        &mut self,
+        command_id: &str,
+        event_timeout: Duration,
+    ) -> Result<D14AuditProjection, String> {
+        self.send_audit_query(
+            command_id,
+            None,
+            None,
+            false,
+            D10_EVENT_TICKER_LIMIT,
+            event_timeout,
+        )
     }
 
     fn send_audit_query(
@@ -1414,6 +1461,7 @@ impl GuiCoreAdapter {
         scope: Option<AuditObjectRef>,
         before: Option<AuditCursor>,
         older: bool,
+        limit: u32,
         event_timeout: Duration,
     ) -> Result<D14AuditProjection, String> {
         if !self.supports_audit() {
@@ -1437,7 +1485,7 @@ impl GuiCoreAdapter {
                     query: AuditQuery {
                         object: scope.clone(),
                         before,
-                        limit: D14_AUDIT_PAGE_LIMIT,
+                        limit,
                         // Core's actor and time filters exist, but D14 ships no
                         // filter chips yet, so the host never sends a filter the
                         // operator did not choose.

@@ -896,12 +896,12 @@ impl RuntimeProjection {
             total_projects: projects.len(),
             awaiting_total: lanes.iter().filter(|lane| lane.awaits_human).count(),
             lanes,
-            // The design shows a scribe-compiled event ticker; schema 1
-            // publishes no ordered event log in the view state.
-            unavailable: vec![D2UnavailableProjection {
-                key: "d10.events.noOrderedLog",
-                code: "GUI-CORE-014",
-            }],
+            // The design's scribe-compiled event ticker is read from the
+            // append-only audit timeline (`QueryAudit` -> `AuditPageLoaded`),
+            // not from view state, so it is not projected here and is no
+            // longer declared unavailable (GUI-CORE-014). Nothing else in D10
+            // is missing a Core fact.
+            unavailable: Vec::new(),
         })
     }
 

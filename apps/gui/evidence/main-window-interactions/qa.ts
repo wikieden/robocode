@@ -36,6 +36,7 @@ import "../../src/ui/tokens.css";
 import "../../src/ui/theme.css";
 import "../../src/ui/window_chrome.css";
 
+import type { PaletteWorkspaceFiles } from "../../src/components/command_palette";
 import type { Locale } from "../../src/i18n/catalog";
 import type { ComposerControlIntent } from "../../src/models/composer";
 import type { RecentWorkResult } from "../../src/models/recent_work";
@@ -240,6 +241,8 @@ interface CockpitOptions {
   d6Rejects?: boolean;
   /** Present so the command palette's `Jump to` section resolves. */
   crossLane?: boolean;
+  /** Present so the command palette's `Files` section resolves. */
+  files?: boolean;
   /** Present so the titlebar selector and the rail footer open the picker. */
   projectPicker?: boolean;
 }
@@ -266,6 +269,7 @@ function mountCockpit(options: CockpitOptions): void {
       loadPaletteCrossLane: options.crossLane
         ? async () => PALETTE_CROSS_LANE
         : undefined,
+      loadPaletteFiles: options.files ? async () => PALETTE_FILES : undefined,
       loadRecentWork: options.projectPicker ? async () => RECENT_WORK : undefined,
       // The chooser never resolves, so `Add directory…` cannot advance the
       // capture past the columns it is framing.
@@ -295,6 +299,94 @@ const PALETTE_CROSS_LANE = {
   gates: [{ gateId: "gate-core", taskId: "task-core", status: "blocked" }],
   asks: [
     { id: "approval-shell", title: "Allow test", kind: "approval", laneId: "lane-core" },
+  ],
+};
+
+/**
+ * The workspace inventory Core publishes for the palette's `~` scope
+ * (GUI-CORE-022).
+ *
+ * Delta on this repository's own tree: the paths are real Viden paths in the
+ * lexicographic order Core's walk produces, and the byte sizes are fixed so two
+ * captures of the same state are identical. Core owns the ordering; the harness
+ * only supplies the page a real read would have returned.
+ */
+const PALETTE_FILES: PaletteWorkspaceFiles = {
+  outcome: { state: "confirmed", reason: null },
+  entries: [
+    { path: "AGENTS.md", kind: "file", sizeBytes: 12_288 },
+    { path: "apps", kind: "dir", sizeBytes: null },
+    { path: "apps/gui/src/main.ts", kind: "file", sizeBytes: 28_672 },
+    { path: "apps/tui/src/tui/jump.rs", kind: "file", sizeBytes: 11_264 },
+    { path: "crates", kind: "dir", sizeBytes: null },
+    { path: "crates/types/src/workspace_files.rs", kind: "file", sizeBytes: 5_632 },
+  ],
+  complete: true,
+  loaded: true,
+  pendingCommandId: null,
+  capabilityAvailable: true,
+};
+
+/**
+ * The Core audit page D10's event ticker renders (GUI-CORE-014).
+ *
+ * Delta: two projects interleaved in one newest-first page, mirroring the
+ * canonical `audit-ordering.json` fixture, so the capture shows the ticker's
+ * defining property — one order across projects, not a per-project list.
+ */
+const D10_EVENTS = {
+  capabilityAvailable: true,
+  loaded: true,
+  outcome: { state: "confirmed", reason: null },
+  rows: [
+    {
+      auditId: "audit_delta_review",
+      timestamp: 1_700_000_200,
+      projectId: "project_viden_docs",
+      laneId: "lane_docs_writer",
+      actorKind: "operator",
+      agentId: null,
+      action: "review.decided",
+      objects: [],
+      outcome: "success",
+      args: [],
+    },
+    {
+      auditId: "audit_charlie_revert",
+      timestamp: 1_700_000_200,
+      projectId: "project_viden",
+      laneId: "lane_core_runtime",
+      actorKind: "operator",
+      agentId: null,
+      action: "change.reverted",
+      objects: [],
+      outcome: "success",
+      args: [],
+    },
+    {
+      auditId: "audit_bravo_handoff",
+      timestamp: 1_700_000_150,
+      projectId: "project_viden_docs",
+      laneId: "lane_docs_writer",
+      actorKind: "operator",
+      agentId: null,
+      action: "handoff.created",
+      objects: [],
+      outcome: "success",
+      args: [],
+    },
+    {
+      auditId: "audit_alpha_gate",
+      timestamp: 1_700_000_100,
+      projectId: "project_viden",
+      laneId: "lane_core_runtime",
+      actorKind: "operator",
+      agentId: null,
+      action: "gate.decided",
+      objects: [],
+      outcome: "success",
+      args: [],
+    },
   ],
 };
 
@@ -634,12 +726,42 @@ async function renderState(): Promise<void> {
       // The palette opens on an empty query on purpose: every section the
       // design draws (Actions, Jump to, Settings, Files) is visible at once,
       // which a filtered query would collapse to a single group.
-      mountCockpit({ projection: d1Base(), preferencesAvailable: true, crossLane: true });
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        crossLane: true,
+        files: true,
+      });
       click("[data-command-palette-toggle]");
       await waitFor("[data-command-palette]");
       // The cross-Lane read resolves after the overlay mounts; wait for the
       // gate row so the capture never freezes on the pending note.
       await waitFor("[data-palette-row][data-palette-item-id='gate:gate-core']");
+      // The inventory read resolves independently; wait for a real path row so
+      // the capture never freezes on the loading row.
+      await waitFor("[data-palette-row][data-palette-item-id='file:AGENTS.md']");
+      return;
+    }
+
+    case "palette-files": {
+      // The `~` scope alone (GUI-CORE-022): the palette pre-scoped to files, so
+      // the capture frames the Core-published inventory rather than the four
+      // sections at once.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        crossLane: true,
+        files: true,
+      });
+      click("[data-command-palette-toggle]");
+      await waitFor("[data-command-palette]");
+      await waitFor("[data-palette-row][data-palette-item-id='file:AGENTS.md']");
+      const field = document.querySelector<HTMLInputElement>("[data-palette-input]");
+      if (field) {
+        field.value = "~";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await tick();
       return;
     }
 
@@ -786,6 +908,22 @@ async function renderState(): Promise<void> {
       // none of them.
       renderD10LaneMonitor(root!, await d10Monitor(), locale, () => undefined);
       await waitFor("[data-d10-meterability='blind']");
+      return;
+    }
+
+    case "d10-ticker": {
+      // The event ticker (GUI-CORE-014): one bounded newest-first page of the
+      // Core audit timeline, with two projects interleaved so the capture shows
+      // the property that matters — one order across projects, not a
+      // per-project list.
+      const monitor = renderD10LaneMonitor(
+        root!,
+        await d10Monitor(),
+        locale,
+        () => undefined,
+      );
+      monitor.applyEvents(D10_EVENTS);
+      await waitFor("[data-d10-event]");
       return;
     }
 

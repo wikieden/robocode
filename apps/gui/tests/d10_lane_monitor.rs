@@ -159,19 +159,70 @@ fn d10_reports_task_progress_only_for_the_lane_task_core_named() {
     assert_eq!(detached_monitor.lanes[0].progress, None);
 }
 
+/// GUI-CORE-014 is closed: the ticker reads the append-only audit timeline
+/// (`QueryAudit` -> `AuditPageLoaded`), the same contract D14 audit mode uses,
+/// so it is no longer a declared gap in the view-state projection.
+///
+/// The read itself is deliberately *not* part of this projection: an audit page
+/// is a query result, never view state, so folding one in would let a client
+/// read a bounded page as runtime truth. The ticker's own coverage lives with
+/// the read, in `d14_audit_trail.rs` and the D10 screen spec.
 #[test]
-fn d10_declares_the_event_stream_unavailable_instead_of_inventing_one() {
+fn d10_no_longer_declares_the_event_stream_a_contract_gap() {
     let monitor = connected(multi_lane_view())
         .d10_lane_monitor()
         .expect("D10 projection");
-    // The design shows a scribe-compiled event ticker. frontend-contract-v1
-    // publishes no ordered event log in the view state.
-    let unavailable = monitor
-        .unavailable
+    assert!(
+        !monitor
+            .unavailable
+            .iter()
+            .any(|entry| entry.code == "GUI-CORE-014"),
+        "the event stream is no longer unavailable, got {:?}",
+        monitor.unavailable
+    );
+    // The ticker is a Core read, not a view-state fact, so nothing about it
+    // appears here.
+    assert!(monitor.unavailable.is_empty());
+}
+
+/// The ticker read is one bounded newest-first page over the whole workspace.
+///
+/// Unscoped on purpose: D10 spans every project, and the `audit-ordering`
+/// fixture is the canonical proof that Core's `(timestamp, audit_id)` order is
+/// total across projects rather than per project.
+#[test]
+fn the_d10_ticker_reads_one_bounded_unscoped_audit_page() {
+    let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let client = support::TestCoreClient::new(multi_lane_view(), sent.clone());
+    let mut adapter = viden_gui::GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect");
+    let _ = adapter.d10_events_and_wait("gui-d10-events-1", std::time::Duration::from_millis(10));
+
+    let queries = sent
+        .lock()
+        .expect("sent lock")
         .iter()
-        .find(|entry| entry.code == "GUI-CORE-014")
-        .expect("the event stream gap must be declared");
-    assert_eq!(unavailable.key, "d10.events.noOrderedLog");
+        .filter_map(|envelope| match &envelope.command {
+            viden_core::RuntimeCommand::QueryAudit { query } => Some(query.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(queries.len(), 1);
+    assert_eq!(
+        queries[0].limit,
+        viden_gui::D10_EVENT_TICKER_LIMIT,
+        "the ticker asks for its own bounded page"
+    );
+    assert_eq!(
+        queries[0].project_id, None,
+        "the ticker spans every project"
+    );
+    assert_eq!(queries[0].object, None);
+    assert_eq!(queries[0].before, None, "the ticker reads the newest page");
+    assert_eq!(
+        queries[0].actor, None,
+        "D10 ships no filter chips, so it never sends a filter nobody chose"
+    );
 }
 
 /// Writes the bounded run facts Core records onto a lane fixture.

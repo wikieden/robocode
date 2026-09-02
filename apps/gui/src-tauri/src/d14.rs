@@ -87,6 +87,12 @@ pub struct D14AuditArgProjection {
 pub struct D14AuditRowProjection {
     pub audit_id: String,
     pub timestamp: u64,
+    /// Core project the audited action belongs to, from the record's own
+    /// `RuntimeOwner`. Empty when Core recorded the fact before an owner scope
+    /// was claimed — absent, never a default project.
+    pub project_id: String,
+    /// Lane the audited action belongs to, when the record names one.
+    pub lane_id: Option<String>,
     /// `operator`, `agent`, `system`, or `unknown` for an actor a newer Core
     /// published that this build cannot name. `AuditActor` is
     /// `#[non_exhaustive]`, and borrowing a known label would be a lie.

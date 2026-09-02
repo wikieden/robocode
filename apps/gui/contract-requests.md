@@ -147,17 +147,38 @@ with its proposer, target contract version, subscribers, and audit id, and the
 canonical fixture proves that a pending contract becomes decided through
 `ConfirmContract`.
 
-## GUI-CORE-014: Ordered event log in the view state
+## GUI-CORE-014: Ordered event log in the view state — CLOSED
 
-`RuntimeViewState` publishes current facts but no ordered event log. The D10
-design shows a scribe-compiled event stream across projects, and D14 needs the
-same ordered history. D10 renders no ticker and declares the gap with this
-code; it must not rebuild a timeline by diffing successive snapshots.
+History: `RuntimeViewState` published current facts but no ordered event log.
+The D10 design shows a scribe-compiled event stream across projects, and D14
+needed the same ordered history. D10 rendered no ticker and declared the gap
+with this code; it never rebuilt a timeline by diffing successive snapshots.
 
-Close this request when Core publishes a bounded, ordered, owner-scoped event
-log — or a replay cursor the client can page — with a stable event id, kind,
-owner, and timestamp, and the canonical fixture proves ordering across two
-projects.
+Core status: delivered by the append-only audit timeline (`QueryAudit` ->
+`AuditPageLoaded`, capability `runtime.audit`). An `AuditRecord` carries exactly
+the facts this request asked for: the stable `audit_id`, a stable dotted `action`
+key that is never localized prose, the full `RuntimeOwner`, and the unix-second
+`timestamp`. Pagination is newest-first on `AuditRecord::cursor()` — the
+`(timestamp, audit_id)` pair — so the order is total rather than per project.
+The schema-1 extension fixture `audit-ordering.json` makes that canonical: one
+bounded page over two interleaved projects, with a pair of records that share a
+timestamp *across* the project boundary so the `audit_id` tiebreak is exercised
+exactly where a client grouping by project, or falling back to arrival order on
+a tie, would render a visibly different timeline. It is a separate fixture
+rather than an edit to `audit-reads.json`, whose three records all sit in one
+project and whose bytes are already registered.
+
+GUI status: wired on `claude/core-workspace-files`. D10's ticker is one bounded
+newest-first page (`D10_EVENT_TICKER_LIMIT` = 50) of that timeline, unscoped so
+it spans every project, read through the same adapter slot D14 audit mode uses —
+the two screens are two views of one Core timeline and only one is mounted at a
+time. Each row renders Core's own stable id, dotted action key, owning project
+and Lane, and timestamp; the dotted key is never localized, because a localized
+timeline cannot be diffed across languages. Rows carry no action: the ticker is
+ambient, and the Decision Center still owns the actionable queue. An absent
+`runtime.audit`, an unanswered read, a refusal, and an answered-but-empty
+timeline stay four different lines, so an empty strip never reads as "nothing
+ever happened". The `d10.events.noOrderedLog` unavailable row is gone.
 
 ## GUI-CORE-015: Structured merge-conflict content
 
@@ -312,28 +333,57 @@ state, and its check results — with the credential and data-egress policy that
 makes fetching it safe, plus a canonical `frontend-contract-v1` fixture that
 covers a branch with a pull request and one without.
 
-## GUI-CORE-022: Workspace file inventory
+## GUI-CORE-022: Workspace file inventory — CLOSED
 
-The command palette ports the TUI jump index's `~` selector, and the TUI ships
-the same gap: `RuntimeViewState` carries lanes, sessions, merge gates, and
-approvals, but no inventory of the files in the workspace. There is no typed
-path list, no search index, and no read that would let a frontend enumerate the
-tree without walking the filesystem itself — which is outside the client
-boundary, and would also bypass the permission gate that governs every other
-path read.
+History: the command palette ports the TUI jump index's `~` selector, and the
+TUI shipped the same gap: `RuntimeViewState` carried lanes, sessions, merge
+gates, and approvals, but no inventory of the files in the workspace. There was
+no typed path list, no search index, and no read that would let a frontend
+enumerate the tree without walking the filesystem itself — which is outside the
+client boundary, and would also bypass the permission gate that governs every
+other path read. Both clients rendered the `Files` section as exactly one
+permanently disabled row naming this request; neither walked the workspace,
+shelled out to a file lister, or reconstructed a tree from paths that happen to
+appear in evidence records or tool previews.
 
-The GUI therefore renders the `Files` section as exactly one permanently
-disabled row naming this request, the same honest-disabled row
-`apps/tui/src/tui/jump.rs` renders. It must not walk the workspace, shell out to
-a file lister, or reconstruct a tree from the paths that happen to appear in
-evidence records or tool previews: a partial inventory presented as an
-inventory is worse than a stated gap.
+Core status: delivered as `RuntimeCommand::QueryWorkspaceFiles` ->
+`RuntimeEventKind::WorkspaceFilesLoaded` under the extension capability
+`runtime.workspace_files`. It is permission-gated at the source: Core consults
+the permission engine before it reads a single directory entry, under the
+non-mutating tool `workspace_file_inventory` with the workspace root as the
+input path — the same gate every other workspace read passes. A deny publishes
+the standard `Error` event naming the refusal, and so does an unresolved ask,
+because this read answers a keystroke rather than an interactive turn and must
+not stall a client behind an approval prompt. Neither ever publishes an empty
+page: "you may not read this" and "this workspace has no files" are different
+facts. The tool mutates nothing, so plan mode still answers through the
+engine's safe-read branch.
 
-Close this request when Core publishes a typed workspace file inventory — the
-path list with whatever scoping and ignore rules Core owns, under the same
-permission gate as other workspace reads — plus a canonical
-`frontend-contract-v1` fixture covering a project with and without one. The GUI
-will then enable the `~` scope in the palette and the same selector in the TUI.
+The walk is gitignore-aware (honored outside a Git repository, and reading
+neither global nor parent ignore files, so one workspace enumerates identically
+on two machines) and unconditionally excludes `.git/`, `.viden/`, `.omx/`,
+`.worktrees/`, and `.ref/`, which hold runtime and agent state rather than
+workspace content. Entries are sorted lexicographically *before* the prefix
+filter, the exclusive `after` cursor, and the `1..=500` limit clamp, so
+`complete` and `next_after` describe the filtered ordered inventory; a prefix
+that leaves the workspace is rejected rather than clamped or answered with an
+empty page. `WorkspaceFilesLoaded.command_id` is required rather than optional,
+so unlike an audit page there is no uncorrelated case and no acceptance-first
+fallback. The schema-1 extension fixture `workspace-files.json` covers both
+halves this request asked for: a project with an inventory (two concurrent
+reads answered out of order, only the required command id attributing them) and
+a second attached project with lane facts and no inventory read at all.
+
+GUI status: wired on `claude/core-workspace-files`. The palette's `~` scope
+lists the paths Core published, in Core's own lexicographic order, read once
+when the palette opens through a single-slot pending read mirroring
+`PendingAuditPage`. The TUI's jump index does the same through
+`apps/tui/src/tui/workspace_files.rs`, reading once per loaded tree. Neither
+client walks anything. Absence, in-flight, refusal, and emptiness stay four
+different rows in both clients — a missing capability keeps the honest disabled
+row naming this request and sends no command at all, a refusal shows Core's own
+sentence verbatim, and an answered read over an empty workspace says the
+workspace is empty rather than borrowing the unavailable sentence.
 
 ## GUI-CORE-023: Concurrent multi-workspace supervision
 

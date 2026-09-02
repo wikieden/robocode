@@ -1150,12 +1150,11 @@ fn workspace_files_fixture_attributes_each_page_and_leaves_an_unread_project_lis
                 "a published path must stay workspace-relative, got {}",
                 entry.path
             );
-            match entry.kind {
-                WorkspaceFileKind::Dir => assert_eq!(
+            if entry.kind == WorkspaceFileKind::Dir {
+                assert_eq!(
                     entry.size_bytes, None,
                     "a directory must publish no byte size"
-                ),
-                _ => {}
+                );
             }
         }
     }

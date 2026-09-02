@@ -54,6 +54,10 @@ export interface D14AuditArg {
 export interface D14AuditRow {
   auditId: string;
   timestamp: number;
+  /** Core project the record belongs to; empty when Core claimed no scope. */
+  projectId: string;
+  /** Lane the record belongs to, when Core named one. */
+  laneId: string | null;
   /** `operator`, `agent`, `system`, or `unknown` for an actor this build cannot name. */
   actorKind: string;
   agentId: string | null;

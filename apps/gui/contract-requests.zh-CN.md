@@ -119,15 +119,30 @@ Core 自身的 `reviewer_owner_from_requester` 形状——评审 owner 改指�
 当 Core 发布携带提议方、目标契约版本、订阅方与审计 id 的待确认契约事实，且规范
 fixture 证明待确认契约经 `ConfirmContract` 转为已决时，关闭此请求。
 
-## GUI-CORE-014：视图状态中的有序事件日志
+## GUI-CORE-014：视图状态中的有序事件日志 — 已关闭
 
-`RuntimeViewState` 只发布当前事实，没有有序事件日志。D10 设计稿展示跨项目的书记官
-汇总事件流，D14 也需要同一份有序历史。D10 不渲染任何 ticker，以该编码声明缺口；
-不得通过比对相邻快照重建时间线。
+历史：`RuntimeViewState` 只发布当前事实，没有有序事件日志。D10 设计稿展示跨项目的
+书记官汇总事件流，D14 也需要同一份有序历史。D10 不渲染任何 ticker，以该编码声明
+缺口；从未通过比对相邻快照重建时间线。
 
-当 Core 发布有界、有序、按 Owner 限定的事件日志（或客户端可分页的 replay cursor），
-携带稳定事件 id、类型、Owner 与时间戳，且规范 fixture 证明跨两个项目的顺序时，
-关闭此请求。
+Core 状态：由追加式 audit timeline（`QueryAudit` -> `AuditPageLoaded`，capability
+`runtime.audit`）交付。一条 `AuditRecord` 恰好携带本请求要求的事实：稳定的
+`audit_id`、绝不本地化的稳定点分 `action` key、完整 `RuntimeOwner`、以及以秒计的
+`timestamp`。分页按 `AuditRecord::cursor()`（即 `(timestamp, audit_id)`）newest-first
+进行，因此该顺序是全序而不是按项目分组。schema-1 扩展 fixture `audit-ordering.json`
+将其规范化：一页记录横跨两个交错的项目，其中一对记录**跨越项目边界**共享时间戳，因此
+`audit_id` 的定序恰好在"按项目分组"或"平局时回退到到达顺序"的客户端会渲染出可见差异
+的位置被检验。它是独立 fixture，而不是去改 `audit-reads.json`——后者三条记录同属一个
+项目，且其字节已被登记。
+
+GUI 状态：已在 `claude/core-workspace-files` 接通。D10 的 ticker 是该 timeline 的一页
+有界 newest-first 记录（`D10_EVENT_TICKER_LIMIT` = 50），不加作用域以覆盖每个项目，
+经由 D14 审计模式使用的同一个 adapter 槽位读取——两个屏幕是同一条 Core timeline 的两个
+视图，且同一时刻只有一个被挂载。每行渲染 Core 自己的稳定 id、点分 action key、所属项目
+与 Lane、以及时间戳；点分 key 绝不本地化，因为本地化后的时间线无法跨语言比对。行不携带
+任何动作：ticker 是环境信息，可操作队列仍归决策中心所有。缺少 `runtime.audit`、读取尚未
+回答、被拒绝、以及已回答但为空，四者保持四条不同的文案，因此空条不会被读成"从未发生过
+任何事"。`d10.events.noOrderedLog` 那条 unavailable 行已移除。
 
 ## GUI-CORE-015：结构化合并冲突内容
 
@@ -249,23 +264,40 @@ forge 的 CI；`MergeGateView` 是 Viden 自己的门禁，不是远端的合并
 状态与检查结果——连同使拉取安全的凭据与数据外发策略，且规范
 `frontend-contract-v1` fixture 覆盖「有 PR 的分支」与「无 PR 的分支」时，关闭此请求。
 
-## GUI-CORE-022：工作区文件清单
+## GUI-CORE-022：工作区文件清单 — 已关闭
 
-命令面板移植了 TUI jump 索引的 `~` 选择器，而 TUI 本身也有同样的缺口：
+历史：命令面板移植了 TUI jump 索引的 `~` 选择器，而 TUI 本身也有同样的缺口：
 `RuntimeViewState` 承载 Lane、会话、合并闸与审批，却没有工作区文件的清单。既没有
 类型化的路径列表，没有搜索索引，也没有任何一次读取能让前端在不自己遍历文件系统的
 前提下枚举目录树——而自行遍历已在客户端边界之外，还会绕过管辖其余所有路径读取的
-权限门禁。
+权限门禁。两个客户端当时都把「文件」分区渲染成恰好一行、点名本请求的永久禁用行；
+从未遍历工作区、从未 shell out 调用文件列举工具，也从未从证据记录或工具入参预览里
+偶然出现的路径拼出一棵树。
 
-因此 GUI 把「文件」分区渲染成恰好一行、点名本请求的永久禁用行，与
-`apps/tui/src/tui/jump.rs` 渲染的那一行「诚实禁用」保持一致。GUI 不得遍历工作区、
-不得 shell out 调用文件列举工具，也不得从证据记录或工具入参预览里偶然出现的路径拼
-出一棵树：把不完整的清单当成清单呈现，比明说缺口更糟。
+Core 状态：以 `RuntimeCommand::QueryWorkspaceFiles` -> `RuntimeEventKind::WorkspaceFilesLoaded`
+交付，扩展 capability 为 `runtime.workspace_files`。它在源头即受权限门禁管辖：Core 在读取
+任何一个目录项之前先咨询权限引擎，工具名为非变更的 `workspace_file_inventory`，输入路径为
+工作区根——与其他所有工作区读取同一道门禁。deny 会发布指名该拒绝的标准 `Error` 事件；未解决
+的 ask 同样如此，因为这次读取回应的是一次按键而不是一次交互回合，不得把客户端卡在审批弹窗
+后面。两者都绝不发布空 page："你无权读取"与"这个工作区没有文件"是两个不同的事实。该工具不
+产生变更，因此 plan mode 仍会通过权限引擎的 safe-read 分支给出答案。
 
-当 Core 发布类型化的工作区文件清单——路径列表连同 Core 自己拥有的作用域与忽略规则，
-并与其他工作区读取走同一道权限门禁——且规范 `frontend-contract-v1` fixture 覆盖
-「有清单」与「无清单」两种项目时，关闭此请求。届时 GUI 会在面板中启用 `~` 作用域，
-TUI 也会启用同一选择器。
+遍历遵循 gitignore（即便不在 Git 仓库内也遵循，且不读取全局或父目录的 ignore 文件，因此同一
+工作区在两台机器上枚举结果一致），并无条件排除 `.git/`、`.viden/`、`.omx/`、`.worktrees/`、
+`.ref/`——它们承载运行时与 agent 状态，而不是工作区内容。条目先按字典序排序，**然后**才应用
+prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit 钳制，因此 `complete` 与 `next_after`
+描述的是过滤后的有序清单；越出工作区的 prefix 会被拒绝，而不是被钳制或以空 page 回答。
+`WorkspaceFilesLoaded.command_id` 为必填而非 optional，因此不像 audit page 那样存在无法关联
+的情形，也没有"以自己被接受的查询做关联"的退路。schema-1 扩展 fixture
+`workspace-files.json` 覆盖本请求要求的两半：一个有清单的项目（两次并发读取以相反顺序被回答，
+只有必填的 command id 能正确归属），以及第二个只发布 lane 事实、完全没有清单读取的已挂载项目。
+
+GUI 状态：已在 `claude/core-workspace-files` 接通。面板的 `~` 作用域按 Core 自己的字典序列出
+Core 发布的路径，在面板打开时经由一个仿照 `PendingAuditPage` 的单槽位待决读取读取一次。TUI 的
+jump 索引通过 `apps/tui/src/tui/workspace_files.rs` 做同样的事，每棵已加载的树只读一次。两个
+客户端都不遍历任何东西。缺失、读取中、被拒绝与为空，在两个客户端里保持四条不同的行——缺少
+capability 时保留点名本请求的诚实禁用行且零命令发送，被拒绝时逐字显示 Core 自己的句子，已回答
+但工作区为空时明说工作区为空，而不是借用"不可用"那句话。
 
 ## GUI-CORE-023：并发多工作区托管
 

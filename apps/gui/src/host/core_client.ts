@@ -119,6 +119,17 @@ export interface CoreClient {
   d2SendIntent(commandId: string, intent: D2Intent): Promise<D2IntentResult>;
 
   d10LaneMonitor(): Promise<D10LaneMonitorProjection | null>;
+  /**
+   * Reads the D10 event ticker from the Core audit timeline (GUI-CORE-014).
+   *
+   * The same `QueryAudit` -> `AuditPageLoaded` contract D14 audit mode uses:
+   * one bounded newest-first page over the whole workspace, ordered by Core
+   * across projects. The screen never rebuilds a timeline by diffing
+   * successive snapshots.
+   */
+  d10Events(commandId: string): Promise<D14AuditProjection>;
+  /** Drains ordered Core events while a ticker read is still pending. */
+  d10EventsPoll(): Promise<D14AuditProjection>;
   d12IntegrationGate(selectedGateId: string | null): Promise<D12IntegrationGateProjection | null>;
   /**
    * Sends one merge-gate decision as `AcceptMergeGate` or `RejectMergeGate`.

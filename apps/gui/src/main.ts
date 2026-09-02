@@ -439,7 +439,34 @@ export async function hydrateShellFromCore(
           throw new Error("Core did not provide the D10 lane monitor projection");
         }
         root.dataset.route = "d10";
-        renderD10LaneMonitor(root, projection, locale, () => void showD2());
+        const controller = renderD10LaneMonitor(root, projection, locale, () => void showD2());
+        // The event ticker is a Core audit read, so it resolves after the
+        // cards mount rather than blocking them. A refusal degrades the strip
+        // alone and states Core's own words in place of it (GUI-CORE-014).
+        void (async () => {
+          try {
+            let page = await core.d10Events(`gui-d10-events-${crypto.randomUUID()}`);
+            for (let attempt = 0; attempt < 4 && page.outcome.state === "pending"; attempt += 1) {
+              page = await core.d10EventsPoll();
+            }
+            controller.applyEvents({
+              rows: page.rows,
+              loaded: page.loaded,
+              capabilityAvailable: page.capabilityAvailable,
+              outcome: page.outcome,
+            });
+          } catch (error: unknown) {
+            controller.applyEvents({
+              rows: [],
+              loaded: false,
+              capabilityAvailable: true,
+              outcome: {
+                state: "rejected",
+                reason: error instanceof Error ? error.message : String(error),
+              },
+            });
+          }
+        })();
       };
 
       // D12 is the integration-gate failure path. Accept opens only when Core

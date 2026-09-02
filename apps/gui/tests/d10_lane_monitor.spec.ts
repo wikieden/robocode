@@ -60,7 +60,7 @@ const PROJECTION: D10LaneMonitorProjection = {
       evidence: [],
     }),
   ],
-  unavailable: [{ key: "d10.events.noOrderedLog", code: "GUI-CORE-014" }],
+  unavailable: [],
 };
 
 function setup(projection: D10LaneMonitorProjection = PROJECTION) {
@@ -131,11 +131,97 @@ describe("D10 lane monitor", () => {
     ).toBeNull();
   });
 
-  test("declares the missing event stream instead of rendering an invented one", () => {
-    const { root } = setup();
-    const note = root.querySelector<HTMLElement>("[data-d10-unavailable]");
-    expect(note?.dataset.d10Unavailable).toBe("GUI-CORE-014");
-    expect(root.querySelector(".d10-ticker")).toBeNull();
+  test("the ticker renders Core audit rows, ordered as Core delivered them", () => {
+    const { root, controller } = setup();
+    // Nothing has been read yet, so the strip says it is reading — not that
+    // there are no events.
+    expect(
+      root.querySelector<HTMLElement>("[data-d10-ticker-state]")?.dataset.d10TickerState,
+    ).toBe("unavailable");
+
+    controller.applyEvents({
+      capabilityAvailable: true,
+      loaded: true,
+      outcome: { state: "confirmed", reason: null },
+      rows: [
+        {
+          auditId: "audit-delta",
+          timestamp: 1_700_000_200,
+          projectId: "project-docs",
+          laneId: "lane-docs",
+          actorKind: "operator",
+          agentId: null,
+          action: "review.decided",
+          objects: [],
+          outcome: "success",
+          args: [],
+        },
+        {
+          auditId: "audit-alpha",
+          timestamp: 1_700_000_100,
+          projectId: "project-viden",
+          laneId: "lane-core",
+          actorKind: "operator",
+          agentId: null,
+          action: "gate.decided",
+          objects: [],
+          outcome: "success",
+          args: [],
+        },
+      ],
+    });
+
+    const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-d10-event]"));
+    expect(rows.map((row) => row.dataset.d10Event)).toEqual(["audit-delta", "audit-alpha"]);
+    // The two rows come from two different projects, which is what makes this
+    // a workspace ticker rather than a per-project list.
+    expect(rows.map((row) => row.dataset.d10EventProject)).toEqual([
+      "project-docs",
+      "project-viden",
+    ]);
+    // Core's dotted keys, raw: localizing them would make the timeline
+    // undiffable across languages.
+    expect(rows[0]!.querySelector(".d10-tkind")?.textContent).toBe("review.decided");
+    expect(root.querySelector("[data-d10-unavailable]")).toBeNull();
+  });
+
+  test("an unavailable audit capability states the gap instead of an empty strip", () => {
+    const { root, controller } = setup();
+    controller.applyEvents({
+      capabilityAvailable: false,
+      loaded: false,
+      outcome: { state: "idle", reason: null },
+      rows: [],
+    });
+    const note = root.querySelector<HTMLElement>("[data-d10-ticker-state]");
+    expect(note?.dataset.d10TickerState).toBe("unavailable");
+    expect(root.querySelectorAll("[data-d10-event]")).toHaveLength(0);
+  });
+
+  test("an answered but empty timeline says so, never that it is unavailable", () => {
+    const { root, controller } = setup();
+    controller.applyEvents({
+      capabilityAvailable: true,
+      loaded: true,
+      outcome: { state: "confirmed", reason: null },
+      rows: [],
+    });
+    expect(
+      root.querySelector<HTMLElement>("[data-d10-ticker-state]")?.dataset.d10TickerState,
+    ).toBe("empty");
+  });
+
+  test("a refused read shows Core's own reason", () => {
+    const { root, controller } = setup();
+    controller.applyEvents({
+      capabilityAvailable: true,
+      loaded: false,
+      outcome: { state: "rejected", reason: "audit store unavailable" },
+      rows: [],
+    });
+    const note = root.querySelector<HTMLElement>("[data-d10-ticker-state]");
+    expect(note?.dataset.d10TickerState).toBe("rejected");
+    expect(note?.textContent).toBe("audit store unavailable");
   });
 });
 
