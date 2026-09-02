@@ -334,6 +334,7 @@ registered schema-1 extension fixtures are:
 | `message-parts` | An ACP turn returning an image part alongside text: typed parts attach to their own message, the reference is an immutable parts-directory digest path, and an unmodeled kind round-trips losslessly | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
 | `audit-reads` | Two concurrent audit reads answered out of order, each page naming its own `command_id`, plus a filtered read whose `complete` describes the filtered timeline while older unfiltered records remain | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 | `owner-scoped-live-work` | Two concurrent Lanes with interleaved task, tool-call, queued-input, and evidence facts under their exact bound owners, plus the same four fact kinds published with no owner | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
+| `audit-ordering` | One newest-first audit page over two interleaved projects, with a cross-project timestamp tie broken by the descending audit id | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | Two concurrent inventory reads on one project answered out of order, each page naming the required `command_id`, the scoped read `complete` for its subtree while the unscoped read is not, plus a second attached project with lane facts and no inventory read at all | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
@@ -366,6 +367,18 @@ client-side filter could never establish. Like `agent_message_part`, the
 `audit_page_loaded` event type is now in the known schema-1 set, so an audit
 page is reduced rather than quarantined as an unknown event; the fixture also
 proves a page never folds into `RuntimeViewState`.
+
+The `audit-ordering` fixture is the generated evidence that the audit timeline
+is one order across projects rather than a per-project list (GUI-CORE-014). The
+D10 event ticker is a bounded newest-first page spanning every project in the
+workspace, so the order it renders has to be total. `audit-reads` cannot prove
+that — all three of its records carry the same `project_id` — so this is a
+separate fixture rather than an edit that would move an already registered
+digest. Two projects interleave, and one pair of records shares a timestamp
+*across* the project boundary, so the `audit_id` tiebreak is exercised exactly
+where a client that grouped by project, or that fell back to arrival order on a
+tie, would produce a visibly different ticker. The ordering key is
+`AuditRecord::cursor()`, the same `(timestamp, audit_id)` pair pagination uses.
 
 The `workspace-files` fixture is the generated evidence for the inventory read.
 Two reads on one project are accepted before either is answered and the pages

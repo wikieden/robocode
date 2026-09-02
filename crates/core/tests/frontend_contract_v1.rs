@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1232,6 +1232,133 @@ fn refresh_workspace_files_extension_fixture() {
     let fixture = workspace_files_fixture();
     fs::write(
         root.join("workspace-files.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-014: canonical proof that the audit timeline is ordered globally
+/// across projects, not per project.
+///
+/// D10's ticker is one bounded newest-first page spanning every project in the
+/// workspace, so the ordering it renders has to be a total order over the whole
+/// timeline. The existing `audit-reads` fixture cannot prove that: all three of
+/// its records carry the same `project_id`. Here two projects interleave, and
+/// one pair of records shares a timestamp across the project boundary, so the
+/// `audit_id` tiebreak is exercised where it matters — a client that grouped by
+/// project, or that fell back to arrival order on a tie, would produce a
+/// visibly different ticker.
+#[test]
+fn audit_ordering_fixture_orders_two_projects_as_one_newest_first_timeline() {
+    let name = "audit-ordering.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read audit ordering fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "audit_ordering_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact audit ordering fixture bytes"
+    );
+    assert!(extension_manifest.contains("audit_ordering_fixture = \"audit-ordering.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (_, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    let page = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => match &event.kind {
+                RuntimeEventKind::AuditPageLoaded { page, .. } => Some(page.clone()),
+                _ => None,
+            },
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .expect("the fixture must publish one audit page");
+
+    // A total order over the whole timeline: strictly descending on
+    // `(timestamp, audit_id)`, which is exactly `AuditRecord::cursor()`.
+    let cursors = page
+        .records
+        .iter()
+        .map(AuditRecord::cursor)
+        .collect::<Vec<_>>();
+    assert!(
+        cursors.windows(2).all(|pair| pair[0] > pair[1]),
+        "the page must be strictly newest-first by (timestamp, audit_id), got {cursors:?}"
+    );
+
+    let projects = page
+        .records
+        .iter()
+        .map(|record| record.owner.project_id.clone())
+        .collect::<Vec<_>>();
+    let distinct = projects.iter().collect::<BTreeSet<_>>();
+    assert_eq!(
+        distinct.len(),
+        2,
+        "the ordering proof needs exactly two projects, got {projects:?}"
+    );
+    // Genuinely interleaved: a client that grouped the timeline by project
+    // would produce a different sequence, so this ordering can only be global.
+    assert!(
+        projects.windows(2).any(|pair| pair[0] != pair[1])
+            && projects
+                .windows(2)
+                .filter(|pair| pair[0] != pair[1])
+                .count()
+                > 1,
+        "the two projects must interleave rather than sit in blocks, got {projects:?}"
+    );
+
+    // The cross-project tie: two records share a timestamp, so only the
+    // `audit_id` tiebreak orders them — and it does so across the project
+    // boundary, not within one project's own list.
+    let tie = page
+        .records
+        .windows(2)
+        .find(|pair| pair[0].timestamp == pair[1].timestamp)
+        .expect("the fixture must contain a same-timestamp pair");
+    assert_ne!(
+        tie[0].owner.project_id, tie[1].owner.project_id,
+        "the tie must span two projects, which is what makes the tiebreak global"
+    );
+    assert!(
+        tie[0].audit_id > tie[1].audit_id,
+        "a timestamp tie is broken by the descending audit id"
+    );
+
+    // Every record still carries the stable id, dotted action key, owner, and
+    // timestamp the ticker renders — the close criteria's own field list.
+    for record in &page.records {
+        assert!(!record.audit_id.is_empty());
+        assert!(record.action.contains('.'));
+        assert!(!record.owner.project_id.is_empty());
+        assert!(record.timestamp > 0);
+    }
+    assert!(page.complete);
+    assert_eq!(page.next_before, None);
+}
+
+#[test]
+#[ignore = "manual audit ordering fixture refresh; normal tests validate committed JSON only"]
+fn refresh_audit_ordering_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = audit_ordering_fixture();
+    fs::write(
+        root.join("audit-ordering.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -2628,6 +2755,117 @@ fn audit_reads_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Plan),
         owned_envelopes(fixture_id, owner, kinds, 1_700_000_500),
+    )
+}
+
+/// Canonical proof that the audit timeline is one newest-first order across
+/// projects rather than a per-project list (GUI-CORE-014).
+///
+/// D10's ticker is a bounded page over every project in the workspace, so the
+/// order has to be total. Two projects interleave here, and one pair of records
+/// shares a timestamp across the project boundary so the `audit_id` tiebreak is
+/// exercised exactly where a per-project ordering would diverge. This is a
+/// separate fixture rather than an edit to `audit-reads`, whose three records
+/// all sit in one project and whose digest is already registered.
+fn audit_ordering_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "audit-ordering";
+    // The read is workspace-scoped: the ticker spans projects, so the query
+    // owner names no single project.
+    let read_owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: String::new(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    let record = |audit_id: &str, timestamp: u64, project: &str, lane: &str, action: &str| {
+        AuditRecord::sanitized(
+            audit_id.to_string(),
+            timestamp,
+            RuntimeOwner {
+                workspace_id: "workspace_contract_v1".to_string(),
+                project_id: project.to_string(),
+                lane_id: Some(lane.to_string()),
+                session_id: None,
+                task_id: None,
+                turn_id: None,
+            },
+            AuditActor::Operator,
+            action.to_string(),
+            vec![AuditObjectRef::new(AuditObjectRef::KIND_LANE, lane)],
+            AuditOutcome::Success,
+            BTreeMap::from([("outcome".to_string(), "accepted".to_string())]),
+        )
+        .expect("fixture audit records must satisfy the sanitization bounds")
+    };
+    // Newest first by `(timestamp, audit_id)`. The first two share a timestamp
+    // and sit in different projects, so only the descending audit id separates
+    // them — and it does so across the project boundary.
+    let ordered = vec![
+        record(
+            "audit_delta_review",
+            1_700_000_200,
+            "project_viden_docs",
+            "lane_docs_writer",
+            "review.decided",
+        ),
+        record(
+            "audit_charlie_revert",
+            1_700_000_200,
+            "project_viden",
+            "lane_core_runtime",
+            "change.reverted",
+        ),
+        record(
+            "audit_bravo_handoff",
+            1_700_000_150,
+            "project_viden_docs",
+            "lane_docs_writer",
+            "handoff.created",
+        ),
+        record(
+            "audit_alpha_gate",
+            1_700_000_100,
+            "project_viden",
+            "lane_core_runtime",
+            "gate.decided",
+        ),
+    ];
+
+    let kinds = vec![
+        RuntimeEventKind::CommandAccepted {
+            command_id: "audit_ticker_read".to_string(),
+            command: RuntimeCommand::QueryAudit {
+                query: AuditQuery {
+                    // The ticker asks for one bounded page over the whole
+                    // workspace: no project filter, so nothing is scoped away
+                    // before the ordering is established.
+                    limit: 50,
+                    ..AuditQuery::default()
+                },
+            },
+        },
+        RuntimeEventKind::AuditPageLoaded {
+            command_id: Some("audit_ticker_read".to_string()),
+            page: AuditPage {
+                records: ordered,
+                next_before: None,
+                complete: true,
+            },
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.audit",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, read_owner, kinds, 1_700_000_800),
     )
 }
 

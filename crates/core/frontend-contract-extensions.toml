@@ -27,6 +27,9 @@ audit_reads_view_sha256 = "389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944
 owner_scoped_live_work_fixture = "owner-scoped-live-work.json"
 owner_scoped_live_work_fixture_sha256 = "87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2"
 owner_scoped_live_work_view_sha256 = "6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4"
+audit_ordering_fixture = "audit-ordering.json"
+audit_ordering_fixture_sha256 = "6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4"
+audit_ordering_view_sha256 = "4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842"
 workspace_files_fixture = "workspace-files.json"
 workspace_files_fixture_sha256 = "f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949"
 workspace_files_view_sha256 = "9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37"
@@ -88,6 +91,7 @@ commands = ["query_audit"]
 events = ["audit_page_loaded"]
 boundary = "read-only, newest-first, exclusive `before` cursor, page size clamped to 1..=500; `action` is a stable dotted key and args are bounded sanitized tokens, never localized prose or secret bytes"
 correlation = "audit_page_loaded carries the command id of the query it answers; a client requires an exact match and falls back to its own accepted query only for a page with no id (a Core predating the field), never inferring one from record contents"
+ordering = "the timeline is one newest-first order over the whole workspace, keyed on (timestamp, audit_id) — `AuditRecord::cursor()` — so a page spanning several projects interleaves them rather than grouping by project, and a timestamp tie is broken by the descending audit id across the project boundary"
 filters = "query_audit accepts optional actor (operator / system / any_agent / a named agent) and a half-open [from, until) unix-second range, applied before pagination so `complete` and `next_before` describe the filtered timeline; an inverted range is rejected rather than answered with an empty page"
 
 [runtime_starter_lane_preview]

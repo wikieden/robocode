@@ -269,6 +269,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `message-parts` | ACP turn 在文本之外返回 image part：typed part 只挂到自己的消息上，reference 是 parts 目录的不可变 digest 路径，未建模的 part kind 无损往返 | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
 | `audit-reads` | 两次并发 audit 读取以相反顺序被回答，每个 page 指名自己的 `command_id`；另有一次过滤读取，其 `complete` 描述的是过滤后的 timeline，而未过滤 page 上仍存在更旧的记录 | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 | `owner-scoped-live-work` | 两个并发 Lane 在各自精确绑定的 owner 下交错发布 task、tool call、排队输入与 evidence 事实，另有同样四类事实在没有 owner 的情况下发布 | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
+| `audit-ordering` | 一页 newest-first 的 audit 记录横跨两个交错的项目，且有一对跨项目、时间戳相同的记录靠降序 audit id 定序 | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | 同一项目上的两次并发清单读取以相反顺序被回答，每个 page 都携带必填的 `command_id`；带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完；另有第二个已挂载项目只发布 lane 事实、完全没有清单读取 | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
@@ -291,6 +292,14 @@ operator 与 system 记录——这正是客户端侧过滤永远无法确立的
 事实交错发布，因此顺序与新近度都不能代替归属：只有已发布的 owner 才能把一条事实归到某个
 Lane。第四组事实没有 owner，因此不属于任何 Lane 范围，同时仍在 workspace 层可见——诚实的
 客户端渲染的正是这一点，而不是把它归给当前选中的 Lane。
+
+`audit-ordering` fixture 是"audit timeline 跨项目是同一个顺序、而不是按项目分组"的生成式
+证据（GUI-CORE-014）。D10 事件走马灯是横跨工作区内每个项目的一页 newest-first 记录，因此它
+渲染的顺序必须是全序。`audit-reads` 无法证明这一点——它的三条记录 `project_id` 相同——所以
+这里新增独立 fixture，而不是去改动一个数字已被登记的既有 fixture。两个项目交错出现，且有一对
+时间戳相同的记录**跨越**项目边界，因此 `audit_id` 的定序恰好在"按项目分组"或"平局时回退到到达
+顺序"的客户端会产生可见差异的位置被检验。排序键是 `AuditRecord::cursor()`，即分页使用的同一组
+`(timestamp, audit_id)`。
 
 `workspace-files` fixture 是清单读取的生成式证据。同一项目上的两次读取在任一被回答之前都已
 被接受，且 page 以相反顺序返回，因此按到达顺序归属会归错，只有必填的 `command_id` 能归对；
