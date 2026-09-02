@@ -76,9 +76,12 @@ additive set through `FRONTEND_V1_EXTENSION_CAPABILITIES` and
 ```text
 core.workspace_host
 runtime.agent_adapters
+runtime.agent_conversation
 runtime.agent_permission_bridge
+runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
+runtime.cockpit_context_v1
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -87,6 +90,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.trust_loop
+runtime.workspace_eligibility
 runtime.workspace_files
 ui.preference_persistence
 ```

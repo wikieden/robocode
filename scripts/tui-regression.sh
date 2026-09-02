@@ -150,8 +150,11 @@ if release["base_core_checkpoint"] != "54965464e87860f9c39a1fb656c2f528e354da94"
     raise SystemExit("TUI certification Core checkpoint is not Core 0.3.4")
 if release["supported_schema_versions"] != [1]:
     raise SystemExit("TUI certification schema set is not [1]")
-if len(base_capabilities) != 15 or len(extension_capabilities) != 17:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 17")
+# These counts track the manifest's own [compatibility] and [extensions] lists,
+# which in turn track FRONTEND_V1_CAPABILITIES / FRONTEND_V1_EXTENSION_CAPABILITIES;
+# bump them in the same change that adds a capability.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 19:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 19")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 
