@@ -5017,3 +5017,171 @@ fn tool_call_started_publishes_the_owner_onto_the_active_tool_call() {
     let reencoded = serde_json::to_value(&legacy).unwrap();
     assert!(reencoded["payload"].get("owner").is_none());
 }
+
+/// A workspace file page must survive the wire, not degrade to an unknown
+/// event.
+///
+/// Third in the line of the same omission: `agent_message_part` and
+/// `audit_page_loaded` each shipped missing from the known schema-1 event
+/// types and quarantined as `RuntimeWireEvent::Unknown` on every serialized
+/// snapshot or replay path. A quarantined inventory page reads to a client as
+/// "this workspace has no files", which is exactly the fabricated-absence
+/// failure GUI-CORE-022 exists to prevent.
+#[test]
+fn a_workspace_file_page_survives_the_wire_as_a_known_event() {
+    let envelope = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner {
+            workspace_id: "workspace-viden".to_string(),
+            project_id: "project-viden".to_string(),
+            ..Default::default()
+        },
+        cursor: EventCursor {
+            stream_id: "stream-workspace-files".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::WorkspaceFilesLoaded {
+                command_id: "client-files-1".to_string(),
+                page: WorkspaceFilePage {
+                    entries: vec![
+                        WorkspaceFileEntry {
+                            path: "crates".to_string(),
+                            kind: WorkspaceFileKind::Dir,
+                            size_bytes: None,
+                        },
+                        WorkspaceFileEntry {
+                            path: "crates/types/src/lib.rs".to_string(),
+                            kind: WorkspaceFileKind::File,
+                            size_bytes: Some(2048),
+                        },
+                    ],
+                    next_after: Some("crates/types/src/lib.rs".to_string()),
+                    complete: false,
+                },
+            },
+        )),
+    };
+    let encoded = serde_json::to_string(&envelope).unwrap();
+    let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, envelope);
+    assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
+}
+
+/// The command id is required from day one: an inventory page with no id is
+/// not a page this build can attribute, so it must fail to decode rather than
+/// arrive with an id a client would have to invent (the GUI-CORE-024 lesson,
+/// applied before the field could ever be optional).
+#[test]
+fn a_workspace_file_page_without_a_command_id_is_rejected() {
+    let idless = r#"{
+        "sequence": 1,
+        "timestamp": 1700000000,
+        "kind": {
+            "type": "workspace_files_loaded",
+            "payload": {"page": {"entries": [], "next_after": null, "complete": true}}
+        }
+    }"#;
+    let decoded: Result<RuntimeEvent, _> = serde_json::from_str(idless);
+    assert!(
+        decoded.is_err(),
+        "a workspace file page must never decode without the read it answers"
+    );
+}
+
+/// A workspace inventory page answers one paginated query. Folding it into the
+/// capped view collections would silently truncate the tree, so the reducer
+/// deliberately ignores it — the same rule an audit page follows.
+#[test]
+fn a_workspace_file_page_never_folds_into_the_view_state() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let before = RuntimeViewState::new(snapshot.clone());
+    let mut after = RuntimeViewState::new(snapshot);
+    after.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::WorkspaceFilesLoaded {
+            command_id: "client-files-1".to_string(),
+            page: WorkspaceFilePage {
+                entries: vec![WorkspaceFileEntry {
+                    path: "README.md".to_string(),
+                    kind: WorkspaceFileKind::File,
+                    size_bytes: Some(12),
+                }],
+                next_after: None,
+                complete: true,
+            },
+        },
+    ));
+    assert_eq!(before, after);
+}
+
+/// The page size clamp mirrors the audit precedent: a malformed request still
+/// gets a well-formed page rather than a rejection, and an absent limit means
+/// the default page rather than the whole tree.
+#[test]
+fn a_workspace_files_query_clamps_its_limit_and_defaults_when_absent() {
+    let unbounded = WorkspaceFilesQuery {
+        limit: Some(u32::MAX),
+        ..WorkspaceFilesQuery::default()
+    };
+    assert_eq!(
+        unbounded.clamped_limit(),
+        MAX_WORKSPACE_FILE_PAGE_SIZE as usize
+    );
+    let zero = WorkspaceFilesQuery {
+        limit: Some(0),
+        ..WorkspaceFilesQuery::default()
+    };
+    assert_eq!(zero.clamped_limit(), 1);
+    assert_eq!(
+        WorkspaceFilesQuery::default().clamped_limit(),
+        DEFAULT_WORKSPACE_FILE_PAGE_SIZE as usize
+    );
+}
+
+/// `runtime.workspace_files` is a post-checkpoint addition, so it belongs to
+/// the extension list and never to the frozen base capabilities.
+#[test]
+fn the_workspace_files_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.workspace_files"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.workspace_files"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}
+
+/// A prefix is a workspace-relative filter, never a path the caller can point
+/// outside the workspace with. Rejecting is deliberate: clamping a traversal
+/// prefix to the root would answer a question nobody asked, and answering it
+/// with an empty page would be indistinguishable from an empty subtree.
+#[test]
+fn a_workspace_files_query_rejects_a_prefix_that_leaves_the_workspace() {
+    let rejected = [
+        "../secrets",
+        "/etc",
+        "crates/../../etc",
+        "C:\\Windows",
+        "crates\\types",
+    ];
+    for prefix in rejected {
+        let query = WorkspaceFilesQuery {
+            prefix: Some(prefix.to_string()),
+            ..WorkspaceFilesQuery::default()
+        };
+        assert!(
+            query.validate().is_err(),
+            "prefix `{prefix}` must be rejected, not silently reinterpreted"
+        );
+    }
+    for prefix in ["crates", "crates/types/src", "crates/types/src/lib.rs"] {
+        let query = WorkspaceFilesQuery {
+            prefix: Some(prefix.to_string()),
+            ..WorkspaceFilesQuery::default()
+        };
+        assert!(query.validate().is_ok(), "prefix `{prefix}` must be legal");
+    }
+}

@@ -527,6 +527,17 @@ impl SessionEngine {
                 Ok(audit_events) => append_resequenced(&mut events, audit_events),
                 Err(err) => return Ok(vec![command_rejected(command_id, err)]),
             },
+            // Read-only like the two queries above, but permission-gated: it
+            // reads the operator's working tree, so the handler consults the
+            // permission engine before touching disk and publishes an Error on
+            // a refusal. `Err` here is a malformed query (an escaping prefix),
+            // which is a rejection rather than a refusal.
+            RuntimeCommand::QueryWorkspaceFiles { query } => {
+                match self.query_workspace_files(&command_id, query) {
+                    Ok(file_events) => append_resequenced(&mut events, file_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             RuntimeCommand::SubmitUserInput { content } => {
                 match self.process_runtime_turn_with_approval_and_control(
                     &content,
@@ -5837,6 +5848,15 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         // The audit query carries only stable identifiers and a cursor; there
         // is no free text to redact, so it passes through like QueryRecentWork.
         RuntimeCommand::QueryAudit { query } => RuntimeCommand::QueryAudit {
+            query: query.clone(),
+        },
+        // The prefix is a workspace-relative path fragment the operator typed
+        // into their own client, already validated to stay inside the
+        // workspace. Passing the identifier redactor over it would strip the
+        // separators and dots and publish a *different* query than the one
+        // Core answered, which is worse than verbatim: the accepted-command
+        // event would no longer describe the read that produced the page.
+        RuntimeCommand::QueryWorkspaceFiles { query } => RuntimeCommand::QueryWorkspaceFiles {
             query: query.clone(),
         },
         RuntimeCommand::PreviewStarterLane { request } => RuntimeCommand::PreviewStarterLane {

@@ -48,7 +48,8 @@ pub use viden_types::{
     StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage, TranscriptPageRequest,
     TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity,
     UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
-    WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility, WorkspaceSourceStatus,
+    WorkspaceChangeKind, WorkspaceChangeView, WorkspaceEligibility, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceSourceStatus,
     WorkspaceSourceView,
 };
 
@@ -98,6 +99,15 @@ mod tests {
         assert!(std::any::type_name::<AuditPage>().contains("AuditPage"));
         assert!(std::any::type_name::<AuditRecord>().contains("AuditRecord"));
         assert!(std::any::type_name::<AuditObjectRef>().contains("AuditObjectRef"));
+        // GUI-CORE-022: the typed workspace inventory. A frontend must be able
+        // to render a file list from Core facts instead of walking the tree
+        // itself, which is outside the client boundary and bypasses the
+        // permission gate every other path read goes through.
+        assert!(std::any::type_name::<WorkspaceFilesQuery>().contains("WorkspaceFilesQuery"));
+        assert!(std::any::type_name::<WorkspaceFilePage>().contains("WorkspaceFilePage"));
+        assert!(std::any::type_name::<WorkspaceFileEntry>().contains("WorkspaceFileEntry"));
+        assert!(std::any::type_name::<WorkspaceFileKind>().contains("WorkspaceFileKind"));
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.workspace_files"));
         // GUI-CORE-008: the typed context budget and its scope. A frontend must
         // be able to prove that a budget belongs to the selected Lane's task
         // instead of reconstructing a private serialization of the scope shape.

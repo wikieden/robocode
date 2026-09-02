@@ -24,6 +24,7 @@ mod session_command_tests;
 mod transcript_contract_tests;
 mod trust_loop_tests;
 mod workflow_command_tests;
+mod workspace_files_tests;
 
 struct SequenceProvider {
     model: String,

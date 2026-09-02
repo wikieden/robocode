@@ -16,6 +16,7 @@ mod transcript;
 mod trust;
 mod ui_preferences;
 mod workflow;
+mod workspace_files;
 
 pub use agent::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
@@ -79,6 +80,10 @@ pub use ui_preferences::{
 pub use workflow::{
     MemoryEntry, MemoryKind, MemoryScope, MemorySource, MemoryStatus, ResumeContextSnapshot,
     TaskPriority, TaskRecord, TaskStatus,
+};
+pub use workspace_files::{
+    DEFAULT_WORKSPACE_FILE_PAGE_SIZE, MAX_WORKSPACE_FILE_PAGE_SIZE, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
 };
 
 pub type SessionId = String;

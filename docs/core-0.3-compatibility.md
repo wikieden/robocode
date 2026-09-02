@@ -87,6 +87,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.trust_loop
+runtime.workspace_files
 ui.preference_persistence
 ```
 
@@ -121,6 +122,39 @@ concurrency and filtering:
   variant this build cannot classify matches nothing, so a filter never claims a
   record it cannot name. All three fields default to absent, so a query written
   by an older client keeps its exact previous meaning.
+
+The workspace file inventory read (`QueryWorkspaceFiles` ->
+`WorkspaceFilesLoaded`) requires `runtime.workspace_files` (GUI-CORE-022).
+Unlike the audit read it is permission-gated, because it reads the operator's
+working tree:
+
+- Core consults the permission engine before it reads a single directory
+  entry, under the non-mutating tool name `workspace_file_inventory` with the
+  workspace root as the input path — the same gate every other workspace read
+  passes. A deny publishes the standard `Error` event naming the refusal, and
+  so does an unresolved ask: this read answers a keystroke rather than an
+  interactive turn, so it is decided non-interactively instead of blocking a
+  client behind an approval prompt. Neither case ever publishes an empty page,
+  because "you may not read this" and "this workspace has no files" are
+  different facts.
+- The tool mutates nothing, so plan mode still answers through the permission
+  engine's safe-read branch while every mutation stays blocked.
+- The walk is gitignore-aware, honors `.gitignore` even outside a Git
+  repository, and reads neither global nor parent ignore files, so one
+  workspace enumerates identically on two machines. `.git/`, `.viden/`,
+  `.omx/`, `.worktrees/`, and `.ref/` are removed unconditionally: they hold
+  runtime and agent state, never workspace content.
+- Entries are sorted lexicographically *before* the prefix filter, the
+  exclusive `after` cursor, and the `1..=500` limit clamp, so `complete` and
+  `next_after` describe the filtered ordered inventory. A prefix that leaves
+  the workspace is rejected rather than clamped or answered with an empty page.
+- `WorkspaceFilesLoaded.command_id` is **required**, not optional. The audit
+  page shipped its correlation id as an addition and therefore carries a
+  permanent `None` case; this event is new, so a client always has the exact
+  read a page answers and never falls back to its own acceptance.
+- A client without the capability sends nothing and states the inventory is
+  unavailable rather than walking the filesystem itself, which is outside the
+  client boundary and would bypass this gate.
 
 One further additive schema-1 extension since core-0.3.5 makes live work
 attributable (GUI-CORE-010). `AgentTaskRecord`, `ToolCallView`,
@@ -300,6 +334,7 @@ registered schema-1 extension fixtures are:
 | `message-parts` | An ACP turn returning an image part alongside text: typed parts attach to their own message, the reference is an immutable parts-directory digest path, and an unmodeled kind round-trips losslessly | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
 | `audit-reads` | Two concurrent audit reads answered out of order, each page naming its own `command_id`, plus a filtered read whose `complete` describes the filtered timeline while older unfiltered records remain | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 | `owner-scoped-live-work` | Two concurrent Lanes with interleaved task, tool-call, queued-input, and evidence facts under their exact bound owners, plus the same four fact kinds published with no owner | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
+| `workspace-files` | Two concurrent inventory reads on one project answered out of order, each page naming the required `command_id`, the scoped read `complete` for its subtree while the unscoped read is not, plus a second attached project with lane facts and no inventory read at all | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
@@ -331,6 +366,20 @@ client-side filter could never establish. Like `agent_message_part`, the
 `audit_page_loaded` event type is now in the known schema-1 set, so an audit
 page is reduced rather than quarantined as an unknown event; the fixture also
 proves a page never folds into `RuntimeViewState`.
+
+The `workspace-files` fixture is the generated evidence for the inventory read.
+Two reads on one project are accepted before either is answered and the pages
+come back in the opposite order, so arrival order attributes them wrongly and
+only the required `command_id` gets them right; the scoped read comes back
+`complete` for its subtree while the unscoped read is still incomplete, which is
+the completeness fact a client filtering a page it already held could not
+establish. A second attached project publishes ordinary lane facts and no
+inventory read at all — the "project without one" half of the request — so a
+client scoped there has no file list rather than an empty one. Like
+`agent_message_part` and `audit_page_loaded`, the `workspace_files_loaded` event
+type is in the known schema-1 set, so an inventory page is reduced rather than
+quarantined as an unknown event; the fixture also proves a page never folds into
+`RuntimeViewState`.
 
 The extension fixture uses the six real known events
 `UiPreferencesUpdated`, `RecentWorkLoaded`, `StarterLanePreviewed`,

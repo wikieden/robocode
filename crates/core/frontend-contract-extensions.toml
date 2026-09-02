@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.5"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
@@ -27,6 +27,9 @@ audit_reads_view_sha256 = "389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944
 owner_scoped_live_work_fixture = "owner-scoped-live-work.json"
 owner_scoped_live_work_fixture_sha256 = "87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2"
 owner_scoped_live_work_view_sha256 = "6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4"
+workspace_files_fixture = "workspace-files.json"
+workspace_files_fixture_sha256 = "f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949"
+workspace_files_view_sha256 = "9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37"
 
 [live_work_owner]
 facts = ["agent_task_record", "tool_call_view", "queued_input_view", "evidence_view"]
@@ -111,3 +114,11 @@ events = ["handoff_updated", "review_request_updated", "contract_updated", "depe
 review_decision = "decide_review records the independent reviewer lane verdict; the requester lane is never accepted as decider and a rejected review blocks accept_merge_gate"
 decision_compatibility = "schema-1 legacy string decisions deserialize as read-only legacy facts; new writes are typed"
 evidence_boundary = "canonical evidence is required for acceptance; summary-only evidence never satisfies a merge gate"
+
+[runtime_workspace_files]
+commands = ["query_workspace_files"]
+events = ["workspace_files_loaded"]
+boundary = "permission-gated read: Core consults the permission engine under the non-mutating `workspace_file_inventory` tool with the workspace root as the input path before it reads a single directory entry; a deny, and an unresolved ask, both publish the standard Error event naming the refusal and never an empty page, while plan mode still answers through the engine's SafeRead branch because the tool mutates nothing"
+exclusions = "gitignore-aware walk (honored outside a Git repository, without global or parent ignore files so the same workspace enumerates identically on two machines) plus unconditional removal of `.git/`, `.viden/`, `.omx/`, `.worktrees/`, and `.ref/`, which hold runtime and agent state rather than workspace content"
+ordering = "entries are sorted lexicographically before the prefix filter, the exclusive `after` cursor, and the limit clamp of 1..=500, so `complete` and `next_after` describe the filtered ordered inventory; a prefix that leaves the workspace is rejected rather than clamped or answered with an empty page"
+correlation = "workspace_files_loaded carries the command id of the query it answers as a required field, so unlike audit_page_loaded there is no uncorrelated page and a client never falls back to attributing a page to its own acceptance"

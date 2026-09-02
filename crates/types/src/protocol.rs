@@ -45,6 +45,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.starter_lane_preview",
     "runtime.trust_loop",
     "runtime.workspace_eligibility",
+    "runtime.workspace_files",
     "ui.preference_persistence",
 ];
 
@@ -326,6 +327,11 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             // "nothing was audited" — the one failure an append-only timeline
             // exists to prevent.
             | "audit_page_loaded"
+            // The answer to a `QueryWorkspaceFiles`. Third event to need this
+            // arm explicitly: quarantining an inventory page as an unknown
+            // event reads to a client as "this workspace has no files", the
+            // fabricated absence GUI-CORE-022 exists to prevent.
+            | "workspace_files_loaded"
             | "workspace_source_updated"
             | "runtime_service_health_updated"
             | "workspace_change_updated"

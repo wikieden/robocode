@@ -15,8 +15,8 @@ use crate::{
     RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
     StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
     TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
-    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceEligibility, WorkspaceSourceView,
-    now_timestamp,
+    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceEligibility, WorkspaceFilePage,
+    WorkspaceFilesQuery, WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -70,6 +70,15 @@ pub enum RuntimeCommand {
     /// so it stays answerable in Plan mode.
     QueryAudit {
         query: AuditQuery,
+    },
+    /// Read-only page of the workspace file inventory (GUI-CORE-022).
+    ///
+    /// Unlike `QueryAudit` this one *is* permission-gated: it reads the
+    /// operator's working tree, so it goes through the same gate as every
+    /// other workspace read. It still mutates nothing, so it stays answerable
+    /// in Plan mode.
+    QueryWorkspaceFiles {
+        query: WorkspaceFilesQuery,
     },
     PreviewStarterLane {
         request: StarterLaneRequest,
@@ -656,6 +665,20 @@ pub enum RuntimeEventKind {
         command_id: Option<String>,
         page: AuditPage,
     },
+    /// Answer to `QueryWorkspaceFiles`. Like an audit page this is a query
+    /// result, not runtime view state: the inventory is unbounded and
+    /// paginated, so it is deliberately not folded into `RuntimeViewState`.
+    WorkspaceFilesLoaded {
+        /// The exact `QueryWorkspaceFiles` command id this page answers.
+        ///
+        /// Required, not optional. `AuditPageLoaded` shipped this field as an
+        /// addition and therefore carries a permanent `None` case
+        /// (GUI-CORE-024); this event is new, so the correlation is mandatory
+        /// from its first byte and a client never has to fall back to
+        /// attributing a page to whatever read it happened to have in flight.
+        command_id: String,
+        page: WorkspaceFilePage,
+    },
     WorkspaceSourceUpdated {
         source: WorkspaceSourceView,
     },
@@ -1177,6 +1200,10 @@ impl RuntimeViewState {
             // the capped view collections would silently truncate the
             // timeline, so the view state deliberately ignores it.
             RuntimeEventKind::AuditPageLoaded { .. } => {}
+            // Same rule as an audit page: one paginated query result. Folding
+            // an inventory page into the capped view collections would
+            // silently truncate the tree a client is paging through.
+            RuntimeEventKind::WorkspaceFilesLoaded { .. } => {}
             RuntimeEventKind::WorkspaceSourceUpdated { source } => {
                 self.workspace_source = Some(source.clone());
             }

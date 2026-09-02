@@ -1,0 +1,249 @@
+{
+  "fixture_id": "workspace-files",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot",
+    "runtime.typed_lanes",
+    "runtime.workspace_files"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_files",
+        "task_id": null,
+        "turn_id": "turn_workspace_files"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-files",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000701,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "workspace_files_first",
+            "command": {
+              "type": "query_workspace_files",
+              "query": {
+                "prefix": null,
+                "limit": 4,
+                "after": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_files",
+        "task_id": null,
+        "turn_id": "turn_workspace_files"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-files",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000702,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "workspace_files_second",
+            "command": {
+              "type": "query_workspace_files",
+              "query": {
+                "prefix": "crates/types",
+                "limit": 50,
+                "after": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_files",
+        "task_id": null,
+        "turn_id": "turn_workspace_files"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-files",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000703,
+        "kind": {
+          "type": "workspace_files_loaded",
+          "payload": {
+            "command_id": "workspace_files_second",
+            "page": {
+              "entries": [
+                {
+                  "path": "crates/types",
+                  "kind": "dir"
+                },
+                {
+                  "path": "crates/types/src/audit.rs",
+                  "kind": "file",
+                  "size_bytes": 16384
+                },
+                {
+                  "path": "crates/types/src/lib.rs",
+                  "kind": "file",
+                  "size_bytes": 32768
+                }
+              ],
+              "next_after": null,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_files",
+        "task_id": null,
+        "turn_id": "turn_workspace_files"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-files",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000704,
+        "kind": {
+          "type": "workspace_files_loaded",
+          "payload": {
+            "command_id": "workspace_files_first",
+            "page": {
+              "entries": [
+                {
+                  "path": "AGENTS.md",
+                  "kind": "file",
+                  "size_bytes": 4096
+                },
+                {
+                  "path": "README.md",
+                  "kind": "file",
+                  "size_bytes": 2048
+                },
+                {
+                  "path": "crates",
+                  "kind": "dir"
+                },
+                {
+                  "path": "crates/core/src/lib.rs",
+                  "kind": "file",
+                  "size_bytes": 8192
+                }
+              ],
+              "next_after": "crates/core/src/lib.rs",
+              "complete": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden_docs",
+        "lane_id": "lane_workspace_files_docs",
+        "session_id": "session_workspace_files_docs",
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-files",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000705,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_workspace_files_docs",
+              "task_id": null,
+              "role": "reviewer",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane_workspace_files_docs",
+              "branch": "codex/lane_workspace_files_docs",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [
+                "session_workspace_files_docs"
+              ],
+              "summary": "lane.workspace_files_docs.running",
+              "evidence": []
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:workspace-files",
+    "sequence": 5
+  },
+  "expected_view_sha256": "9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37"
+}

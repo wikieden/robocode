@@ -27,7 +27,8 @@ use viden_types::{
     RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent,
     SchemaVersion, StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
     TokenCostView, TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
-    WorkspaceEligibility,
+    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceFilesQuery,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -182,6 +183,9 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         "runtime.starter_lane_preview",
         "runtime.trust_loop",
         "runtime.workspace_eligibility",
+        // GUI-CORE-022. The frozen base list above is unchanged, which is what
+        // keeps the nine base fixtures byte-identical.
+        "runtime.workspace_files",
         "ui.preference_persistence",
     ];
 
@@ -1015,6 +1019,219 @@ fn refresh_audit_reads_extension_fixture() {
     let fixture = audit_reads_fixture();
     fs::write(
         root.join("audit-reads.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-022: canonical proof that a workspace inventory page names the read
+/// it answers, that its entries are ordered, and that a workspace with no read
+/// leaves a client with no file list at all.
+///
+/// Two concurrent reads on the same project are answered in the opposite order,
+/// so nothing but the command id can attribute a page — and unlike an audit
+/// page the id is required, so there is no fallback case to exercise. A second
+/// project publishes an ordinary workspace stream with no inventory page: that
+/// is the "without one" half the contract request asks for, and the honest
+/// answer there is no file list, never an empty one.
+#[test]
+fn workspace_files_fixture_attributes_each_page_and_leaves_an_unread_project_listless() {
+    let name = "workspace-files.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read workspace files fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "workspace_files_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact workspace files fixture bytes"
+    );
+    assert!(extension_manifest.contains("workspace_files_fixture = \"workspace-files.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (_, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    let known = |envelope: &RuntimeEventEnvelope| match &envelope.event {
+        RuntimeWireEvent::Known(event) => event.kind.clone(),
+        RuntimeWireEvent::Unknown { event_type, .. } => panic!(
+            "workspace files fixture events must all be known, got {event_type} — a quarantined \
+             inventory page reads as an empty workspace"
+        ),
+    };
+    let kinds = fixture.events.iter().map(known).collect::<Vec<_>>();
+
+    // An inventory page is a query result, not view state: reducing every page
+    // in the fixture must leave the view exactly as the snapshot published it,
+    // so a client can never read a page as runtime truth.
+    let mut pages_only = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for kind in &kinds {
+        if matches!(kind, RuntimeEventKind::WorkspaceFilesLoaded { .. }) {
+            pages_only.apply_event(&RuntimeEvent::new(1, kind.clone()));
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&pages_only),
+        canonical_view_sha256(&RuntimeViewState::new(fixture.initial_snapshot.clone())),
+        "a workspace inventory page must never fold into RuntimeViewState"
+    );
+
+    let accepted_ids = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: RuntimeCommand::QueryWorkspaceFiles { .. },
+            } => Some(command_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let pages = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::WorkspaceFilesLoaded { command_id, page } => {
+                Some((command_id.clone(), page.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(accepted_ids.len(), 2);
+    assert_eq!(pages.len(), 2);
+
+    // Both reads were accepted before either was answered, and the pages come
+    // back in the opposite order, so arrival order attributes them wrongly and
+    // only the published command id gets them right.
+    let first_page_position = kinds
+        .iter()
+        .position(|kind| matches!(kind, RuntimeEventKind::WorkspaceFilesLoaded { .. }))
+        .expect("the fixture must publish a page");
+    assert!(
+        first_page_position > 1,
+        "both concurrent reads must be accepted before either is answered"
+    );
+    assert_eq!(pages[0].0, "workspace_files_second");
+    assert_eq!(pages[1].0, "workspace_files_first");
+    for (command_id, _) in &pages {
+        assert!(
+            accepted_ids.iter().any(|accepted| accepted == command_id),
+            "a page must name a read Core actually accepted, got {command_id}"
+        );
+    }
+
+    // The two reads' pages are genuinely different answers, so attributing one
+    // to the other read would have been a visible error, not a harmless swap.
+    let (_, scoped_page) = &pages[0];
+    let (_, root_page) = &pages[1];
+    assert_ne!(scoped_page, root_page);
+
+    // Every page is ordered, and the incomplete one names the entry it stopped
+    // at so the next read resumes exclusively after it.
+    for (command_id, page) in &pages {
+        let paths = page
+            .entries
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>();
+        let mut sorted = paths.clone();
+        sorted.sort();
+        assert_eq!(paths, sorted, "page {command_id} must be lexicographic");
+        for entry in &page.entries {
+            assert!(
+                !entry.path.starts_with('/') && !entry.path.contains(".."),
+                "a published path must stay workspace-relative, got {}",
+                entry.path
+            );
+            match entry.kind {
+                WorkspaceFileKind::Dir => assert_eq!(
+                    entry.size_bytes, None,
+                    "a directory must publish no byte size"
+                ),
+                _ => {}
+            }
+        }
+    }
+    assert!(!root_page.complete);
+    assert_eq!(
+        root_page.next_after.as_deref(),
+        root_page.entries.last().map(|entry| entry.path.as_str()),
+        "the incomplete page's cursor names the entry it stopped at"
+    );
+    assert!(scoped_page.complete);
+    assert_eq!(scoped_page.next_after, None);
+
+    // The scoped read applied its prefix before the page was cut, so
+    // `complete` is the subtree's completeness even though the root page above
+    // is still incomplete.
+    let scoped_query = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: RuntimeCommand::QueryWorkspaceFiles { query },
+            } if command_id == "workspace_files_second" => Some(query.clone()),
+            _ => None,
+        })
+        .expect("the fixture must accept the scoped read");
+    let prefix = scoped_query
+        .prefix
+        .as_deref()
+        .expect("the scoped read must carry a prefix");
+    assert!(
+        scoped_page
+            .entries
+            .iter()
+            .all(|entry| entry.path.starts_with(prefix)),
+        "a scoped page must contain only paths the prefix kept"
+    );
+
+    // The second project: an ordinary workspace stream with no inventory read
+    // and no inventory page. A client scoped to it has no file list at all,
+    // which is the honest answer — never an empty one it could render as "this
+    // project has no files".
+    let unread_project = "project_viden_docs";
+    let unread_owner_events = fixture
+        .events
+        .iter()
+        .filter(|envelope| envelope.owner.project_id == unread_project)
+        .collect::<Vec<_>>();
+    assert!(
+        !unread_owner_events.is_empty(),
+        "the fixture must publish a second workspace stream"
+    );
+    assert!(
+        unread_owner_events.iter().all(|envelope| !matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(event)
+                if matches!(
+                    event.kind,
+                    RuntimeEventKind::WorkspaceFilesLoaded { .. }
+                        | RuntimeEventKind::CommandAccepted {
+                            command: RuntimeCommand::QueryWorkspaceFiles { .. },
+                            ..
+                        }
+                )
+        )),
+        "the unread project must publish neither an inventory read nor a page"
+    );
+}
+
+#[test]
+#[ignore = "manual workspace files fixture refresh; normal tests validate committed JSON only"]
+fn refresh_workspace_files_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = workspace_files_fixture();
+    fs::write(
+        root.join("workspace-files.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -2411,6 +2628,173 @@ fn audit_reads_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Plan),
         owned_envelopes(fixture_id, owner, kinds, 1_700_000_500),
+    )
+}
+
+/// Canonical proof that a workspace inventory page is attributable to the exact
+/// read that asked for it, that its entries are ordered, and that a project
+/// nobody read leaves a client with no file list (GUI-CORE-022).
+///
+/// Two reads are accepted before either is answered and the pages come back in
+/// the opposite order, so arrival order cannot stand in for correlation. Unlike
+/// `AuditPageLoaded` the command id is required here, so there is no
+/// uncorrelated page to model. A second project publishes lane facts and no
+/// inventory at all: the "project without one" the request asks for, where the
+/// only honest client state is "no list", never an empty list.
+fn workspace_files_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "workspace-files";
+    let read_owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: None,
+        session_id: Some("session_workspace_files".to_string()),
+        task_id: None,
+        turn_id: Some("turn_workspace_files".to_string()),
+    };
+    // A second attached project in the same workspace. Its stream carries real
+    // lane facts, so "no file list" here is the absence of a read rather than
+    // the absence of a project.
+    let unread_owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden_docs".to_string(),
+        lane_id: Some("lane_workspace_files_docs".to_string()),
+        session_id: Some("session_workspace_files_docs".to_string()),
+        task_id: None,
+        turn_id: None,
+    };
+    let file = |path: &str, size: u64| WorkspaceFileEntry {
+        path: path.to_string(),
+        kind: WorkspaceFileKind::File,
+        size_bytes: Some(size),
+    };
+    let dir = |path: &str| WorkspaceFileEntry {
+        path: path.to_string(),
+        kind: WorkspaceFileKind::Dir,
+        size_bytes: None,
+    };
+    let accepted =
+        |command_id: &str, query: WorkspaceFilesQuery| RuntimeEventKind::CommandAccepted {
+            command_id: command_id.to_string(),
+            command: RuntimeCommand::QueryWorkspaceFiles { query },
+        };
+    let loaded =
+        |command_id: &str, page: WorkspaceFilePage| RuntimeEventKind::WorkspaceFilesLoaded {
+            command_id: command_id.to_string(),
+            page,
+        };
+    // The first page stops mid-tree: `next_after` names the entry it stopped
+    // at, and the cursor is exclusive so the next read resumes strictly after.
+    let root_page = WorkspaceFilePage {
+        entries: vec![
+            file("AGENTS.md", 4_096),
+            file("README.md", 2_048),
+            dir("crates"),
+            file("crates/core/src/lib.rs", 8_192),
+        ],
+        next_after: Some("crates/core/src/lib.rs".to_string()),
+        complete: false,
+    };
+    // The scoped read: Core applied the prefix before cutting the page, so
+    // `complete` describes the `crates/types` subtree even though the root page
+    // above is still incomplete.
+    let scoped_page = WorkspaceFilePage {
+        entries: vec![
+            dir("crates/types"),
+            file("crates/types/src/audit.rs", 16_384),
+            file("crates/types/src/lib.rs", 32_768),
+        ],
+        next_after: None,
+        complete: true,
+    };
+    let docs_lane = AgentLaneRecord {
+        id: "lane_workspace_files_docs".to_string(),
+        task_id: None,
+        role: AgentRole::Reviewer,
+        route: AgentRoute::BuiltIn,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some("workspace/.worktrees/lane_workspace_files_docs".to_string()),
+        branch: Some("codex/lane_workspace_files_docs".to_string()),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: LaneStatus::Running,
+        budget: LaneBudget::default(),
+        active_session_ids: vec!["session_workspace_files_docs".to_string()],
+        summary: "lane.workspace_files_docs.running".to_string(),
+        evidence: Vec::new(),
+        run_stats: None,
+    };
+
+    let owned = vec![
+        // Both reads are outstanding before either is answered.
+        (
+            read_owner.clone(),
+            accepted(
+                "workspace_files_first",
+                WorkspaceFilesQuery {
+                    prefix: None,
+                    limit: Some(4),
+                    after: None,
+                },
+            ),
+        ),
+        (
+            read_owner.clone(),
+            accepted(
+                "workspace_files_second",
+                WorkspaceFilesQuery {
+                    prefix: Some("crates/types".to_string()),
+                    limit: Some(50),
+                    after: None,
+                },
+            ),
+        ),
+        // The second read is answered first, so a client correlating by arrival
+        // order would attribute this page to the first read.
+        (
+            read_owner.clone(),
+            loaded("workspace_files_second", scoped_page),
+        ),
+        (read_owner, loaded("workspace_files_first", root_page)),
+        // The unread project's own stream: a real lane fact and no inventory.
+        (
+            unread_owner,
+            RuntimeEventKind::LaneUpdated { lane: docs_lane },
+        ),
+    ];
+
+    let events = owned
+        .into_iter()
+        .enumerate()
+        .map(|(index, (owner, kind))| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner,
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(1_700_000_700 + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+            "runtime.typed_lanes",
+            "runtime.workspace_files",
+        ],
+        snapshot(WorkMode::Build),
+        events,
     )
 }
 

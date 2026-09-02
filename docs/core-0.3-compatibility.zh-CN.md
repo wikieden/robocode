@@ -79,6 +79,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.trust_loop
+runtime.workspace_files
 ui.preference_persistence
 ```
 
@@ -105,6 +106,29 @@ work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D
   倒置会被拒绝，而不是返回空 page，因为空 page 会被读成"该时间窗内什么都没发生"。本次构建
   无法归类的 filter 变体或 actor 变体一律不匹配，因此 filter 绝不会声称拥有它无法指名的
   记录。三个字段默认缺省，因此旧客户端写出的查询语义完全不变。
+
+工作区文件清单查询（`QueryWorkspaceFiles` -> `WorkspaceFilesLoaded`）要求
+`runtime.workspace_files`（GUI-CORE-022）。与 audit 读取不同，它要过权限门禁，因为它读的是
+操作者的工作树：
+
+- Core 在读取任何一个目录项之前先咨询权限引擎，工具名为非变更的
+  `workspace_file_inventory`，输入路径为工作区根——与其他工作区读取完全同一道门禁。deny
+  会发布指名该拒绝的标准 `Error` 事件；未解决的 ask 同样如此：这次读取回应的是一次按键而
+  不是一次交互回合，因此它以非交互方式判定，而不是把客户端卡在审批弹窗后面。两种情况都绝不
+  发布空 page，因为"你无权读取"和"这个工作区没有文件"是两个不同的事实。
+- 该工具不产生变更，因此 plan mode 仍会通过权限引擎的 safe-read 分支给出答案，同时所有变更
+  依旧被阻断。
+- 遍历遵循 gitignore，即便不在 Git 仓库内也遵循 `.gitignore`，且不读取全局或父目录的 ignore
+  文件，因此同一个工作区在两台机器上枚举结果一致。`.git/`、`.viden/`、`.omx/`、
+  `.worktrees/`、`.ref/` 被无条件排除：它们承载的是运行时与 agent 状态，而不是工作区内容。
+- 条目先按字典序排序，**然后**才应用 prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit
+  钳制，因此 `complete` 与 `next_after` 描述的是过滤后的有序清单。越出工作区的 prefix 会被
+  拒绝，而不是被钳制或以空 page 回答。
+- `WorkspaceFilesLoaded.command_id` 是**必填**而非 optional。audit page 的关联 id 是后续新增
+  的，因此永远带着一个 `None` 分支；本事件是全新的，所以客户端始终能拿到该 page 所回答的确切
+  读取，绝不需要退回到"关联自己被接受的查询"。
+- 缺少该 capability 的客户端零发送，并明确显示清单不可用，而不是自行遍历文件系统——那超出了
+  客户端边界，也会绕过这道门禁。
 
 自 core-0.3.5 起还新增一处 additive schema-1 扩展，使实时工作可归属（GUI-CORE-010）。
 `AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与 `EvidenceView` 各自新增一个
@@ -245,6 +269,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `message-parts` | ACP turn 在文本之外返回 image part：typed part 只挂到自己的消息上，reference 是 parts 目录的不可变 digest 路径，未建模的 part kind 无损往返 | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
 | `audit-reads` | 两次并发 audit 读取以相反顺序被回答，每个 page 指名自己的 `command_id`；另有一次过滤读取，其 `complete` 描述的是过滤后的 timeline，而未过滤 page 上仍存在更旧的记录 | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 | `owner-scoped-live-work` | 两个并发 Lane 在各自精确绑定的 owner 下交错发布 task、tool call、排队输入与 evidence 事实，另有同样四类事实在没有 owner 的情况下发布 | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
+| `workspace-files` | 同一项目上的两次并发清单读取以相反顺序被回答，每个 page 都携带必填的 `command_id`；带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完；另有第二个已挂载项目只发布 lane 事实、完全没有清单读取 | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
@@ -266,6 +291,15 @@ operator 与 system 记录——这正是客户端侧过滤永远无法确立的
 事实交错发布，因此顺序与新近度都不能代替归属：只有已发布的 owner 才能把一条事实归到某个
 Lane。第四组事实没有 owner，因此不属于任何 Lane 范围，同时仍在 workspace 层可见——诚实的
 客户端渲染的正是这一点，而不是把它归给当前选中的 Lane。
+
+`workspace-files` fixture 是清单读取的生成式证据。同一项目上的两次读取在任一被回答之前都已
+被接受，且 page 以相反顺序返回，因此按到达顺序归属会归错，只有必填的 `command_id` 能归对；
+带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完——这正是客户端对已持有
+page 做过滤永远无法确立的完备性事实。第二个已挂载项目只发布普通 lane 事实、完全没有清单
+读取，这就是该请求所要的"没有清单的项目"那一半：范围在该项目的客户端得到的是"没有列表"，
+而不是一个可被渲染成"该项目没有文件"的空列表。与 `agent_message_part`、`audit_page_loaded`
+一样，`workspace_files_loaded` 已进入 schema-1 已知集合，因此清单 page 会被归约而不是作为
+未知事件隔离；该 fixture 同时证明 page 绝不折叠进 `RuntimeViewState`。
 
 扩展 fixture 使用六个正式 known event：`UiPreferencesUpdated`、`RecentWorkLoaded`、
 `StarterLanePreviewed`、`StarterLaneCreated`、`StarterLanePreviewInvalidated`、
