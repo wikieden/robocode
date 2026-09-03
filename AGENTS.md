@@ -54,6 +54,10 @@ Workspace code is split by product surface and reusable core:
 - `crates/lanes`: lane lifecycle orchestration and lane-local side effects,
   below the runtime; runtime policy such as the permission gate and event
   redaction is injected into it, never imported by it.
+- `crates/agents`: the external agent adapter layer below the runtime — the ACP
+  generic client, the Codex app-server client, and the spawn infrastructure
+  they share; permission contexts, approvers, and event sinks are injected into
+  it, never imported by it.
 - `crates/provider`: provider abstraction, registry, and protocol adapters.
 - `crates/plugin-api`: shared plugin manifest, capability, permission, and provider descriptor contracts.
 - `crates/plugin-host`: static plugin registry boundary for provider/tool/agent/workflow plugins.

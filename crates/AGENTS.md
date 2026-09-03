@@ -36,6 +36,13 @@ GUI branches have started from it.
 
 - Core exclusively owns authoritative runtime facts, persistence, permissions,
   provider/tool execution, lane side effects, and workflow reduction.
+- `crates/lanes` and `crates/agents` are leaves below the runtime with
+  enumerated dependency allow-lists. Runtime-owned policy — permission
+  contexts, approvers, event sinks, persistence — is injected into them as
+  parameters, never imported by them, and
+  `scripts/check-dependency-boundaries.sh` enforces both the allow-list and the
+  absence of the modules they took with them. Adding a `viden-*` dependency to
+  either is an architecture decision, not a convenience.
 - Keep Core independent of `apps/tui` and `apps/gui`.
 - Do not implement frontend layout or frontend-local interaction state here.
 - After contract freeze, make backward-compatible extensions whenever
@@ -61,6 +68,7 @@ cargo test -p viden-types
 cargo test -p viden-session
 cargo test -p viden-workflows
 cargo test -p viden-lanes
+cargo test -p viden-agents
 cargo test -p viden-runtime
 cargo test -p viden-core
 scripts/check-dependency-boundaries.sh

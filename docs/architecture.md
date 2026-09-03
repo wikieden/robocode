@@ -63,6 +63,10 @@ flowchart TB
   orchestration.
 - `crates/lanes`: lane lifecycle orchestration and lane-local side effects,
   below the runtime and driven entirely through injected seams.
+- `crates/agents`: the external agent adapter layer below the runtime — one
+  strategy per external CLI (ACP generic client, Codex app-server) plus the
+  spawn infrastructure they share, reaching the OS only through `viden-tools`
+  capabilities and receiving runtime policy through injected seams.
 - `crates/provider`: provider host/runtime, HTTP adapters, provider registry, and tool-calling protocol translation.
 - `crates/plugin-api`: shared plugin manifests, capabilities, permissions, provider descriptors, and ABI symbols.
 - `crates/plugin-host`: plugin discovery, registry, validation, and lifecycle boundary.

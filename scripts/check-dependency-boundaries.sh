@@ -7,8 +7,21 @@ if (( $# > 0 )); then
   manifests=("$@")
 else
   manifests=("$ROOT/apps/tui/Cargo.toml")
-  if [[ -f "$ROOT/apps/gui/Cargo.toml" ]]; then
-    manifests+=("$ROOT/apps/gui/Cargo.toml")
+  # The GUI crate is the Tauri sub-manifest. Probing apps/gui/Cargo.toml -- a
+  # path that has never existed under the Tauri layout -- silently skipped the
+  # frontend check for the whole GUI, so both locations are tried and a total
+  # absence is a failure rather than a skip.
+  gui_found=""
+  for candidate in "$ROOT/apps/gui/src-tauri/Cargo.toml" "$ROOT/apps/gui/Cargo.toml"; do
+    if [[ -f "$candidate" ]]; then
+      manifests+=("$candidate")
+      gui_found="yes"
+      break
+    fi
+  done
+  if [[ -z "$gui_found" ]]; then
+    echo "no GUI manifest found under apps/gui; frontend boundary unchecked" >&2
+    exit 1
   fi
 fi
 
@@ -18,6 +31,9 @@ import sys
 from pathlib import Path
 
 FORBIDDEN = {
+    # A frontend reaches external agents only through Core, never by driving
+    # an ACP or Codex adapter itself.
+    "viden-agents",
     "viden-context",
     "viden-provider",
     "viden-runtime",
@@ -84,25 +100,64 @@ if failures:
     raise SystemExit(1)
 PY
 
-# The lane subsystem is a leaf below the runtime: it orchestrates lanes and
-# reaches the operating system only through viden-tools backends. Anything the
-# runtime owns -- sessions, providers, ACP, config, context, plugins -- must be
-# injected into it rather than imported by it, so the allowed workspace
-# dependencies are enumerated instead of merely forbidding today's offenders.
+# Each leaf extracted from below the runtime keeps an enumerated allow-list
+# rather than a list of today's offenders, because the property worth holding
+# is "nothing the runtime owns leaked back in", not "these five names stayed
+# out". A leaf receives runtime policy -- sessions, providers, config, context,
+# plugins, event sinks, permission contexts -- as injected parameters.
+#
+# Each leaf also names the modules it took with it. The extraction is only real
+# while those modules stay extracted, so a reappearing path under
+# crates/runtime/src fails the gate even if it compiles.
 python3 - "$ROOT" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-ALLOWED = {
-    "viden-permissions",
-    "viden-tools",
-    "viden-types",
-    "viden-workflows",
-    # The crate may depend on itself to re-expose its `testing` helpers.
-    "viden-lanes",
+
+LEAVES = {
+    # Lane lifecycle orchestration: reaches the OS only through viden-tools
+    # backends (worktree, process, terminal, patch).
+    "lanes": {
+        "label": "lane",
+        "allowed": {
+            "viden-permissions",
+            "viden-tools",
+            "viden-types",
+            "viden-workflows",
+            # The crate may depend on itself to re-expose its `testing` helpers.
+            "viden-lanes",
+        },
+        # Directories are rejected as well as files: the pre-extraction tree
+        # kept these bands in crates/runtime/src/agents/.
+        "stale": (
+            "lane_runtime.rs",
+            "lane_supervisor.rs",
+            "lane_worker.rs",
+        ),
+    },
+    # External agent adapters: one strategy per external CLI (ACP generic
+    # client, Codex app-server), reaching the OS only through viden-tools
+    # capabilities. It must not learn about sessions, lanes, providers,
+    # frontends, or the runtime's trust loop.
+    "agents": {
+        "label": "agent",
+        "allowed": {
+            "viden-permissions",
+            "viden-plugin-api",
+            "viden-plugin-host",
+            "viden-tools",
+            "viden-types",
+            "viden-agents",
+        },
+        "stale": (
+            "agent_commands.rs",
+            "agents",
+        ),
+    },
 }
+
 failures = []
 
 
@@ -113,45 +168,49 @@ def dependency_table(section):
     )
 
 
-manifest = root / "crates" / "lanes" / "Cargo.toml"
-if not manifest.is_file():
-    failures.append(f"missing lane manifest: {manifest}")
-else:
-    section = ""
-    lines = iter(enumerate(manifest.read_text(encoding="utf-8").splitlines(), start=1))
-    for line_number, raw_line in lines:
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1].strip()
-            continue
-        if not dependency_table(section):
-            continue
-        match = re.match(r'''(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*=\s*(.*)''', line)
-        if not match:
-            continue
-        dependency = next(group for group in match.groups()[:3] if group is not None)
-        specification = match.group(4)
-        while specification.count("{") > specification.count("}"):
-            try:
-                _, continuation = next(lines)
-            except StopIteration:
-                break
-            specification += " " + continuation.split("#", 1)[0].strip()
-        package_match = re.search(r'''\bpackage\s*=\s*["']([^"']+)["']''', specification)
-        name = package_match.group(1) if package_match else dependency
-        if name.startswith("viden-") and name not in ALLOWED:
-            failures.append(
-                f"forbidden lane dependency in {manifest}:{line_number}: "
-                f"{section}.{dependency} -> {name}"
-            )
+for crate, leaf in LEAVES.items():
+    label = leaf["label"]
+    allowed = leaf["allowed"]
+    manifest = root / "crates" / crate / "Cargo.toml"
+    if not manifest.is_file():
+        failures.append(f"missing {label} manifest: {manifest}")
+    else:
+        section = ""
+        lines = iter(enumerate(manifest.read_text(encoding="utf-8").splitlines(), start=1))
+        for line_number, raw_line in lines:
+            line = raw_line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip()
+                continue
+            if not dependency_table(section):
+                continue
+            match = re.match(r'''(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*=\s*(.*)''', line)
+            if not match:
+                continue
+            dependency = next(group for group in match.groups()[:3] if group is not None)
+            specification = match.group(4)
+            while specification.count("{") > specification.count("}"):
+                try:
+                    _, continuation = next(lines)
+                except StopIteration:
+                    break
+                specification += " " + continuation.split("#", 1)[0].strip()
+            package_match = re.search(r'''\bpackage\s*=\s*["']([^"']+)["']''', specification)
+            name = package_match.group(1) if package_match else dependency
+            if name.startswith("viden-") and name not in allowed:
+                failures.append(
+                    f"forbidden {label} dependency in {manifest}:{line_number}: "
+                    f"{section}.{dependency} -> {name}"
+                )
 
-# The extraction is only real while the modules stay extracted.
-for module in ("lane_runtime.rs", "lane_supervisor.rs", "lane_worker.rs"):
-    stale = root / "crates" / "runtime" / "src" / module
-    if stale.is_file():
-        failures.append(f"lane module belongs to viden-lanes, not viden-runtime: {stale}")
+    for module in leaf["stale"]:
+        stale = root / "crates" / "runtime" / "src" / module
+        if stale.exists():
+            failures.append(
+                f"{label} module belongs to viden-{crate}, not viden-runtime: {stale}"
+            )
 
 if failures:
     print("\n".join(failures), file=sys.stderr)

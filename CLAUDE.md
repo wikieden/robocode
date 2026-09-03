@@ -44,6 +44,8 @@ and multiple clients:
 - `crates/runtime`: session and agent execution orchestration;
 - `crates/lanes`: lane lifecycle orchestration and lane-local side effects,
   below the runtime;
+- `crates/agents`: external agent adapters (ACP, Codex app-server) below the
+  runtime, reaching the OS only through tool capabilities;
 - `crates/context`: context, evidence-reference, retrieval, and cost engine;
 - `crates/types`: shared domain and protocol types;
 - `crates/session`: canonical JSONL session facts and rebuildable SQLite index;

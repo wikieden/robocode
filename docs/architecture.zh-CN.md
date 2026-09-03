@@ -60,6 +60,9 @@ flowchart TB
 - `crates/runtime`：共享启动 bootstrap、会话引擎和 turn 编排
 - `crates/lanes`：lane 生命周期编排与 lane 本地副作用，位于 runtime 之下，
   完全通过注入的接缝驱动
+- `crates/agents`：位于 runtime 之下的外部 agent adapter 层——每个外部 CLI 一种
+  策略（通用 ACP 客户端、Codex app-server）以及两者共享的进程启动基础设施；
+  只通过 `viden-tools` capabilities 访问操作系统，并通过注入的接缝接收 runtime 策略
 - `crates/provider`：provider host/runtime、HTTP 适配、provider registry，以及 tool-calling 协议转换
 - `crates/plugin-api`：共享 plugin manifest、capability、permission、provider descriptor 和 ABI symbol
 - `crates/plugin-host`：plugin discovery、registry、validation 和 lifecycle 边界
