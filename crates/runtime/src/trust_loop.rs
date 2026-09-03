@@ -564,7 +564,7 @@ impl SessionEngine {
         });
         gate.policy_snapshot.requires_independent_validator = true;
         gate.status = viden_types::MergeGateStatus::CollectingEvidence;
-        gate.decision = Some(merge_gate_decision(
+        gate.decision = Some(MergeGateDecision::decided_now(
             MergeGateDecisionOutcome::AwaitingEvidence,
             "independent_review_required".to_string(),
             gate.owner.clone(),
@@ -1009,7 +1009,7 @@ impl SessionEngine {
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = viden_types::MergeGateStatus::NeedsChanges;
         gate.conflict = Some(conflict.clone());
-        gate.decision = Some(merge_gate_decision(
+        gate.decision = Some(MergeGateDecision::decided_now(
             MergeGateDecisionOutcome::Conflict,
             reason.clone(),
             owner,
@@ -1093,7 +1093,7 @@ impl SessionEngine {
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.conflict = Some(conflict.clone());
         gate.status = viden_types::MergeGateStatus::CollectingEvidence;
-        gate.decision = Some(merge_gate_decision(
+        gate.decision = Some(MergeGateDecision::decided_now(
             MergeGateDecisionOutcome::AwaitingEvidence,
             "revalidated_conflict_requires_review".to_string(),
             actor,
@@ -1276,7 +1276,7 @@ impl SessionEngine {
         self.applied_change_rollbacks.remove(&applied_change_id);
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = viden_types::MergeGateStatus::Reverted;
-        gate.decision = Some(merge_gate_decision(
+        gate.decision = Some(MergeGateDecision::decided_now(
             MergeGateDecisionOutcome::Reverted,
             reason.clone(),
             owner,
@@ -1352,25 +1352,6 @@ impl SessionEngine {
             .iter()
             .position(|gate| gate.gate_id == gate_id)
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))
-    }
-}
-
-pub(crate) fn merge_gate_decision(
-    outcome: MergeGateDecisionOutcome,
-    reason: String,
-    owner: RuntimeOwner,
-    evidence_ids: Vec<String>,
-    audit_id: String,
-) -> MergeGateDecision {
-    MergeGateDecision {
-        outcome,
-        reason,
-        owner,
-        evidence_ids,
-        reviewed_evidence: Vec::new(),
-        review_request_id: None,
-        audit_id,
-        decided_at: now_timestamp(),
     }
 }
 

@@ -24,10 +24,11 @@ use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentCapabilityRecord,
     AgentContentPart, AgentNextAction, AgentRole, AgentRoute, AgentSessionRequest,
     AgentSessionStatus, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
-    AgentTaskStatus, ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecisionOutcome,
-    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, PermissionDecision,
-    PermissionLogEntry, RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec,
-    TranscriptEntry, fresh_id, now_timestamp, truncate_for_preview,
+    AgentTaskStatus, ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecision,
+    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, PermissionDecision, PermissionLogEntry, RuntimeEvent, RuntimeEventKind,
+    RuntimeOwner, ToolInput, ToolSpec, TranscriptEntry, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
 
 const SHELL_SCRIPT_THRESHOLD: usize = 32 * 1024;
@@ -5467,7 +5468,7 @@ fn acp_session_merge_gate(
             captured_at: Some(now),
         },
         decision: if status == MergeGateStatus::CollectingEvidence && !evidence_ids.is_empty() {
-            Some(crate::trust_loop::merge_gate_decision(
+            Some(MergeGateDecision::decided_now(
                 MergeGateDecisionOutcome::AwaitingEvidence,
                 "missing_canonical".to_string(),
                 RuntimeOwner::default(),

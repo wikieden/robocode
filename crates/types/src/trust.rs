@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
 
-use crate::{AgentLaneId, AgentTaskId, EvidenceId, MergeGateId, RuntimeOwner};
+use crate::{AgentLaneId, AgentTaskId, EvidenceId, MergeGateId, RuntimeOwner, now_timestamp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -187,6 +187,35 @@ pub struct MergeGateDecision {
     pub review_request_id: Option<String>,
     pub audit_id: String,
     pub decided_at: u64,
+}
+
+impl MergeGateDecision {
+    /// Builds a typed decision that is being made right now.
+    ///
+    /// `decided_at` is stamped from the wall clock at call time, so callers must
+    /// only use this when the decision is actually being taken; records replayed
+    /// from persisted facts keep their original `decided_at` and are constructed
+    /// through deserialization instead. `reviewed_evidence` and
+    /// `review_request_id` start empty because review bindings are attached by a
+    /// later review step, never by the deciding call site.
+    pub fn decided_now(
+        outcome: MergeGateDecisionOutcome,
+        reason: String,
+        owner: RuntimeOwner,
+        evidence_ids: Vec<EvidenceId>,
+        audit_id: String,
+    ) -> Self {
+        Self {
+            outcome,
+            reason,
+            owner,
+            evidence_ids,
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
+            audit_id,
+            decided_at: now_timestamp(),
+        }
+    }
 }
 
 impl Serialize for MergeGateDecision {

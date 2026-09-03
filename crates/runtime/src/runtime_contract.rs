@@ -45,13 +45,14 @@ use viden_types::{
     ContextItemRecord, ContextRetrievalRecord, ContextScope, ContextSourceRecord, CostUsageOutcome,
     CostUsageRecord, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
     EvidenceCanonicalStatusReport, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
-    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
-    MergeGateType, PermissionBehavior, PermissionDecision, PermissionDecisionReason,
-    PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule, PermissionRuleSource,
-    PermissionRuleValue, ProviderHealthView, QueuedInputView, ReviewRequestStatus, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, TokenCostView, TokenUsage, ToolCallId, ToolInput, TranscriptPageRequest,
-    WorkMode, canonical_evidence_status, fresh_id, now_timestamp, truncate_for_preview,
+    MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
+    MergeGateStatus, MergeGateType, PermissionBehavior, PermissionDecision,
+    PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
+    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView,
+    ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, TokenCostView, TokenUsage, ToolCallId,
+    ToolInput, TranscriptPageRequest, WorkMode, canonical_evidence_status, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
 use viden_workflows::{
     recovery::{LoadedRecoverySnapshot, RecoverySnapshotEntry},
@@ -2314,7 +2315,7 @@ impl SessionEngine {
                     independent_review_pending.then(|| "independent_review_required".to_string())
                 })
                 .map(|reason| {
-                    crate::trust_loop::merge_gate_decision(
+                    MergeGateDecision::decided_now(
                         MergeGateDecisionOutcome::AwaitingEvidence,
                         reason,
                         gate.owner.clone(),
@@ -3007,7 +3008,7 @@ impl SessionEngine {
             .iter()
             .map(|binding| binding.evidence_id.clone())
             .collect::<Vec<_>>();
-        let mut typed_decision = crate::trust_loop::merge_gate_decision(
+        let mut typed_decision = MergeGateDecision::decided_now(
             if status == MergeGateStatus::Accepted {
                 MergeGateDecisionOutcome::Accepted
             } else {
@@ -3215,7 +3216,7 @@ impl SessionEngine {
                 } else {
                     canonical_reasons.clone()
                 };
-                Some(crate::trust_loop::merge_gate_decision(
+                Some(MergeGateDecision::decided_now(
                     MergeGateDecisionOutcome::AwaitingEvidence,
                     reason,
                     gate.owner.clone(),
@@ -3383,7 +3384,7 @@ impl SessionEngine {
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.evidence_ids.retain(|id| id != evidence_id);
         gate.status = MergeGateStatus::NeedsChanges;
-        gate.decision = Some(crate::trust_loop::merge_gate_decision(
+        gate.decision = Some(MergeGateDecision::decided_now(
             MergeGateDecisionOutcome::Rejected,
             reason.clone(),
             actor,
@@ -3501,7 +3502,7 @@ impl SessionEngine {
         let gate = &mut self.runtime_merge_gates[gate_index];
         gate.status = MergeGateStatus::Merged;
         let audit_id = fresh_id("audit");
-        gate.decision = Some(crate::trust_loop::merge_gate_decision(
+        gate.decision = Some(MergeGateDecision::decided_now(
             MergeGateDecisionOutcome::Merged,
             decision.clone(),
             gate.owner.clone(),
