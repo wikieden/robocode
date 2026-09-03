@@ -29,7 +29,7 @@ use viden_workflows::stores::WorkflowStore;
 
 use crate::{
     RuntimeEventSink, SessionEngine,
-    agent_commands::{
+    agents::{
         AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
         resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
         start_typed_agent_session, typed_agent_session_request_from_compat_input,

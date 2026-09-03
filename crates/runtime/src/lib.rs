@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-mod agent_commands;
+mod agents;
 mod bootstrap;
 mod brief_commands;
 mod command_dispatch;
