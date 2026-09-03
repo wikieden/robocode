@@ -25,14 +25,146 @@ else
   fi
 fi
 
-python3 - "${manifests[@]}" <<'PY'
+# Both boundary checks -- the frontend forbidden-list and the per-leaf
+# allow-list -- read manifests through one parser, so a Cargo syntax the parser
+# does not understand cannot be closed in one check and left open in the other.
+python3 - "$ROOT" "${manifests[@]}" <<'PY'
 import re
 import sys
 from pathlib import Path
 
+DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+
+
+def split_section(header):
+    """Split a section header on dots that are outside quotes.
+
+    `target.'cfg(windows)'.dependencies` must split into three segments, not
+    into pieces of the cfg expression, so quoted spans are copied verbatim.
+    """
+    parts = []
+    current = ""
+    quote = None
+    for character in header:
+        if quote is not None:
+            current += character
+            if character == quote:
+                quote = None
+        elif character in "\"'":
+            quote = character
+            current += character
+        elif character == ".":
+            parts.append(current)
+            current = ""
+        else:
+            current += character
+    parts.append(current)
+    return [part.strip() for part in parts]
+
+
+def unquote(value):
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def classify_section(header):
+    """Describe what a section header declares.
+
+    Returns (kind, table, dependency):
+
+    - ("inline", <table>, None) for `[dependencies]` and
+      `[target.'cfg(..)'.dev-dependencies]`, whose entries are `name = ...`
+      lines inside the table;
+    - ("dotted", <table>, <name>) for `[dependencies.viden-provider]`, which is
+      equally valid Cargo and declares that dependency by its section name
+      alone. Matching only the table names skipped these sections entirely, so
+      a dotted table was an unchecked way to declare any dependency.
+    """
+    segments = split_section(header)
+    if not segments:
+        return (None, None, None)
+    if unquote(segments[-1]) in DEPENDENCY_TABLES:
+        return ("inline", header, None)
+    if len(segments) >= 2 and unquote(segments[-2]) in DEPENDENCY_TABLES:
+        return ("dotted", ".".join(segments[:-1]), unquote(segments[-1]))
+    return (None, None, None)
+
+
+def read_sections(text):
+    """Group a manifest into (header, header_line, body) sections."""
+    sections = []
+    header = ""
+    header_line = 0
+    body = []
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.split("#", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            sections.append((header, header_line, body))
+            header = line[1:-1].strip()
+            header_line = line_number
+            body = []
+            continue
+        body.append((line_number, line))
+    sections.append((header, header_line, body))
+    return sections
+
+
+ENTRY = re.compile(r'''(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*=\s*(.*)''')
+PACKAGE = re.compile(r'''\bpackage\s*=\s*["']([^"']+)["']''')
+
+
+def manifest_dependencies(manifest):
+    """Yield (line_number, table, key, package) for every declared dependency.
+
+    `package` is the crate actually depended on, honoring a `package = "..."`
+    rename in either the inline or the dotted form.
+    """
+    found = []
+    for header, header_line, body in read_sections(
+        manifest.read_text(encoding="utf-8")
+    ):
+        kind, table, dotted_name = classify_section(header)
+        if kind is None:
+            continue
+        if kind == "dotted":
+            package = dotted_name
+            for _, line in body:
+                match = PACKAGE.search(line)
+                if match:
+                    package = match.group(1)
+                    break
+            found.append((header_line, table, dotted_name, package))
+            continue
+        lines = iter(body)
+        for line_number, line in lines:
+            if not line:
+                continue
+            match = ENTRY.match(line)
+            if not match:
+                continue
+            key = next(group for group in match.groups()[:3] if group is not None)
+            specification = match.group(4)
+            while specification.count("{") > specification.count("}"):
+                try:
+                    _, continuation = next(lines)
+                except StopIteration:
+                    break
+                specification += " " + continuation
+            package_match = PACKAGE.search(specification)
+            package = package_match.group(1) if package_match else key
+            found.append((line_number, table, key, package))
+    return found
+
+
+failures = []
+
+# --- Frontend boundary -------------------------------------------------------
+# A frontend owns presentation state and reaches business state only through
+# Core. viden-agents is on the list because a client must not drive an ACP or
+# Codex adapter itself.
 FORBIDDEN = {
-    # A frontend reaches external agents only through Core, never by driving
-    # an ACP or Codex adapter itself.
     "viden-agents",
     "viden-context",
     "viden-provider",
@@ -40,66 +172,26 @@ FORBIDDEN = {
     "viden-tools",
     "viden-workflows",
 }
-failures = []
 
-
-def dependency_table(section):
-    return any(
-        section == name or section.endswith(f".{name}")
-        for name in ("dependencies", "dev-dependencies", "build-dependencies")
-    )
-
-
-def inspect_manifest(manifest, text):
-    section = ""
-    lines = iter(enumerate(text.splitlines(), start=1))
-    for line_number, raw_line in lines:
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1].strip()
-            continue
-        if not dependency_table(section):
-            continue
-
-        match = re.match(r'''(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*=\s*(.*)''', line)
-        if not match:
-            continue
-        dependency = next(group for group in match.groups()[:3] if group is not None)
-        specification = match.group(4)
-        while specification.count("{") > specification.count("}"):
-            try:
-                _, continuation = next(lines)
-            except StopIteration:
-                break
-            specification += " " + continuation.split("#", 1)[0].strip()
-
-        package_match = re.search(r'''\bpackage\s*=\s*["']([^"']+)["']''', specification)
-        package = package_match.group(1) if package_match else None
-        forbidden_name = dependency if dependency in FORBIDDEN else package
-        if forbidden_name in FORBIDDEN:
-            failures.append(
-                f"forbidden frontend dependency in {manifest}:{line_number}: "
-                f"{section}.{dependency} -> {forbidden_name}"
-            )
-
-
-for raw_manifest in sys.argv[1:]:
+for raw_manifest in sys.argv[2:]:
     manifest = Path(raw_manifest)
     if not manifest.is_file():
         failures.append(f"missing frontend manifest: {manifest}")
         continue
     try:
-        inspect_manifest(manifest, manifest.read_text(encoding="utf-8"))
+        declared = manifest_dependencies(manifest)
     except OSError as error:
         failures.append(f"cannot read frontend manifest {manifest}: {error}")
+        continue
+    for line_number, table, key, package in declared:
+        if key in FORBIDDEN or package in FORBIDDEN:
+            name = key if key in FORBIDDEN else package
+            failures.append(
+                f"forbidden frontend dependency in {manifest}:{line_number}: "
+                f"{table}.{key} -> {name}"
+            )
 
-if failures:
-    print("\n".join(failures), file=sys.stderr)
-    raise SystemExit(1)
-PY
-
+# --- Leaf boundaries ---------------------------------------------------------
 # Each leaf extracted from below the runtime keeps an enumerated allow-list
 # rather than a list of today's offenders, because the property worth holding
 # is "nothing the runtime owns leaked back in", not "these five names stayed
@@ -109,11 +201,6 @@ PY
 # Each leaf also names the modules it took with it. The extraction is only real
 # while those modules stay extracted, so a reappearing path under
 # crates/runtime/src fails the gate even if it compiles.
-python3 - "$ROOT" <<'PY'
-import re
-import sys
-from pathlib import Path
-
 root = Path(sys.argv[1])
 
 LEAVES = {
@@ -129,8 +216,6 @@ LEAVES = {
             # The crate may depend on itself to re-expose its `testing` helpers.
             "viden-lanes",
         },
-        # Directories are rejected as well as files: the pre-extraction tree
-        # kept these bands in crates/runtime/src/agents/.
         "stale": (
             "lane_runtime.rs",
             "lane_supervisor.rs",
@@ -151,22 +236,14 @@ LEAVES = {
             "viden-types",
             "viden-agents",
         },
+        # Directories are rejected as well as files: the pre-extraction tree
+        # kept these bands in crates/runtime/src/agents/.
         "stale": (
             "agent_commands.rs",
             "agents",
         ),
     },
 }
-
-failures = []
-
-
-def dependency_table(section):
-    return any(
-        section == name or section.endswith(f".{name}")
-        for name in ("dependencies", "dev-dependencies", "build-dependencies")
-    )
-
 
 for crate, leaf in LEAVES.items():
     label = leaf["label"]
@@ -175,34 +252,14 @@ for crate, leaf in LEAVES.items():
     if not manifest.is_file():
         failures.append(f"missing {label} manifest: {manifest}")
     else:
-        section = ""
-        lines = iter(enumerate(manifest.read_text(encoding="utf-8").splitlines(), start=1))
-        for line_number, raw_line in lines:
-            line = raw_line.split("#", 1)[0].strip()
-            if not line:
-                continue
-            if line.startswith("[") and line.endswith("]"):
-                section = line[1:-1].strip()
-                continue
-            if not dependency_table(section):
-                continue
-            match = re.match(r'''(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*=\s*(.*)''', line)
-            if not match:
-                continue
-            dependency = next(group for group in match.groups()[:3] if group is not None)
-            specification = match.group(4)
-            while specification.count("{") > specification.count("}"):
-                try:
-                    _, continuation = next(lines)
-                except StopIteration:
-                    break
-                specification += " " + continuation.split("#", 1)[0].strip()
-            package_match = re.search(r'''\bpackage\s*=\s*["']([^"']+)["']''', specification)
-            name = package_match.group(1) if package_match else dependency
-            if name.startswith("viden-") and name not in allowed:
+        for line_number, table, key, package in manifest_dependencies(manifest):
+            # A rename is checked by the crate it resolves to, not by the local
+            # alias, so `[dependencies.anything] package = "viden-runtime"` is
+            # caught the same as a plain entry.
+            if package.startswith("viden-") and package not in allowed:
                 failures.append(
                     f"forbidden {label} dependency in {manifest}:{line_number}: "
-                    f"{section}.{dependency} -> {name}"
+                    f"{table}.{key} -> {package}"
                 )
 
     for module in leaf["stale"]:
