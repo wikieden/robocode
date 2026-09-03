@@ -27,14 +27,15 @@ use viden_types::{
 };
 use viden_workflows::stores::WorkflowStore;
 
+use viden_agents::{
+    AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
+    resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
+    start_typed_agent_session, typed_agent_session_request_from_compat_input,
+    validate_typed_agent_session_request,
+};
+
 use crate::{
     RuntimeEventSink, SessionEngine,
-    agents::{
-        AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
-        resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
-        start_typed_agent_session, typed_agent_session_request_from_compat_input,
-        validate_typed_agent_session_request,
-    },
     event_journal::RuntimeEventJournal,
     project_runtime::SupervisorProjectMutationPreparation,
     runtime_contract::{

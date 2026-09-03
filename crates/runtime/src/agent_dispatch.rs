@@ -1,7 +1,21 @@
-use super::acp::*;
-use super::codex::*;
-use super::render::*;
+//! The `/agent` command surface: the `SessionEngine` half of the external
+//! agent adapters.
+//!
+//! The protocol bands themselves live in `viden-agents`, which knows nothing
+//! about a session. This module is the seam that stays behind: it owns the
+//! runtime-side concerns an adapter must never import — the shared permission
+//! gate, transcript entries, the runtime event sink, and the session's cwd —
+//! and passes them into `viden-agents` as parameters.
+
 use crate::{SessionEngine, presentation::render_permission_denial};
+use viden_agents::{
+    CodexJobKind, cancel_codex_job, codex_command, codex_run_command_args, ensure_codex_target,
+    handle_acp_agent_run_command, handle_agent_auth_command, handle_agent_probe_command,
+    handle_codex_challenge_command, handle_codex_review_command, parse_acp_run_args,
+    parse_codex_run_args, render_agent_doctor, render_agent_list, render_agent_logs_help,
+    render_codex_job_result, render_codex_job_status, run_acp_smoke_gate,
+    start_codex_app_server_job, start_codex_job,
+};
 use viden_types::{
     ApprovalResponse, PermissionDecision, PermissionLogEntry, ToolInput, ToolSpec, TranscriptEntry,
     now_timestamp,

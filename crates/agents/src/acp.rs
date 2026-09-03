@@ -39,7 +39,11 @@ pub(super) const DEFAULT_KIRO_ACP_SESSION_TIMEOUT_SECS: u64 = 120;
 
 pub(super) const ACP_SESSION_CANCEL_REQUEST_ID: u64 = 90;
 
-pub(super) fn handle_agent_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+/// `/agent probe`: route a probe to the Codex band or to an ACP agent by id.
+///
+/// A probe only establishes reachability and handshake health; it starts no
+/// prompt turn and causes no workspace mutation.
+pub fn handle_agent_probe_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     match args.first().map(String::as_str) {
         Some("codex") => handle_codex_probe_command(cwd, args),
         Some("acp") => handle_acp_agent_probe_command(cwd, args.get(1).map(String::as_str)),
@@ -56,7 +60,9 @@ pub(super) fn handle_agent_probe_command(cwd: &Path, args: &[String]) -> Result<
     }
 }
 
-pub(super) fn handle_agent_auth_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+/// `/agent auth acp <agent-id> [method-id]`: run an ACP agent's authentication
+/// method, or report the methods it advertises when none is named.
+pub fn handle_agent_auth_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     match args.first().map(String::as_str) {
         Some("acp") => {
             let agent_id = args.get(1).map(String::as_str);
@@ -208,7 +214,12 @@ pub(super) fn shell_descriptor_command(command: &str) -> (String, Vec<String>) {
     }
 }
 
-pub(super) fn run_acp_smoke_gate(
+/// Run the ACP smoke gate across the registered agents.
+///
+/// Without `live` the gate exercises only offline framing and descriptor
+/// checks. With `live` it starts each agent, so `approver` carries any `Ask`
+/// out to the embedding runtime's operator surface.
+pub fn run_acp_smoke_gate(
     cwd: &Path,
     live: bool,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -322,7 +333,13 @@ pub(super) fn smoke_error_summary(error: &str) -> String {
     summary
 }
 
-pub(super) fn handle_acp_agent_run_command(
+/// `/agent run acp`: run one delegated task against an ACP agent.
+///
+/// Every runtime concern arrives as a parameter — `permission_context` bounds
+/// the agent's reverse-RPC filesystem and terminal requests, `approver`
+/// resolves an `Ask`, and `runtime_event_sink` receives the turn's events —
+/// so this crate never reaches for runtime-owned state.
+pub fn handle_acp_agent_run_command(
     cwd: &Path,
     run: AcpRunArgs,
     approver: &mut impl FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
@@ -406,8 +423,13 @@ pub(super) fn handle_acp_agent_run_command_with_agents(
     ))
 }
 
+/// A parsed `/agent run acp` invocation.
+///
+/// Fields stay crate-private: callers build this with [`parse_acp_run_args`]
+/// and hand it straight back to [`handle_acp_agent_run_command`], so the
+/// argument grammar can change without moving the runtime's dispatch seam.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct AcpRunArgs {
+pub struct AcpRunArgs {
     pub(super) async_job: bool,
     pub(super) agent_id: String,
     pub(super) task: String,
@@ -479,7 +501,11 @@ pub(super) fn acp_turn_message_id(
     }
 }
 
-pub(super) fn parse_acp_run_args(args: &[String]) -> Result<AcpRunArgs, String> {
+/// Parse the argument tail of `/agent run acp` into an [`AcpRunArgs`].
+///
+/// Parsing is separated from execution so a malformed invocation is rejected
+/// before any process is spawned.
+pub fn parse_acp_run_args(args: &[String]) -> Result<AcpRunArgs, String> {
     let usage = "Usage: /agent run acp [--async] [--load-session <id>] [--mode <mode-id>] [--model <model-id>] <agent-id> <task>";
     let mut parsed = AcpRunArgs::default();
     let mut i = 0;
@@ -2102,7 +2128,7 @@ pub(super) fn acp_write_text_file_response(
     };
     let input = acp_file_tool_input(&path, Some(content));
     let tool = acp_file_tool_spec("write_file", true);
-    let decision = crate::permission_gate::resolve(
+    let decision = viden_permissions::resolve_permission(
         permission_engine,
         &tool,
         "write_file",
@@ -2233,7 +2259,7 @@ pub(super) fn acp_terminal_create_response(
         is_mutating: true,
         input_schema_hint: "command='cargo test' path=/workspace".to_string(),
     };
-    let decision = crate::permission_gate::resolve(
+    let decision = viden_permissions::resolve_permission(
         permission_engine,
         &tool,
         "shell",

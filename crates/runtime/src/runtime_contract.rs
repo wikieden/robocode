@@ -18,13 +18,13 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::agents::{
-    probe_typed_agent_adapter, tracked_agent_job_runtime_events, tracked_agent_job_sessions,
-    tracked_agent_job_tasks, typed_agent_adapter_views,
-};
 use crate::context_bundle::{ContextBuildMode, redact_context_summary_for_event};
 use crate::lsp_tools::render_lsp_diagnostics;
 use crate::{CostAttribution, EngineEvent, ProviderTelemetry, SessionEngine};
+use viden_agents::{
+    probe_typed_agent_adapter, tracked_agent_job_runtime_events, tracked_agent_job_sessions,
+    tracked_agent_job_tasks, typed_agent_adapter_views,
+};
 use viden_config::ProviderConfigUpdate;
 use viden_context::{
     ContextEngine, ContextError as EngineContextError, ReductionPolicy, reduce,

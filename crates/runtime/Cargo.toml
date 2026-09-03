@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+viden-agents = { path = "../agents" }
 viden-config = { path = "../config" }
 viden-context = { path = "../context" }
 viden-lanes = { path = "../lanes" }

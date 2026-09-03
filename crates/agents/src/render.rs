@@ -8,7 +8,8 @@ use viden_plugin_api::{
     AgentSource, AgentTransport,
 };
 
-pub(super) fn render_agent_list() -> String {
+/// Render the `/agent list` table of registered adapters and their transports.
+pub fn render_agent_list() -> String {
     let mut lines = vec![
         "Agent adapters:".to_string(),
         "  id               transport  readiness      mutation".to_string(),
@@ -37,7 +38,9 @@ pub(super) fn render_agent_list() -> String {
     lines.join("\n")
 }
 
-pub(super) fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
+/// Render `/agent doctor`: readiness, binary presence, auth hints, and
+/// configuration for one adapter, or for all of them when `target` is `None`.
+pub fn render_agent_doctor(target: Option<&str>, cwd: &Path) -> String {
     let agent_descriptors = acp_agent_descriptors();
     let adapters = if let Some(id) = target {
         AGENT_ADAPTERS
@@ -256,7 +259,8 @@ pub(super) fn agent_capability_id(capability: &AgentPluginCapability) -> &'stati
     }
 }
 
-pub(super) fn render_agent_logs_help() -> String {
+/// Render the `/agent logs` help text.
+pub fn render_agent_logs_help() -> String {
     [
         "Agent logs:",
         "  /agent result <id> shows tracked Codex or ACP agent job output.",

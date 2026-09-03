@@ -3,6 +3,7 @@ members = [
     "apps/cli",
     "apps/gui/src-tauri",
     "apps/tui",
+    "crates/agents",
     "crates/config",
     "crates/context",
     "crates/core",

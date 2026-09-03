@@ -12,7 +12,9 @@ use super::acp::*;
 use super::infra::*;
 use viden_types::RuntimeOwner;
 
-pub(super) fn codex_run_command_args(cwd: &Path, sandbox: &str, task: String) -> Vec<String> {
+/// Build the Codex CLI argument vector for a delegated run under `sandbox`
+/// (`read-only` or `workspace-write`).
+pub fn codex_run_command_args(cwd: &Path, sandbox: &str, task: String) -> Vec<String> {
     vec![
         "exec".to_string(),
         "--cd".to_string(),
@@ -23,7 +25,9 @@ pub(super) fn codex_run_command_args(cwd: &Path, sandbox: &str, task: String) ->
     ]
 }
 
-pub(super) fn handle_codex_review_command(cwd: &Path, args: &[String]) -> Result<String, String> {
+/// `/agent review codex [--base <ref>] [prompt]`: start a tracked Codex review
+/// job over the working tree's diff against `--base`.
+pub fn handle_codex_review_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     ensure_codex_target(args.first().map(String::as_str))?;
     let parsed = parse_codex_review_args(&args[1..])?;
     let mut command_args = vec!["review".to_string(), "--uncommitted".to_string()];
@@ -46,10 +50,9 @@ pub(super) fn handle_codex_review_command(cwd: &Path, args: &[String]) -> Result
     )
 }
 
-pub(super) fn handle_codex_challenge_command(
-    cwd: &Path,
-    args: &[String],
-) -> Result<String, String> {
+/// `/agent challenge codex [prompt]`: start a tracked Codex job that argues
+/// against the current change rather than reviewing it neutrally.
+pub fn handle_codex_challenge_command(cwd: &Path, args: &[String]) -> Result<String, String> {
     ensure_codex_target(args.first().map(String::as_str))?;
     let prompt = args[1..].join(" ");
     let challenge_prompt = if prompt.trim().is_empty() {
@@ -167,10 +170,20 @@ pub(super) struct ParsedCodexReviewArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ParsedCodexRunArgs {
-    pub(super) write: bool,
-    pub(super) app_server: bool,
-    pub(super) task: String,
+/// A parsed `/agent run codex` invocation.
+///
+/// Unlike [`AcpRunArgs`](crate::AcpRunArgs) the fields are public: the caller
+/// must read `write` to decide whether a permission clearance is required
+/// before the job may start.
+pub struct ParsedCodexRunArgs {
+    /// `--write`: the job may mutate the workspace, so the caller must clear it
+    /// through the permission gate before starting the job.
+    pub write: bool,
+    /// `--app-server`: drive Codex over its JSON-RPC app server instead of the
+    /// one-shot CLI.
+    pub app_server: bool,
+    /// The delegated task text.
+    pub task: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,8 +193,10 @@ pub(super) enum CodexProbeMode {
     Turn { task: String, write: bool },
 }
 
+/// Which delegated Codex job a tracked record describes. Persisted as its
+/// lowercase name, so the variants are part of the on-disk job format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CodexJobKind {
+pub enum CodexJobKind {
     Review,
     Challenge,
     Run,
@@ -225,7 +240,11 @@ pub(super) struct CodexJobEvidence {
     pub(super) files: Vec<String>,
 }
 
-pub(super) fn ensure_codex_target(target: Option<&str>) -> Result<(), String> {
+/// Reject any `/agent <review|challenge|run>` target other than `codex`.
+///
+/// The Codex band is one strategy among several adapters, so the target word
+/// is validated before the command is interpreted further.
+pub fn ensure_codex_target(target: Option<&str>) -> Result<(), String> {
     match target {
         Some("codex") => Ok(()),
         Some(other) => Err(format!(
@@ -260,7 +279,11 @@ pub(super) fn parse_codex_review_args(args: &[String]) -> Result<ParsedCodexRevi
     })
 }
 
-pub(super) fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs, String> {
+/// Parse the argument tail of `/agent run codex` into a [`ParsedCodexRunArgs`].
+///
+/// The caller inspects [`ParsedCodexRunArgs::write`] to decide whether the job
+/// needs a permission clearance before it may start.
+pub fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs, String> {
     let mut write = false;
     let mut app_server = false;
     let mut task = Vec::new();
@@ -287,7 +310,11 @@ pub(super) fn parse_codex_run_args(args: &[String]) -> Result<ParsedCodexRunArgs
     })
 }
 
-pub(super) fn start_codex_job(
+/// Spawn a tracked Codex CLI job and record it under `.viden/agents`.
+///
+/// The job runs detached; the returned string is the operator-facing
+/// acknowledgement carrying the new job id.
+pub fn start_codex_job(
     cwd: &Path,
     command: &str,
     kind: CodexJobKind,
@@ -373,7 +400,9 @@ pub(super) fn start_codex_job(
     ))
 }
 
-pub(super) fn start_codex_app_server_job(
+/// Spawn a tracked Codex job over the app-server JSON-RPC transport instead of
+/// the one-shot CLI. Read-only delegated tasks only.
+pub fn start_codex_app_server_job(
     cwd: &Path,
     command: &str,
     task: String,
@@ -442,7 +471,9 @@ pub(super) fn start_codex_app_server_job(
     ))
 }
 
-pub(super) fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
+/// Render the tracked Codex job table for `cwd`, refreshing each record's
+/// liveness from its recorded pid.
+pub fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
     let jobs = latest_codex_jobs(cwd)?;
     if jobs.is_empty() {
         return Ok("Agent jobs:\n  no tracked jobs".to_string());
@@ -492,7 +523,9 @@ pub(super) fn render_codex_job_status(cwd: &Path) -> Result<String, String> {
     Ok(lines.join("\n"))
 }
 
-pub(super) fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, String> {
+/// Render one finished Codex job's captured result, or the most recent job's
+/// when `id` is `None`.
+pub fn render_codex_job_result(cwd: &Path, id: Option<&str>) -> Result<String, String> {
     let id = id.ok_or_else(|| "Usage: /agent result <id>".to_string())?;
     let job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown agent job `{id}`"))?;
     let status = observed_codex_status(&job);
@@ -556,8 +589,10 @@ pub(super) fn acp_session_cancel_grace() -> Duration {
 
 // Keep the liveness check and termination result as separate branches: the
 // cancellation monitor races this path and depends on the original ordering.
+/// Cancel a tracked Codex job by id, or the most recent one when `id` is
+/// `None`, terminating its process group and recording the cancellation.
 #[allow(clippy::collapsible_if)]
-pub(super) fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
+pub fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
     let id = id.ok_or_else(|| "Usage: /agent cancel <id>".to_string())?;
     let mut job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown agent job `{id}`"))?;
     let label = agent_job_label(&job);
@@ -688,7 +723,9 @@ pub(super) fn agent_job_session_line(job: &CodexJobRecord, session_id: &str) -> 
     }
 }
 
-pub(super) fn codex_command() -> String {
+/// The Codex executable to invoke: `VIDEN_AGENT_CODEX_COMMAND` when set and
+/// non-empty, otherwise `codex` from `PATH`.
+pub fn codex_command() -> String {
     env::var("VIDEN_AGENT_CODEX_COMMAND")
         .ok()
         .filter(|value| !value.trim().is_empty())

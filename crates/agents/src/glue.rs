@@ -29,20 +29,25 @@ pub(super) const MAX_RESIDENT_ACP_SESSIONS: usize = 8;
 
 pub(super) const RESIDENT_ACP_SESSION_IDLE_TTL: Duration = Duration::from_secs(15 * 60);
 
-pub(crate) type AgentSessionApprover =
+/// How a typed agent session carries an `Ask` out to an operator.
+///
+/// Owned (`Box<..> + Send`) rather than borrowed because a session outlives
+/// the call that starts it and may prompt from its own thread.
+pub type AgentSessionApprover =
     Box<dyn FnMut(viden_types::PermissionPrompt) -> ApprovalResponse + Send + 'static>;
 
-pub(crate) fn typed_agent_adapter_views() -> Vec<AgentAdapterView> {
+/// Project every registered agent adapter into the frontend-facing view,
+/// without probing any of them.
+pub fn typed_agent_adapter_views() -> Vec<AgentAdapterView> {
     acp_agent_descriptors()
         .iter()
         .map(typed_agent_adapter_view)
         .collect()
 }
 
-pub(crate) fn probe_typed_agent_adapter(
-    cwd: &Path,
-    agent_id: &str,
-) -> Result<AgentAdapterView, String> {
+/// Probe one adapter by id and project the observed availability, auth state,
+/// and startability into its view.
+pub fn probe_typed_agent_adapter(cwd: &Path, agent_id: &str) -> Result<AgentAdapterView, String> {
     let agents = acp_agent_descriptors();
     let Some(agent) = agents.iter().find(|agent| agent.agent_id == agent_id) else {
         let known = agents
@@ -283,7 +288,11 @@ pub(super) fn remove_resident_acp_session(cwd: &Path, logical_session_id: &str) 
     }
 }
 
-pub(crate) fn shutdown_resident_acp_sessions(cwd: &Path) {
+/// Stop and drop every resident ACP session cached for `cwd`.
+///
+/// Called when the embedding runtime tears a project down, so no agent process
+/// outlives the session that started it.
+pub fn shutdown_resident_acp_sessions(cwd: &Path) {
     let canonical_cwd = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let retired = {
         let mut sessions = resident_acp_sessions()
@@ -308,7 +317,13 @@ pub(super) fn stop_resident_acp_session(mut resident: ResidentAcpSession) {
     let _ = wait_child_timeout(&mut resident.child, Duration::from_secs(1));
 }
 
-pub(crate) fn typed_agent_session_request_from_compat_input(
+/// Recognize a legacy `/agent run acp ...` line and translate it into a typed
+/// [`AgentSessionRequest`].
+///
+/// Returns `None` when the input is not that command at all, so a caller can
+/// fall through to ordinary dispatch; `Some(Err(..))` when it is that command
+/// but its arguments are invalid.
+pub fn typed_agent_session_request_from_compat_input(
     input: &str,
     lane_id: Option<&str>,
 ) -> Option<Result<AgentSessionRequest, String>> {
@@ -347,7 +362,9 @@ pub(crate) fn typed_agent_session_request_from_compat_input(
     }))
 }
 
-pub(crate) fn tracked_agent_job_tasks(cwd: &Path) -> Vec<AgentTaskRecord> {
+/// Project every tracked agent job under `cwd` into the shared task records
+/// the runtime reduces into its snapshot.
+pub fn tracked_agent_job_tasks(cwd: &Path) -> Vec<AgentTaskRecord> {
     latest_codex_jobs(cwd)
         .unwrap_or_default()
         .into_iter()
@@ -355,7 +372,8 @@ pub(crate) fn tracked_agent_job_tasks(cwd: &Path) -> Vec<AgentTaskRecord> {
         .collect()
 }
 
-pub(crate) fn tracked_agent_job_sessions(cwd: &Path) -> Vec<AgentSessionView> {
+/// Project every tracked agent job under `cwd` into its session view.
+pub fn tracked_agent_job_sessions(cwd: &Path) -> Vec<AgentSessionView> {
     latest_codex_jobs(cwd)
         .unwrap_or_default()
         .into_iter()
@@ -534,7 +552,12 @@ pub(super) fn agent_job_permissions(job: &CodexJobRecord) -> Vec<String> {
     }
 }
 
-pub(crate) fn start_typed_agent_session(
+/// Start a typed agent session and return its initial view.
+///
+/// `runtime_event_sink` and `approver` are the injected runtime policy: this
+/// crate decides what happened, the runtime decides where it is recorded and
+/// who is asked.
+pub fn start_typed_agent_session(
     cwd: &Path,
     session_id: String,
     request: AgentSessionRequest,
@@ -554,7 +577,9 @@ pub(crate) fn start_typed_agent_session(
     )
 }
 
-pub(crate) fn resume_typed_agent_session(
+/// Send another prompt turn into an existing typed agent session, reusing its
+/// resident connection when one is still cached.
+pub fn resume_typed_agent_session(
     cwd: &Path,
     session_id: &str,
     content: String,
@@ -606,7 +631,9 @@ pub(crate) fn resume_typed_agent_session(
     Ok(input_id)
 }
 
-pub(crate) fn retry_typed_agent_session(
+/// Re-run a typed agent session's last prompt turn after a failure, reusing
+/// the recorded request.
+pub fn retry_typed_agent_session(
     cwd: &Path,
     session_id: &str,
     owner: RuntimeOwner,
@@ -845,9 +872,11 @@ pub(super) fn read_acp_session_output(path: &Path) -> Option<String> {
     nonempty_acp_output(output)
 }
 
-pub(crate) fn validate_typed_agent_session_request(
-    request: &AgentSessionRequest,
-) -> Result<(), String> {
+/// Validate a typed agent session request before anything is spawned.
+///
+/// Rejecting here keeps a malformed request from reaching a process, so the
+/// runtime can surface the error without a partially started session.
+pub fn validate_typed_agent_session_request(request: &AgentSessionRequest) -> Result<(), String> {
     let agents = acp_agent_descriptors();
     let agent = agents
         .iter()
@@ -1005,7 +1034,9 @@ pub(super) fn start_acp_session_job(
     ))
 }
 
-pub(crate) fn cancel_typed_agent_session(cwd: &Path, session_id: &str) -> Result<(), String> {
+/// Cancel a typed agent session by id, stopping its process and recording the
+/// terminal status.
+pub fn cancel_typed_agent_session(cwd: &Path, session_id: &str) -> Result<(), String> {
     let result = cancel_codex_job(cwd, Some(session_id)).map(|_| ());
     // A completed turn may leave its ACP process idle for a fast follow-up.
     // Explicit session cancellation must also retire that resident connection.
@@ -1013,7 +1044,8 @@ pub(crate) fn cancel_typed_agent_session(cwd: &Path, session_id: &str) -> Result
     result
 }
 
-pub(crate) fn mark_typed_agent_session_status(
+/// Record a terminal or transitional status against a tracked agent session.
+pub fn mark_typed_agent_session_status(
     cwd: &Path,
     session_id: &str,
     status: &str,
@@ -1028,7 +1060,9 @@ pub(crate) fn mark_typed_agent_session_status(
     append_codex_job_record(cwd, "status", &job)
 }
 
-pub(crate) fn tracked_agent_job_runtime_events(cwd: &Path) -> Vec<RuntimeEvent> {
+/// Replay the runtime events persisted for every tracked agent job under
+/// `cwd`, so a reconnecting frontend can rebuild agent state from facts.
+pub fn tracked_agent_job_runtime_events(cwd: &Path) -> Vec<RuntimeEvent> {
     let agents = cwd.join(".viden").join("agents");
     let Ok(entries) = fs::read_dir(agents) else {
         return Vec::new();

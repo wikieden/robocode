@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-mod agents;
+mod agent_dispatch;
 mod bootstrap;
 mod brief_commands;
 mod command_dispatch;
@@ -70,7 +70,10 @@ use viden_workflows::stores::WorkflowStore;
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
 const LANE_STATE_UNAVAILABLE_MESSAGE: &str = "invalid or unreadable lane event log";
 
-pub(crate) type RuntimeEventSink = Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>;
+// One definition, owned by the crate that receives it as a parameter: the
+// external agent adapters publish through this sink without importing the
+// runtime that decides where the events are recorded.
+pub(crate) use viden_agents::RuntimeEventSink;
 
 #[derive(Debug, Clone)]
 struct OrderedRuntimeFact {

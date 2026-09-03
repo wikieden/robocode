@@ -10,6 +10,13 @@
 //! event, and rendering work inside the `ask_flow` closure so observable
 //! behavior stays byte-identical to the pre-gate code.
 //!
+//! The sequence itself is `viden_permissions::resolve_permission`, re-exported
+//! here as [`resolve`]. It lives next to the engine whose three calls it orders
+//! because `viden-agents` gates its ACP reverse-RPC filesystem and terminal
+//! mutations through the same function and must not import this crate. What
+//! stays here is the runtime-shaped half: [`SharedPermissionEngine`] and the
+//! registry backstop below.
+//!
 //! [`PermissionBackstopInterceptor`] is the structural second line: registered
 //! on the `ToolRegistry`, it re-checks the pure `decide()` immediately before
 //! any tool executes, so a call site that forgets the gate entirely still
@@ -21,63 +28,16 @@ use std::sync::{Arc, Mutex, RwLock};
 use viden_permissions::{PermissionContext, PermissionEngine};
 use viden_tools::{InterceptVerdict, ToolExecutionContext, ToolExecutionInterceptor};
 use viden_types::{
-    ApprovalResponse, PermissionAskDecision, PermissionDecision, PermissionMode, PermissionPrompt,
-    PermissionRule, ToolCall, ToolInput, ToolResult, ToolSpec,
+    ApprovalResponse, PermissionAskDecision, PermissionDecision, PermissionMode, PermissionRule,
+    ToolCall, ToolInput, ToolResult, ToolSpec,
 };
 
-/// The minimal engine surface the gate needs. Implemented by the plain
-/// `PermissionEngine` (lane approval re-checks, ACP-local engines) and by
-/// [`SharedPermissionEngine`] (the session engine's shared handle).
-pub(crate) trait PermissionDecider {
-    fn decide(&self, tool: &ToolSpec, input: &ToolInput) -> PermissionDecision;
-    fn apply_approval(
-        &mut self,
-        response: ApprovalResponse,
-        ask: &PermissionAskDecision,
-        tool: &ToolSpec,
-        input: &ToolInput,
-    ) -> PermissionDecision;
-}
-
-impl PermissionDecider for PermissionEngine {
-    fn decide(&self, tool: &ToolSpec, input: &ToolInput) -> PermissionDecision {
-        PermissionEngine::decide(self, tool, input)
-    }
-
-    fn apply_approval(
-        &mut self,
-        response: ApprovalResponse,
-        ask: &PermissionAskDecision,
-        tool: &ToolSpec,
-        input: &ToolInput,
-    ) -> PermissionDecision {
-        PermissionEngine::apply_approval(self, response, ask, tool, input)
-    }
-}
-
-/// Resolve a tool permission through the shared gate.
-///
-/// `ask_flow` runs only when `decide()` returns `Ask`. It receives the ask
-/// decision and the rendered prompt, performs the call-site-specific work
-/// (transcript entries, runtime events, task updates) around obtaining the
-/// operator response, and returns that response. The gate then applies it via
-/// `apply_approval`, which re-checks plan mode; the returned decision is never
-/// `Ask`, so callers may treat that arm as unreachable.
-pub(crate) fn resolve<D: PermissionDecider>(
-    decider: &mut D,
-    tool: &ToolSpec,
-    prompt_tool_name: &str,
-    input: &ToolInput,
-    ask_flow: impl FnOnce(&PermissionAskDecision, PermissionPrompt) -> ApprovalResponse,
-) -> PermissionDecision {
-    let decision = decider.decide(tool, input);
-    let PermissionDecision::Ask(ask) = decision else {
-        return decision;
-    };
-    let prompt = PermissionEngine::prompt_for(prompt_tool_name, &ask, input);
-    let response = ask_flow(&ask, prompt);
-    decider.apply_approval(response, &ask, tool, input)
-}
+// The decide -> ask -> apply_approval sequence itself lives in
+// `viden-permissions`, next to the engine whose three calls it orders, because
+// `viden-agents` resolves its ACP reverse-RPC mutations through the same gate
+// and must not import the runtime. Re-exported under the local name so every
+// call site in this crate still reads `permission_gate::resolve`.
+pub(crate) use viden_permissions::{PermissionDecider, resolve_permission as resolve};
 
 /// Upper bound for remembered interactive clearances. One clearance is
 /// consumed by the registry execution that immediately follows its approval;

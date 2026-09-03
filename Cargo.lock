@@ -3868,6 +3868,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "viden-agents"
+version = "0.1.30"
+dependencies = [
+ "base64 0.22.1",
+ "serde_json",
+ "sha2",
+ "viden-permissions",
+ "viden-plugin-api",
+ "viden-plugin-host",
+ "viden-tools",
+ "viden-types",
+]
+
+[[package]]
 name = "viden-cli"
 version = "0.1.30"
 dependencies = [
@@ -4002,6 +4016,7 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "viden-agents",
  "viden-config",
  "viden-context",
  "viden-lanes",

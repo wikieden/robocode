@@ -378,6 +378,67 @@ fn exact_path_rule_content(path: &Path) -> String {
     format!("{EXACT_PATH_RULE_PREFIX}{}", path.display())
 }
 
+/// The minimal engine surface the shared permission gate needs. Implemented
+/// by the plain [`PermissionEngine`] (lane approval re-checks, ACP-local
+/// engines) and by the runtime's shared session-engine handle.
+pub trait PermissionDecider {
+    fn decide(&self, tool: &ToolSpec, input: &ToolInput) -> PermissionDecision;
+    fn apply_approval(
+        &mut self,
+        response: ApprovalResponse,
+        ask: &PermissionAskDecision,
+        tool: &ToolSpec,
+        input: &ToolInput,
+    ) -> PermissionDecision;
+}
+
+impl PermissionDecider for PermissionEngine {
+    fn decide(&self, tool: &ToolSpec, input: &ToolInput) -> PermissionDecision {
+        PermissionEngine::decide(self, tool, input)
+    }
+
+    fn apply_approval(
+        &mut self,
+        response: ApprovalResponse,
+        ask: &PermissionAskDecision,
+        tool: &ToolSpec,
+        input: &ToolInput,
+    ) -> PermissionDecision {
+        PermissionEngine::apply_approval(self, response, ask, tool, input)
+    }
+}
+
+/// Resolve a tool permission through the shared gate.
+///
+/// Every call site that resolves a permission interactively must produce the
+/// same fail-closed sequence: a pure `decide()`, an operator prompt only for
+/// `Ask`, and an `apply_approval()` whose plan-mode re-check can still deny an
+/// operator "allow". Hand-writing that sequence per call site is exactly how a
+/// future site forgets a step, so this is the one place it exists — shared by
+/// `viden-runtime` and by the external agent adapters in `viden-agents`.
+///
+/// `ask_flow` runs only when `decide()` returns `Ask`. It receives the ask
+/// decision and the rendered prompt, performs the call-site-specific work
+/// (transcript entries, runtime events, task updates) around obtaining the
+/// operator response, and returns that response. The gate then applies it via
+/// `apply_approval`, which re-checks plan mode; the returned decision is never
+/// `Ask`, so callers may treat that arm as unreachable.
+pub fn resolve_permission<D: PermissionDecider>(
+    decider: &mut D,
+    tool: &ToolSpec,
+    prompt_tool_name: &str,
+    input: &ToolInput,
+    ask_flow: impl FnOnce(&PermissionAskDecision, PermissionPrompt) -> ApprovalResponse,
+) -> PermissionDecision {
+    let decision = decider.decide(tool, input);
+    let PermissionDecision::Ask(ask) = decision else {
+        return decision;
+    };
+    let prompt = PermissionEngine::prompt_for(prompt_tool_name, &ask, input);
+    let response = ask_flow(&ask, prompt);
+    decider.apply_approval(response, &ask, tool, input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
