@@ -451,6 +451,14 @@ where
     pub(super) approver: &'a mut A,
     pub(super) log_path: PathBuf,
     pub(super) cancel_path: Option<PathBuf>,
+    /// Durable runtime-event log this turn appends to, when the caller wants
+    /// one.
+    ///
+    /// Setting it transfers ownership of stream persistence to the runner:
+    /// every event the runner produces is appended here as it is produced, so
+    /// a caller must not re-persist `AcpSessionPromptEvidence::runtime_events`
+    /// afterwards. Exactly one writer per event — the runner during the
+    /// stream, the caller only for terminal facts the runner cannot know.
     pub(super) runtime_event_log_path: Option<PathBuf>,
     pub(super) permission_context: PermissionContext,
     pub(super) runtime_event_sink: Option<RuntimeEventSink>,

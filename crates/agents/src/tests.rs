@@ -2293,6 +2293,268 @@ fn acp_async_job_records_status_and_result() {
     )));
 }
 
+/// Guard that installs a mock ACP command for the `custom-acp` descriptor.
+///
+/// The typed session path resolves its agent through `acp_agent_descriptors`,
+/// so a test agent has to arrive the same way a user's custom agent does.
+/// Held together with `subprocess_test_guard`, which serializes every test
+/// that exchanges lines with a mock agent process.
+struct CustomAcpAgentGuard;
+
+impl CustomAcpAgentGuard {
+    fn install(script: &Path) -> Self {
+        // SAFETY: serialized by `subprocess_test_guard`, and removed on drop.
+        unsafe { env::set_var("VIDEN_AGENT_ACP_COMMAND", script.display().to_string()) };
+        Self
+    }
+}
+
+impl Drop for CustomAcpAgentGuard {
+    fn drop(&mut self) {
+        // SAFETY: serialized by `subprocess_test_guard`.
+        unsafe { env::remove_var("VIDEN_AGENT_ACP_COMMAND") };
+    }
+}
+
+fn mock_typed_session_script(root: &Path, name: &str, session: &str) -> PathBuf {
+    let script = root.join(name);
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh".to_string(),
+            "read _init".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-typed-acp\",\"version\":\"0.5.0\"}}}'".to_string(),
+            "read _new_session".to_string(),
+            format!(
+                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"sessionId\":\"{session}\"}}}}'"
+            ),
+            "read _prompt".to_string(),
+            format!(
+                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{session}\",\"update\":{{\"type\":\"AgentMessageChunk\",\"content\":\"first \"}}}}}}'"
+            ),
+            format!(
+                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{session}\",\"update\":{{\"type\":\"AgentMessageChunk\",\"content\":\"second\"}}}}}}'"
+            ),
+            format!(
+                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{session}\",\"update\":{{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}}}}'"
+            ),
+        ]
+        .join("\n"),
+    )
+    .expect("write mock typed acp script");
+    make_executable(&script);
+    script
+}
+
+fn typed_session_owner(session_id: &str, lane_id: &str) -> viden_types::RuntimeOwner {
+    viden_types::RuntimeOwner {
+        workspace_id: "workspace-test".to_string(),
+        project_id: "project-test".to_string(),
+        lane_id: Some(lane_id.to_string()),
+        session_id: Some(session_id.to_string()),
+        task_id: None,
+        turn_id: None,
+    }
+}
+
+/// Exactly one writer persists any given ACP runtime event.
+///
+/// The runner owns every event it streams while `runtime_event_log_path` is
+/// set; the monitor owns only the terminal session fact. A second writer would
+/// not show up live — the live sink only ever sees each event once — but it
+/// doubles the durable file that snapshot assembly and replay rebuild from.
+#[test]
+fn typed_agent_session_persists_each_runtime_event_once() {
+    let _guard = subprocess_test_guard();
+    let root = temp_root("acp_typed_single_write");
+    let script = mock_typed_session_script(&root, "mock-acp-typed.sh", "session_typed");
+    let _agent_guard = CustomAcpAgentGuard::install(&script);
+
+    let session_id = "agent-session_typed_once".to_string();
+    let lane_id = "lane-typed-once".to_string();
+    let sink: RuntimeEventSink = Arc::new(|_events| {});
+    let approver: AgentSessionApprover = Box::new(|_prompt: viden_types::PermissionPrompt| {
+        ApprovalResponse::allow_once(Some("test".into()))
+    });
+
+    start_typed_agent_session(
+        &root,
+        session_id.clone(),
+        viden_types::AgentSessionRequest {
+            lane_id: lane_id.clone(),
+            agent_id: "custom-acp".to_string(),
+            model: None,
+            load_session_id: None,
+            task: "say something".to_string(),
+        },
+        typed_session_owner(&session_id, &lane_id),
+        sink,
+        approver,
+    )
+    .expect("start typed agent session");
+
+    let runtime_events_path = acp_job_runtime_events_path(&root, &session_id);
+    wait_until(
+        || {
+            find_codex_job(&root, &session_id)
+                .ok()
+                .flatten()
+                .is_some_and(|job| !matches!(job.status.as_str(), "running" | "waiting_approval"))
+        },
+        Duration::from_secs(20),
+    );
+    // The terminal event is appended after the job record, so wait for it too.
+    wait_until(
+        || {
+            read_acp_runtime_events(&runtime_events_path)
+                .iter()
+                .any(|event| {
+                    matches!(
+                        &event.kind,
+                        RuntimeEventKind::AgentSessionCompleted { .. }
+                            | RuntimeEventKind::AgentSessionFailed { .. }
+                            | RuntimeEventKind::AgentSessionUpdated { .. }
+                    )
+                })
+        },
+        Duration::from_secs(10),
+    );
+
+    let raw = fs::read_to_string(&runtime_events_path).expect("read typed runtime events");
+    let mut seen = HashSet::new();
+    let mut duplicated = Vec::new();
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let value = serde_json::from_str::<Value>(line).expect("runtime event line is json");
+        let key = (
+            value
+                .get("sequence")
+                .and_then(Value::as_u64)
+                .expect("sequence"),
+            value
+                .pointer("/kind/type")
+                .and_then(Value::as_str)
+                .expect("kind type")
+                .to_string(),
+        );
+        if !seen.insert(key.clone()) {
+            duplicated.push(key);
+        }
+    }
+    assert!(
+        duplicated.is_empty(),
+        "each (sequence, kind) must be persisted exactly once, duplicated: {duplicated:?}\n{raw}"
+    );
+    let assistant_deltas = read_acp_runtime_events(&runtime_events_path)
+        .into_iter()
+        .filter(|event| matches!(&event.kind, RuntimeEventKind::AssistantDelta { .. }))
+        .count();
+    assert_eq!(
+        assistant_deltas, 2,
+        "the two streamed chunks must be persisted once each\n{raw}"
+    );
+}
+
+fn acp_runtime_event_fixture_line(event: &RuntimeEvent) -> String {
+    serde_json::to_string(event).expect("encode fixture runtime event")
+}
+
+/// Legacy files written before the single-writer fix hold each turn's event
+/// block twice; the reader heals them without rewriting the artifact.
+#[test]
+fn read_acp_runtime_events_heals_a_duplicated_completion_block() {
+    let root = temp_root("acp_events_heal");
+    let path = root.join("agent-input_1.runtime-events.jsonl");
+    // The exact shape observed in doubled files: the runner's streamed block,
+    // then the same block again from the monitor's completion re-append.
+    let block = [
+        RuntimeEvent::new(
+            1,
+            RuntimeEventKind::MergeGateUpdated {
+                gate: acp_session_merge_gate("session_heal", MergeGateStatus::Proposed, &[]),
+            },
+        ),
+        RuntimeEvent::new(
+            2,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "acp-message-heal".to_string(),
+                task_id: None,
+                session_id: Some("session_heal".to_string()),
+                content: "hello ".to_string(),
+            },
+        ),
+        RuntimeEvent::new(
+            3,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "acp-message-heal".to_string(),
+                task_id: None,
+                session_id: Some("session_heal".to_string()),
+                content: "world".to_string(),
+            },
+        ),
+    ];
+    let mut content = String::new();
+    for event in block.iter().chain(block.iter()) {
+        content.push_str(&acp_runtime_event_fixture_line(event));
+        content.push('\n');
+    }
+    fs::write(&path, &content).expect("write doubled fixture");
+
+    let events = read_acp_runtime_events(&path);
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3],
+        "a byte-identical repeat of an already-read line is the completion re-append"
+    );
+    let text: String = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::AssistantDelta { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text, "hello world");
+}
+
+/// Two genuinely distinct events never serialize identically, because the
+/// runner's sequence increments per event. A repeated chunk keeps both copies.
+#[test]
+fn read_acp_runtime_events_keeps_repeated_content_at_distinct_sequences() {
+    let root = temp_root("acp_events_repeat");
+    let path = root.join("agent-input_2.runtime-events.jsonl");
+    let repeated = |sequence: u64| {
+        RuntimeEvent::new(
+            sequence,
+            RuntimeEventKind::AssistantDelta {
+                message_id: "acp-message-repeat".to_string(),
+                task_id: None,
+                session_id: Some("session_repeat".to_string()),
+                content: "tick".to_string(),
+            },
+        )
+    };
+    let mut content = String::new();
+    for event in [repeated(1), repeated(2), repeated(3)] {
+        content.push_str(&acp_runtime_event_fixture_line(&event));
+        content.push('\n');
+    }
+    fs::write(&path, &content).expect("write repeated-content fixture");
+
+    let events = read_acp_runtime_events(&path);
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3],
+        "identical content at distinct sequences is legitimate streamed output"
+    );
+}
+
 #[test]
 fn acp_async_job_pushes_runtime_events_to_live_sink() {
     let _guard = subprocess_test_guard();

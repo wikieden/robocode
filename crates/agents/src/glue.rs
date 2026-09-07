@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -810,10 +810,13 @@ pub(super) fn start_typed_agent_session_attempt(
         let mut terminal = monitor_view;
         let kind = match result {
             Ok(evidence) => {
-                let _ = append_acp_runtime_events(
-                    &monitor_runtime_event_path,
-                    &evidence.runtime_events,
-                );
+                // Exactly one writer per runtime event. The runner was handed
+                // `runtime_event_log_path` above, so it already appended every
+                // event in `evidence.runtime_events` as it streamed them.
+                // Re-appending the accumulated vec here would double the whole
+                // turn on disk — invisible live, because completion sinks only
+                // the terminal event, but doubled for snapshot assembly and
+                // replay, which rebuild from the file.
                 let _ = write_acp_session_result(&result_path, &evidence);
                 monitor_record.status = acp_session_job_status(&evidence);
                 if was_cancelled {
@@ -850,6 +853,9 @@ pub(super) fn start_typed_agent_session_attempt(
         monitor_record.updated_at = timestamp_millis();
         let _ = append_codex_job_record(&monitor_cwd, "completed", &monitor_record);
         let terminal_event = RuntimeEvent::new(0, kind);
+        // The monitor's half of the single-writer rule: only the terminal
+        // session fact, which the runner cannot know because it is decided
+        // here from the run result and the cancellation marker.
         let _ = append_acp_runtime_events(
             &monitor_runtime_event_path,
             std::slice::from_ref(&terminal_event),
@@ -1003,6 +1009,13 @@ pub(super) fn start_acp_session_job(
         monitor_record.pid = pid_slot.lock().ok().and_then(|slot| *slot);
         match result {
             Ok(evidence) => {
+                // Overwrite rather than append, so this test-only path stays
+                // single-writer despite the runner having already persisted
+                // the same events incrementally: the runner's accumulated vec
+                // IS the file's content, and nothing is appended before the
+                // spawn here, so no earlier fact is dropped. The production
+                // typed-session path instead lets the runner own the file
+                // outright, because it does append start events first.
                 let _ =
                     write_acp_runtime_events(&monitor_runtime_event_path, &evidence.runtime_events);
                 let _ = write_acp_session_result(&result_path, &evidence);
@@ -1095,13 +1108,31 @@ pub(super) fn acp_artifact_ordinal(path: &Path) -> Option<u128> {
         .and_then(|ordinal| ordinal.parse().ok())
 }
 
+/// Read one turn's persisted runtime events, healing files written before the
+/// single-writer rule was enforced.
+///
+/// Files produced by older builds hold each turn's streamed block twice: the
+/// runner appended it live, then session completion re-appended the same
+/// accumulated vec. A repeat is identified by the line being byte-identical to
+/// one already read from this same file, which is sound because the runner's
+/// `runtime_sequence` increments per event within a turn: two legitimate
+/// events can never serialize identically, since `sequence` is part of the
+/// encoding. A byte-identical line is therefore always the removed re-append,
+/// never real streamed output — a chunk repeating the same text arrives at a
+/// later sequence and is kept.
+///
+/// Healing on read keeps the artifacts append-only and untouched on disk while
+/// fixing every consumer at once: snapshot assembly, replay, and raw reads.
 pub(super) fn read_acp_runtime_events(path: &Path) -> Vec<RuntimeEvent> {
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
     };
+    let mut seen = HashSet::new();
     content
         .lines()
+        .map(str::trim_end)
         .filter(|line| !line.trim().is_empty())
+        .filter(|line| seen.insert(line.to_string()))
         .filter_map(|line| serde_json::from_str::<RuntimeEvent>(line).ok())
         .collect()
 }
